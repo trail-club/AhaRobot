@@ -39,6 +39,11 @@ Phase 1〜3 で必要な package のみを個別 fork として `upstream/` 直�
 Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `aiortc` 等) が
 必要になった時点で fork を追加する。
 
+## ドキュメント
+
+- [Phase 0 監査結果](docs/phase0-audit.md) — package / URDF / LICENSE の現状と Phase 1 リスク
+- [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
+
 ## ロードマップ (概要)
 
 - Phase 0: 監査 (依存 / topic / joint / センサ / ライセンス整理)
