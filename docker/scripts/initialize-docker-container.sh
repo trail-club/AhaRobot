@@ -17,6 +17,12 @@ for pkg in astra_description astra_controller_interfaces; do
     fi
 done
 
+# rosdep needs a per-user cache; the Dockerfile ran it as root, so init here as trail.
+if [ ! -d "${HOME}/.ros/rosdep/sources.cache" ]; then
+    echo "[init] running rosdep update (first time for this user)"
+    rosdep update || true
+fi
+
 # Install ROS deps for all packages present under overlay_ws/src.
 # Safe to re-run; rosdep is a no-op when everything is satisfied.
 if [ -d "${WS}/src" ]; then

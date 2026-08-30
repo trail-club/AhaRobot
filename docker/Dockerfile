@@ -61,7 +61,9 @@ RUN chmod +x /app/docker/scripts/*.sh
 
 USER ${USERNAME}
 
-RUN echo 'source /app/docker/scripts/initialize-bash-script.sh' >> ~/.bashrc
+# Source ROS env from both .bashrc (interactive) and .profile (bash -lc)
+RUN echo 'source /app/docker/scripts/initialize-bash-script.sh' >> ~/.bashrc && \
+    echo 'source /app/docker/scripts/initialize-bash-script.sh' >> ~/.profile
 
 ENTRYPOINT []
 CMD ["/bin/bash"]

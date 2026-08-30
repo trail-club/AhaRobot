@@ -10,16 +10,22 @@ Starts:
         left/right_arm_controller, left/right_gripper_controller,
         lift_controller, head_controller
 """
+import os
+
+from ament_index_python.packages import get_package_prefix
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     RegisterEventHandler,
+    SetEnvironmentVariable,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -55,7 +61,10 @@ def generate_launch_description():
     ])
 
     robot_description = {
-        "robot_description": Command(["xacro ", xacro_path, " sim:=true"]),
+        "robot_description": ParameterValue(
+            Command(["xacro ", xacro_path, " sim:=true"]),
+            value_type=str,
+        ),
     }
 
     rsp = Node(
@@ -67,7 +76,10 @@ def generate_launch_description():
 
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gazebo_launch),
-        launch_arguments={"world": world}.items(),
+        launch_arguments={
+            "world": world,
+            "headless": LaunchConfiguration("headless"),
+        }.items(),
     )
 
     spawn = Node(
@@ -98,9 +110,21 @@ def generate_launch_description():
         )
     )
 
+    # Let Gazebo resolve `model://astra_description/...` URIs from installed shares.
+    # We add the parent of each pkg's share dir; Gazebo searches these roots
+    # for a subdirectory matching the URI host part.
+    share_roots = os.pathsep.join(
+        os.path.dirname(os.path.join(get_package_prefix(p), "share", p))
+        for p in ("astra_description", "aha_description")
+    )
+    existing = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
+    resource_path = os.pathsep.join(x for x in (share_roots, existing) if x)
+
     return LaunchDescription([
         DeclareLaunchArgument("world", default_value="empty.sdf"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
+        DeclareLaunchArgument("headless", default_value="false"),
+        SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
         gz,
         rsp,
         clock_bridge,

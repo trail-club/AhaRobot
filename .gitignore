@@ -13,3 +13,10 @@ __pycache__/
 .idea/
 *.swp
 .DS_Store
+
+# Container-created symlinks under overlay_ws/src (target /app/...)
+/overlay_ws/src/astra_description
+/overlay_ws/src/astra_controller_interfaces
+
+# Session artifacts
+.claude/

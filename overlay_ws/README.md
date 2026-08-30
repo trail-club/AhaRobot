@@ -44,6 +44,15 @@ colcon build --symlink-install \
 または単一ワークスペースに揃える運用として、`overlay_ws/src` の中に `upstream/*` への
 シンボリックリンクを張っても良い (upstream の git submodule 実体はそのまま)。
 
+## 動作確認済み (2026-08-30)
+
+Docker (macOS/Apple Silicon) で以下を確認:
+- `colcon build` 成功 (astra_description / aha_description / aha_gazebo / aha_bringup)
+- `ros2 launch aha_bringup sim.launch.py headless:=true` で:
+  - 8 controllers すべて active
+  - `/joint_states` @ 100 Hz
+  - `/diff_drive_controller/cmd_vel` に 0.3 m/s → `/odom` が前進を報告
+
 ## 起動
 
 **URDF を RViz で確認 (Gazebo 不要):**
@@ -62,6 +71,7 @@ ros2 launch aha_bringup sim.launch.py
 
 - `world:=empty.sdf` (default)
 - `use_sim_time:=true` (default)
+- `headless:=true` — GUI 無し (macOS / CI 推奨)
 
 **動作確認:**
 
