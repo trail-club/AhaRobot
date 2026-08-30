@@ -48,6 +48,7 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 - [Phase 0 監査結果](docs/phase0-audit.md) — package / URDF / LICENSE の現状と Phase 1 リスク
 - [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
 - [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限
+- [Docker 開発環境](docs/docker.md) — コンテナで sim を立ち上げる手順
 
 ## ロードマップ (概要)
 

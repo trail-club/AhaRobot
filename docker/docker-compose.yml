@@ -1,0 +1,33 @@
+services:
+  aha_project:
+    image: trail/aharobot-jazzy:latest
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
+      - QT_X11_NO_MITSHM=1
+      - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
+    network_mode: host
+    ipc: host
+    privileged: true
+    user: "${USER_ID}:${GROUP_ID}"
+    volumes:
+      - /dev:/dev
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../:/app/
+    command: /app/docker/scripts/initialize-docker-container.sh
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      - "display:host-gateway"
+
+  novnc:
+    image: theasp/novnc:latest
+    profiles: ["darwin"]
+    ports:
+      - "8080:8080"
+      - "5900:5900"
+      - "6000:6000"
+    restart: unless-stopped
+    environment:
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
