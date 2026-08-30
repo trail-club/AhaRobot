@@ -49,6 +49,7 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 - [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
 - [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限
 - [Docker 開発環境](docs/docker.md) — コンテナで sim を立ち上げる手順
+- [CAD 寸法メモ](docs/cad-measurements.md) — Astra.STEP から抽出した / できていない寸法
 
 ## ロードマップ (概要)
 

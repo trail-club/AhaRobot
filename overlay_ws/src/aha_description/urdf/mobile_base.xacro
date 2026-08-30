@@ -2,12 +2,15 @@
 <!--
   Differential-drive base added under the existing base_link mesh.
 
-  Provisional dimensions (base is 550x500 mm / ~51 kg per the AhaRobot paper);
-  refine once real chassis / wheel specs are confirmed:
-
-    wheel_radius     = 0.075 m
-    wheel_separation = 0.40  m
-    caster_radius    = 0.03  m
+  Dimensions:
+    wheel_radius     = 0.042 m  (MEASURED from upstream/Astra_Hardwares/Astra/Astra.STEP:
+                                  the HB-139 drive-wheel subassembly has 4
+                                  CYLINDRICAL_SURFACE entities at r=42.00 mm.
+                                  See docs/cad-measurements.md)
+    wheel_separation = 0.40  m  (ESTIMATED from paper "base 550x500 mm";
+                                  needs FreeCAD/CAD viewer to confirm from
+                                  Astra.STEP assembly transforms.)
+    caster_radius    = 0.03  m  (ESTIMATED; AuxWheel geometry not yet extracted.)
 
   Frames:
     base_footprint   — flat frame on the ground plane (Nav2 default root)
@@ -18,7 +21,7 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:property name="wheel_radius"     value="0.075"/>
+  <xacro:property name="wheel_radius"     value="0.042"/>
   <xacro:property name="wheel_width"      value="0.04"/>
   <xacro:property name="wheel_separation" value="0.40"/>
   <xacro:property name="wheel_mass"       value="0.5"/>

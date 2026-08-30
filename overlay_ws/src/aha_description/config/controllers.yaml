@@ -33,8 +33,8 @@ diff_drive_controller:
   ros__parameters:
     left_wheel_names:  ["left_wheel_joint"]
     right_wheel_names: ["right_wheel_joint"]
-    wheel_separation: 0.40
-    wheel_radius: 0.075
+    wheel_separation: 0.40   # ESTIMATED — refine from Astra.STEP with FreeCAD
+    wheel_radius: 0.042      # MEASURED from Astra.STEP HB-139 subassembly
     base_frame_id: base_footprint
     odom_frame_id: odom
     publish_rate: 50.0
