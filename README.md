@@ -7,12 +7,14 @@ RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
 
 ```
 .
-├── upstream/           # 公式 AhaRobot 由来コード (trail-club fork を submodule)
-│   ├── astra_ws           # ROS 2 workspace (Humble)
-│   ├── astra_description  # URDF / meshes / RViz / Gazebo launch
-│   ├── AstraFirmwares     # ESP32 / ODrive ファームウェア
-│   └── Astra_Hardwares    # CAD (STEP / STL)
-└── (overlay_ws/)       # チーム overlay workspace (Phase 1 以降で追加)
+├── upstream/                         # 公式由来コード (trail-club fork を submodule)
+│   ├── astra_description                 # URDF / meshes / RViz / Gazebo launch
+│   ├── astra_controller                  # 実機制御 ROS 2 node
+│   ├── astra_controller_interfaces       # custom msg / srv
+│   ├── astra_moveit_config               # MoveIt 2 設定 (Humble, deprecated 予定)
+│   ├── AstraFirmwares                    # ESP32 / ODrive ファームウェア
+│   └── Astra_Hardwares                   # CAD (STEP / STL)
+└── (overlay_ws/)                     # チーム overlay workspace (Phase 1 以降で追加)
 ```
 
 `upstream/*` は trail-club org の fork を submodule として固定。
@@ -29,8 +31,13 @@ git submodule update --init --recursive
 
 ## ライセンス
 
-`upstream/astra_ws` は GPL-3.0 に加え非商用条項が README に記載されている。
+元の `hilookas/astra_ws` README は GPL-3.0 に加え非商用条項を記載している。
 派生物の公開・配布時は各 upstream の LICENSE を確認すること。
+
+なお `hilookas/astra_ws` 本体 (super-repo) は本リポジトリでは submodule として保持せず、
+Phase 1〜3 で必要な package のみを個別 fork として `upstream/` 直下に並べる方針。
+Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `aiortc` 等) が
+必要になった時点で fork を追加する。
 
 ## ロードマップ (概要)
 

@@ -1,6 +1,3 @@
-[submodule "upstream/astra_ws"]
-	path = upstream/astra_ws
-	url = https://github.com/trail-club/astra_ws.git
 [submodule "upstream/astra_description"]
 	path = upstream/astra_description
 	url = https://github.com/trail-club/astra_description.git
@@ -10,3 +7,12 @@
 [submodule "upstream/Astra_Hardwares"]
 	path = upstream/Astra_Hardwares
 	url = https://github.com/trail-club/Astra_Hardwares.git
+[submodule "upstream/astra_controller"]
+	path = upstream/astra_controller
+	url = https://github.com/trail-club/astra_controller.git
+[submodule "upstream/astra_controller_interfaces"]
+	path = upstream/astra_controller_interfaces
+	url = https://github.com/trail-club/astra_controller_interfaces.git
+[submodule "upstream/astra_moveit_config"]
+	path = upstream/astra_moveit_config
+	url = https://github.com/trail-club/astra_moveit_config.git
