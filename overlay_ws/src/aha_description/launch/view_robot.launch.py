@@ -14,6 +14,9 @@ def generate_launch_description():
     xacro_path = PathJoinSubstitution([
         FindPackageShare("aha_description"), "urdf", "aha_robot.urdf.xacro",
     ])
+    rviz_config = PathJoinSubstitution([
+        FindPackageShare("aha_description"), "config", "view_robot.rviz",
+    ])
 
     return LaunchDescription([
         DeclareLaunchArgument("sim", default_value="false"),
@@ -34,5 +37,6 @@ def generate_launch_description():
         Node(
             package="rviz2",
             executable="rviz2",
+            arguments=["-d", rviz_config],
         ),
     ])
