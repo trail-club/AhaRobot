@@ -1,0 +1,12 @@
+[submodule "upstream/astra_ws"]
+	path = upstream/astra_ws
+	url = https://github.com/trail-club/astra_ws.git
+[submodule "upstream/astra_description"]
+	path = upstream/astra_description
+	url = https://github.com/trail-club/astra_description.git
+[submodule "upstream/AstraFirmwares"]
+	path = upstream/AstraFirmwares
+	url = https://github.com/trail-club/AstraFirmwares.git
+[submodule "upstream/Astra_Hardwares"]
+	path = upstream/Astra_Hardwares
+	url = https://github.com/trail-club/Astra_Hardwares.git
