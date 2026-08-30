@@ -19,8 +19,11 @@
   <xacro:arg name="sim" default="true"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 
-  <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh) -->
-  <xacro:include filename="$(find astra_description)/urdf/astra_description.urdf"/>
+  <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh).
+       Use the patched copy (see aha_description CMakeLists + patch_limits.py)
+       so joint effort/velocity limits are non-zero and gz_ros2_control can
+       actually drive the joints. -->
+  <xacro:include filename="$(find aha_description)/urdf/astra_description_patched.urdf"/>
 
   <!-- 2. Mobile base (adds base_footprint + wheels + caster; parents base_link) -->
   <xacro:include filename="$(find aha_description)/urdf/mobile_base.xacro"/>

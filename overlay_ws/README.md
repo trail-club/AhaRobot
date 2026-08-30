@@ -52,6 +52,7 @@ Docker (macOS/Apple Silicon) で以下を確認:
   - 8 controllers すべて active
   - `/joint_states` @ 100 Hz
   - `/diff_drive_controller/cmd_vel` に 0.3 m/s → `/odom` が前進を報告
+  - `ros2 run aha_bringup demo_arms.sh` で頭 / 左右腕 / 昇降 / グリッパが指令値通り動く
 
 ## 起動
 
@@ -72,6 +73,19 @@ ros2 launch aha_bringup sim.launch.py
 - `world:=empty.sdf` (default)
 - `use_sim_time:=true` (default)
 - `headless:=true` — GUI 無し (macOS / CI 推奨)
+
+**ベースをキーボードで走らせる (別シェルで):**
+
+```bash
+docker exec -it aharobot-aha_project-1 bash
+aha_teleop   # i/j/k/l/, で操作
+```
+
+**腕・頭・グリッパのデモ:**
+
+```bash
+aha_demo     # 頭 pan +0.4, 左右腕を対称ポーズ, 昇降 +0.2m, 右グリッパ open
+```
 
 **動作確認:**
 
