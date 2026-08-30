@@ -1,0 +1,78 @@
+# controller_manager + controller configuration for AhaRobot.
+# Loaded by gz_ros2_control (sim) or the real-robot bringup.
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+    left_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    right_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    left_gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    right_gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    lift_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    head_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names:  ["left_wheel_joint"]
+    right_wheel_names: ["right_wheel_joint"]
+    wheel_separation: 0.40
+    wheel_radius: 0.075
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    publish_rate: 50.0
+    open_loop: false
+    enable_odom_tf: true
+    cmd_vel_timeout: 0.5
+    use_stamped_vel: false
+
+left_arm_controller:
+  ros__parameters:
+    joints: [joint_l2, joint_l3, joint_l4, joint_l5, joint_l6]
+    command_interfaces: [position]
+    state_interfaces:   [position, velocity]
+
+right_arm_controller:
+  ros__parameters:
+    joints: [joint_r2, joint_r3, joint_r4, joint_r5, joint_r6]
+    command_interfaces: [position]
+    state_interfaces:   [position, velocity]
+
+left_gripper_controller:
+  ros__parameters:
+    joints: [joint_l7r, joint_l7l]
+    interface_name: position
+
+right_gripper_controller:
+  ros__parameters:
+    joints: [joint_r7r, joint_r7l]
+    interface_name: position
+
+lift_controller:
+  ros__parameters:
+    joints: [joint_l1, joint_r1]
+    command_interfaces: [position]
+    state_interfaces:   [position, velocity]
+
+head_controller:
+  ros__parameters:
+    joints: [joint_head_pan, joint_head_tilt]
+    command_interfaces: [position]
+    state_interfaces:   [position, velocity]

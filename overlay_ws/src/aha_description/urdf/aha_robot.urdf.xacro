@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!--
+  Top-level xacro for AhaRobot.
+
+  Composition:
+    - Includes upstream astra_description URDF unchanged (arms/lift/head/base_link)
+    - Adds a differential-drive mobile base under base_link (base_footprint,
+      two wheels, one caster) since the upstream URDF has none.
+    - Adds a <ros2_control> block so both real hardware and Gazebo can drive
+      the same joints via controller_manager.
+    - Adds <gazebo> plugin block for gz_ros2_control (Gazebo Harmonic).
+
+  Xacro args:
+    sim            (true|false)  — include Gazebo plugin & gz_ros2_control plugin
+    use_sim_time   (true|false)  — inform robot_state_publisher
+-->
+<robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="sim" default="true"/>
+  <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
+
+  <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh) -->
+  <xacro:include filename="$(find astra_description)/urdf/astra_description.urdf"/>
+
+  <!-- 2. Mobile base (adds base_footprint + wheels + caster; parents base_link) -->
+  <xacro:include filename="$(find aha_description)/urdf/mobile_base.xacro"/>
+  <xacro:aha_mobile_base parent="base_link"/>
+
+  <!-- 3. ros2_control hardware interface -->
+  <xacro:include filename="$(find aha_description)/urdf/ros2_control.xacro"/>
+  <xacro:aha_ros2_control sim="$(arg sim)"/>
+
+  <!-- 4. Gazebo plugin bringing up controller_manager inside the simulator -->
+  <xacro:if value="$(arg sim)">
+    <gazebo>
+      <plugin filename="gz_ros2_control-system"
+              name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(arg controllers_yaml)</parameters>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+</robot>

@@ -14,7 +14,11 @@ RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
 │   ├── astra_moveit_config               # MoveIt 2 設定 (Humble, deprecated 予定)
 │   ├── AstraFirmwares                    # ESP32 / ODrive ファームウェア
 │   └── Astra_Hardwares                   # CAD (STEP / STL)
-└── (overlay_ws/)                     # チーム overlay workspace (Phase 1 以降で追加)
+└── overlay_ws/                       # チーム overlay workspace
+    └── src/
+        ├── aha_description               # URDF xacro (base / ros2_control / sensors)
+        ├── aha_gazebo                    # Gazebo Harmonic world / launch
+        └── aha_bringup                   # sim / real の統合起動 launch
 ```
 
 `upstream/*` は trail-club org の fork を submodule として固定。
@@ -43,6 +47,7 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 
 - [Phase 0 監査結果](docs/phase0-audit.md) — package / URDF / LICENSE の現状と Phase 1 リスク
 - [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
+- [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限
 
 ## ロードマップ (概要)
 

@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control block for AhaRobot.
+
+  Design note:
+    Upstream joint <limit> tags are all effort=0 velocity=0. We do NOT patch
+    those in the URDF (would require rewriting the upstream file). Instead we
+    enforce real limits at the controller layer via config/joint_limits.yaml
+    (loaded by joint_limits_interface).
+
+  Joints exposed to controllers:
+    - drive: left_wheel_joint, right_wheel_joint         (velocity)
+    - lift : joint_l1, joint_r1                          (position)
+             *** Real robot shares one lift; here they are 2 DoF per URDF.
+                 A shared lift will be enforced via a mimic or a fused
+                 controller in a later phase.
+    - arms : joint_[l|r]{2..6}                           (position)
+    - grippers: joint_[l|r]7{r,l}                        (position)
+    - head : joint_head_pan, joint_head_tilt             (position)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="pos_joint" params="name">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="vel_joint" params="name">
+    <joint name="${name}">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="aha_ros2_control" params="sim">
+    <ros2_control name="aha_hardware" type="system">
+      <hardware>
+        <xacro:if value="${sim}">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${sim}">
+          <!-- Placeholder for the real-robot hardware interface (Phase 1 late).
+               Will be implemented in overlay_ws/src/aha_hardware. -->
+          <plugin>aha_hardware/AhaSystem</plugin>
+        </xacro:unless>
+      </hardware>
+
+      <!-- Drive wheels -->
+      <xacro:vel_joint name="left_wheel_joint"/>
+      <xacro:vel_joint name="right_wheel_joint"/>
+
+      <!-- Lift (left + right; treated as 2 DoF for now) -->
+      <xacro:pos_joint name="joint_l1"/>
+      <xacro:pos_joint name="joint_r1"/>
+
+      <!-- Left arm -->
+      <xacro:pos_joint name="joint_l2"/>
+      <xacro:pos_joint name="joint_l3"/>
+      <xacro:pos_joint name="joint_l4"/>
+      <xacro:pos_joint name="joint_l5"/>
+      <xacro:pos_joint name="joint_l6"/>
+      <xacro:pos_joint name="joint_l7r"/>
+      <xacro:pos_joint name="joint_l7l"/>
+
+      <!-- Right arm -->
+      <xacro:pos_joint name="joint_r2"/>
+      <xacro:pos_joint name="joint_r3"/>
+      <xacro:pos_joint name="joint_r4"/>
+      <xacro:pos_joint name="joint_r5"/>
+      <xacro:pos_joint name="joint_r6"/>
+      <xacro:pos_joint name="joint_r7r"/>
+      <xacro:pos_joint name="joint_r7l"/>
+
+      <!-- Head -->
+      <xacro:pos_joint name="joint_head_pan"/>
+      <xacro:pos_joint name="joint_head_tilt"/>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>
