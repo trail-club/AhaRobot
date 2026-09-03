@@ -45,18 +45,24 @@ git submodule update --init --recursive
 ### 2. 開発コンテナ起動
 
 ```bash
-make up          # docker compose で dev コンテナを起動
-make shell       # 中に入る
+# 初回のみ (10〜20 分)
+./run_docker_container.py --rebuild
+
+# 2 回目以降
+./run_docker_container.py
 ```
 
-詳細と GUI (RViz / Gazebo) 転送は [`docs/docker.md`](docs/docker.md)。
+Linux / macOS / WSL(Windows) を自動判定し、必要に応じて NoVNC (macOS/WSL) と NVIDIA GPU passthrough を有効化する。
+コンテナ名は常に `aharobot_aha_project_1`。詳細は [`docs/docker.md`](docs/docker.md)。
+
+macOS / WSL では GUI をブラウザで見る: [http://localhost:8080/vnc.html](http://localhost:8080/vnc.html) → Connect。
 
 ### 3. Build
 
 コンテナ内で:
 
 ```bash
-cd /workspace/overlay_ws
+cd /app/overlay_ws
 colcon build --symlink-install
 source install/setup.bash
 ```
@@ -64,8 +70,11 @@ source install/setup.bash
 ### 4. Sim + RViz を起動
 
 ```bash
-ros2 launch aha_bringup sim.launch.py
-# 別 terminal で RViz
+# コンテナ内で sim (Gazebo + spawn + controllers)
+ros2 launch aha_bringup sim.launch.py world:=home.sdf
+
+# 別ターミナルからコンテナに入って RViz
+make shell        # or: docker exec -it aharobot_aha_project_1 bash
 ros2 launch aha_description view_robot.launch.py
 ```
 
