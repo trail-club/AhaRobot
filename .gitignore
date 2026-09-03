@@ -20,3 +20,6 @@ __pycache__/
 
 # Session artifacts
 .claude/
+
+# Personal notes (per-dev learning material, not shared)
+docs/personal/
