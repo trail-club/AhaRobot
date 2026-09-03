@@ -41,11 +41,18 @@ CONTROLLERS_AFTER_JSB = [
 ]
 
 
-def _spawner(name):
+def _spawner(name, switch_timeout: int = 30):
+    # Default spawner's controller-switch timeout is 5 s, which is too short
+    # on slow hosts (macOS docker software rendering) and makes JSB fail to
+    # activate on first try. Bump so /joint_states reliably comes up.
     return Node(
         package="controller_manager",
         executable="spawner",
-        arguments=[name, "--controller-manager", "/controller_manager"],
+        arguments=[
+            name,
+            "--controller-manager", "/controller_manager",
+            "--switch-timeout", str(switch_timeout),
+        ],
         output="screen",
     )
 
