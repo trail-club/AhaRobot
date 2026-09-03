@@ -1,0 +1,32 @@
+# Overlay for WSL2 (Windows) + NoVNC.
+#
+# The base compose file uses `network_mode: host` which does not really work
+# on Docker Desktop (WSL / macOS) — the "host" is the Linux VM, not Windows.
+# Here we drop host networking on both services and put them on the same
+# compose network so the dev container can reach NoVNC's X server by service
+# name (`DISPLAY=novnc:0.0`).
+#
+# Applied automatically by run_docker_container.py when it detects WSL and
+# --novnc (which is default under WSL).
+services:
+  aha_project:
+    # Override the base's network_mode: host. Compose doesn't cleanly "unset"
+    # a mode, so we switch to the default bridge network by naming it.
+    network_mode: ""
+    networks:
+      - aha_gui
+    # /tmp/.X11-unix is meaningless without host networking; remove the mount
+    # by overriding volumes to the essentials only.
+    volumes:
+      - ../:/app/
+    extra_hosts: []
+
+  novnc:
+    networks:
+      - aha_gui
+    # Fixed hostname so the dev container's DISPLAY can address it.
+    hostname: novnc
+
+networks:
+  aha_gui:
+    driver: bridge
