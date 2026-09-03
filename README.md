@@ -18,20 +18,69 @@ RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
     └── src/
         ├── aha_description               # URDF xacro (base / ros2_control / sensors)
         ├── aha_gazebo                    # Gazebo Harmonic world / launch
-        └── aha_bringup                   # sim / real の統合起動 launch
+        ├── aha_bringup                   # sim / real の統合起動 launch
+        ├── aha_msgs                      # 班横断の msg / srv / action
+        ├── aha_navigation                # SLAM / Nav2 (navigation squad)
+        ├── aha_manipulation              # MoveIt / pick (manipulation squad)
+        └── aha_perception                # 物体・人物検出 (perception squad)
 ```
 
 `upstream/*` は trail-club org の fork を submodule として固定。
 改変は fork 側 branch で行い、super repo は SHA を進めるだけとする。
 Upstream 追従は各 fork で `git remote add upstream https://github.com/hilookas/<repo>.git` → `git fetch upstream`。
 
-## セットアップ
+## Getting Started
+
+動作確認済: macOS (Docker Desktop) / Ubuntu 24.04 + Docker Engine 27+。GPU は任意（未指定でも sim は動く）。
+
+### 1. Clone
 
 ```bash
 git clone --recursive git@github.com:trail-club/AhaRobot.git
+cd AhaRobot
 # 既に clone 済みなら
 git submodule update --init --recursive
 ```
+
+### 2. 開発コンテナ起動
+
+```bash
+make up          # docker compose で dev コンテナを起動
+make shell       # 中に入る
+```
+
+詳細と GUI (RViz / Gazebo) 転送は [`docs/docker.md`](docs/docker.md)。
+
+### 3. Build
+
+コンテナ内で:
+
+```bash
+cd /workspace/overlay_ws
+colcon build --symlink-install
+source install/setup.bash
+```
+
+### 4. Sim + RViz を起動
+
+```bash
+ros2 launch aha_bringup sim.launch.py
+# 別 terminal で RViz
+ros2 launch aha_description view_robot.launch.py
+```
+
+### 5. キーボードで動かす
+
+```bash
+ros2 run aha_bringup teleop_base.sh
+# または
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel
+```
+
+## チーム開発
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — branch/commit/PR ルール
+- [docs/interfaces.md](docs/interfaces.md) — **班間の topic / frame / QoS 契約（必読）**
 
 ## ライセンス
 
@@ -45,6 +94,7 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 
 ## ドキュメント
 
+- [班間 Interface 仕様](docs/interfaces.md) — TF / topic / QoS / naming
 - [Phase 0 監査結果](docs/phase0-audit.md) — package / URDF / LICENSE の現状と Phase 1 リスク
 - [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
 - [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限

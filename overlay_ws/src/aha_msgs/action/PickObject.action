@@ -1,0 +1,13 @@
+# Long-running pick action. Owner: manipulation squad.
+# Goal frame must match DetectedObject.header.frame_id (usually camera_optical_frame or map).
+
+DetectedObject          target
+string                  arm          # "left" | "right"
+float32                 approach_offset  # meters above the object
+---
+bool                    success
+string                  message
+geometry_msgs/PoseStamped grasp_pose_used
+---
+string                  phase        # "planning" | "approaching" | "grasping" | "retreating"
+float32                 progress     # [0.0, 1.0]

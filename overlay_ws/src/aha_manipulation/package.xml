@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aha_manipulation</name>
+  <version>0.1.0</version>
+  <description>Manipulation (MoveIt 2) config, pick/place skeleton for AhaRobot. Owner: manipulation squad.</description>
+  <maintainer email="dev@trail-club.local">trail-club manipulation squad</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_msgs</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>moveit_kinematics</exec_depend>
+  <exec_depend>moveit_planners</exec_depend>
+  <exec_depend>moveit_ros_visualization</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

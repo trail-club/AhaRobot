@@ -1,0 +1,8 @@
+# Convenience wrapper over nav2 NavigateToPose for scripts / task planner.
+# Owner: navigation squad.
+
+geometry_msgs/PoseStamped goal      # must be in "map" frame
+string                    behavior  # "" = default, "dock", "approach_object", ...
+---
+bool    accepted
+string  message

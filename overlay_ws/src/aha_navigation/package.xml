@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aha_navigation</name>
+  <version>0.1.0</version>
+  <description>Navigation (SLAM + Nav2) configs and launch for AhaRobot. Owner: navigation squad.</description>
+  <maintainer email="dev@trail-club.local">trail-club navigation squad</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_msgs</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
