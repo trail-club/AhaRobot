@@ -21,6 +21,7 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
@@ -120,10 +121,37 @@ def generate_launch_description():
     existing = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     resource_path = os.pathsep.join(x for x in (share_roots, existing) if x)
 
+    # Optional per-squad subsystems. Default off — bringup is minimal.
+    nav_launch = PathJoinSubstitution([
+        FindPackageShare("aha_navigation"), "launch", "nav.launch.py",
+    ])
+    manip_launch = PathJoinSubstitution([
+        FindPackageShare("aha_manipulation"), "launch", "manip.launch.py",
+    ])
+    perception_launch = PathJoinSubstitution([
+        FindPackageShare("aha_perception"), "launch", "perception.launch.py",
+    ])
+
+    nav = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(nav_launch),
+        condition=IfCondition(LaunchConfiguration("use_nav")),
+    )
+    manip = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(manip_launch),
+        condition=IfCondition(LaunchConfiguration("use_manip")),
+    )
+    perception = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(perception_launch),
+        condition=IfCondition(LaunchConfiguration("use_perception")),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument("world", default_value="empty.sdf"),
         DeclareLaunchArgument("use_sim_time", default_value="true"),
         DeclareLaunchArgument("headless", default_value="false"),
+        DeclareLaunchArgument("use_nav", default_value="false"),
+        DeclareLaunchArgument("use_manip", default_value="false"),
+        DeclareLaunchArgument("use_perception", default_value="false"),
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
         gz,
         rsp,
@@ -131,4 +159,7 @@ def generate_launch_description():
         spawn,
         jsb,
         load_rest,
+        nav,
+        manip,
+        perception,
     ])
