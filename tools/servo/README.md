@@ -34,6 +34,34 @@ WSL の場合は Windows 側で `usbipd attach --wsl --busid <id>` も必要。
 | `motor_check.py` | ID ごとに位置/速度/負荷/電圧/温度/モードを読む。`--move` で単体往復 |
 | `nudge_check.py` | 1個ずつトルクを入れて微動させ、単体動作と連動相手を調べる |
 | `teach_calibrate.py` | **トルクOFFのまま手で動かして**可動域と対向符号を記録 |
+| `keyboard_teleop.py` | キーボードで各関節を動かす。対向関節は 4 個同時 |
+
+### キーボードで動かす
+
+```bash
+python3 keyboard_teleop.py
+```
+
+```
+  w/s  joint0 (ID4-7 を 4 個同時)      r/f  wrist12
+  e/d  joint1 (ID8-11 を 4 個同時)     t/g  wrist13
+  y/h  gripper (ID15)
+  [ ]  ステップ幅 -/+        space  その場で停止        0  トルクOFF
+  ?    ヘルプ                q      終了 (トルクOFF)
+```
+
+対向駆動の関節は実測した符号表 (`JOINTS`) に従って全サーボへ同時に指令する。
+起動時に現在位置を読んでそれを目標にしてからトルクを入れるので、投入時に跳ねない。
+
+安全側の作り:
+
+- トルク上限を絞る (`--torque-limit`, 既定 500/1000)
+- 開始位置からの移動量を制限 (`--max-offset`, 既定 ±700 step)
+- 負荷が閾値 (`--load-stop`, 既定 450) を超えたらその向きへは進まない
+- 終了時・`0` キー・例外のいずれでも必ずトルクを切る
+
+**機体を変えたら `teach_calibrate.py --verify` で符号を測り直して `JOINTS` を更新すること。**
+符号が違うとサーボ同士が押し合う。
 
 ### 可動域と符号の測定
 
