@@ -79,13 +79,14 @@ JOINTS = [
     Joint("joint1", {8: +1, 9: -1, 10: -1, 11: +1}, ("e", "d"), 1050),
     Joint("wrist12", {12: +1}, ("r", "f"), 2000),
     Joint("wrist13", {13: +1}, ("t", "g"), 1350),
+    Joint("wrist14", {14: +1}, ("u", "j"), 1000),
     Joint("gripper", {15: +1}, ("y", "h"), 1150),
 ]
 
 HELP = """
   w/s  joint0 (ID4-7 を 4 個同時)      r/f  wrist12
   e/d  joint1 (ID8-11 を 4 個同時)     t/g  wrist13
-  y/h  gripper (ID15)
+  u/j  wrist14                        y/h  gripper (ID15)
   [ ]  ステップ幅 -/+        space  その場で停止        0  トルクOFF
   ?    このヘルプ            q      終了 (トルクOFF)
 """

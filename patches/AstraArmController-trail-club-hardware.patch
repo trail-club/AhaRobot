@@ -24,7 +24,7 @@ index 7d4c2de..1d3146f 100644
 -upload_port = /dev/tty_puppet_right
 +upload_port = /dev/ttyUSB0
 diff --git a/src/dualMotor.cpp b/src/dualMotor.cpp
-index b1a987b..f703079 100644
+index b1a987b..626890e 100644
 --- a/src/dualMotor.cpp
 +++ b/src/dualMotor.cpp
 @@ -7,6 +7,16 @@
@@ -44,20 +44,21 @@ index b1a987b..f703079 100644
  #define TIMER_TIMEOUT_US 15000 // change: current_meas_period
  // velocity update in servo seems at 50Hz.
  
-@@ -17,6 +27,12 @@ float last_pos[JOINT_NUM + NONE_JOINT_NUM] = { 2048, 2048, 2048, 2048, 2048, 204
+@@ -17,6 +27,13 @@ float last_pos[JOINT_NUM + NONE_JOINT_NUM] = { 2048, 2048, 2048, 2048, 2048, 204
  float last_vel[JOINT_NUM + NONE_JOINT_NUM] = { 0 };
  
  uint16_t none_joint_goal_pos[NONE_JOINT_NUM] = { 2048, 2048, 2048, 2048,  };
 +
-+// 実機には ID14 のサーボが存在しない。スロット数(=6自由度)はホスト側の通信
-+// フォーマットとグリッパの添字を変えないために 4 のまま残し、欠番だけ -1 にして
-+// 読み書きをスキップする。欠番スロットは常に 2048(=0rad) を返す。
-+const int NONE_JOINT_ID[NONE_JOINT_NUM] = { 12, 13, -1, 15 };
++// 単発関節のサーボID。元コードは 12,13,14,15 の連番決め打ちだったが、機体に
++// よってはサーボが欠けるので表にした。-1 を入れるとそのスロットは読み書きを
++// 飛ばし、常に 2048(=0rad) を返す。スロット数(=6自由度)は変えないので、
++// 欠番があってもホスト側の通信フォーマットとグリッパの添字は影響を受けない。
++const int NONE_JOINT_ID[NONE_JOINT_NUM] = { 12, 13, 14, 15 };
 +#define NONE_JOINT_ABSENT_POS 2048
  uint16_t raw_goal_pos[JOINT_NUM] = { 2048, 2048,  };
  
  #define ACC 100
-@@ -32,9 +48,13 @@ void read_pos() {
+@@ -32,9 +49,13 @@ void read_pos() {
    }
    int raw_pos_non_joint[NONE_JOINT_NUM];
    for (int i = 0; i < NONE_JOINT_NUM; ++i) {
@@ -73,7 +74,7 @@ index b1a987b..f703079 100644
      }
    }
  
-@@ -50,7 +70,12 @@ void read_pos() {
+@@ -50,7 +71,12 @@ void read_pos() {
    // average load into 4 servo
    float pos[JOINT_NUM + NONE_JOINT_NUM];
    for (int i = 0; i < JOINT_NUM; ++i) {
@@ -87,7 +88,7 @@ index b1a987b..f703079 100644
    }
  
    for (int i = 0; i < NONE_JOINT_NUM; ++i) {
-@@ -107,7 +132,8 @@ void doSetupTorque(int enable) {
+@@ -107,7 +133,8 @@ void doSetupTorque(int enable) {
    }
  
    for (int i = 0; i < NONE_JOINT_NUM; ++i) {
@@ -97,7 +98,7 @@ index b1a987b..f703079 100644
    }
  
    if (enable == 0) {
-@@ -284,10 +310,9 @@ void timer_callback(void *arg) {
+@@ -284,10 +311,9 @@ void timer_callback(void *arg) {
    for (int i = 0; i < JOINT_NUM; ++i) {
      // float backlash_compensate_feedforward = config.joint_backlash_compensate_feedforward;
      float backlash_compensate_feedforward = 150;
@@ -111,7 +112,7 @@ index b1a987b..f703079 100644
    }
  
    for (int i = 0; i < 4 * JOINT_NUM; ++i) {
-@@ -299,7 +324,8 @@ void timer_callback(void *arg) {
+@@ -299,7 +325,8 @@ void timer_callback(void *arg) {
    }
  
    for (int i = 0; i < NONE_JOINT_NUM; ++i) {

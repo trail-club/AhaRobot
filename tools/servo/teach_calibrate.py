@@ -20,7 +20,7 @@ import time
 from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
 
 R_TORQUE, R_POS = 40, 56
-GROUPS = {"joint0": [4, 5, 6, 7], "joint1": [8, 9, 10, 11], "single": [12, 13, 15]}
+GROUPS = {"joint0": [4, 5, 6, 7], "joint1": [8, 9, 10, 11], "single": [12, 13, 14, 15]}
 MOVED_THRESHOLD = 30  # これ以上動いたサーボだけ「動かした」とみなす(step)
 
 

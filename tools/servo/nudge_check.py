@@ -17,7 +17,7 @@ R_TORQUE, R_GOAL_POS, R_GOAL_SPD, R_TORQUE_LIMIT = 40, 42, 46, 48
 R_POS, R_LOAD = 56, 60
 
 GROUPS = {"joint0": [4, 5, 6, 7], "joint1": [8, 9, 10, 11]}
-SINGLES = [12, 13, 15]
+SINGLES = [12, 13, 14, 15]
 
 NUDGE = 20  # ±20 step = 1.8deg
 TORQUE_LIMIT = 350  # 0-1000。35% に絞る
