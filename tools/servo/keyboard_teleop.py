@@ -6,13 +6,12 @@
 (docs/servo-bringup.md) をそのまま使う。符号が違うとサーボ同士が押し合うので、
 機体を変えたら `teach_calibrate.py --verify` で測り直して JOINTS を更新すること。
 
-安全のため
-  - トルク上限を絞る (--torque-limit, 既定 500/1000)
-  - 関節ごとに開始位置からの移動量を制限する (--max-offset)
-  - 負荷が閾値を超えたらその関節をその向きへは進めない
-  - 終了時とパニックキーで必ずトルクを切る
+目標値は実位置から `--lead` step 以上は先行させない。これがないと、機械端や
+過負荷で関節が動けないあいだもキーを押した分だけ目標が進み続け、戻すのに
+同じ回数だけ逆キーを押す羽目になる。過負荷を検出したときは目標を実位置まで
+引き戻すので、その場ですぐ逆へ動かせる。
 
-Usage:  keyboard_teleop.py [--port /dev/ttyUSB0] [--baud 115200]
+Usage:  keyboard_teleop.py [--port /dev/ttyUSB0] [--step 20]
 """
 
 from __future__ import annotations
@@ -29,26 +28,35 @@ from scservo_sdk import COMM_SUCCESS, PacketHandler, PortHandler
 R_ACC, R_GOAL_POS, R_GOAL_SPD, R_TORQUE, R_TORQUE_LIMIT = 41, 42, 46, 40, 48
 R_POS, R_LOAD = 56, 60
 
+BLOCK_COOLDOWN = 0.8  # 過負荷でその向きを止めておく秒数
+
 
 class Joint:
     """1 つの関節。dual 構成では複数サーボを符号付きで同時に動かす。"""
 
-    def __init__(self, name: str, servos: dict[int, int], keys: tuple[str, str]):
+    def __init__(
+        self, name: str, servos: dict[int, int], keys: tuple[str, str], limit: int
+    ):
         self.name = name
         self.servos = servos  # {サーボID: 符号(+1/-1)}
         self.keys = keys
-        self.offset = 0
+        self.limit = limit  # 開始位置からの移動量の上限 (実測可動域の約半分)
+        self.goal = 0  # 指令中のオフセット
+        self.actual = 0  # 実位置から求めたオフセット
         self.start: dict[int, int] = {}
-        self.blocked = 0  # 負荷でこの向きへは進めない (+1/-1/0)
+        self.blocked_dir = 0  # 過負荷で進めない向き (+1/-1/0)
+        self.blocked_at = 0.0
+        self.load = 0
 
 
-# 符号は実機の実測値 (|r| = 1.00)。docs/servo-bringup.md を参照。
+# 符号は実機の実測値 (|r| = 1.00)。limit は teach_calibrate.py で測った可動域の約半分。
+# どちらも docs/servo-bringup.md を参照。
 JOINTS = [
-    Joint("joint0", {4: +1, 5: -1, 6: -1, 7: +1}, ("w", "s")),
-    Joint("joint1", {8: +1, 9: -1, 10: -1, 11: +1}, ("e", "d")),
-    Joint("wrist12", {12: +1}, ("r", "f")),
-    Joint("wrist13", {13: +1}, ("t", "g")),
-    Joint("gripper", {15: +1}, ("y", "h")),
+    Joint("joint0", {4: +1, 5: -1, 6: -1, 7: +1}, ("w", "s"), 1000),
+    Joint("joint1", {8: +1, 9: -1, 10: -1, 11: +1}, ("e", "d"), 1050),
+    Joint("wrist12", {12: +1}, ("r", "f"), 2000),
+    Joint("wrist13", {13: +1}, ("t", "g"), 1350),
+    Joint("gripper", {15: +1}, ("y", "h"), 1150),
 ]
 
 HELP = """
@@ -90,11 +98,26 @@ def signed(v: int, bits: int = 10) -> int:
     return -(v & ((1 << bits) - 1)) if v & (1 << bits) else v
 
 
+def wrapped(d: int) -> int:
+    """0/4095 をまたいだ差分を [-2048, 2047] に畳む。"""
+    return (d + 2048) % 4096 - 2048
+
+
 def apply(bus: Bus, j: Joint) -> None:
-    """関節の offset を各サーボの目標位置へ反映する。"""
+    """関節の goal を各サーボの目標位置へ反映する。"""
     for sid, sign in j.servos.items():
-        target = j.start[sid] + sign * j.offset
-        bus.w2(sid, R_GOAL_POS, max(0, min(4095, target)))
+        bus.w2(sid, R_GOAL_POS, max(0, min(4095, j.start[sid] + sign * j.goal)))
+
+
+def measure(bus: Bus, j: Joint) -> None:
+    """実位置と負荷を読み、actual / load を更新する。全サーボ読むと遅いので 1 個。"""
+    sid, sign = next(iter(j.servos.items()))
+    pos = bus.r2(sid, R_POS, tries=2)
+    if pos is not None:
+        j.actual = sign * wrapped(pos - j.start[sid])
+    load = bus.r2(sid, R_LOAD, tries=2)
+    if load is not None:
+        j.load = signed(load)
 
 
 def read_key(timeout: float) -> str | None:
@@ -111,11 +134,14 @@ def main() -> None:
     p.add_argument("--speed", type=int, default=300, help="サーボの速度上限")
     p.add_argument("--acc", type=int, default=20)
     p.add_argument("--torque-limit", type=int, default=500, help="0-1000")
-    p.add_argument(
-        "--max-offset", type=int, default=700, help="開始位置からの最大移動量"
-    )
+    p.add_argument("--lead", type=int, default=80, help="目標が実位置を先行してよい量")
     p.add_argument("--load-stop", type=int, default=450, help="この負荷で進行を止める")
+    p.add_argument("--max-offset", type=int, help="関節ごとの既定可動量を上書きする")
     a = p.parse_args()
+
+    if a.max_offset is not None:
+        for j in JOINTS:
+            j.limit = a.max_offset
 
     bus = Bus(a.port, a.baud)
     all_ids = [sid for j in JOINTS for sid in j.servos]
@@ -145,78 +171,92 @@ def main() -> None:
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     last_poll = 0.0
-    loads: dict[int, int] = {}
     msg = "トルクON"
+
+    def resync() -> None:
+        """現在位置を新しい基準にして、指令の溜まりを捨てる。"""
+        for j in JOINTS:
+            for sid in j.servos:
+                j.start[sid] = bus.r2(sid, R_POS) or j.start[sid]
+            j.goal = j.actual = 0
+            j.blocked_dir = 0
+            apply(bus, j)
 
     print(HELP)
     try:
         tty.setcbreak(fd)
         while True:
-            k = read_key(0.05)
+            k = read_key(0.03)
             if k == "q":
                 break
             elif k == "?":
                 print(HELP)
-            elif k == "[":
-                step = max(1, step - 5)
-                msg = f"ステップ {step}"
-            elif k == "]":
-                step = min(200, step + 5)
+            elif k in ("[", "]"):
+                step = max(1, min(200, step + (5 if k == "]" else -5)))
                 msg = f"ステップ {step}"
             elif k == " ":
-                for j in JOINTS:  # いまの位置を目標に固定する
+                for j in JOINTS:  # 実位置を目標にし直して即座に止める
+                    j.goal = j.actual
                     apply(bus, j)
                 msg = "停止"
             elif k == "0":
                 for sid in all_ids:
                     bus.w1(sid, R_TORQUE, 0)
                 torque_on = False
-                msg = "トルクOFF (何かキーを押すと再投入)"
+                msg = "トルクOFF (方向キーで再投入)"
             elif k is not None:
                 for j in JOINTS:
                     if k not in j.keys:
                         continue
-                    if not torque_on:  # OFF 中の入力は現在位置から再開する
-                        for sid in j.servos:
-                            j.start[sid] = bus.r2(sid, R_POS) or j.start[sid]
-                        for jj in JOINTS:
-                            jj.offset = 0
-                            for sid in jj.servos:
-                                jj.start[sid] = bus.r2(sid, R_POS) or jj.start[sid]
-                            apply(bus, jj)
+                    if not torque_on:
+                        resync()
                         for sid in all_ids:
                             bus.w1(sid, R_TORQUE, 1)
                         torque_on = True
+                        msg = "トルクON"
+                        break
                     d = step if k == j.keys[0] else -step
-                    if j.blocked and (d > 0) == (j.blocked > 0):
-                        msg = f"{j.name}: 負荷が高いのでこの向きへは進みません"
+                    if j.blocked_dir and (d > 0) == (j.blocked_dir > 0):
+                        msg = f"{j.name}: 負荷 {j.load} でこの向きは停止中"
                         break
-                    nxt = max(-a.max_offset, min(a.max_offset, j.offset + d))
-                    if nxt == j.offset:
-                        msg = f"{j.name}: 移動量の上限 ±{a.max_offset}"
+                    want = j.goal + d
+                    # 実位置から離れすぎた指令は出さない。これがないと動けない
+                    # あいだも目標だけ進み、戻すのに同じ回数キーを押すことになる。
+                    want = max(j.actual - a.lead, min(j.actual + a.lead, want))
+                    want = max(-j.limit, min(j.limit, want))
+                    if want == j.goal:
+                        near = abs(j.goal) >= j.limit
+                        msg = (
+                            f"{j.name}: 可動量の上限 ±{j.limit}"
+                            if near
+                            else f"{j.name}: 追従待ち (実位置 {j.actual:+d})"
+                        )
                         break
-                    j.offset = nxt
-                    j.blocked = 0
+                    j.goal = want
                     apply(bus, j)
-                    msg = f"{j.name} offset={j.offset:+d}"
+                    msg = f"{j.name} goal={j.goal:+d}"
                     break
 
             now = time.time()
-            if now - last_poll > 0.35:
+            if now - last_poll > 0.2:
                 last_poll = now
-                for j in JOINTS:  # 各関節から 1 個だけ負荷を見る (全部読むと遅い)
-                    sid = next(iter(j.servos))
-                    load = bus.r2(sid, R_LOAD)
-                    if load is None:
+                for j in JOINTS:
+                    if not torque_on:
                         continue
-                    loads[sid] = signed(load)
-                    if abs(loads[sid]) > a.load_stop:
-                        j.blocked = 1 if j.offset >= 0 else -1
-                        j.offset -= 1 if j.offset >= 0 else -1
+                    measure(bus, j)
+                    if abs(j.load) > a.load_stop:
+                        # 溜まった指令をその場で捨てる。捨てないと逆へ動かすのに
+                        # 先行ぶんを打ち消すだけのキー入力が要る。
+                        j.blocked_dir = 1 if j.goal >= j.actual else -1
+                        j.goal = j.actual
                         apply(bus, j)
-                        msg = f"★{j.name}: load={loads[sid]} で停止"
+                        j.blocked_at = now
+                        msg = f"★{j.name}: load={j.load} で停止"
+                    elif j.blocked_dir and now - j.blocked_at > BLOCK_COOLDOWN:
+                        j.blocked_dir = 0
                 state = "  ".join(
-                    f"{j.name}:{j.offset:+5d}" + ("!" if j.blocked else " ")
+                    f"{j.name}:{j.goal:+5d}/{j.actual:+5d}"
+                    + ("!" if j.blocked_dir else " ")
                     for j in JOINTS
                 )
                 sys.stdout.write(f"\r\033[K{state}  step={step:<3} | {msg}")
