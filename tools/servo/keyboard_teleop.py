@@ -40,7 +40,10 @@ from scservo_sdk import (
 R_ACC, R_GOAL_POS, R_GOAL_SPD, R_TORQUE, R_TORQUE_LIMIT = 41, 42, 46, 40, 48
 R_POS, R_LOAD = 56, 60
 
-BLOCK_COOLDOWN = 0.8  # 過負荷でその向きを止めておく秒数
+BLOCK_COOLDOWN = 0.6  # 動けないと判定した向きを止めておく秒数
+STALL_MOVE = 3  # これ以下しか動かなければ止まっているとみなす (step)
+ORIGIN_MARGIN = 150  # エンコーダ原点にこれより近いサーボがある関節は動かさない
+LOAD_SAMPLES = 3  # 負荷はこの回数連続で超えたときだけ効かせる
 HOLD_GRACE = 0.15  # 最後のキー入力からこの秒数だけ動き続ける (キーリピート間隔より長く)
 
 
@@ -64,6 +67,9 @@ class Joint:
         self.load = 0
         self.hold_dir = 0  # 押しっぱなしで動かしている向き
         self.hold_until = 0.0
+        self.over = 0  # 負荷が連続で閾値を超えた回数
+        self.stall_ref = 0  # 停止判定の基準にした実位置
+        self.stall_at = 0.0
 
 
 # 符号は実機の実測値 (|r| = 1.00)。limit は teach_calibrate.py で測った可動域の約半分。
@@ -93,6 +99,8 @@ class Bus:
         self.ph.setBaudRate(baud)
         self.pk = PacketHandler(0)
         self.sync = GroupSyncWrite(self.ph, self.pk, R_GOAL_POS, 2)
+        self.last_raw: dict[int, int] = {}
+        self.last_cmd: dict[int, int] = {}
 
     def r2(self, i: int, a: int, tries: int = 4) -> int | None:
         for _ in range(tries):
@@ -131,7 +139,10 @@ def apply(bus: Bus, joints: list[Joint]) -> None:
     bus.sync.clearParam()
     for j in joints:
         for sid, sign in j.servos.items():
-            v = j.start[sid] + sign * j.goal
+            # 範囲外を絶対に送らない。負の値を送ると SCS_LOBYTE/HIBYTE が
+            # 0xFF.. を吐き、サーボが桁違いの位置と解釈して暴走する。
+            v = max(0, min(4095, j.start[sid] + sign * j.goal))
+            bus.last_cmd[sid] = v
             bus.sync.addParam(sid, [SCS_LOBYTE(v), SCS_HIBYTE(v)])
     bus.sync.txPacket()
 
@@ -153,6 +164,12 @@ def set_limits(j: Joint) -> None:
     )
     j.lim_pos = min(j.rom, pos)
     j.lim_neg = min(j.rom, neg)
+    # 原点をまたぐと位置が 0 と 4095 の間で飛び、サーボが逆回りに全力で回る。
+    # 原点のすぐ近くに止まっているサーボがある向きへは動かさない。
+    if pos < ORIGIN_MARGIN:
+        j.lim_pos = 0
+    if neg < ORIGIN_MARGIN:
+        j.lim_neg = 0
 
 
 def tight_servo(j: Joint, positive: bool) -> int:
@@ -171,6 +188,7 @@ def measure(bus: Bus, j: Joint, with_load: bool = True) -> None:
     sid, sign = next(iter(j.servos.items()))
     pos = bus.r2(sid, R_POS, tries=2)
     if pos is not None:
+        bus.last_raw[sid] = pos
         j.actual = sign * wrapped(pos - j.start[sid])
     if with_load:
         load = bus.r2(sid, R_LOAD, tries=2)
@@ -220,8 +238,17 @@ def main() -> None:
     p.add_argument("--acc", type=int, default=30)
     p.add_argument("--torque-limit", type=int, default=500, help="0-1000")
     p.add_argument("--lead", type=int, default=80, help="目標が実位置を先行してよい量")
-    p.add_argument("--load-stop", type=int, default=450, help="この負荷で進行を止める")
+    p.add_argument(
+        "--load-stop", type=int, default=700, help="この負荷が続いたら進行を止める"
+    )
+    p.add_argument(
+        "--stall-time",
+        type=float,
+        default=0.5,
+        help="目標が先行しているのに実位置が動かない状態がこの秒数続いたら止める",
+    )
     p.add_argument("--max-offset", type=int, help="関節ごとの既定可動量を上書きする")
+    p.add_argument("--debug-log", help="毎周の状態を CSV で書き出す (不具合調査用)")
     a = p.parse_args()
 
     # 速すぎると位置モードの対向 4 個が行き過ぎて押し合い、実位置が数十 step
@@ -254,6 +281,7 @@ def main() -> None:
     for sid in all_ids:
         bus.w1(sid, R_TORQUE, 1)
 
+    blocked_joints: list[str] = []
     print(f"{'関節':<9}{'+方向':>8}{'-方向':>8}   制限しているサーボ")
     for j in JOINTS:
         set_limits(j)
@@ -262,9 +290,18 @@ def main() -> None:
             note += f" +側: ID{tight_servo(j, True)}"
         if j.lim_neg < j.rom:
             note += f" -側: ID{tight_servo(j, False)}"
-        if j.lim_pos < 100 or j.lim_neg < 100:
-            note += "  ★原点近くに張り付いています"
+        if j.lim_pos == 0 or j.lim_neg == 0:
+            note += "  ★原点に近すぎるため、この向きは無効"
+            blocked_joints.append(j.name)
         print(f"{j.name:<9}{j.lim_pos:>8}{j.lim_neg:>8}  {note}")
+
+    if blocked_joints:
+        print(
+            f"\n{', '.join(blocked_joints)} は片側に動かせません。"
+            "\n該当サーボがエンコーダ原点 (0/4095 の境目) に止まっており、またぐと"
+            "\n位置が飛んでサーボが逆回りに全力で回ります。"
+            "\nトルクOFF のまま手で中央寄りへ動かすか、中点を校正し直してください。"
+        )
 
     step, rate = a.step, a.rate
     torque_on = True
@@ -273,6 +310,7 @@ def main() -> None:
     msg = "トルクON"
     by_key = {k: (j, +1 if k == j.keys[0] else -1) for j in JOINTS for k in j.keys}
     rr = 0  # 動かしていない関節を 1 周ずつ見るための巡回位置
+    t_start = time.time()
     last = time.time()
     last_draw = 0.0
 
@@ -283,7 +321,12 @@ def main() -> None:
                 j.start[sid] = bus.r2(sid, R_POS) or j.start[sid]
             j.goal = j.actual = j.hold_dir = 0
             j.blocked_dir = 0
+            set_limits(j)
         apply(bus, JOINTS)
+
+    dbg = open(a.debug_log, "w") if a.debug_log else None
+    if dbg:
+        dbg.write("t,joint,goal,actual,cmd,raw,start,hold,blocked\n")
 
     print(HELP)
     try:
@@ -334,6 +377,8 @@ def main() -> None:
                         continue
                     if j.hold_dir != d:  # 押し始めは 1 step 分だけ即座に動かす
                         j.goal = clamp_goal(j, j.goal + d * step, a.lead)
+                        j.over = 0
+                        j.stall_ref, j.stall_at = j.actual, now
                     j.hold_dir = d
                     j.hold_until = now + HOLD_GRACE
                     msg = f"{j.name} goal={j.goal:+d}"
@@ -356,15 +401,43 @@ def main() -> None:
                 targets = moving or [JOINTS[rr % len(JOINTS)]]
                 rr += 1
                 for j in targets:
-                    measure(bus, j, with_load=bool(moving))
-                    if abs(j.load) > a.load_stop:
+                    active = j in moving
+                    measure(bus, j, with_load=active)
+                    if dbg:
+                        sid = next(iter(j.servos))
+                        dbg.write(
+                            f"{now - t_start:.3f},{j.name},{j.goal},{j.actual},"
+                            f"{bus.last_cmd.get(sid)},{bus.last_raw.get(sid)},{j.start[sid]},"
+                            f"{j.hold_dir},{j.blocked_dir}\n"
+                        )
+                    if not active:
+                        j.over = 0
+                        j.stall_ref, j.stall_at = j.actual, now
+                        if j.blocked_dir and now - j.blocked_at > BLOCK_COOLDOWN:
+                            j.blocked_dir = 0
+                        continue
+
+                    # 本当に動けないかどうかは、負荷の大きさより「目標が先行して
+                    # いるのに実位置が動かない」で見るほうが確実。負荷は加速中や
+                    # 姿勢によって普通に跳ねるので、連続超過のときだけ効かせる。
+                    pushing = abs(j.goal - j.actual) > a.lead * 0.6
+                    if pushing and abs(j.actual - j.stall_ref) < STALL_MOVE:
+                        stalled = now - j.stall_at > a.stall_time
+                    else:
+                        j.stall_ref, j.stall_at = j.actual, now
+                        stalled = False
+                    j.over = j.over + 1 if abs(j.load) > a.load_stop else 0
+
+                    if stalled or j.over >= LOAD_SAMPLES:
                         # 溜まった指令をその場で捨てる。捨てないと逆へ動かすのに
                         # 先行ぶんを打ち消すだけのキー入力が要る。
                         j.blocked_dir = 1 if j.goal >= j.actual else -1
                         j.goal, j.hold_dir = j.actual, 0
                         j.blocked_at = now
+                        j.over = 0
                         apply(bus, JOINTS)
-                        msg = f"★{j.name}: load={j.load} で停止"
+                        why = "動かない" if stalled else f"load={j.load}"
+                        msg = f"★{j.name}: {why} ので停止"
                     elif j.blocked_dir and now - j.blocked_at > BLOCK_COOLDOWN:
                         j.blocked_dir = 0
 
@@ -383,6 +456,8 @@ def main() -> None:
         for sid in all_ids:
             bus.w1(sid, R_TORQUE, 0)
         bus.close()
+        if dbg:
+            dbg.close()
         print("\n全サーボ トルクOFF。終了しました。")
 
 
