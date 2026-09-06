@@ -30,6 +30,7 @@ import tty
 
 from scservo_sdk import (
     COMM_SUCCESS,
+    SCS_MAKEWORD,
     SCS_HIBYTE,
     SCS_LOBYTE,
     GroupSyncWrite,
@@ -124,9 +125,29 @@ class Bus:
 
     def r2(self, i: int, a: int, tries: int = 4) -> int | None:
         for _ in range(tries):
-            v, c, _ = self.pk.read2ByteTxRx(self.ph, i, a)
-            if c == COMM_SUCCESS:
-                return v
+            try:
+                v, c, _ = self.pk.read2ByteTxRx(self.ph, i, a)
+                if c == COMM_SUCCESS:
+                    return v
+            except (IndexError, TypeError):  # 応答が途中で切れると SDK が投げる
+                pass
+        return None
+
+    def state(self, i: int, tries: int = 3) -> tuple[int, int] | None:
+        """位置と負荷を 1 回の読み出しで取る (アドレス 56 から 6 バイト)。
+
+        位置と負荷を別々に読むと、usbip 越しでは前回の応答が clearPort の後に
+        遅れて届き、取り違えが起きる。どちらも同じ ID からの 2 バイト応答なので
+        ID もチェックサムも通ってしまい、負荷の値を位置として読んでしまう。
+        まとめて読めばこの取り違えは起きない。
+        """
+        for _ in range(tries):
+            try:
+                d, c, _ = self.pk.readTxRx(self.ph, i, R_POS, 6)
+                if c == COMM_SUCCESS and len(d) == 6:
+                    return SCS_MAKEWORD(d[0], d[1]), SCS_MAKEWORD(d[4], d[5])
+            except (IndexError, TypeError):
+                pass
         return None
 
     def w1(self, i: int, a: int, v: int) -> bool:
@@ -205,18 +226,19 @@ def tight_servo(j: Joint, positive: bool) -> int:
 
 def measure(bus: Bus, j: Joint, with_load: bool = True) -> None:
     """実位置と負荷を読む。全サーボ読むと遅いので関節あたり 1 個。"""
+
     sid, sign = next(iter(j.servos.items()))
-    pos = bus.r2(sid, R_POS, tries=2)
-    if pos is not None:
-        bus.last_raw[sid] = pos
-        prev = j.actual
-        j.actual = sign * wrapped(pos - j.start[sid])
-        if abs(j.actual - prev) > MAX_JUMP:
-            j.jumped = abs(j.actual - prev)
+    got = bus.state(sid)
+    if got is None:
+        return
+    pos, load = got
+    bus.last_raw[sid] = pos
+    prev = j.actual
+    j.actual = sign * wrapped(pos - j.start[sid])
+    if abs(j.actual - prev) > MAX_JUMP:
+        j.jumped = abs(j.actual - prev)
     if with_load:
-        load = bus.r2(sid, R_LOAD, tries=2)
-        if load is not None:
-            j.load = signed(load)
+        j.load = signed(load)
 
 
 def drain_keys() -> list[str]:
