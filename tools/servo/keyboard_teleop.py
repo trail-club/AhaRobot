@@ -48,6 +48,14 @@ ORIGIN_MARGIN = 150  # エンコーダ原点にこれより近いサーボがあ
 MAX_ROM = 1950
 LOAD_SAMPLES = 3  # 負荷はこの回数連続で超えたときだけ効かせる
 HOLD_GRACE = 0.15  # 最後のキー入力からこの秒数だけ動き続ける (キーリピート間隔より長く)
+# 端末のキーリピートは「押した瞬間に 1 回」「約 0.5 秒後から毎秒 30 回」送ってくる。
+# 間隔がこれより短い入力だけを「押しっぱなし」とみなす。1 回叩いただけで連続移動が
+# 始まらないようにするための区別。
+REPEAT_WINDOW = 0.25
+# 1 回の観測でこれ以上実位置が飛んだら異常とみなす。指令できる速度をはるかに
+# 超えているので、機構の暴れ・エンコーダ原点のまたぎ・取り付けの緩みのいずれか。
+# 目標は実位置を追うので、放置すると目標が暴れた実位置を追って発振する。
+MAX_JUMP = 250
 
 
 class Joint:
@@ -72,6 +80,10 @@ class Joint:
         self.load = 0
         self.hold_dir = 0  # 押しっぱなしで動かしている向き
         self.hold_until = 0.0
+        self.key_dir = 0  # 直前のキー入力の向き
+        self.key_at = 0.0
+        self.faulted = False  # 異常な飛びを検出して切り離した
+        self.jumped = 0  # 直近の観測で飛んだ量
         self.over = 0  # 負荷が連続で閾値を超えた回数
         self.stall_ref = 0  # 停止判定の基準にした実位置
         self.stall_at = 0.0
@@ -197,7 +209,10 @@ def measure(bus: Bus, j: Joint, with_load: bool = True) -> None:
     pos = bus.r2(sid, R_POS, tries=2)
     if pos is not None:
         bus.last_raw[sid] = pos
+        prev = j.actual
         j.actual = sign * wrapped(pos - j.start[sid])
+        if abs(j.actual - prev) > MAX_JUMP:
+            j.jumped = abs(j.actual - prev)
     if with_load:
         load = bus.r2(sid, R_LOAD, tries=2)
         if load is not None:
@@ -233,9 +248,9 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--port", default="/dev/ttyUSB0")
     p.add_argument("--baud", type=int, default=115200)
-    p.add_argument("--step", type=int, default=20, help="1 回叩いたときの移動量 (step)")
+    p.add_argument("--step", type=int, default=8, help="1 回叩いたときの移動量 (step)")
     p.add_argument(
-        "--rate", type=int, default=400, help="押しっぱなしのときの速度 (step/秒)"
+        "--rate", type=int, default=250, help="押しっぱなしのときの速度 (step/秒)"
     )
     p.add_argument(
         "--speed",
@@ -327,7 +342,8 @@ def main() -> None:
         for j in JOINTS:
             for sid in j.servos:
                 j.start[sid] = bus.r2(sid, R_POS) or j.start[sid]
-            j.goal = j.actual = j.hold_dir = 0
+            j.goal = j.actual = j.hold_dir = j.key_dir = j.jumped = 0
+            j.faulted = False
             j.blocked_dir = 0
             set_limits(j)
         apply(bus, JOINTS)
@@ -380,15 +396,26 @@ def main() -> None:
                         torque_on = True
                         msg = "トルクON"
                         continue
+                    if j.faulted:
+                        msg = f"{j.name}: 異常検出で切り離し中。0 でトルクを入れ直してください"
+                        continue
                     if j.blocked_dir and (d > 0) == (j.blocked_dir > 0):
                         msg = f"{j.name}: 負荷 {j.load} でこの向きは停止中"
                         continue
-                    if j.hold_dir != d:  # 押し始めは 1 step 分だけ即座に動かす
+                    held = j.key_dir == d and now - j.key_at < REPEAT_WINDOW
+                    if held:
+                        # キーリピートが続いている = 押しっぱなし。連続移動に入る。
+                        j.hold_dir = d
+                        j.hold_until = now + HOLD_GRACE
+                    else:
+                        # 押し始め、または単発の叩き。step 分だけ動かして止める。
                         j.goal = clamp_goal(j, j.goal + d * step, a.lead)
+                        j.hold_dir = 0
+                        j.hold_until = 0.0
                         j.over = 0
                         j.stall_ref, j.stall_at = j.actual, now
-                    j.hold_dir = d
-                    j.hold_until = now + HOLD_GRACE
+                        apply(bus, JOINTS)
+                    j.key_dir, j.key_at = d, now
                     msg = f"{j.name} goal={j.goal:+d}"
             if quit_requested:
                 break
@@ -396,6 +423,8 @@ def main() -> None:
             # 押しっぱなしのあいだだけ動かし続ける。離せば HOLD_GRACE 後に止まる。
             moving = []
             for j in JOINTS:
+                if j.faulted:
+                    continue
                 if j.hold_dir and now < j.hold_until and torque_on:
                     j.goal = clamp_goal(j, j.goal + j.hold_dir * rate * dt, a.lead)
                     moving.append(j)
@@ -423,6 +452,18 @@ def main() -> None:
                         j.stall_ref, j.stall_at = j.actual, now
                         if j.blocked_dir and now - j.blocked_at > BLOCK_COOLDOWN:
                             j.blocked_dir = 0
+                        continue
+
+                    if j.jumped:
+                        # 指令できる速度を超えて実位置が飛んだ。目標が追いかけると
+                        # 発振するので、この関節だけ切り離してトルクを抜く。
+                        for sid in j.servos:
+                            bus.w1(sid, R_TORQUE, 0)
+                        j.faulted = True
+                        j.hold_dir = 0
+                        j.goal = j.actual
+                        msg = f"★{j.name}: 実位置が {j.jumped} step 飛んだので切り離しました"
+                        j.jumped = 0
                         continue
 
                     # 本当に動けないかどうかは、負荷の大きさより「目標が先行して
@@ -453,7 +494,15 @@ def main() -> None:
                 last_draw = now
                 state = "  ".join(
                     f"{j.name}:{j.goal:+5d}/{j.actual:+5d}"
-                    + ("!" if j.blocked_dir else ">" if j.hold_dir else " ")
+                    + (
+                        "X"
+                        if j.faulted
+                        else "!"
+                        if j.blocked_dir
+                        else ">"
+                        if j.hold_dir
+                        else " "
+                    )
                     for j in JOINTS
                 )
                 sys.stdout.write(f"\r\033[K{state}  step={step:<3} | {msg}")
