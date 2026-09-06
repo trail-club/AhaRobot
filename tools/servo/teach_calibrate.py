@@ -33,8 +33,12 @@ class Bus:
         self.pk = PacketHandler(0)
 
     def pos(self, i):
-        v, c, _ = self.pk.read2ByteTxRx(self.ph, i, R_POS)
-        return v if c == COMM_SUCCESS else None
+        # 応答が途中で切れると SDK が IndexError を投げる。記録中に落ちないよう握る。
+        try:
+            v, c, _ = self.pk.read2ByteTxRx(self.ph, i, R_POS)
+            return v if c == COMM_SUCCESS else None
+        except (IndexError, TypeError):
+            return None
 
     def torque(self, i, on):
         for _ in range(3):

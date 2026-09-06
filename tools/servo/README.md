@@ -62,7 +62,7 @@ python3 keyboard_teleop.py
 ```
   w/s  joint0 (ID4-7 を 4 個同時)      r/f  wrist12
   e/d  joint1 (ID8-11 を 4 個同時)     t/g  wrist13
-  y/h  gripper (ID15)
+  u/j  wrist14                        y/h  gripper (ID15)
   [ ]  ステップ幅 -/+        space  その場で停止        0  トルクOFF
   ?    ヘルプ                q      終了 (トルクOFF)
 ```

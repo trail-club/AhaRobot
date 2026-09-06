@@ -8,7 +8,7 @@ python motor_check.py --move 15 --delta 100   # 指定IDだけ ±delta ステッ
 import argparse
 import sys
 import time
-from scservo_sdk import PortHandler, PacketHandler, COMM_SUCCESS
+from scservo_sdk import SCS_MAKEWORD, PortHandler, PacketHandler, COMM_SUCCESS
 
 # --- STS3215 レジスタ ---
 R_ID, R_BAUD, R_OFS, R_MODE = 5, 6, 31, 33
@@ -47,16 +47,44 @@ class Bus:
     # usbip 越しだと単発で取りこぼすことがあるので数回粘る
     def r1(self, i, a, tries=4):
         for _ in range(tries):
-            v, c, e = self.pk.read1ByteTxRx(self.ph, i, a)
-            if c == COMM_SUCCESS:
-                return v
+            try:
+                v, c, e = self.pk.read1ByteTxRx(self.ph, i, a)
+                if c == COMM_SUCCESS:
+                    return v
+            except (IndexError, TypeError):  # 応答が途中で切れると SDK が投げる
+                pass
         return None
 
     def r2(self, i, a, tries=4):
         for _ in range(tries):
-            v, c, e = self.pk.read2ByteTxRx(self.ph, i, a)
-            if c == COMM_SUCCESS:
-                return v
+            try:
+                v, c, e = self.pk.read2ByteTxRx(self.ph, i, a)
+                if c == COMM_SUCCESS:
+                    return v
+            except (IndexError, TypeError):
+                pass
+        return None
+
+    def state(self, i, tries=4):
+        """位置・速度・負荷・電圧・温度をアドレス 56 から 8 バイトまとめて読む。
+
+        同じ長さの読み出しを続けると、usbip 越しでは前回の応答が遅れて届いたものを
+        今回の応答として解釈してしまい、負荷を位置として読むような取り違えが起きる
+        (README の「落とし穴」)。まとめ読みならこれを避けられる。
+        """
+        for _ in range(tries):
+            try:
+                d, c, _ = self.pk.readTxRx(self.ph, i, R_POS, 8)
+                if c == COMM_SUCCESS and len(d) == 8:
+                    return {
+                        "pos": SCS_MAKEWORD(d[0], d[1]),
+                        "speed": SCS_MAKEWORD(d[2], d[3]),
+                        "load": SCS_MAKEWORD(d[4], d[5]),
+                        "volt": d[6],
+                        "temp": d[7],
+                    }
+            except (IndexError, TypeError):
+                pass
         return None
 
     def w1(self, i, a, v):
@@ -83,15 +111,15 @@ def read_all(bus, ids):
         if not bus.ping(i):
             print(f"{i:>3}  -- 応答なし --")
             continue
-        pos = bus.r2(i, R_POS)
-        if pos is None:
-            print(f"{i:>3}  -- ping応答ありだが位置読み出し失敗 --")
+        st = bus.state(i)
+        if st is None:
+            print(f"{i:>3}  -- ping応答ありだが状態読み出し失敗 --")
             continue
+        pos = st["pos"]
         deg = pos / 4096 * 360
-        spd = signed(bus.r2(i, R_SPEED) or 0)
-        load = signed(bus.r2(i, R_LOAD) or 0, 10)
-        volt = bus.r1(i, R_VOLT)
-        temp = bus.r1(i, R_TEMP)
+        spd = signed(st["speed"])
+        load = signed(st["load"], 10)
+        volt, temp = st["volt"], st["temp"]
         mode_v, trq_v = bus.r1(i, R_MODE), bus.r1(i, R_TORQUE)
         cur = signed(bus.r2(i, R_CURRENT) or 0) * 6.5  # 単位 6.5mA
         mode = "?" if mode_v is None else mode_v
