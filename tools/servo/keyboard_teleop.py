@@ -43,6 +43,9 @@ R_POS, R_LOAD = 56, 60
 BLOCK_COOLDOWN = 0.6  # 動けないと判定した向きを止めておく秒数
 STALL_MOVE = 3  # これ以下しか動かなければ止まっているとみなす (step)
 ORIGIN_MARGIN = 150  # エンコーダ原点にこれより近いサーボがある関節は動かさない
+# 位置指令は 0-4095 しか出せないので、中点から片側に出せるのは高々 2047 step。
+# 機構がそれ以上回っても指令できないため、可動量はここで頭打ちにする。
+MAX_ROM = 1950
 LOAD_SAMPLES = 3  # 負荷はこの回数連続で超えたときだけ効かせる
 HOLD_GRACE = 0.15  # 最後のキー入力からこの秒数だけ動き続ける (キーリピート間隔より長く)
 
@@ -56,7 +59,9 @@ class Joint:
         self.name = name
         self.servos = servos  # {サーボID: 符号(+1/-1)}
         self.keys = keys
-        self.rom = limit  # 実測可動域の約半分
+        # 機構が 1 回転を超えて回っても、位置指令は中点から片側 2047 step までしか
+        # 出せない。ここで頭打ちにしておかないと範囲外の指令になる。
+        self.rom = min(limit, MAX_ROM)  # 実測可動域の約半分
         self.lim_pos = limit  # 起動時にサーボの余裕から決め直す
         self.lim_neg = limit
         self.goal = 0  # 指令中のオフセット
@@ -72,15 +77,17 @@ class Joint:
         self.stall_at = 0.0
 
 
-# 符号は実機の実測値 (|r| = 1.00)。limit は teach_calibrate.py で測った可動域の約半分。
-# どちらも docs/servo-bringup.md を参照。
+# 符号は実機の実測値 (|r| = 1.00)。limit は teach_calibrate.py で測った可動域の
+# 半分から余裕を引いた値。どちらも docs/servo-bringup.md を参照。
+# wrist12 は機構の可動域が 415 度あって 1 回転に収まらないので MAX_ROM で頭打ちに
+# なる。両端の約 30 度ずつは位置モードでは指令できない。
 JOINTS = [
-    Joint("joint0", {4: +1, 5: -1, 6: -1, 7: +1}, ("w", "s"), 1000),
-    Joint("joint1", {8: +1, 9: -1, 10: -1, 11: +1}, ("e", "d"), 1050),
-    Joint("wrist12", {12: +1}, ("r", "f"), 2000),
-    Joint("wrist13", {13: +1}, ("t", "g"), 1350),
-    Joint("wrist14", {14: +1}, ("u", "j"), 1000),
-    Joint("gripper", {15: +1}, ("y", "h"), 1150),
+    Joint("joint0", {4: +1, 5: -1, 6: -1, 7: +1}, ("w", "s"), 920),
+    Joint("joint1", {8: +1, 9: -1, 10: -1, 11: +1}, ("e", "d"), 990),
+    Joint("wrist12", {12: +1}, ("r", "f"), 2362),
+    Joint("wrist13", {13: +1}, ("t", "g"), 1360),
+    Joint("wrist14", {14: +1}, ("u", "j"), 1650),
+    Joint("gripper", {15: +1}, ("y", "h"), 1310),
 ]
 
 HELP = """
