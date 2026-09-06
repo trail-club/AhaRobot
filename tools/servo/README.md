@@ -35,6 +35,7 @@ WSL の場合は Windows 側で `usbipd attach --wsl --busid <id>` も必要。
 | `nudge_check.py` | 1個ずつトルクを入れて微動させ、単体動作と連動相手を調べる |
 | `teach_calibrate.py` | **トルクOFFのまま手で動かして**可動域と対向符号を記録 |
 | `keyboard_teleop.py` | キーボードで各関節を動かす。対向関節は 4 個同時 |
+| `rezero.py` | サーボの中点を取り直す (EEPROM 書き込み) |
 
 ### キーボードで動かす
 
@@ -79,12 +80,21 @@ joint0          0     229   +側: ID5 -側: ID6  ★原点に近すぎるため�
 対処は 2 つ。
 
 1. トルクOFF のまま手でその関節を中央寄りへ動かして起動し直す
-2. 各サーボの中点を校正し直す。純正ファームの Web UI なら
-   `/cmd?inputT=1&inputI=11` (Set Middle Position)。AhaRobot のファームでは
-   `setupTorque(128)` が同じことをする
+2. `rezero.py --apply` で中点を取り直す (EEPROM 書き込み)
 
-実機では ID5 (joint0) と ID8 (joint1) が原点に張り付いており、2 を実施しない限り
-これらの関節は片側にしか動かせない。
+### 可動域の校正手順
+
+原点付近に止まっているサーボがあると全域を測れないので、順序が要る。
+
+```bash
+python3 rezero.py                     # 現状確認 (書き込まない)
+python3 rezero.py --apply             # 現在位置を 2048 として登録
+python3 teach_calibrate.py --seconds 120   # 手で全域を動かして実測
+python3 rezero.py --apply             # 実測した中心へ手で動かしてから再実行
+```
+
+`rezero.py` はレジスタ 40 に 128 を書いてサーボ自身に中点を登録させる
+(Feetech SDK の CalibrationOfs 相当)。AhaRobot の `doInitJoint` と同じ手順。
 
 **目標を先行させない理由**: これがないと、機械端や過負荷で関節が動けない
 あいだもキーを押した分だけ目標が進み続け、逆へ動かすのに先行ぶんを打ち消す
