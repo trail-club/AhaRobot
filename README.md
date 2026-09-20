@@ -109,6 +109,8 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 - [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限
 - [Docker 開発環境](docs/docker.md) — コンテナで sim を立ち上げる手順
 - [CAD 寸法メモ](docs/cad-measurements.md) — Astra.STEP から抽出した / できていない寸法
+- [サーボ立ち上げ実測メモ](docs/servo-bringup.md) — 実機の ID 構成 / 対向符号 / 可動域（**焼く前に必読**）
+- [サーボ立ち上げツール](tools/servo/README.md) — 配線・可動域・符号を実機で測るスクリプト
 
 ## ロードマップ (概要)
 

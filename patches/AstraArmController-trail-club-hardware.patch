@@ -1,0 +1,124 @@
+diff --git a/include/dualMotor.h b/include/dualMotor.h
+index f385d2b..9fe06b0 100644
+--- a/include/dualMotor.h
++++ b/include/dualMotor.h
+@@ -6,6 +6,10 @@
+ #define JOINT_NUM 2
+ #define NONE_JOINT_NUM 4
+ 
++// 単発関節のサーボID。-1 は「その関節のサーボが実装されていない」。
++// 元コードは 12,13,14,15 の連番決め打ちだった。
++extern const int NONE_JOINT_ID[NONE_JOINT_NUM];
++
+ void dualMotorUpdatePos(uint16_t pos[]);
+ 
+ void dualMotorSetup();
+diff --git a/platformio.ini b/platformio.ini
+index 7d4c2de..1d3146f 100644
+--- a/platformio.ini
++++ b/platformio.ini
+@@ -15,4 +15,4 @@ framework = arduino
+ lib_deps = adafruit/Adafruit SSD1306@^2.5.10
+ monitor_speed = 921600
+ board_build.f_cpu = 240000000L
+-upload_port = /dev/tty_puppet_right
++upload_port = /dev/ttyUSB0
+diff --git a/src/dualMotor.cpp b/src/dualMotor.cpp
+index b1a987b..626890e 100644
+--- a/src/dualMotor.cpp
++++ b/src/dualMotor.cpp
+@@ -7,6 +7,16 @@
+ 
+ SMS_STS sts;
+ 
++// 各サーボの取付向き。+1 はそのまま、-1 は反転取付（位置は 4096-pos、出力は符号反転）。
++// 元の実装は {+1,-1,+1,-1} を全関節に決め打ちしていたが、実機の組み付けが
++// リファレンスと違うことがあるので表に出した。teach_calibrate.py --verify が
++// 実測から出力する値をそのまま貼ること。符号が実機と違うと、4個のうち2個が
++// 残り2個を PWM 800/1000 で押し返して関節が固着する。
++const int JOINT_SERVO_SIGN[4 * JOINT_NUM] = {
++  +1, -1, -1, +1,   // joint0: ID4, ID5, ID6, ID7   実測（台座固定後, |r|=1.00）
++  +1, -1, -1, +1,   // joint1: ID8, ID9, ID10, ID11  実測（|r|=1.00）
++};
++
+ #define TIMER_TIMEOUT_US 15000 // change: current_meas_period
+ // velocity update in servo seems at 50Hz.
+ 
+@@ -17,6 +27,13 @@ float last_pos[JOINT_NUM + NONE_JOINT_NUM] = { 2048, 2048, 2048, 2048, 2048, 204
+ float last_vel[JOINT_NUM + NONE_JOINT_NUM] = { 0 };
+ 
+ uint16_t none_joint_goal_pos[NONE_JOINT_NUM] = { 2048, 2048, 2048, 2048,  };
++
++// 単発関節のサーボID。元コードは 12,13,14,15 の連番決め打ちだったが、機体に
++// よってはサーボが欠けるので表にした。-1 を入れるとそのスロットは読み書きを
++// 飛ばし、常に 2048(=0rad) を返す。スロット数(=6自由度)は変えないので、
++// 欠番があってもホスト側の通信フォーマットとグリッパの添字は影響を受けない。
++const int NONE_JOINT_ID[NONE_JOINT_NUM] = { 12, 13, 14, 15 };
++#define NONE_JOINT_ABSENT_POS 2048
+ uint16_t raw_goal_pos[JOINT_NUM] = { 2048, 2048,  };
+ 
+ #define ACC 100
+@@ -32,9 +49,13 @@ void read_pos() {
+   }
+   int raw_pos_non_joint[NONE_JOINT_NUM];
+   for (int i = 0; i < NONE_JOINT_NUM; ++i) {
+-    raw_pos_non_joint[i] = sts.ReadPos(4 + 4 * JOINT_NUM + i);
++    if (NONE_JOINT_ID[i] < 0) { // 実装されていないスロット
++      raw_pos_non_joint[i] = NONE_JOINT_ABSENT_POS;
++      continue;
++    }
++    raw_pos_non_joint[i] = sts.ReadPos(NONE_JOINT_ID[i]);
+     if (sts.Err == 1) {
+-      Serial.print("Error reading #"); Serial.print(4 + 4 * JOINT_NUM + i); Serial.print(", checkout your wire connection"); Serial.println();
++      Serial.print("Error reading #"); Serial.print(NONE_JOINT_ID[i]); Serial.print(", checkout your wire connection"); Serial.println();
+     }
+   }
+ 
+@@ -50,7 +71,12 @@ void read_pos() {
+   // average load into 4 servo
+   float pos[JOINT_NUM + NONE_JOINT_NUM];
+   for (int i = 0; i < JOINT_NUM; ++i) {
+-    pos[i] = (raw_pos[i * 4] + (4096 - raw_pos[i * 4 + 1]) + raw_pos[i * 4 + 2] + (4096 - raw_pos[i * 4 + 3])) / 4.0;
++    float sum = 0;
++    for (int j = 0; j < 4; ++j) {
++      int v = raw_pos[i * 4 + j];
++      sum += (JOINT_SERVO_SIGN[i * 4 + j] > 0) ? v : (4096 - v);
++    }
++    pos[i] = sum / 4.0;
+   }
+ 
+   for (int i = 0; i < NONE_JOINT_NUM; ++i) {
+@@ -107,7 +133,8 @@ void doSetupTorque(int enable) {
+   }
+ 
+   for (int i = 0; i < NONE_JOINT_NUM; ++i) {
+-    sts.EnableTorque(4 + 4 * JOINT_NUM + i, enable);
++    if (NONE_JOINT_ID[i] < 0) continue;
++    sts.EnableTorque(NONE_JOINT_ID[i], enable);
+   }
+ 
+   if (enable == 0) {
+@@ -284,10 +311,9 @@ void timer_callback(void *arg) {
+   for (int i = 0; i < JOINT_NUM; ++i) {
+     // float backlash_compensate_feedforward = config.joint_backlash_compensate_feedforward;
+     float backlash_compensate_feedforward = 150;
+-    raw_out[i * 4] = backlash_compensate_feedforward + out[i];
+-    raw_out[i * 4 + 1] = backlash_compensate_feedforward + -out[i];
+-    raw_out[i * 4 + 2] = backlash_compensate_feedforward + out[i];
+-    raw_out[i * 4 + 3] = backlash_compensate_feedforward + -out[i];
++    for (int j = 0; j < 4; ++j) {
++      raw_out[i * 4 + j] = backlash_compensate_feedforward + JOINT_SERVO_SIGN[i * 4 + j] * out[i];
++    }
+   }
+ 
+   for (int i = 0; i < 4 * JOINT_NUM; ++i) {
+@@ -299,7 +325,8 @@ void timer_callback(void *arg) {
+   }
+ 
+   for (int i = 0; i < NONE_JOINT_NUM; ++i) {
+-    sts.WritePosEx(4 + 4 * JOINT_NUM + i, none_joint_goal_pos[i], config.non_joint_vel_max, config.non_joint_acc);
++    if (NONE_JOINT_ID[i] < 0) continue;
++    sts.WritePosEx(NONE_JOINT_ID[i], none_joint_goal_pos[i], config.non_joint_vel_max, config.non_joint_acc);
+   }
+ 
+   // In timer thread, Racing condition with main thread
