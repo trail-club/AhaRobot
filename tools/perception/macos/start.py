@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import platform
 import shutil
@@ -133,15 +134,30 @@ def main() -> int:
         "ROS_DOMAIN_ID": env.get("ROS_DOMAIN_ID", "1"),
         "DISPLAY": "novnc:0.0",
     })
-    sdk_lib = Path("/private/tmp/aharobot-realsense-install/lib")
-    if sdk_lib.is_dir():
-        env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
-            filter(None, (str(sdk_lib), env.get("DYLD_LIBRARY_PATH", "")))
-        )
+    local_sdk_lib = Path(sys.prefix) / "realsense-sdk/lib"
+    legacy_sdk_lib = Path("/private/tmp/aharobot-realsense-install/lib")
+    env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
+        filter(None, (
+            str(local_sdk_lib),
+            str(legacy_sdk_lib) if legacy_sdk_lib.is_dir() else "",
+            env.get("DYLD_LIBRARY_PATH", ""),
+        ))
+    )
 
     stream_script = HERE / ("stream_demo.py" if args.demo else "stream_realsense.py")
     elevated_camera = False
     if not args.demo:
+        if importlib.util.find_spec("pyrealsense2") is None:
+            managed_venv = Path(sys.prefix).resolve() == (ROOT / ".venv-perception-macos").resolve()
+            if not managed_venv:
+                print(
+                    "[perception] pyrealsense2 is missing from the selected Python environment",
+                    file=sys.stderr,
+                )
+                return 1
+            print("[perception] RealSense Python binding is missing; preparing it locally...", flush=True)
+            if run([sys.executable, str(HERE / "bootstrap_realsense.py")], env=env, check=False).returncode:
+                return 1
         print("[perception] Checking RealSense camera and Python binding...", flush=True)
         elevated_camera = check_camera(stream_script, env)
         if elevated_camera is None:

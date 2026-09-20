@@ -1,7 +1,3 @@
 # Mac host dependencies for the RealSense -> rosbridge development path.
-# Python 3.11 is recommended because pyrealsense2 wheel availability depends
-# on the Python and CPU architecture combination.
 numpy>=1.26,<3
 websocket-client>=1.8,<2
-# On macOS, the RealSense SDK Python binding must be installed separately.
-pyrealsense2>=2.55.1; platform_system != "Darwin"

@@ -254,11 +254,11 @@ class RosbridgePublisher:
 def _load_realsense() -> Any:
     try:
         import pyrealsense2 as rs
-    except ImportError as exc:  # pragma: no cover - exercised by setup
+    except (ImportError, OSError) as exc:  # pragma: no cover - exercised by setup
         raise StreamError(
-            "pyrealsense2 is not installed or cannot be loaded. "
-            "Install the Mac dependencies and check the RealSense SDK/Python "
-            "architecture combination."
+            f"pyrealsense2 could not be loaded by {sys.executable}: {exc}. "
+            "The RealSense SDK Python binding must match this Python version "
+            "and CPU architecture."
         ) from exc
     return rs
 
