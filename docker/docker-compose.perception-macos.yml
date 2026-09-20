@@ -1,0 +1,37 @@
+# Mac-only RGB-D development overlay.
+#
+# Unlike the common compose file, this route has no USB device mount and no
+# privileged container.  The Mac host owns RealSense USB access; only the
+# rosbridge WebSocket port crosses into the container.
+services:
+  aha_project:
+    image: trail/aharobot-jazzy-perception-macos:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.perception-macos
+      args:
+        USER_ID: "${USER_ID:-501}"
+        GROUP_ID: "${GROUP_ID:-20}"
+    network_mode: ""
+    networks:
+      - perception_gui
+    ports:
+      - "127.0.0.1:9090:9090"
+    privileged: false
+    environment:
+      DISPLAY: "novnc:0.0"
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-1}"
+      QT_X11_NO_MITSHM: "1"
+      LIBGL_ALWAYS_SOFTWARE: "${LIBGL_ALWAYS_SOFTWARE:-1}"
+    volumes: !override
+      - ../:/app/
+    extra_hosts: !override []
+
+  novnc:
+    networks:
+      - perception_gui
+    hostname: novnc
+
+networks:
+  perception_gui:
+    driver: bridge

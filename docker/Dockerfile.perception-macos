@@ -1,0 +1,18 @@
+# Mac RealSense development image.
+# The camera stays on macOS; this image only adds the ROS-side WebSocket bridge
+# to the existing Jazzy development image.
+FROM trail/aharobot-jazzy:latest
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG USERNAME=trail
+
+USER root
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ros-jazzy-depth-image-proc \
+      ros-jazzy-rosbridge-server \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+USER ${USERNAME}

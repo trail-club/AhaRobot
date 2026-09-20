@@ -4,9 +4,8 @@ project(aha_perception)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY launch config rviz
+  DIRECTORY launch rviz
   DESTINATION share/${PROJECT_NAME}
-  OPTIONAL
 )
 
 ament_package()
