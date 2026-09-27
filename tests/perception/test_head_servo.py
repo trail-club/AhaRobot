@@ -30,7 +30,8 @@ MOVE_DEG = {PAN_ID: 30.0, TILT_ID: 20.0}
 STEPS_PER_REV = 4096
 POS_MIN, POS_MAX = 0, 4095
 
-VOLT_RANGE = (10.0, 13.0)
+# Upper bound: Waveshare Servo Driver with ESP32 spec for ST servos (6-12.6V).
+VOLT_RANGE = (10.0, 12.6)
 TEMP_MAX = 60
 
 TOLERANCE = 15
