@@ -26,6 +26,25 @@ usbip 越し (WSL) では応答が遅れて届くことがある。SDK は送信
 `keyboard_teleop.py` の `Bus.state()` を参照。書き込み速度は無関係で、100Hz で
 書いて即読んでも、まとめ読みなら飛びは最大 5 step だった。
 
+## 落とし穴: usbip が空読みで切断扱いにする
+
+WSL から `keyboard_teleop.py` を起動すると、現在位置の読み出しで次の例外が出て
+落ちることがある。
+
+```
+serial.serialutil.SerialException: device reports readiness to read but returned no data (device disconnected or multiple access on port?)
+```
+
+SDK はポートを `timeout=0` で開く。データが無いあいだ Linux 版 pyserial は空を
+返し、SDK はそれを再試行する。usbip 越しだと `select` が「読める」と返した直後に
+`read` が 0 バイトになることがあり、pyserial はケーブルを抜かれたときと同じ例外に
+する。Windows の COM を直接読んだ場合はこの例外にはならない。素の Linux に
+CP2102 を直挿しした場合も、通常は出ない。
+
+`keyboard_teleop.py` はこの例外を掴んでポートを開き直し、読み直す。起動時と
+再同期の位置は 2 バイト読みではなく `Bus.state()` の 6 バイト読みを使う。
+トルクを入れる前に落ちた場合、アームは動いていない。
+
 ## 前提: 制御基板をシリアル透過モードにする
 
 現状の基板 (Waveshare "Servo Driver with ESP32") には純正デモファームが載っており、

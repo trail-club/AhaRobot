@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import select
+import serial
 import sys
 import termios
 import time
@@ -123,14 +124,30 @@ class Bus:
         self.last_raw: dict[int, int] = {}
         self.last_cmd: dict[int, int] = {}
 
+    def _recover(self) -> None:
+        """usbip が『読める』と返して 0 バイトのとき、ポートを開き直す。
+
+        pyserial は timeout=0 で select が準備完了なのに read が空だと
+        SerialException を投げる。掴んでおかないと起動中の位置読みで落ち、
+        トルクを切る finally まで届かない。
+        """
+        try:
+            if self.ph.ser is not None:
+                self.ph.ser.close()
+        except Exception:
+            pass
+        self.ph.is_open = False
+        time.sleep(0.05)
+        self.ph.openPort()
+
     def r2(self, i: int, a: int, tries: int = 4) -> int | None:
         for _ in range(tries):
             try:
                 v, c, _ = self.pk.read2ByteTxRx(self.ph, i, a)
                 if c == COMM_SUCCESS:
                     return v
-            except (IndexError, TypeError):  # 応答が途中で切れると SDK が投げる
-                pass
+            except (IndexError, TypeError, serial.SerialException):
+                self._recover()
         return None
 
     def state(self, i: int, tries: int = 3) -> tuple[int, int] | None:
@@ -146,15 +163,27 @@ class Bus:
                 d, c, _ = self.pk.readTxRx(self.ph, i, R_POS, 6)
                 if c == COMM_SUCCESS and len(d) == 6:
                     return SCS_MAKEWORD(d[0], d[1]), SCS_MAKEWORD(d[4], d[5])
-            except (IndexError, TypeError):
-                pass
+            except (IndexError, TypeError, serial.SerialException):
+                self._recover()
         return None
 
-    def w1(self, i: int, a: int, v: int) -> bool:
-        return self.pk.write1ByteTxRx(self.ph, i, a, v)[0] == COMM_SUCCESS
+    def w1(self, i: int, a: int, v: int, tries: int = 4) -> bool:
+        for _ in range(tries):
+            try:
+                if self.pk.write1ByteTxRx(self.ph, i, a, v)[0] == COMM_SUCCESS:
+                    return True
+            except (IndexError, TypeError, serial.SerialException):
+                self._recover()
+        return False
 
-    def w2(self, i: int, a: int, v: int) -> bool:
-        return self.pk.write2ByteTxRx(self.ph, i, a, v)[0] == COMM_SUCCESS
+    def w2(self, i: int, a: int, v: int, tries: int = 4) -> bool:
+        for _ in range(tries):
+            try:
+                if self.pk.write2ByteTxRx(self.ph, i, a, v)[0] == COMM_SUCCESS:
+                    return True
+            except (IndexError, TypeError, serial.SerialException):
+                self._recover()
+        return False
 
     def close(self) -> None:
         self.ph.closePort()
@@ -185,7 +214,10 @@ def apply(bus: Bus, joints: list[Joint]) -> None:
             v = max(0, min(4095, j.start[sid] + sign * j.goal))
             bus.last_cmd[sid] = v
             bus.sync.addParam(sid, [SCS_LOBYTE(v), SCS_HIBYTE(v)])
-    bus.sync.txPacket()
+    try:
+        bus.sync.txPacket()
+    except serial.SerialException:
+        bus._recover()
 
 
 def set_limits(j: Joint) -> None:
@@ -311,7 +343,8 @@ def main() -> None:
     print("現在位置を読み出し中…")
     for j in JOINTS:
         for sid in j.servos:
-            pos = bus.r2(sid, R_POS)
+            got = bus.state(sid, tries=6)
+            pos = None if got is None else got[0]
             if pos is None:
                 bus.close()
                 sys.exit(
@@ -363,7 +396,8 @@ def main() -> None:
         """現在位置を新しい基準にして、指令の溜まりを捨てる。"""
         for j in JOINTS:
             for sid in j.servos:
-                j.start[sid] = bus.r2(sid, R_POS) or j.start[sid]
+                got = bus.state(sid)
+                j.start[sid] = j.start[sid] if got is None else got[0]
             j.goal = j.actual = j.hold_dir = j.key_dir = j.jumped = 0
             j.faulted = False
             j.blocked_dir = 0
