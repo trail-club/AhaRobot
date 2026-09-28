@@ -181,3 +181,22 @@ joint1 span 2105-2114) のほうが端まで振れている。teleop の可動�
 - バックラッシュ中点 `config.init_pos[]` を測定して ESP32 の EEPROM に保存
 
 一度実行すると純正ファームに戻しても設定は残る。
+
+
+## 実装進捗状況(2026-09-27)
+1. **バックアップ**: 純正ファームの Flash 全域 (4MB) とサーボ EEPROM を保存
+   ([`tools/firmware/backup/backup_0927/`](../tools/firmware/backup/backup_0927/README.md))
+2. **パッチ適用・書き込み**: パッチを当てた AstraArmController を書き込み、起動を確認(espressif32 7.1.3 / Arduino-ESP32 2.0.17、`erase-flash` 後に 460800 bps で書き込み)
+3. **動作確認**: 静置で関節が自転しない (符号表は正しい)。joint0 / joint1 とも ±30° の往復で最大誤差 約 10%.
+
+### 追加したスクリプト (`tools/servo/`)
+| スクリプト | 用途 |
+| --- | --- |
+| `servo_snapshot.py` | サーボ EEPROM のダンプ / 単体位置のモニタ (純正ファーム + Serial Forwarding 用) |
+| `init_arm.py` | 中心確認と初期化 |
+| `check_zero.py` | PID なしでトルクを入れ、位置を記録する静置テスト |
+| `motion_test.py` | joint0 / joint1 の単関節簡単往復。リミットと誤差監視|
+
+### 未完了
+- wrist (ID12–14) とグリッパの動作テスト
+- firmwareを焼き込みた後、再キャリブレーション必要？
