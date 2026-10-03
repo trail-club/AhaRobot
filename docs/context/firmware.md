@@ -22,7 +22,7 @@ OLED / Wi-Fiの初期化まで到達しない挙動と判断した。
 UARTコマンドから透過モードへ移れないかも試したが、試した書式では受け付けられなかった。
 具体的なコマンド列と起動ログは保存されておらず、純正デモ全般の仕様とは断定しない。
 
-純正4 MBフラッシュを [backup/](../../tools/firmware/backup/) に保存した上で、
+純正4 MBフラッシュを [right_arm/Aharobot_esp32_backup.bin](../../tools/firmware/right_arm/Aharobot_esp32_backup.bin) に保存した上で、
 Wi-Fiを使わないUARTブリッジによる通信を試した。
 USBとサーボバスの両側を1 Mbpsにした条件では、macOSのCP2102経由で応答が0バイトだった。
 USB側921600 bps、サーボバス側1 Mbpsの条件に変更すると応答が得られた。
@@ -43,7 +43,7 @@ Wi-Fi起動やWeb UIに依存せずサーボバスの確認を進めるため、
 
 ### 対象・条件
 
-[backup_0927/](../../tools/firmware/backup/backup_0927/) に、AstraArmController導入前の
+[left_arm/](../../tools/firmware/left_arm/) に、AstraArmController導入前の
 Waveshare Servo Driver with ESP32の純正デモを保存した。
 記録上のチップはESP32-D0WD-V3（revision v3.1、40 MHz）、MACは `28:05:a5:c4:f7:44`、
 フラッシュは4 MB（manufacturer 0x46 / device 0x4016、3.3 V）。
@@ -82,7 +82,30 @@ AstraArmControllerはLittleFSの `/config.txt` に設定を保存し、`LittleFS
 espressif32 7.1.3 / Arduino-ESP32 2.0.17、460800 bpsで書き込み、起動を確認したと記録されている。
 関節動作の確認範囲は [モーターの検証記録](motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。
 
-`esp32_backup/Aharobot_esp32_backup.bin` はこのバックアップとSHA256が一致する複製。
-同日の `stock-waveshare-esp32-2026-09-27.bin` はSHA256が異なるため、同じdumpとして扱わない。
-両者が同じ基板から取得されたと確認できる対応付けは残っていない。
-保存ファイルと取得・復元手順は [ファームウェアツール](../../tools/firmware/README.md#バックアップ)を参照。
+同日に右腕側で取得した純正デモdump
+[right_arm/Aharobot_esp32_backup.bin](../../tools/firmware/right_arm/Aharobot_esp32_backup.bin)
+は、左腕側のdumpとはSHA256が異なるため、同じ基板から取得されたものではない。
+両者の対応付けを示す記録は残っていない。
+保存ファイルと取得・復元手順は [ファームウェアツール](../../tools/firmware/README.md#バックアップの取得と照合)を参照。
+
+## 2026-10-03 — 右腕側ESP32の `init_arm.py` 実行前サーボ状態
+
+### 対象・条件
+
+右腕側のESP32基板で `init_arm.py` を実行する前のサーボ状態を
+[right_arm/](../../tools/firmware/right_arm/) に保存した。採取時点で既に
+AstraArmControllerが焼かれており、LittleFSの `/config.txt` を失わないよう
+Flash全域をdumpしてからサーボEEPROMを取得した。MACは `28:05:a5:c4:d4:3c` で、
+左腕側（`28:05:a5:c4:f7:44`）とは別個体。
+採取時のフルdumpは `/config.txt` を含みキャリブ値と個体依存情報を持つため、
+リポジトリには残していない。復元用の純正デモdumpは `right_arm/Aharobot_esp32_backup.bin`
+（同日2026-09-27取得）を使う。
+
+### 吸い出し手順と、macOS CP2102での注意
+
+AstraArmControllerのUART0はサーボバスへの素通し窓口を持たないため、サーボEEPROMの
+吸い出しは `bridge/` を一時書き込みして行い、採取後にフルdumpを書き戻した。
+左腕時（WSL + usbipd）は460800 bpsで安定していたが、macOS CP2102では460800 bpsで
+読み出し中にハングする事例があり、230400 bpsで安定した。ドライバ・ケーブル・USBハブの
+どれが原因かは切り分けていない。採取手順と各ツールの引数は
+[tools/firmware/README.md](../../tools/firmware/README.md#astraarmcontrollerが焼かれた状態からサーボeepromを吸い出す手順)を参照。

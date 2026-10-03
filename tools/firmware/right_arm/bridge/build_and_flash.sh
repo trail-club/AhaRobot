@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # arduino-cli を使って uart_bridge をコンパイル & 焼き込む。
 # 純正ファームを差し替えるので、事前にバックアップを取っておくこと
-# (tools/firmware/backup/stock-*.bin)。
+# (tools/firmware/right_arm/backup/stock-*.bin)。
 #
 # 依存: arduino-cli (brew install arduino-cli)、esptool (uv pip install esptool)。
 
