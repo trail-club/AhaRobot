@@ -29,9 +29,9 @@ print("=" * 60)
 print(
     "About to run zero-point initialization (writes to servo EEPROM and ESP32 LittleFS)"
 )
-print("  - Is the gripper opened to 60 mm total (30 mm per jaw)?")
+print("  - Is the gripper fully closed (0 mm opening)?")
 print(
-    "    (Init will declare the CURRENT physical position as the 60-mm-open midpoint.)"
+    "    (Init declares the CURRENT physical position as raw 3496 = 0 mm; raw 2048 then becomes 60 mm open.)"
 )
 print(
     "  - Are joint0/1 set to the URDF zero pose (upper arm tilted 10.6°, forearm perpendicular to the mount x-axis), and the base fixed?"
