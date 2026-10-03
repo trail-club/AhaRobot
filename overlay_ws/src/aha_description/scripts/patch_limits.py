@@ -23,10 +23,10 @@ DEFAULTS = {
     ("prismatic", "joint_r7"): (30.0, 0.2),
     ("prismatic", "joint_l7"): (30.0, 0.2),
     # arm revolute
-    ("revolute",  "joint_r"):  (30.0, 2.0),
-    ("revolute",  "joint_l"):  (30.0, 2.0),
+    ("revolute", "joint_r"): (30.0, 2.0),
+    ("revolute", "joint_l"): (30.0, 2.0),
     # head revolute (light)
-    ("revolute",  "joint_head"): (10.0, 3.0),
+    ("revolute", "joint_head"): (10.0, 3.0),
 }
 FALLBACK = {"prismatic": (50.0, 0.5), "revolute": (20.0, 2.0)}
 

@@ -1,45 +1,32 @@
 # overlay_ws
 
-チーム独自コード置き場。`upstream/*` を触らずに、上から機能を追加していく。
+AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が必要なsubmoduleを
+`src/` へリンクし、同じworkspaceでビルドする。
 
 ## パッケージ
 
-| package | 役割 |
+| package | 内容 |
 | --- | --- |
-| `aha_description` | 上流 URDF を xacro で wrap し、差動二輪ベース / `<ros2_control>` / (将来) センサを追加 |
-| `aha_gazebo` | SOBITS Japan Open world準備、Gazebo起動、回帰テスト |
-| `aha_bringup` | sim / real の統合起動 launch |
+| `aha_description` | URDF xacro、差動二輪ベース、ros2_control設定 |
+| `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
+| `aha_bringup` | ロボット生成とcontrollerの起動 |
+| `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
+| `aha_msgs` | msg / srv / action定義 |
+| `aha_navigation` | navigation用パッケージ。launchはスタブ |
+| `aha_manipulation` | manipulation用パッケージ。launchはスタブ |
+| `aha_perception` | 知覚用パッケージ。実行手順は[README](src/aha_perception/README.md)を参照 |
 
-## 前提
+## ビルド・起動
 
-- Ubuntu 24.04
-- ROS 2 Jazzy (`sudo apt install ros-jazzy-desktop`)
-- Gazebo Harmonic (`sudo apt install ros-jazzy-ros-gz`)
-- `ros-jazzy-gz-ros2-control` `ros-jazzy-joint-trajectory-controller` `ros-jazzy-diff-drive-controller` `ros-jazzy-joint-state-broadcaster` `ros-jazzy-forward-command-controller` `ros-jazzy-xacro`
+コマンドは [開発コンテナの起動フロー](../docs/docker.md#起動フロー)を参照。
 
-`rosdep` でまとめて入れる:
-
-```bash
-cd <repo root>
-rosdep install --from-paths overlay_ws/src \
-  upstream/astra_description upstream/astra_controller_interfaces \
-  upstream/sobits_gazebo_worlds upstream/tmc_wrs_gz/tmc_wrs_gz_worlds \
-  --ignore-src -r -y --skip-keys "gz_human_sim sobits_interfaces"
-```
-
-## ビルド
-
-```bash
-# 開発コンテナ内で
-cd /app/overlay_ws
-colcon build --symlink-install --packages-up-to aha_bringup
-source install/setup.bash
-```
-
-依存は `git clone --recursive` で取得する。開発コンテナがworkspaceへリンクし、通常ビルドに含める。
-[Japan Openの起動設定](../docs/sobits-rcjo2026.md)を参照。
+world・spawn設定は [Japan Open起動設定](../docs/sobits-rcjo2026.md)、
+controllerとROSの入出力は [インターフェース](../docs/interfaces.md)を参照。
 
 ## テスト
+
+PR前の標準チェックはホストで [make test](../AGENTS.md#動作確認) を実行する。
+上流パッケージも含めて再検証する場合は、開発コンテナ内で以下を実行する。
 
 ```bash
 cd /app/overlay_ws
@@ -61,75 +48,9 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 上流のその他のチェックと、`aha_gazebo` のworld・launch回帰テストは引き続き実行する。
 `astra_controller_interfaces` のlintは除外対象に含めない。
 
-## 動作確認済み (2026-08-30)
+## 制限
 
-以下はデフォルトをJapan Openへ変更する前の空worldでの確認結果。
-
-Docker (macOS/Apple Silicon) で以下を確認:
-- `colcon build` 成功 (astra_description / aha_description / aha_gazebo / aha_bringup)
-- `ros2 launch aha_bringup sim.launch.py headless:=true` で:
-  - 8 controllers すべて active
-  - `/joint_states` @ 100 Hz
-  - `/diff_drive_controller/cmd_vel` に 0.3 m/s → `/odom` が前進を報告
-  - `ros2 run aha_bringup demo_arms.sh` で頭 / 左右腕 / 昇降 / グリッパが指令値通り動く
-
-## 起動
-
-**URDF を RViz で確認 (Gazebo 不要):**
-
-```bash
-ros2 launch aha_description view_robot.launch.py
-```
-
-**Gazebo Harmonic で sim 全体を起動:**
-
-```bash
-ros2 launch aha_bringup sim.launch.py
-```
-
-引数:
-
-- `world:=rcjo2026` (default) — SOBITS Japan Open 2026、spawn `(-2.0, 1.5, 0.10)` m
-- `world:=empty.sdf` — 空world、spawn `(0.0, 0.0, 0.05)` m
-- `world_path:=/absolute/path/world.sdf` — 展開済みSDFで上書き、空worldと同じ既定spawn
-- `spawn_x` / `spawn_y` / `spawn_z` / `spawn_yaw` — 初期位置の上書き
-- `use_sim_time:=true` (default)
-- `headless:=true` — GUI 無し (macOS / CI 推奨)
-
-**ベースをキーボードで走らせる (別シェルで):**
-
-```bash
-docker exec -it aharobot-aha_project-1 bash
-aha_teleop   # i/j/k/l/, で操作
-```
-
-**腕・頭・グリッパのデモ:**
-
-```bash
-aha_demo     # 頭 pan +0.4, 左右腕を対称ポーズ, 昇降 +0.2m, 右グリッパ open
-```
-
-**動作確認:**
-
-```bash
-# 前進コマンド
-ros2 topic pub /diff_drive_controller/cmd_vel geometry_msgs/msg/TwistStamped \
-  '{twist: {linear: {x: 0.2}}}' -r 10
-
-# joint 状態
-ros2 topic echo /joint_states --once
-
-# 頭部を少し動かす
-ros2 action send_goal /head_controller/follow_joint_trajectory \
-  control_msgs/action/FollowJointTrajectory \
-  '{trajectory: {joint_names: [joint_head_pan, joint_head_tilt],
-                 points: [{positions: [0.3, 0.0], time_from_start: {sec: 1}}]}}'
-```
-
-## 既知の制限 (Phase 1 の残タスク)
-
-- 車輪寸法 / キャスターオフセットは仮の値 (実測して置換)
-- 上流 URDF の `<limit effort=0 velocity=0>` は未修正 (controller 側 joint_limits で防御予定)
-- 左右昇降を 2 DoF として扱っている (実機は共通軸; 後で mimic か融合コントローラ化)
-- センサ (RGB-D / LiDAR / IMU) 未実装
-- 実機 Hardware Interface (`aha_hardware/AhaSystem`) 未実装 → `sim:=false` は起動できない
+- 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
+- 昇降は左右2軸として記述しているが、実機は共通軸。
+- Gazeboセンサ、SLAM / Nav2、MoveItの統合は未実装。macOSカメラは別経路で動作する。
+- 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。

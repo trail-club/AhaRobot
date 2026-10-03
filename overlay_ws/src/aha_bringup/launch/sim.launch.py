@@ -196,40 +196,25 @@ def generate_launch_description():
     ]
 
     # Optional per-squad subsystems. Default off — bringup is minimal.
-    nav_launch = PathJoinSubstitution(
-        [
-            FindPackageShare("aha_navigation"),
-            "launch",
-            "nav.launch.py",
-        ]
-    )
-    manip_launch = PathJoinSubstitution(
-        [
-            FindPackageShare("aha_manipulation"),
-            "launch",
-            "manip.launch.py",
-        ]
-    )
-    perception_launch = PathJoinSubstitution(
-        [
-            FindPackageShare("aha_perception"),
-            "launch",
-            "perception.launch.py",
-        ]
-    )
-
-    nav = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(nav_launch),
-        condition=IfCondition(LaunchConfiguration("use_nav")),
-    )
-    manip = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(manip_launch),
-        condition=IfCondition(LaunchConfiguration("use_manip")),
-    )
-    perception = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(perception_launch),
-        condition=IfCondition(LaunchConfiguration("use_perception")),
-    )
+    subsystems = [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution(
+                    [
+                        FindPackageShare(package),
+                        "launch",
+                        filename,
+                    ]
+                )
+            ),
+            condition=IfCondition(LaunchConfiguration(argument)),
+        )
+        for package, filename, argument in (
+            ("aha_navigation", "nav.launch.py", "use_nav"),
+            ("aha_manipulation", "manip.launch.py", "use_manip"),
+            ("aha_perception", "perception.launch.py", "use_perception"),
+        )
+    ]
 
     return LaunchDescription(
         [
@@ -257,8 +242,6 @@ def generate_launch_description():
             spawn,
             jsb,
             load_rest,
-            nav,
-            manip,
-            perception,
+            *subsystems,
         ]
     )

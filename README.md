@@ -1,127 +1,30 @@
-# AhaRobot Simulation & Competition Stack
+# AhaRobot
 
-RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
-基盤: **ROS 2 Jazzy + Ubuntu 24.04 + Gazebo Harmonic**。
+RoboCup@Home（OPL）向けのROS 2ソフトウェアスタック。
+開発環境はUbuntu 24.04 / ROS 2 Jazzy / Gazebo Harmonic。
 
-## リポジトリ構成
+## 構成
 
-```
-.
-├── upstream/                         # 公式由来コード (trail-club fork を submodule)
-│   ├── astra_description                 # URDF / meshes / RViz / Gazebo launch
-│   ├── astra_controller                  # 実機制御 ROS 2 node
-│   ├── astra_controller_interfaces       # custom msg / srv
-│   ├── astra_moveit_config               # MoveIt 2 設定 (Humble, deprecated 予定)
-│   ├── AstraFirmwares                    # ESP32 / ODrive ファームウェア
-│   ├── Astra_Hardwares                   # CAD (STEP / STL)
-│   ├── sobits_gazebo_worlds               # Japan Open world (TeamSOBITS submodule)
-│   └── tmc_wrs_gz                        # world用のmodel資源 (TeamSOBITS submodule)
-└── overlay_ws/                       # チーム overlay workspace
-    └── src/
-        ├── aha_description               # URDF xacro (base / ros2_control / sensors)
-        ├── aha_gazebo                    # Gazebo Harmonic world / launch
-        ├── aha_bringup                   # sim / real の統合起動 launch
-        ├── aha_sobits_bringup            # Japan Open 起動の互換入口
-        ├── aha_msgs                      # 班横断の msg / srv / action
-        ├── aha_navigation                # SLAM / Nav2 (navigation squad)
-        ├── aha_manipulation              # MoveIt / pick (manipulation squad)
-        └── aha_perception                # 物体・人物検出 (perception squad)
-```
+| パス | 内容 |
+| --- | --- |
+| `overlay_ws/` | AhaRobot独自のROSパッケージ |
+| `upstream/` | Astraコード・ファームウェア・CAD、SOBITS / TMC資源のsubmodule |
+| `docker/` | 開発コンテナ |
+| `tools/` | 知覚・サーボ・ファームウェアのツール |
+| `docs/` | 開発・起動手順とインターフェース |
+| `docs/context/` | 実機実験・CAD・検証結果の補助資料 |
 
-`upstream/*` はsubmoduleとして固定。Astra関連はtrail-clubのfork、
-SOBITS worldとTMCモデル資源はTeamSOBITSのリポジトリを直接参照する。
-改変は fork 側 branch で行い、super repo は SHA を進めるだけとする。
-Upstream 追従は各 fork で `git remote add upstream https://github.com/hilookas/<repo>.git` → `git fetch upstream`。
+## 起動
 
-## Getting Started
-
-動作確認済: macOS (Docker Desktop) / Ubuntu 24.04 + Docker Engine 27+。GPU は任意（未指定でも sim は動く）。
-
-### 1. Clone
-
-```bash
-git clone --recursive git@github.com:trail-club/AhaRobot.git
-cd AhaRobot
-# 既に clone 済みなら
-git submodule update --init --recursive
-```
-
-### 2. 開発コンテナ起動
-
-```bash
-# 初回のみ (10〜20 分)
-./run_docker_container.py --rebuild
-
-# 2 回目以降
-./run_docker_container.py
-```
-
-Linux / macOS / WSL(Windows) を自動判定し、必要に応じて NoVNC (macOS/WSL) と NVIDIA GPU passthrough を有効化する。
-コンテナ名は常に `aharobot_aha_project_1`。詳細は [`docs/docker.md`](docs/docker.md)。
-
-macOS / WSL では GUI をブラウザで見る: [http://localhost:8080/vnc.html](http://localhost:8080/vnc.html) → Connect。
-
-### 3. Build
-
-コンテナ内で:
-
-```bash
-cd /app/overlay_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
-### 4. Sim + RViz を起動
-
-標準worldはSOBITS Japan Open 2026。[起動設定](docs/sobits-rcjo2026.md)を参照。
-
-```bash
-# コンテナ内で sim (Gazebo + spawn + controllers)
-ros2 launch aha_bringup sim.launch.py
-
-# 別ターミナルからコンテナに入って RViz
-make shell        # or: docker exec -it aharobot_aha_project_1 bash
-ros2 launch aha_description view_robot.launch.py
-```
-
-### 5. キーボードで動かす
-
-```bash
-ros2 run aha_bringup teleop_base.sh
-# または
-ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel
-```
-
-## チーム開発
-
-- [CONTRIBUTING.md](CONTRIBUTING.md) — branch/commit/PR ルール
-- [docs/interfaces.md](docs/interfaces.md) — **班間の topic / frame / QoS 契約（必読）**
-
-## ライセンス
-
-元の `hilookas/astra_ws` README は GPL-3.0 に加え非商用条項を記載している。
-派生物の公開・配布時は各 upstream の LICENSE を確認すること。
-
-なお `hilookas/astra_ws` 本体 (super-repo) は本リポジトリでは submodule として保持せず、
-Phase 1〜3 で必要な package のみを個別 fork として `upstream/` 直下に並べる方針。
-Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `aiortc` 等) が
-必要になった時点で fork を追加する。
+起動・GUI接続・操作は [開発コンテナの起動フロー](docs/docker.md#起動フロー)、
+worldと初期位置の変更は
+[Japan Open起動設定](docs/sobits-rcjo2026.md)を参照。
 
 ## ドキュメント
 
-- [班間 Interface 仕様](docs/interfaces.md) — TF / topic / QoS / naming
-- [Phase 0 監査結果](docs/phase0-audit.md) — package / URDF / LICENSE の現状と Phase 1 リスク
-- [Upstream 追従ワークフロー](docs/upstream-workflow.md) — fork の同期手順
-- [overlay_ws README](overlay_ws/README.md) — ビルド / 起動 / 既知の制限
-- [Docker 開発環境](docs/docker.md) — コンテナで sim を立ち上げる手順
-- [CAD 寸法メモ](docs/cad-measurements.md) — Astra.STEP から抽出した / できていない寸法
-- [サーボ立ち上げ実測メモ](docs/servo-bringup.md) — 実機の ID 構成 / 対向符号 / 可動域（**焼く前に必読**）
-- [サーボ立ち上げツール](tools/servo/README.md) — 配線・可動域・符号を実機で測るスクリプト
-
-## ロードマップ (概要)
-
-- Phase 0: 監査 (依存 / topic / joint / センサ / ライセンス整理)
-- Phase 1: Digital Skeleton — Jazzy + Harmonic で spawn し全自由度を制御
-- Phase 2: Navigation (SLAM Toolbox / Nav2)
-- Phase 3: Manipulation (MoveIt 2)
-- Phase 4: Competition Harness (GPSR / HRI / 評価)
+- [開発ルール](AGENTS.md)
+- [ROSパッケージ・制限](overlay_ws/README.md)
+- [ROSインターフェース](docs/interfaces.md)
+- [submoduleの更新](docs/upstream-workflow.md)
+- [ライセンス・出典](dependencies/THIRD_PARTY.md)
+- [補助資料](docs/context/README.md) — 実機実験・CAD・検証結果

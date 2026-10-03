@@ -1,20 +1,28 @@
 ## 概要
-<!-- 何を / なぜ を 2-3 行で -->
+
+<!-- 何を変更したか、なぜ必要かを2〜3行で -->
 
 ## 変更内容
-- [ ] 
-- [ ] 
+
+<!-- 主な変更を箇条書きで -->
 
 ## 影響範囲
-- 班: <!-- nav / manip / perception / infra -->
-- Interface 変更: あり / なし
-  <!-- あり の場合、docs/interfaces.md も更新したか -->
+
+- チーム: <!-- navigation / manipulation / perception / infra -->
+- 対象パッケージ・機能:
+- インターフェース変更: あり / なし
+  <!-- topic・frame・msgを変更した場合はdocs/interfaces.mdの更新内容も記載 -->
 
 ## 動作確認
-- [ ] `colcon build` 通る
-- [ ] `colcon test` 通る
-- [ ] 該当 launch が起動する / 期待通り動く
-- [ ] （UI/RViz 変更時）スクリーンショット添付
 
-## Related
+<!-- 変更に関係する項目を確認し、対象外はその旨を記載 -->
+
+- [ ] `make test` が成功
+- [ ] 該当launchが起動し、期待する動作を確認
+- [ ] GUI表示を変更した場合、スクリーンショットを添付
+
+<!-- 実行コマンドと結果を簡潔に。未確認事項や制限があれば記載 -->
+
+## 関連Issue
+
 Closes #

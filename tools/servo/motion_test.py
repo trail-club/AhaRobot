@@ -33,9 +33,12 @@ sys.path.insert(0, os.path.join(REPO, "upstream", "astra_controller"))
 
 from astra_controller.arm_controller import ArmController  # noqa: E402
 
-LIMIT_DEG = {0: 85.0, 1: 70.0}   # Software limits relative to zero (measured range of motion ~ ±91.9° / ±78.2°)
-ERR_ABORT_DEG = 15.0              # Max tracking error for target joint
-OTHER_ABORT_DEG = 10.0            # Max deviation from hold for other joints
+LIMIT_DEG = {
+    0: 85.0,
+    1: 70.0,
+}  # Software limits relative to zero (measured range of motion ~ ±91.9° / ±78.2°)
+ERR_ABORT_DEG = 15.0  # Max tracking error for target joint
+OTHER_ABORT_DEG = 10.0  # Max deviation from hold for other joints
 RATE_HZ = 50
 
 if len(sys.argv) < 2 or sys.argv[1] not in ("0", "1"):
@@ -54,9 +57,13 @@ ctrl = ArmController(port, do_init=True)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)
-print(f"joint{j}: amplitude ±{amp:.1f}°, period {period:.1f} s, {cycles} cycles; software limit ±{LIMIT_DEG[j]:.0f}°")
+print(
+    f"joint{j}: amplitude ±{amp:.1f}°, period {period:.1f} s, {cycles} cycles; software limit ±{LIMIT_DEG[j]:.0f}°"
+)
 print("  - Wrist roughly centered, gripper closed, no obstacles around")
-print("  - Keep your hand near the 12V power switch; on anomaly press Ctrl+C (auto-releases torque), cut power if needed")
+print(
+    "  - Keep your hand near the 12V power switch; on anomaly press Ctrl+C (auto-releases torque), cut power if needed"
+)
 if input("Type yes to confirm: ").strip() != "yes":
     sys.exit("Cancelled")
 
@@ -80,7 +87,9 @@ try:
 
     lim = math.radians(LIMIT_DEG[j])
     if abs(hold[j]) + math.radians(amp) > lim:
-        raise RuntimeError(f"hold ± amplitude exceeds software limit ±{LIMIT_DEG[j]:.0f}°; return joint to near zero or reduce amplitude")
+        raise RuntimeError(
+            f"hold ± amplitude exceeds software limit ±{LIMIT_DEG[j]:.0f}°; return joint to near zero or reduce amplitude"
+        )
 
     ctrl.set_pid()
     time.sleep(0.1)
@@ -101,7 +110,9 @@ try:
         target = list(hold)
         if t_hold <= t < t_hold + t_move:
             tm = t - t_hold
-            target[j] = hold[j] + math.radians(amp) * math.sin(2 * math.pi * tm / period)
+            target[j] = hold[j] + math.radians(amp) * math.sin(
+                2 * math.pi * tm / period
+            )
         target[j] = max(-lim, min(lim, target[j]))
         ctrl.set_pos(target)
 
@@ -109,8 +120,16 @@ try:
         if p is not None:
             err = math.degrees(p[j] - target[j])
             dev_other = math.degrees(p[other] - hold[other])
-            rows.append([round(t, 3), math.degrees(target[j]), math.degrees(p[j]), err,
-                         math.degrees(p[other]), p[5] * 1000])
+            rows.append(
+                [
+                    round(t, 3),
+                    math.degrees(target[j]),
+                    math.degrees(p[j]),
+                    err,
+                    math.degrees(p[other]),
+                    p[5] * 1000,
+                ]
+            )
 
             if abs(err) > ERR_ABORT_DEG:
                 over_since = over_since or time.time()
@@ -125,9 +144,11 @@ try:
 
             if t - last_print >= 0.5:
                 last_print = t
-                print(f"[{t:5.1f}s] target={math.degrees(target[j]):+7.1f}°  "
-                      f"actual={math.degrees(p[j]):+7.1f}°  err={err:+6.1f}°  "
-                      f"joint{other}={math.degrees(p[other]):+6.1f}°")
+                print(
+                    f"[{t:5.1f}s] target={math.degrees(target[j]):+7.1f}°  "
+                    f"actual={math.degrees(p[j]):+7.1f}°  err={err:+6.1f}°  "
+                    f"joint{other}={math.degrees(p[other]):+6.1f}°"
+                )
 
         time.sleep(1.0 / RATE_HZ)
 
@@ -146,7 +167,16 @@ if aborted:
 if rows:
     with open(out, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["t_s", f"j{j}_target_deg", f"j{j}_actual_deg", "err_deg", f"j{other}_deg", "grip_mm"])
+        w.writerow(
+            [
+                "t_s",
+                f"j{j}_target_deg",
+                f"j{j}_actual_deg",
+                "err_deg",
+                f"j{other}_deg",
+                "grip_mm",
+            ]
+        )
         w.writerows(rows)
     moving = [r for r in rows if 2.0 <= r[0] < 2.0 + period * cycles]
     if moving:

@@ -27,9 +27,15 @@ ctrl = ArmController(port, do_init=True)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)
-print(f"Static test: set_torque(1) (no PID set) -> hold for {duration:.0f} seconds -> set_torque(0)")
-print("  - Do not touch the arm. Just observe: do joints rotate the moment torque is enabled, and by how much?")
-print("  - On abnormal noise, continuous rotation, or obvious heating: Ctrl+C (auto-releases torque); cut power if needed")
+print(
+    f"Static test: set_torque(1) (no PID set) -> hold for {duration:.0f} seconds -> set_torque(0)"
+)
+print(
+    "  - Do not touch the arm. Just observe: do joints rotate the moment torque is enabled, and by how much?"
+)
+print(
+    "  - On abnormal noise, continuous rotation, or obvious heating: Ctrl+C (auto-releases torque); cut power if needed"
+)
 if input("Type yes to confirm: ").strip() != "yes":
     sys.exit("Cancelled")
 
@@ -47,10 +53,14 @@ try:
         t = time.time() - t_on
         if p is not None:
             p = list(p)
-            rows.append([round(t, 3)] + [math.degrees(v) for v in p[:5]] + [p[5] * 1000])
+            rows.append(
+                [round(t, 3)] + [math.degrees(v) for v in p[:5]] + [p[5] * 1000]
+            )
             if t - last_print >= 0.5:
                 last_print = t
-                s = "  ".join(f"{n}={math.degrees(v):+7.1f}°" for n, v in zip(names, p[:5]))
+                s = "  ".join(
+                    f"{n}={math.degrees(v):+7.1f}°" for n, v in zip(names, p[:5])
+                )
                 print(f"[{t:5.1f}s] {s}  grip={p[5] * 1000:5.1f}mm")
         time.sleep(0.05)
 except KeyboardInterrupt:

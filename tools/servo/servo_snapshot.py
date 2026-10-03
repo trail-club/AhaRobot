@@ -54,8 +54,12 @@ ph.setBaudRate(args.baud)
 pk = PacketHandler(0)
 
 if args.cmd == "dump":
-    result = {"time": datetime.datetime.now().isoformat(timespec="seconds"),
-              "port": args.port, "baud": args.baud, "servos": {}}
+    result = {
+        "time": datetime.datetime.now().isoformat(timespec="seconds"),
+        "port": args.port,
+        "baud": args.baud,
+        "servos": {},
+    }
     for sid in parse_ids(args.ids):
         # Reading 40 bytes at once via ESP32 forwarding causes "Incorrect status packet",
         # so read byte-by-byte (each is a short packet, stable like motor_check.py).
@@ -72,7 +76,10 @@ if args.cmd == "dump":
             print(f"ID{sid:>2}: read failed ({fail})")
             result["servos"][sid] = {"error": fail}
             continue
-        word = lambda a: data[a] | (data[a + 1] << 8)
+
+        def word(a):
+            return data[a] | (data[a + 1] << 8)
+
         pos, comm2, _ = pk.read2ByteTxRx(ph, sid, ADDR_PRESENT_POS)
         info = {
             "eeprom_raw": list(data),
@@ -86,16 +93,20 @@ if args.cmd == "dump":
             "present_pos": pos if comm2 == COMM_SUCCESS else None,
         }
         result["servos"][sid] = info
-        print(f"ID{sid:>2}: mode={info['mode']} offset={info['offset']:>5} "
-              f"(raw {info['offset_raw']}) limits=[{info['min_angle']},{info['max_angle']}] "
-              f"pos={info['present_pos']}")
+        print(
+            f"ID{sid:>2}: mode={info['mode']} offset={info['offset']:>5} "
+            f"(raw {info['offset_raw']}) limits=[{info['min_angle']},{info['max_angle']}] "
+            f"pos={info['present_pos']}"
+        )
     out = args.out or f"servo_eeprom_{datetime.datetime.now():%Y%m%d_%H%M%S}.json"
     with open(out, "w") as f:
         json.dump(result, f, indent=1)
     print(f"Saved: {out}")
 
 elif args.cmd == "watch":
-    print(f"Watching position of ID{args.id} for {args.sec:.0f} seconds. Move it manually with torque disabled. Ctrl+C to stop.")
+    print(
+        f"Watching position of ID{args.id} for {args.sec:.0f} seconds. Move it manually with torque disabled. Ctrl+C to stop."
+    )
     t_end = time.time() + args.sec
     lo, hi = 4096, -1
     try:

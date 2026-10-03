@@ -8,7 +8,9 @@ from types import SimpleNamespace
 import numpy as np
 
 
-SCRIPT = pathlib.Path(__file__).parents[2] / "tools/perception/macos/stream_realsense.py"
+SCRIPT = (
+    pathlib.Path(__file__).parents[2] / "tools/perception/macos/stream_realsense.py"
+)
 SPEC = importlib.util.spec_from_file_location("stream_realsense", SCRIPT)
 stream_realsense = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -71,13 +73,21 @@ class StreamRealsenseMessageTests(unittest.TestCase):
         self.assertEqual(message["height"], 480)
         self.assertEqual(message["distortion_model"], "plumb_bob")
         self.assertEqual(message["d"], [0.1, -0.2, 0.003, 0.004, 0.0])
-        self.assertEqual(message["k"], [600.0, 0.0, 320.0, 0.0, 601.0, 240.0, 0.0, 0.0, 1.0])
+        self.assertEqual(
+            message["k"], [600.0, 0.0, 320.0, 0.0, 601.0, 240.0, 0.0, 0.0, 1.0]
+        )
         self.assertEqual(len(message["p"]), 12)
 
     def test_aligned_frame_bundle_uses_one_stamp_and_color_frame(self):
         intrinsics = SimpleNamespace(
-            width=2, height=1, fx=1, fy=1, ppx=0, ppy=0,
-            model="none", coeffs=(0, 0, 0, 0, 0),
+            width=2,
+            height=1,
+            fx=1,
+            fy=1,
+            ppx=0,
+            ppy=0,
+            model="none",
+            coeffs=(0, 0, 0, 0, 0),
         )
         color = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=np.uint8)
         depth = np.array([[1000, 0]], dtype=np.uint16)
@@ -89,17 +99,27 @@ class StreamRealsenseMessageTests(unittest.TestCase):
         self.assertEqual(len(messages), 3)
         for message in messages:
             self.assertEqual(message["header"]["stamp"], self.stamp.as_message())
-            self.assertEqual(message["header"]["frame_id"], stream_realsense.COLOR_FRAME)
+            self.assertEqual(
+                message["header"]["frame_id"], stream_realsense.COLOR_FRAME
+            )
         self.assertEqual(messages[0]["encoding"], "rgb8")
         self.assertEqual(messages[2]["encoding"], "32FC1")
-        decoded_depth = np.frombuffer(base64.b64decode(messages[2]["data"]), dtype=np.float32)
+        decoded_depth = np.frombuffer(
+            base64.b64decode(messages[2]["data"]), dtype=np.float32
+        )
         np.testing.assert_allclose(decoded_depth[0], 1.0)
         self.assertTrue(np.isnan(decoded_depth[1]))
 
     def test_aligned_frame_bundle_rejects_mismatched_sizes(self):
         intrinsics = SimpleNamespace(
-            width=2, height=1, fx=1, fy=1, ppx=0, ppy=0,
-            model="none", coeffs=(0, 0, 0, 0, 0),
+            width=2,
+            height=1,
+            fx=1,
+            fy=1,
+            ppx=0,
+            ppy=0,
+            model="none",
+            coeffs=(0, 0, 0, 0, 0),
         )
         color = np.zeros((1, 2, 3), dtype=np.uint8)
         depth = np.zeros((2, 2), dtype=np.uint16)

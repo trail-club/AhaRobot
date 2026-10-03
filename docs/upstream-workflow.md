@@ -1,68 +1,48 @@
-# Upstream 追従ワークフロー
+# submoduleの変更・更新
 
-`upstream/*` の各 submodule は `trail-club/<name>` の fork を指す。
-上流は `hilookas/<name>`。fork 側で `upstream` remote を設定し、明示的に取り込む。
+`upstream/` は特定commitを参照する。Astra系6件は `trail-club` のfork、
+SOBITS / TMC資源はTeamSOBITSを直接参照する。URLは [.gitmodules](../.gitmodules)を参照。
 
-## 初回セットアップ (fork ローカルクローンで一度だけ)
+## コードを変更する
+
+submodule内で作業ブランチを作り、fork側でコミット・PRを作る。
+AhaRobot側で記録するのはファイルの差分ではなく、使用するcommitのSHA。
 
 ```bash
-# 例: astra_description
-git clone git@github.com:trail-club/astra_description.git
-cd astra_description
-git remote add upstream https://github.com/hilookas/astra_description.git
-git fetch upstream
+cd upstream/astra_description
+git remote -v  # originが変更先のforkであることを確認
+git switch -c fix-xacro
+# 編集・検証
+git add <変更したファイル>
+git commit -m "Fix robot description"
+git push -u origin fix-xacro
 ```
 
-対応表:
-
-| fork (origin) | upstream |
-| --- | --- |
-| trail-club/astra_description | hilookas/astra_description |
-| trail-club/astra_controller | hilookas/astra_controller |
-| trail-club/astra_controller_interfaces | hilookas/astra_controller_interfaces |
-| trail-club/astra_moveit_config | hilookas/astra_moveit_config |
-| trail-club/AstraFirmwares | hilookas/AstraFirmwares |
-| trail-club/Astra_Hardwares | hilookas/Astra_Hardwares |
-
-## 上流の変更を取り込む
+fork側のPRをマージしたら、そのcommitを参照する。
 
 ```bash
-cd upstream/<name>            # super repo 内の submodule で作業
-git fetch upstream
-git checkout main
-git merge upstream/main       # or: git rebase upstream/main
-# 競合解消 → push
-git push origin main
+git fetch origin
+git switch --detach <マージ後のSHA>
 cd ../..
-git add upstream/<name>       # super repo 側で SHA を進める
-git commit -m "chore(upstream): bump <name> to <short-sha>"
+make test
+git add upstream/astra_description
+git commit -m "Update astra_description reference"
 ```
 
-## チーム改変ブランチ
+AhaRobot側でもSHA更新のPRを作る。Squash mergeの場合は作業ブランチとマージ後のSHAが異なる。
 
-改変は fork 側で feature branch を切って行う (`main` に直接 push しない):
+## 元の開発元の更新を取り込む
+
+Astra系では、作業するcloneで `upstream` remoteを登録する。設定は別cloneへ共有されない。
 
 ```bash
-cd upstream/<name>
-git checkout -b jazzy-port     # 例
-# 編集 → commit → push
-git push -u origin jazzy-port
+cd upstream/astra_description
+git remote add upstream https://github.com/hilookas/astra_description.git  # 未登録の場合
+git fetch upstream
+git switch -c sync-upstream origin/main
+git merge upstream/main
+# 競合解消・検証後、originへpushしてfork側のPRを作る
 ```
 
-汎用的な修正 (バグ, Jazzy 対応など) は upstream (`hilookas/<name>`) に PR を出す。
-本チーム固有の設定 (競技用 world / launch / params) は upstream に戻さず overlay workspace 側に置く。
-
-## Super repo 側の submodule 操作
-
-```bash
-# clone 直後
-git submodule update --init --recursive
-
-# 全 submodule を各 tracking branch 最新へ
-git submodule update --remote --merge
-
-# 特定 submodule だけ最新に
-git -C upstream/astra_controller pull origin main
-git add upstream/astra_controller
-git commit -m "chore(upstream): bump astra_controller"
-```
+fork側のマージ後は上記のSHA更新手順を使う。
+通常の取得は [開発コンテナの起動フロー](docker.md#起動フロー)を参照。

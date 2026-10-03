@@ -18,16 +18,25 @@ class CameraPrivilegeTests(unittest.TestCase):
     def test_usb_access_error_retries_only_camera_probe_with_sudo(self):
         env = {"DYLD_LIBRARY_PATH": "/private/tmp/rs/lib"}
         denied = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="",
+            args=[],
+            returncode=1,
+            stdout="",
             stderr="failed to set power state: RS2_USB_STATUS_ACCESS",
         )
         allowed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="RealSense D435I\n", stderr="",
+            args=[],
+            returncode=0,
+            stdout="RealSense D435I\n",
+            stderr="",
         )
         with (
             patch.object(start.os, "geteuid", return_value=501),
-            patch.object(start.subprocess, "run", side_effect=[denied, allowed]) as probe,
-            patch.object(start, "run", return_value=subprocess.CompletedProcess([], 0)) as sudo,
+            patch.object(
+                start.subprocess, "run", side_effect=[denied, allowed]
+            ) as probe,
+            patch.object(
+                start, "run", return_value=subprocess.CompletedProcess([], 0)
+            ) as sudo,
             contextlib.redirect_stdout(io.StringIO()),
         ):
             elevated = start.check_camera(SCRIPT, env)
@@ -42,7 +51,10 @@ class CameraPrivilegeTests(unittest.TestCase):
 
     def test_other_device_errors_do_not_request_sudo(self):
         missing = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="no RealSense device found",
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="no RealSense device found",
         )
         with (
             patch.object(start.subprocess, "run", return_value=missing),

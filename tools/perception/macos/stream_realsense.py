@@ -185,10 +185,14 @@ def make_frame_bundle(
         intrinsics.height,
         intrinsics.width,
     ):
-        raise StreamError("aligned depth, color, and camera intrinsics must have the same size")
+        raise StreamError(
+            "aligned depth, color, and camera intrinsics must have the same size"
+        )
 
     return (
-        make_image_message(color_rgb, encoding="rgb8", stamp=stamp, frame_id=COLOR_FRAME),
+        make_image_message(
+            color_rgb, encoding="rgb8", stamp=stamp, frame_id=COLOR_FRAME
+        ),
         make_camera_info_message(intrinsics, stamp=stamp, frame_id=COLOR_FRAME),
         make_image_message(
             depth_to_meters(depth_z16, depth_scale),
@@ -234,7 +238,9 @@ class RosbridgePublisher:
         try:
             self._socket.send(json.dumps(operation, separators=(",", ":")))
         except Exception as exc:
-            raise StreamError(f"rosbridge connection failed while sending data: {exc}") from exc
+            raise StreamError(
+                f"rosbridge connection failed while sending data: {exc}"
+            ) from exc
 
     def advertise(self) -> None:
         self._send(advertise_operation(COLOR_TOPIC, ROS_IMAGE))
@@ -300,13 +306,17 @@ def _color_frame_rgb(frame: Any, color_format: str) -> np.ndarray:
         image = image[..., ::-1]
     image = np.ascontiguousarray(image)
     if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
-        raise StreamError(f"unexpected color frame shape/format: {image.shape} {image.dtype}")
+        raise StreamError(
+            f"unexpected color frame shape/format: {image.shape} {image.dtype}"
+        )
     return image
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ws-url", default="ws://127.0.0.1:9090", help="rosbridge WebSocket URL")
+    parser.add_argument(
+        "--ws-url", default="ws://127.0.0.1:9090", help="rosbridge WebSocket URL"
+    )
     parser.add_argument("--serial", help="RealSense serial number")
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
@@ -324,9 +334,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="format requested from the camera; output is always rgb8",
     )
     parser.add_argument("--ws-timeout", type=float, default=10.0)
-    parser.add_argument("--max-frames", type=int, help="stop after sending this many bundles")
+    parser.add_argument(
+        "--max-frames", type=int, help="stop after sending this many bundles"
+    )
     parser.add_argument("--duration", type=float, help="stop after this many seconds")
-    parser.add_argument("--list-devices", action="store_true", help="list connected cameras and exit")
+    parser.add_argument(
+        "--list-devices", action="store_true", help="list connected cameras and exit"
+    )
     return parser
 
 
@@ -361,15 +375,21 @@ def stream(args: argparse.Namespace) -> int:
                 continue
         if not matching:
             available = ", ".join(_device_label(rs, device) for device in devices)
-            raise StreamError(f"RealSense serial {args.serial!r} was not found; available: {available}")
+            raise StreamError(
+                f"RealSense serial {args.serial!r} was not found; available: {available}"
+            )
 
     pipeline = rs.pipeline()
     config = rs.config()
     if args.serial:
         config.enable_device(args.serial)
-    config.enable_stream(rs.stream.depth, args.width, args.height, rs.format.z16, args.fps)
+    config.enable_stream(
+        rs.stream.depth, args.width, args.height, rs.format.z16, args.fps
+    )
     requested_color_format = getattr(rs.format, args.color_format)
-    config.enable_stream(rs.stream.color, args.width, args.height, requested_color_format, args.fps)
+    config.enable_stream(
+        rs.stream.color, args.width, args.height, requested_color_format, args.fps
+    )
 
     publisher = RosbridgePublisher(args.ws_url, args.ws_timeout)
     align_to_color = rs.align(rs.stream.color)
@@ -420,7 +440,9 @@ def stream(args: argparse.Namespace) -> int:
             try:
                 aligned_frames = align_to_color.process(frames)
             except Exception as exc:
-                raise StreamError(f"RealSense depth-to-color alignment failed: {exc}") from exc
+                raise StreamError(
+                    f"RealSense depth-to-color alignment failed: {exc}"
+                ) from exc
 
             depth_frame = aligned_frames.get_depth_frame()
             color_frame = aligned_frames.get_color_frame()

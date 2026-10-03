@@ -1,178 +1,80 @@
-# サーボ立ち上げツール
+# サーボツール
 
-Feetech STS3215 バスに直接つないで、アームの配線・可動域・対向取付の符号を
-確認するためのスタンドアロンスクリプト。ROS には依存しないので **dev コンテナの外**、
-実機のシリアルポートが見えるホスト側で実行する。
+STS3215の確認・校正・手動操作用。機体固有のID・符号・可動域と通信の観測結果は
+[モーターの測定・検証記録](../../docs/context/motor.md)に日付順でまとめる。
 
-依存は `pyserial` と `scservo_sdk` のみ。
+## 接続
+
+pyserialとFeetech SDKを使用する。制御基板の透過モードとボーレートは
+[ファームウェアツール](../firmware/README.md)を参照。
+`--baud` を持つ直接操作ツールの既定値は115200 bpsなので、独自ブリッジでは921600を指定する。
+`scan_motors.py` は位置引数で指定する。`nudge_check.py` はport / baudのCLI指定がなく、
+`Bus` の既定値（`/dev/ttyUSB0` / 115200 bps）を使用するため、異なる接続ではコードの設定変更が必要。
 
 ```bash
-uv venv && uv pip install pyserial feetech-servo-sdk
+# リポジトリ直下。ポートは使用環境に合わせる
+python3 tools/servo/scan_motors.py /dev/ttyUSB0 921600
+python3 tools/servo/motor_check.py --port /dev/ttyUSB0 --baud 921600
 ```
 
-## 落とし穴: 位置と負荷を別々に読まないこと
-
-usbip 越し (WSL) では応答が遅れて届くことがある。SDK は送信前に受信バッファを
-クリアするが、**クリアした直後に前回の応答が届く**と、それが今回の応答として
-解釈されてしまう。位置 (アドレス 56) と負荷 (60) を別々の 2 バイト読み出しで
-取っていると、どちらも同じ ID からの 2 バイト応答なので **ID もチェックサムも
-通ってしまい、負荷の値を位置として読む**。
-
-実際にこれで、位置が 1 回の観測で 700 step 飛んだように見え、目標が暴れた実位置を
-追って関節が発振した。負荷の誤検出 (加速していないのに閾値超過) も同じ原因で、
-位置の値を負荷として読んでいた。
-
-**アドレス 56 から 6 バイトをまとめて読む** (位置・速度・負荷) と起きない。
-`keyboard_teleop.py` の `Bus.state()` を参照。書き込み速度は無関係で、100Hz で
-書いて即読んでも、まとめ読みなら飛びは最大 5 step だった。
-
-## 落とし穴: usbip が空読みで切断扱いにする
-
-WSL から `keyboard_teleop.py` を起動すると、現在位置の読み出しで次の例外が出て
-落ちることがある。
-
-```
-serial.serialutil.SerialException: device reports readiness to read but returned no data (device disconnected or multiple access on port?)
-```
-
-SDK はポートを `timeout=0` で開く。データが無いあいだ Linux 版 pyserial は空を
-返し、SDK はそれを再試行する。usbip 越しだと `select` が「読める」と返した直後に
-`read` が 0 バイトになることがあり、pyserial はケーブルを抜かれたときと同じ例外に
-する。Windows の COM を直接読んだ場合はこの例外にはならない。素の Linux に
-CP2102 を直挿しした場合も、通常は出ない。
-
-`keyboard_teleop.py` はこの例外を掴んでポートを開き直し、読み直す。起動時と
-再同期の位置は 2 バイト読みではなく `Bus.state()` の 6 バイト読みを使う。
-トルクを入れる前に落ちた場合、アームは動いていない。
-
-## 前提: 制御基板をシリアル透過モードにする
-
-現状の基板 (Waveshare "Servo Driver with ESP32") には純正デモファームが載っており、
-**ESP32 がサーボバスのマスターなので USB シリアルは透過されない**。素の状態で
-STS プロトコルを流しても一切応答がない。
-
-1. スマホ等を基板の AP `ESP32_DEV` / `12345678` に接続
-2. `http://192.168.4.1/` を開く
-3. **Start Serial Forwarding** を押す
-
-これで基板が USB↔サーボバスのブリッジになり、`/dev/ttyUSB0` を **115200bps** で
-開けば直接サーボを叩ける (バス自体は 1Mbps)。基板を電源断・リセットすると
-解除されるので、そのたびに押し直す。
-
-WSL の場合は Windows 側で `usbipd attach --wsl --busid <id>` も必要。
-
-## スクリプト
+## ツール
 
 | スクリプト | 用途 |
 | --- | --- |
-| `scan_motors.py` | バス全域 (ID 0-252) を主要ボーレートで ping し、生存 ID を列挙 |
-| `motor_check.py` | ID ごとに位置/速度/負荷/電圧/温度/モードを読む。`--move` で単体往復 |
-| `nudge_check.py` | 1個ずつトルクを入れて微動させ、単体動作と連動相手を調べる |
-| `teach_calibrate.py` | **トルクOFFのまま手で動かして**可動域と対向符号を記録 |
-| `keyboard_teleop.py` | キーボードで各関節を動かす。対向関節は 4 個同時 |
-| `rezero.py` | サーボの中点を取り直す (EEPROM 書き込み) |
+| `scan_motors.py` | ID・ボーレートのスキャン。port / baudは位置引数 |
+| `motor_check.py` | 状態確認。`--move` は指定サーボを動かす |
+| `nudge_check.py` | 微動による連動確認 |
+| `teach_calibrate.py` | トルクOFFで手動測定し、`--verify` で対向符号を確認 |
+| `rezero.py` | 中点校正。`--apply` 指定時だけEEPROMへ書き込む |
+| `keyboard_teleop.py` | 関節単位の手動操作 |
+| `servo_snapshot.py` | サーボEEPROMの読み取りと位置モニタ。純正ファームの透過通信用 |
+| `init_arm.py` | AstraArmControllerの原点初期化。サーボEEPROM・ESP32 LittleFSへ書き込む |
+| `check_zero.py` | PIDを設定せずトルクを入れる静置テスト。終了時にトルクOFF |
+| `motion_test.py` | joint0 / joint1の往復試験。ソフトウェアリミット・誤差監視付き |
 
-### キーボードで動かす
+ID4–11は対向駆動のため、通常操作は関節単位で行う。
+`nudge_check.py` はトルク・速度・移動量を制限した単体の連動確認用。
+機体を変更したら符号と可動域を再測定する。
+台座を固定し、機械端やエンコーダ原点をまたぐ位置指令を避ける。
 
-```bash
-python3 keyboard_teleop.py
-```
-
-```
-  w/s  joint0 (ID4-7 を 4 個同時)      r/f  wrist12
-  e/d  joint1 (ID8-11 を 4 個同時)     t/g  wrist13
-  u/j  wrist14                        y/h  gripper (ID15)
-  [ ]  ステップ幅 -/+        space  その場で停止        0  トルクOFF
-  ?    ヘルプ                q      終了 (トルクOFF)
-```
-
-対向駆動の関節は実測した符号表 (`JOINTS`) に従って全サーボへ同時に指令する。
-起動時に現在位置を読んでそれを目標にしてからトルクを入れるので、投入時に跳ねない。
-
-**1 回叩くと `--step` 分 (既定 8 step = 0.7 度) だけ動いて止まる。** 押しっぱなしに
-すると `--rate` step/秒 で動き続ける。端末のキーリピートは「押した瞬間に 1 回」
-「約 0.5 秒後から毎秒 30 回」送ってくるので、間隔が `REPEAT_WINDOW` (0.25 秒) より
-短い入力だけを押しっぱなしとみなして区別している。
-
-安全側の作り:
-
-- トルク上限を絞る (`--torque-limit`, 既定 500/1000)
-- 関節ごとに実測可動域の約半分まで (`--max-offset` で上書き可)
-- **サーボの残り可動量から関節の可動量を決める**。起動時に表で表示する
-- **目標値を実位置から `--lead` step (既定 80) 以上は先行させない**
-- 負荷が続いたら (`--load-stop`) 目標を実位置まで引き戻し、その向きへの進行を止める。
-  加速中の跳ねで誤発火しないよう、判定の主軸は「目標が先行しているのに実位置が
-  動かない」という停止検出にしてある
-- **1 回の観測で実位置が `MAX_JUMP` (250 step) 以上飛んだら、その関節を切り離して
-  トルクを抜く。** 指令できる速度をはるかに超えた動きなので、機構の暴れ・エンコーダ
-  原点のまたぎ・取り付けの緩みのいずれか。目標は実位置を追うので、放置すると
-  目標が暴れた実位置を追って発振する。状態表示の `X` が切り離し中の印
-- 終了時・`0` キー・例外のいずれでも必ずトルクを切る
-
-ステータス行は `関節名: 目標/実位置` を表示する。`!` はその向きが停止中の印。
-
-**可動量が極端に狭い / 片側が無効と表示されたら**: STS3215 の位置は 0-4095 の
-絶対値で、原点 (0/4095 の境目) をまたぐと読み値が 0 と 4095 の間で飛ぶ。位置指令も
-範囲外を出せず、負の値を送ると 0xFF.. が送出されてサーボが桁違いの位置と解釈し、
-**逆回りに全力で回る**。そのため原点から `ORIGIN_MARGIN` 以内にサーボがある向きは
-最初から無効にしている。
-
-```
-関節            +方向     -方向   制限しているサーボ
-joint0          0     229   +側: ID5 -側: ID6  ★原点に近すぎるため、この向きは無効
-```
-
-対処は 2 つ。
-
-1. トルクOFF のまま手でその関節を中央寄りへ動かして起動し直す
-2. `rezero.py --apply` で中点を取り直す (EEPROM 書き込み)
-
-### 可動域の校正手順
-
-原点付近に止まっているサーボがあると全域を測れないので、順序が要る。
+## 校正・操作
 
 ```bash
-python3 rezero.py                     # 現状確認 (書き込まない)
-python3 rezero.py --apply             # 現在位置を 2048 として登録
-python3 teach_calibrate.py --seconds 120   # 手で全域を動かして実測
-python3 rezero.py --apply             # 実測した中心へ手で動かしてから再実行
+python3 tools/servo/rezero.py --baud 921600
+python3 tools/servo/teach_calibrate.py --baud 921600 --seconds 120 --verify --out calibration.json
+python3 tools/servo/rezero.py --baud 921600 --center calibration.json
+# 表示された計画を確認して書き込む場合は --apply を追加
+python3 tools/servo/keyboard_teleop.py --baud 921600
 ```
 
-`rezero.py` はレジスタ 40 に 128 を書いてサーボ自身に中点を登録させる
-(Feetech SDK の CalibrationOfs 相当)。AhaRobot の `doInitJoint` と同じ手順。
+原点付近で測定できない場合は、トルクOFFで中央寄りへ動かしてから中点を確認する。
+teleopは `?` でヘルプ、spaceで停止、`0` でトルクOFF、`q` で終了。
+可動域・トルク・目標先行量を制限し、位置の異常な跳びでは該当関節のトルクを切る。
+測定データは [data/](data/) に保存されている。
 
-**目標を先行させない理由**: これがないと、機械端や過負荷で関節が動けない
-あいだもキーを押した分だけ目標が進み続け、逆へ動かすのに先行ぶんを打ち消す
-だけの入力が必要になる。過負荷検出時に目標を実位置へ引き戻すのも同じ理由で、
-引き戻さないと溜まった指令が残って戻りが遅くなる。
+`teach_calibrate.py` と `nudge_check.py` は、実行ディレクトリの `calibration.json` / `nudge_report.json`
+へ保存する。保存先は `--out` で指定できる。`teach_calibrate.py` は同じ場所へ `*_tracks.json` も保存する。
 
-**機体を変えたら `teach_calibrate.py --verify` で符号を測り直して `JOINTS` を更新すること。**
-符号が違うとサーボ同士が押し合う。
+## AstraArmController用の検証スクリプト
 
-### 可動域と符号の測定
-
-対向駆動している関節は、通電してレンジ探索をすると重力で垂れた関節を
-電動で振り回すことになる。全サーボをトルクOFFにして手で動かし、軌跡の
-相関から符号を求める (lerobot の calibrate と同じ考え方)。
+`init_arm.py` / `check_zero.py` / `motion_test.py` はAstraArmControllerファーム用で、
+サーボバスを直接操作する透過ブリッジ用ツールとは接続条件が異なる。
+現在は `~/aharobot/AhaRobot/upstream/astra_controller` から `ArmController` を読み込むため、
+配置が異なる場合は各スクリプトの `REPO` を使用環境に合わせる。
+ポートは位置引数で指定し、ボーレートは `ArmController` の設定を使用する。numpyとpyserialが必要。
 
 ```bash
-python3 teach_calibrate.py --seconds 45 --verify
+# 純正ファームの透過通信で設定を保存（読み取りのみ）
+python3 tools/servo/servo_snapshot.py --port /dev/ttyUSB0 --baud 115200 dump --out servo_eeprom.json
+python3 tools/servo/servo_snapshot.py --port /dev/ttyUSB0 --baud 115200 watch 15
+
+# AstraArmControllerファームで実行。確認入力後に書き込み・トルク投入を行う
+python3 tools/servo/init_arm.py /dev/ttyUSB0
+python3 tools/servo/check_zero.py /dev/ttyUSB0 10
+python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 ```
 
-`--verify` を付けると、実測から `dualMotor.cpp` の `JOINT_SERVO_SIGN[]` を
-そのまま貼れる形で出力する。連動していない関節は「★未確定」と警告し、
-符号を決め打ちしない。
-
-**アームの根元を台座に固定していないと joint0 の 2 ペアは無相関になり、
-符号を測れない。** 固定するか、根元を手で押さえた状態で測ること。
-
-### 単体で動かしてよいサーボ
-
-`ID4-11` は 4 個で 1 関節を対向駆動しているので、**単体で動かすと残り 3 個と
-力で喧嘩して機構を痛める**。単体で回してよいのは単発関節の `ID12` / `ID13` / `ID15`
-(グリッパ) だけ。`motor_check.py --move` は負荷を監視して、機械端に当たったら
-中断して開始位置へ戻す。
-
-## 測定データ
-
-`data/` に実測値を置いている。詳細と結論は [`docs/servo-bringup.md`](../../docs/servo-bringup.md)。
+`init_arm.py` の姿勢指定と過去のグリッパ校正案には不一致があり、
+[確認範囲と未確認事項](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を確認する。
+`check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
+保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。

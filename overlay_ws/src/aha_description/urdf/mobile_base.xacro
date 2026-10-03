@@ -6,7 +6,7 @@
     wheel_radius     = 0.042 m  (MEASURED from upstream/Astra_Hardwares/Astra/Astra.STEP:
                                   the HB-139 drive-wheel subassembly has 4
                                   CYLINDRICAL_SURFACE entities at r=42.00 mm.
-                                  See docs/cad-measurements.md)
+                                  See docs/context/cad.md)
     wheel_separation = 0.40  m  (ESTIMATED from paper "base 550x500 mm";
                                   needs FreeCAD/CAD viewer to confirm from
                                   Astra.STEP assembly transforms.)
