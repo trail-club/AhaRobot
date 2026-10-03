@@ -7,7 +7,7 @@
 | package | 役割 |
 | --- | --- |
 | `aha_description` | 上流 URDF を xacro で wrap し、差動二輪ベース / `<ros2_control>` / (将来) センサを追加 |
-| `aha_gazebo` | Gazebo Harmonic world と Gazebo 起動 launch |
+| `aha_gazebo` | SOBITS Japan Open world準備、Gazebo起動、回帰テスト |
 | `aha_bringup` | sim / real の統合起動 launch |
 
 ## 前提
@@ -21,30 +21,27 @@
 
 ```bash
 cd <repo root>
-rosdep install --from-paths upstream overlay_ws/src --ignore-src -r -y
+rosdep install --from-paths overlay_ws/src \
+  upstream/astra_description upstream/astra_controller_interfaces \
+  upstream/sobits_gazebo_worlds upstream/tmc_wrs_gz/tmc_wrs_gz_worlds \
+  --ignore-src -r -y --skip-keys "gz_human_sim sobits_interfaces"
 ```
 
 ## ビルド
 
 ```bash
-cd overlay_ws
+# 開発コンテナ内で
+cd /app/overlay_ws
 colcon build --symlink-install --packages-up-to aha_bringup
 source install/setup.bash
 ```
 
-`upstream/astra_description` などが依存関係で必要な場合は super repo の `upstream/` を
-`AMENT_PREFIX_PATH` / `COLCON_PREFIX_PATH` で見えるようにする。最も簡単には super repo 直下で:
-
-```bash
-colcon build --symlink-install \
-  --paths upstream/astra_description upstream/astra_controller_interfaces \
-  --paths overlay_ws/src/aha_description overlay_ws/src/aha_gazebo overlay_ws/src/aha_bringup
-```
-
-または単一ワークスペースに揃える運用として、`overlay_ws/src` の中に `upstream/*` への
-シンボリックリンクを張っても良い (upstream の git submodule 実体はそのまま)。
+依存は `git clone --recursive` で取得する。開発コンテナがworkspaceへリンクし、通常ビルドに含める。
+[Japan Openの起動設定](../docs/sobits-rcjo2026.md)を参照。
 
 ## 動作確認済み (2026-08-30)
+
+以下はデフォルトをJapan Openへ変更する前の空worldでの確認結果。
 
 Docker (macOS/Apple Silicon) で以下を確認:
 - `colcon build` 成功 (astra_description / aha_description / aha_gazebo / aha_bringup)
@@ -70,7 +67,10 @@ ros2 launch aha_bringup sim.launch.py
 
 引数:
 
-- `world:=empty.sdf` (default)
+- `world:=rcjo2026` (default) — SOBITS Japan Open 2026、spawn `(-2.0, 1.5, 0.10)` m
+- `world:=empty.sdf` — 空world、spawn `(0.0, 0.0, 0.05)` m
+- `world_path:=/absolute/path/world.sdf` — 展開済みSDFで上書き、空worldと同じ既定spawn
+- `spawn_x` / `spawn_y` / `spawn_z` / `spawn_yaw` — 初期位置の上書き
 - `use_sim_time:=true` (default)
 - `headless:=true` — GUI 無し (macOS / CI 推奨)
 

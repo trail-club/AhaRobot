@@ -16,3 +16,9 @@
 [submodule "upstream/astra_moveit_config"]
 	path = upstream/astra_moveit_config
 	url = https://github.com/trail-club/astra_moveit_config.git
+[submodule "upstream/sobits_gazebo_worlds"]
+	path = upstream/sobits_gazebo_worlds
+	url = https://github.com/TeamSOBITS/sobits_gazebo_worlds.git
+[submodule "upstream/tmc_wrs_gz"]
+	path = upstream/tmc_wrs_gz
+	url = https://github.com/TeamSOBITS/tmc_wrs_gz.git

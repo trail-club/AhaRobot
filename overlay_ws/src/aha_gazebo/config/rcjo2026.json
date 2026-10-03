@@ -1,0 +1,6 @@
+{
+  "world_source": "rcjo2026_arena.world.xacro",
+  "world_sha256": "447d7f3752e5178bccbc90c1ac2676c47930699d9551194417215e510dea1b56",
+  "world_name": "rcjo2026_arena",
+  "spawn": {"x": -2.0, "y": 1.5, "z": 0.10, "yaw": 0.0}
+}
