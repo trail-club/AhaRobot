@@ -13,19 +13,23 @@ RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
 │   ├── astra_controller_interfaces       # custom msg / srv
 │   ├── astra_moveit_config               # MoveIt 2 設定 (Humble, deprecated 予定)
 │   ├── AstraFirmwares                    # ESP32 / ODrive ファームウェア
-│   └── Astra_Hardwares                   # CAD (STEP / STL)
+│   ├── Astra_Hardwares                   # CAD (STEP / STL)
+│   ├── sobits_gazebo_worlds               # Japan Open world (TeamSOBITS submodule)
+│   └── tmc_wrs_gz                        # world用のmodel資源 (TeamSOBITS submodule)
 └── overlay_ws/                       # チーム overlay workspace
     └── src/
         ├── aha_description               # URDF xacro (base / ros2_control / sensors)
         ├── aha_gazebo                    # Gazebo Harmonic world / launch
         ├── aha_bringup                   # sim / real の統合起動 launch
+        ├── aha_sobits_bringup            # Japan Open 起動の互換入口
         ├── aha_msgs                      # 班横断の msg / srv / action
         ├── aha_navigation                # SLAM / Nav2 (navigation squad)
         ├── aha_manipulation              # MoveIt / pick (manipulation squad)
         └── aha_perception                # 物体・人物検出 (perception squad)
 ```
 
-`upstream/*` は trail-club org の fork を submodule として固定。
+`upstream/*` はsubmoduleとして固定。Astra関連はtrail-clubのfork、
+SOBITS worldとTMCモデル資源はTeamSOBITSのリポジトリを直接参照する。
 改変は fork 側 branch で行い、super repo は SHA を進めるだけとする。
 Upstream 追従は各 fork で `git remote add upstream https://github.com/hilookas/<repo>.git` → `git fetch upstream`。
 
@@ -69,9 +73,11 @@ source install/setup.bash
 
 ### 4. Sim + RViz を起動
 
+標準worldはSOBITS Japan Open 2026。[起動設定](docs/sobits-rcjo2026.md)を参照。
+
 ```bash
 # コンテナ内で sim (Gazebo + spawn + controllers)
-ros2 launch aha_bringup sim.launch.py world:=home.sdf
+ros2 launch aha_bringup sim.launch.py
 
 # 別ターミナルからコンテナに入って RViz
 make shell        # or: docker exec -it aharobot_aha_project_1 bash

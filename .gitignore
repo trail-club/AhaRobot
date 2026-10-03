@@ -18,6 +18,8 @@ __pycache__/
 # Container-created symlinks under overlay_ws/src (target /app/...)
 /overlay_ws/src/astra_description
 /overlay_ws/src/astra_controller_interfaces
+/overlay_ws/src/sobits_gazebo_worlds
+/overlay_ws/src/tmc_wrs_gz_worlds
 
 # Session artifacts
 .claude/

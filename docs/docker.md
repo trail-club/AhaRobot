@@ -51,7 +51,7 @@ colcon build --symlink-install
 source install/setup.bash
 
 # sim
-ros2 launch aha_bringup sim.launch.py world:=home.sdf
+ros2 launch aha_bringup sim.launch.py  # SOBITS Japan Open 2026
 
 # 各班 launch 併用
 ros2 launch aha_bringup sim.launch.py use_nav:=true use_perception:=true

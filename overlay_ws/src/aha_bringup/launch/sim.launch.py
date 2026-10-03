@@ -10,24 +10,37 @@ Starts:
         left/right_arm_controller, left/right_gripper_controller,
         lift_controller, head_controller
 """
-import os
 
-from ament_index_python.packages import get_package_prefix
+import os
+from pathlib import Path
+
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    Command,
+    AndSubstitution,
+    EqualsSubstitution,
+    IfElseSubstitution,
+    EnvironmentVariable,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+from aha_gazebo.world import SPAWN_COORDINATES, load_preset, validate_spawn
 
 
 CONTROLLERS_AFTER_JSB = [
@@ -50,23 +63,63 @@ def _spawner(name, switch_timeout: int = 30):
         executable="spawner",
         arguments=[
             name,
-            "--controller-manager", "/controller_manager",
-            "--switch-timeout", str(switch_timeout),
+            "--controller-manager",
+            "/controller_manager",
+            "--switch-timeout",
+            str(switch_timeout),
         ],
         output="screen",
     )
 
 
+def _spawn_arguments():
+    legacy = {"x": 0.0, "y": 0.0, "z": 0.05, "yaw": 0.0}
+    preset = load_preset(
+        Path(get_package_share_directory("aha_gazebo")) / "config" / "rcjo2026.json"
+    )
+    use_arena_pose = AndSubstitution(
+        EqualsSubstitution(LaunchConfiguration("world"), "rcjo2026"),
+        EqualsSubstitution(LaunchConfiguration("world_path"), ""),
+    )
+    return [
+        DeclareLaunchArgument(
+            "spawn_" + key,
+            default_value=IfElseSubstitution(
+                use_arena_pose, str(preset["spawn"][key]), str(legacy[key])
+            ),
+            description="Initial world-frame " + key + " (metres, yaw in radians)",
+        )
+        for key in SPAWN_COORDINATES
+    ]
+
+
+def _validate_spawn(context):
+    validate_spawn(
+        {
+            key: LaunchConfiguration("spawn_" + key).perform(context)
+            for key in SPAWN_COORDINATES
+        }
+    )
+    return []
+
+
 def generate_launch_description():
-    world = LaunchConfiguration("world")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    xacro_path = PathJoinSubstitution([
-        FindPackageShare("aha_description"), "urdf", "aha_robot.urdf.xacro",
-    ])
-    gazebo_launch = PathJoinSubstitution([
-        FindPackageShare("aha_gazebo"), "launch", "gazebo.launch.py",
-    ])
+    xacro_path = PathJoinSubstitution(
+        [
+            FindPackageShare("aha_description"),
+            "urdf",
+            "aha_robot.urdf.xacro",
+        ]
+    )
+    gazebo_launch = PathJoinSubstitution(
+        [
+            FindPackageShare("aha_gazebo"),
+            "launch",
+            "gazebo.launch.py",
+        ]
+    )
 
     robot_description = {
         "robot_description": ParameterValue(
@@ -85,7 +138,8 @@ def generate_launch_description():
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gazebo_launch),
         launch_arguments={
-            "world": world,
+            "world": LaunchConfiguration("world"),
+            "world_path": LaunchConfiguration("world_path"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
     )
@@ -94,9 +148,18 @@ def generate_launch_description():
         package="ros_gz_sim",
         executable="create",
         arguments=[
-            "-name", "aha_robot",
-            "-topic", "robot_description",
-            "-z", "0.05",
+            "-name",
+            "aha_robot",
+            "-topic",
+            "robot_description",
+            "-x",
+            LaunchConfiguration("spawn_x"),
+            "-y",
+            LaunchConfiguration("spawn_y"),
+            "-z",
+            LaunchConfiguration("spawn_z"),
+            "-Y",
+            LaunchConfiguration("spawn_yaw"),
         ],
         output="screen",
     )
@@ -122,22 +185,38 @@ def generate_launch_description():
     # We add the parent of each pkg's share dir; Gazebo searches these roots
     # for a subdirectory matching the URI host part.
     share_roots = os.pathsep.join(
-        os.path.dirname(os.path.join(get_package_prefix(p), "share", p))
+        os.path.join(get_package_prefix(p), "share")
         for p in ("astra_description", "aha_description")
     )
-    existing = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
-    resource_path = os.pathsep.join(x for x in (share_roots, existing) if x)
+    # Read the launch context so resource roots set by a parent launch survive.
+    resource_path = [
+        share_roots,
+        os.pathsep,
+        EnvironmentVariable("GZ_SIM_RESOURCE_PATH", default_value=""),
+    ]
 
     # Optional per-squad subsystems. Default off — bringup is minimal.
-    nav_launch = PathJoinSubstitution([
-        FindPackageShare("aha_navigation"), "launch", "nav.launch.py",
-    ])
-    manip_launch = PathJoinSubstitution([
-        FindPackageShare("aha_manipulation"), "launch", "manip.launch.py",
-    ])
-    perception_launch = PathJoinSubstitution([
-        FindPackageShare("aha_perception"), "launch", "perception.launch.py",
-    ])
+    nav_launch = PathJoinSubstitution(
+        [
+            FindPackageShare("aha_navigation"),
+            "launch",
+            "nav.launch.py",
+        ]
+    )
+    manip_launch = PathJoinSubstitution(
+        [
+            FindPackageShare("aha_manipulation"),
+            "launch",
+            "manip.launch.py",
+        ]
+    )
+    perception_launch = PathJoinSubstitution(
+        [
+            FindPackageShare("aha_perception"),
+            "launch",
+            "perception.launch.py",
+        ]
+    )
 
     nav = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(nav_launch),
@@ -152,21 +231,34 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("use_perception")),
     )
 
-    return LaunchDescription([
-        DeclareLaunchArgument("world", default_value="empty.sdf"),
-        DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("headless", default_value="false"),
-        DeclareLaunchArgument("use_nav", default_value="false"),
-        DeclareLaunchArgument("use_manip", default_value="false"),
-        DeclareLaunchArgument("use_perception", default_value="false"),
-        SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
-        gz,
-        rsp,
-        clock_bridge,
-        spawn,
-        jsb,
-        load_rest,
-        nav,
-        manip,
-        perception,
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "world",
+                default_value="rcjo2026",
+                description="rcjo2026 (SOBITS Japan Open), or a bundled SDF filename",
+            ),
+            DeclareLaunchArgument(
+                "world_path",
+                default_value="",
+                description="Optional absolute SDF path; overrides world",
+            ),
+            *_spawn_arguments(),
+            OpaqueFunction(function=_validate_spawn),
+            DeclareLaunchArgument("use_sim_time", default_value="true"),
+            DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument("use_nav", default_value="false"),
+            DeclareLaunchArgument("use_manip", default_value="false"),
+            DeclareLaunchArgument("use_perception", default_value="false"),
+            SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
+            gz,
+            rsp,
+            clock_bridge,
+            spawn,
+            jsb,
+            load_rest,
+            nav,
+            manip,
+            perception,
+        ]
+    )
