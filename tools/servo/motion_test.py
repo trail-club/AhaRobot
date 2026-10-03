@@ -101,7 +101,8 @@ try:
     t0 = time.time()
     over_since = None
     last_print = -1.0
-    prev_target = list(hold)  # compare feedback against previous command to avoid timing-induced error
+    # compare feedback against previous command to avoid timing-induced error
+    prev_target = list(hold)
 
     while True:
         t = time.time() - t0
