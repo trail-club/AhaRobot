@@ -69,7 +69,9 @@ def clamp_pos(pos):
 
 
 @unittest.skipUnless(HARDWARE, "hardware test: set AHA_HARDWARE=1 to run")
-@unittest.skipIf(PortHandler is None, "scservo_sdk (feetech-servo-sdk) is not installed")
+@unittest.skipIf(
+    PortHandler is None, "scservo_sdk (feetech-servo-sdk) is not installed"
+)
 class HeadServoTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -172,7 +174,9 @@ class HeadServoTests(unittest.TestCase):
                     f"ID{sid}: 電圧 {v:.1f}V が {VOLT_RANGE[0]}-{VOLT_RANGE[1]}V の範囲外",
                 )
                 self.assertLess(temp, TEMP_MAX, f"ID{sid}: 温度 {temp}C が高すぎます")
-                self.assertEqual(mode, 0, f"ID{sid}: モード {mode} (位置モード 0 ではない)")
+                self.assertEqual(
+                    mode, 0, f"ID{sid}: モード {mode} (位置モード 0 ではない)"
+                )
 
     def test_3_each_servo_moves_and_returns(self):
         for sid in SERVO_IDS:
@@ -203,8 +207,12 @@ class HeadServoTests(unittest.TestCase):
                 end="",
                 flush=True,
             )
-            self.assertLessEqual(err, TOLERANCE, f"ID{sid}: 目標 {target} に届きません (誤差 {err})")
-            self.assertLess(peak, LOAD_ABORT, f"ID{sid}: 負荷のピーク {peak} が大きすぎます")
+            self.assertLessEqual(
+                err, TOLERANCE, f"ID{sid}: 目標 {target} に届きません (誤差 {err})"
+            )
+            self.assertLess(
+                peak, LOAD_ABORT, f"ID{sid}: 負荷のピーク {peak} が大きすぎます"
+            )
 
     def _go_to(self, sid, target):
         """Command target and wait for it. Returns (pos, error, peak |load|)."""
