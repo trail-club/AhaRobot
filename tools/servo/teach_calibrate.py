@@ -82,7 +82,7 @@ if __name__ == "__main__":
     p.add_argument("--port", default="/dev/ttyUSB0")
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--seconds", type=float, default=120)
-    p.add_argument("--out", default="/home/hrt/aharobot-check/calibration.json")
+    p.add_argument("--out", default="calibration.json", help="測定結果の保存先")
     p.add_argument(
         "--verify",
         action="store_true",

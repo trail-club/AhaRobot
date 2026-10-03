@@ -2,6 +2,7 @@ USER_ID ?= $(shell id -u)
 GROUP_ID ?= $(shell id -g)
 
 IMAGE ?= trail/aharobot-jazzy
+CONTAINER ?= aharobot_aha_project_1
 
 .PHONY: build
 build:
@@ -20,7 +21,7 @@ up:
 
 .PHONY: shell
 shell:
-	docker exec -it aharobot_aha_project_1 bash
+	docker exec -it $(CONTAINER) bash
 
 .PHONY: down
 down:
@@ -32,12 +33,19 @@ down:
 
 .PHONY: ws-build
 ws-build:
-	docker exec -it aharobot_aha_project_1 bash -lc \
+	docker exec -it $(CONTAINER) bash -lc \
 		"cd /app/overlay_ws && colcon build --symlink-install --packages-up-to aha_bringup"
+
+.PHONY: test
+test:
+	pre-commit run --all-files
+	bash tools/perception/macos/test.sh
+	docker exec $(CONTAINER) bash -lc \
+		"cd /app/overlay_ws && colcon build --symlink-install && source install/setup.bash && colcon test --packages-skip astra_description astra_controller_interfaces sobits_gazebo_worlds tmc_wrs_gz_worlds --event-handlers console_direct+ && colcon test-result --verbose"
 
 .PHONY: sim
 sim:
-	docker exec -it aharobot_aha_project_1 bash -lc \
+	docker exec -it $(CONTAINER) bash -lc \
 		"source /app/overlay_ws/install/setup.bash && ros2 launch aha_bringup sim.launch.py"
 
 .PHONY: clean

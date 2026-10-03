@@ -1,61 +1,39 @@
-# サーボ制御基板のファーム
+# 制御基板のファームウェアツール
 
-Waveshare "Servo Driver with ESP32" (ESP32-D0WD-V3) 用。
+Waveshare Servo Driver with ESP32（ESP32-D0WD-V3）用。
+実機での導入経緯と観測結果は [ファームウェア・通信の検証記録](../../docs/context/firmware.md)を参照。
 
-## 構成
+| パス | 内容 |
+| --- | --- |
+| `bridge/` | USB（UART0）とサーボバス（UART1、GPIO18 / 19）の透過ブリッジ |
+| `backup/stock-*.bin` | 純正デモの4 MBフラッシュdump。SHA256を併記 |
 
-- `backup/stock-*.bin` — 出荷時 (Waveshare 純正デモ) の 4MB フラッシュ dump。
-  `sha256` を並置。以降のファームで問題があればここに戻せる
-- `bridge/` — USB (UART0) ↔ サーボバス (UART1, GPIO18/19) を 1Mbps で素通しする
-  だけの Arduino スケッチ。純正デモは Wi-Fi + Web UI (`Start Serial Forwarding`)
-  経由でしか透過モードに入れず、この個体は Wi-Fi が起動しなかったため差し替えた
+## ビルド・書き込み
 
-## ブリッジを焼く
+ホストにarduino-cliとesptoolを用意する。既存のファームを書き換えるため、バックアップを確認する。
 
 ```bash
-brew install arduino-cli           # 未導入なら
 cd tools/firmware/bridge
 PORT=/dev/cu.usbserial-0001 bash build_and_flash.sh
 ```
 
-初回は ESP32 コア (~1GB) がダウンロードされる。焼き込み後、基板の GPIO2 LED が
-1 秒周期で点滅すればブリッジ動作中。
-
-## 動作確認
+GPIO2のLEDが1秒周期で点滅すればブリッジ動作中。USBは921600 bps、サーボバスは1 Mbps。
 
 ```bash
-source /tmp/esp-diag/bin/activate   # または pyserial が入った venv
+# リポジトリ直下
 python3 tools/firmware/bridge/verify.py --port /dev/cu.usbserial-0001
 ```
 
-サーボバスが繋がっていれば応答した ID が並ぶ。全 ID 無応答でも、ブリッジ自体が
-書き込みできていれば bytes を投げた事実は残る (バスの物理接続や電源を確認)。
+サーボIDの応答まで確認する。全ID無応答なら電源・配線・サーボ側のボーレートを確認する。
+サーボツールの使用方法は [README](../servo/README.md)を参照。
 
-## 純正ファームに戻す
+## 純正ファームへ戻す
 
 ```bash
-source /tmp/esp-diag/bin/activate
 esptool --port /dev/cu.usbserial-0001 --baud 460800 \
-    write-flash 0x0 tools/firmware/backup/stock-waveshare-esp32-*.bin
+  write-flash 0x0 tools/firmware/backup/stock-waveshare-esp32-*.bin
 ```
 
-## 以降のツール利用
-
-ブリッジは USB 921600bps / バス 1Mbps のレート変換型なので、`tools/servo/*.py` は
-921600 を明示指定する。`scan_motors.py` だけ引数が位置指定 (port bauds...)、
-その他は `--baud` オプション。
-
-```bash
-python3 tools/servo/scan_motors.py /dev/cu.usbserial-0001 921600
-python3 tools/servo/motor_check.py --baud 921600
-python3 tools/servo/rezero.py --baud 921600
-python3 tools/servo/teach_calibrate.py --baud 921600
-python3 tools/servo/keyboard_teleop.py --baud 921600
-```
-
-## macOS 上での注意
-
-CP2102 のドライバは tty オープン時に DTR/RTS をアサートする。Waveshare 基板の
-自動リセット回路経由で ESP32 が EN=Low で保持されるので、ツール側で
-`dtr=False, rts=False` を指定して開く必要がある。`bridge/verify.py` は既にそう
-なっているが、他のツールが対応していない場合は同様の修正が必要。
+純正デモの透過通信はWeb UIの `Start Serial Forwarding` を有効にして115200 bpsで接続する。
+macOSではDTR / RTSによりESP32がリセット状態になる場合がある。
+`bridge/verify.py` はポートを開く前に両方をFalseへ設定している。

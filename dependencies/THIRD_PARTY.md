@@ -1,4 +1,34 @@
-# SOBITS / TMC資源の出典
+# ライセンス・第三者資源の出典
+
+## AhaRobot独自コード
+
+`overlay_ws/src/aha_*` の8パッケージは、それぞれの `package.xml` に `Apache-2.0` を宣言している。
+例: [aha_description/package.xml](../overlay_ws/src/aha_description/package.xml)、[aha_gazebo/package.xml](../overlay_ws/src/aha_gazebo/package.xml)。
+リポジトリ直下にはLICENSEファイルがなく、`tools/`・`docker/`などを含む全体のライセンスは未整備。
+上流から取り込んだコード・URDF・mesh・素材への適用範囲は、独自コードの宣言とは別に確認する。
+
+## Astra由来のsubmodule
+
+使用先は `trail-club` のfork、元の開発元は同名の `hilookas` リポジトリ。
+
+| submodule / 使用commit | 確認した記載 | 状態・参照元 |
+| --- | --- | --- |
+| [astra_description](https://github.com/trail-club/astra_description/tree/a2791e61daaaff227e575b06120424439fe89e2e) | `package.xml`: `BSD` | 直下にLICENSEなし。BSDの種類・適用範囲は未確認。[package.xml](../upstream/astra_description/package.xml) |
+| [astra_controller](https://github.com/trail-club/astra_controller/tree/9c1b96e7684f32e90d72805d9e3c982ac38a5de6) | `package.xml`: `TODO: License declaration` | 直下にLICENSEなし。ライセンス未宣言。[package.xml](../upstream/astra_controller/package.xml) |
+| [astra_controller_interfaces](https://github.com/trail-club/astra_controller_interfaces/tree/aef1cae7d20fde93e4bb6fdfccd92dd0e0e5c3da) | `package.xml`: `TODO: License declaration` | 直下にLICENSEなし。ライセンス未宣言。[package.xml](../upstream/astra_controller_interfaces/package.xml) |
+| [astra_moveit_config](https://github.com/trail-club/astra_moveit_config/tree/f053a291345495368cbb125ab400af858ce24533) | `package.xml`: `BSD` | 直下にLICENSEなし。BSDの種類・適用範囲は未確認。[package.xml](../upstream/astra_moveit_config/package.xml) |
+| [AstraFirmwares](https://github.com/trail-club/AstraFirmwares/tree/1b4e7db36dea97623fb2735e272aada9c8f23b0f) | LICENSE: GPL v3本文。README: 非商用などの追加制限 | [LICENSE](../upstream/AstraFirmwares/LICENSE)、[README](../upstream/AstraFirmwares/README.md#license) |
+| [Astra_Hardwares](https://github.com/trail-club/Astra_Hardwares/tree/27528e9831311ebd2a5b1e9a651940c1c18a08d3) | LICENSE: GPL v3本文。README: 非商用などの追加制限 | [LICENSE](../upstream/Astra_Hardwares/LICENSE)、[README](../upstream/Astra_Hardwares/README.md#license) |
+
+元のsuper-repo [hilookas/astra_wsのREADME](https://github.com/hilookas/astra_ws#license)にもGPL-3.0と非商用の追加制限がある。
+このsuper-repo自体はAhaRobotのsubmoduleには含めていない。
+個別ROSパッケージへの適用範囲、およびGPL本文とREADMEの追加制限の扱いは未確認。
+競技参加・展示・商用利用の可否をこの一覧だけで確定しない。
+
+`AstraFirmwares` 内の各コントローラも[入れ子のsubmodule](../upstream/AstraFirmwares/.gitmodules)。
+親リポジトリの宣言だけで各コントローラのライセンスを確定せず、個別の記載を確認する。
+
+## SOBITS / TMCのシミュレーション資源
 
 TeamSOBITSのリポジトリを直接参照する。Japan Open worldの形状は変更せず、AhaRobotの初期位置と資源参照を設定している。
 
@@ -16,3 +46,9 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 公開画像・動画などでCC BY素材を使う場合は、素材の作者・出典・ライセンスへのリンク・変更の有無を記載する。
 条件の原文: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)。
 資源の再配布時は、各LICENSEの条件に従って著作権表示・ライセンス本文・免責事項などを保持する。
+
+## その他の第三者資源
+
+[tools/firmware/backup/](../tools/firmware/backup/) の `stock-waveshare-esp32-*.bin` は、
+[ファームウェア手順](../tools/firmware/README.md)によるとWaveshare純正デモのフラッシュdump。
+同ディレクトリにはライセンス記載がなく、収録バイナリの再配布条件は未確認。

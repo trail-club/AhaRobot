@@ -3,7 +3,7 @@
 
 ファームを焼く前でも、制御基板をシリアル転送モードにしておけばホストから
 直接動かせる (手順は README)。対向取付の符号は実測値
-(docs/servo-bringup.md) をそのまま使う。符号が違うとサーボ同士が押し合うので、
+(docs/context/motor.md) をそのまま使う。符号が違うとサーボ同士が押し合うので、
 機体を変えたら `teach_calibrate.py --verify` で測り直して JOINTS を更新すること。
 
 キーは 1 回叩くと `--step` 分だけ動き、押しっぱなしのあいだは `--rate`
@@ -92,7 +92,7 @@ class Joint:
 
 
 # 符号は実機の実測値 (|r| = 1.00)。limit は teach_calibrate.py で測った可動域の
-# 半分から余裕を引いた値。どちらも docs/servo-bringup.md を参照。
+# 半分から余裕を引いた値。どちらも docs/context/motor.md を参照。
 # wrist12 は機構の可動域が 415 度あって 1 回転に収まらないので MAX_ROM で頭打ちに
 # なる。両端の約 30 度ずつは位置モードでは指令できない。
 JOINTS = [
