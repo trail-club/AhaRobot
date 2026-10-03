@@ -35,5 +35,10 @@ ros2 run aha_bringup teleop_base.sh
 worldは `sobits_gazebo_worlds`、床・机のモデルは `tmc_wrs_gz_worlds` を使う。
 専用ビルドは不要。Xacroは起動時にSDFへ展開し、[preset](../overlay_ws/src/aha_gazebo/config/rcjo2026.json)のチェックサムと照合する。
 
-2Dマップ・SLAM・Nav2は未追加。ビルド・回帰テスト・SDF検証済みで、実走行は未検証。
+2Dマップ・SLAM・Nav2は未追加。ビルド・回帰テスト・SDF検証に加え、
+macOSの開発コンテナでGUI描画、全8コントローラのactive、シミュレーション内の前進・後退を確認済み。
+実機走行は未検証。上流チェックの除外範囲と再実行手順は[テスト手順](../overlay_ws/README.md#テスト)を参照。
+
+![Gazebo上のSOBITS Japan Open 2026 worldとAhaRobot](images/sobits-rcjo2026.png)
+
 [ライセンス・第三者資源の出典](../dependencies/THIRD_PARTY.md)
