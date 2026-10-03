@@ -18,7 +18,7 @@ import os
 import sys
 import time
 
-REPO = os.path.expanduser("~/aharobot/AhaRobot")
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "upstream", "astra_controller"))
 
 from astra_controller.arm_controller import ArmController  # noqa: E402
