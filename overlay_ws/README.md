@@ -52,5 +52,5 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 
 - 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
 - 昇降は左右2軸として記述しているが、実機は共通軸。
-- センサ、SLAM / Nav2、MoveItの統合は未実装。
+- Gazeboセンサ、SLAM / Nav2、MoveItの統合は未実装。macOSカメラは別経路で動作する。
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。

@@ -7,7 +7,9 @@ STS3215の確認・校正・手動操作用。機体固有のID・符号・可�
 
 pyserialとFeetech SDKを使用する。制御基板の透過モードとボーレートは
 [ファームウェアツール](../firmware/README.md)を参照。
-サーボバスを直接操作するスクリプトの既定値は115200 bpsなので、独自ブリッジでは明示指定する。
+`--baud` を持つ直接操作ツールの既定値は115200 bpsなので、独自ブリッジでは921600を指定する。
+`scan_motors.py` は位置引数で指定する。`nudge_check.py` はport / baudのCLI指定がなく、
+`Bus` の既定値（`/dev/ttyUSB0` / 115200 bps）を使用するため、異なる接続ではコードの設定変更が必要。
 
 ```bash
 # リポジトリ直下。ポートは使用環境に合わせる
@@ -30,7 +32,9 @@ python3 tools/servo/motor_check.py --port /dev/ttyUSB0 --baud 921600
 | `check_zero.py` | PIDを設定せずトルクを入れる静置テスト。終了時にトルクOFF |
 | `motion_test.py` | joint0 / joint1の往復試験。ソフトウェアリミット・誤差監視付き |
 
-ID4–11は対向駆動のため単体で動かさない。機体を変更したら符号と可動域を再測定する。
+ID4–11は対向駆動のため、通常操作は関節単位で行う。
+`nudge_check.py` はトルク・速度・移動量を制限した単体の連動確認用。
+機体を変更したら符号と可動域を再測定する。
 台座を固定し、機械端やエンコーダ原点をまたぐ位置指令を避ける。
 
 ## 校正・操作
@@ -57,7 +61,7 @@ teleopは `?` でヘルプ、spaceで停止、`0` でトルクOFF、`q` で終�
 サーボバスを直接操作する透過ブリッジ用ツールとは接続条件が異なる。
 現在は `~/aharobot/AhaRobot/upstream/astra_controller` から `ArmController` を読み込むため、
 配置が異なる場合は各スクリプトの `REPO` を使用環境に合わせる。
-ポートは位置引数で指定し、ボーレートは `ArmController` の設定を使用する。
+ポートは位置引数で指定し、ボーレートは `ArmController` の設定を使用する。numpyとpyserialが必要。
 
 ```bash
 # 純正ファームの透過通信で設定を保存（読み取りのみ）
@@ -70,6 +74,7 @@ python3 tools/servo/check_zero.py /dev/ttyUSB0 10
 python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 ```
 
-初期化時の姿勢は `init_arm.py` の確認メッセージに従う。
+`init_arm.py` の姿勢指定と過去のグリッパ校正案には不一致があり、
+[確認範囲と未確認事項](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を確認する。
 `check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
 保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。
