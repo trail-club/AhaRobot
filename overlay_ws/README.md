@@ -23,6 +23,31 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 world・spawn設定は [Japan Open起動設定](../docs/sobits-rcjo2026.md)、
 controllerとROSの入出力は [インターフェース](../docs/interfaces.md)を参照。
 
+## テスト
+
+PR前の標準チェックはホストで [make test](../AGENTS.md#動作確認) を実行する。
+上流パッケージも含めて再検証する場合は、開発コンテナ内で以下を実行する。
+
+```bash
+cd /app/overlay_ws
+colcon build --symlink-install --cmake-force-configure
+source install/setup.bash
+colcon test-result --delete-yes  # 前回の生成済みテスト結果をクリア
+colcon test
+colcon test-result --verbose
+```
+
+`colcon.meta` はこのworkspaceからの実行時に自動で読み込まれ、上流の既知の失敗を次の範囲で除外する。
+
+- `sobits_gazebo_worlds`: `ament_cmake_flake8`
+- `tmc_wrs_gz_worlds`: `test_flake8` / `test_copyright`
+
+SOBITSはCMakeの再構成時に除外を反映するため、設定追加後は上記のビルドから実行する。
+除外前の結果ファイルが集計に残らないよう、前回のテスト結果をクリアしてから再実行する。
+TMCの著作権・ライセンス本文は変更せず、表記を認識できないチェックを除外する。
+上流のその他のチェックと、`aha_gazebo` のworld・launch回帰テストは引き続き実行する。
+`astra_controller_interfaces` のlintは除外対象に含めない。
+
 ## 制限
 
 - 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)

@@ -7,6 +7,8 @@ Waveshare Servo Driver with ESP32（ESP32-D0WD-V3）用。
 | --- | --- |
 | `bridge/` | USB（UART0）とサーボバス（UART1、GPIO18 / 19）の透過ブリッジ |
 | `backup/stock-*.bin` | 純正デモの4 MBフラッシュdump。SHA256を併記 |
+| `backup/backup_0927/` | AstraArmController導入前のフラッシュ・サーボ設定。[保存内容](backup/backup_0927/README.md) |
+| `esp32_backup/` | 9月27日のフラッシュdumpの複製と `parse_partitions.py`（パーティション表の表示） |
 
 ## ビルド・書き込み
 

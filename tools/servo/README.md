@@ -7,7 +7,7 @@ STS3215の確認・校正・手動操作用。機体固有のID・符号・可�
 
 pyserialとFeetech SDKを使用する。制御基板の透過モードとボーレートは
 [ファームウェアツール](../firmware/README.md)を参照。
-各スクリプトの既定値は115200 bpsなので、独自ブリッジでは明示指定する。
+サーボバスを直接操作するスクリプトの既定値は115200 bpsなので、独自ブリッジでは明示指定する。
 
 ```bash
 # リポジトリ直下。ポートは使用環境に合わせる
@@ -25,6 +25,10 @@ python3 tools/servo/motor_check.py --port /dev/ttyUSB0 --baud 921600
 | `teach_calibrate.py` | トルクOFFで手動測定し、`--verify` で対向符号を確認 |
 | `rezero.py` | 中点校正。`--apply` 指定時だけEEPROMへ書き込む |
 | `keyboard_teleop.py` | 関節単位の手動操作 |
+| `servo_snapshot.py` | サーボEEPROMの読み取りと位置モニタ。純正ファームの透過通信用 |
+| `init_arm.py` | AstraArmControllerの原点初期化。サーボEEPROM・ESP32 LittleFSへ書き込む |
+| `check_zero.py` | PIDを設定せずトルクを入れる静置テスト。終了時にトルクOFF |
+| `motion_test.py` | joint0 / joint1の往復試験。ソフトウェアリミット・誤差監視付き |
 
 ID4–11は対向駆動のため単体で動かさない。機体を変更したら符号と可動域を再測定する。
 台座を固定し、機械端やエンコーダ原点をまたぐ位置指令を避ける。
@@ -46,3 +50,26 @@ teleopは `?` でヘルプ、spaceで停止、`0` でトルクOFF、`q` で終�
 
 `teach_calibrate.py` と `nudge_check.py` は、実行ディレクトリの `calibration.json` / `nudge_report.json`
 へ保存する。保存先は `--out` で指定できる。`teach_calibrate.py` は同じ場所へ `*_tracks.json` も保存する。
+
+## AstraArmController用の検証スクリプト
+
+`init_arm.py` / `check_zero.py` / `motion_test.py` はAstraArmControllerファーム用で、
+サーボバスを直接操作する透過ブリッジ用ツールとは接続条件が異なる。
+現在は `~/aharobot/AhaRobot/upstream/astra_controller` から `ArmController` を読み込むため、
+配置が異なる場合は各スクリプトの `REPO` を使用環境に合わせる。
+ポートは位置引数で指定し、ボーレートは `ArmController` の設定を使用する。
+
+```bash
+# 純正ファームの透過通信で設定を保存（読み取りのみ）
+python3 tools/servo/servo_snapshot.py --port /dev/ttyUSB0 --baud 115200 dump --out servo_eeprom.json
+python3 tools/servo/servo_snapshot.py --port /dev/ttyUSB0 --baud 115200 watch 15
+
+# AstraArmControllerファームで実行。確認入力後に書き込み・トルク投入を行う
+python3 tools/servo/init_arm.py /dev/ttyUSB0
+python3 tools/servo/check_zero.py /dev/ttyUSB0 10
+python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
+```
+
+初期化時の姿勢は `init_arm.py` の確認メッセージに従う。
+`check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
+保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。

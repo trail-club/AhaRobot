@@ -16,3 +16,10 @@
 Xacroは起動時にSDFへ展開し、[preset](../overlay_ws/src/aha_gazebo/config/rcjo2026.json)の
 チェックサム・world名・モデル参照を検証する。worldの形状は変更しない。
 [出典・ライセンス](../dependencies/THIRD_PARTY.md)を参照。
+
+2Dマップ・SLAM・Nav2は未追加。ビルド・回帰テスト・SDF検証に加え、
+macOSの開発コンテナでGUI描画、全8コントローラのactive、
+シミュレーション内の前進・後退を確認済み。実機走行は未検証。
+上流チェックの除外範囲と再実行手順は [テスト手順](../overlay_ws/README.md#テスト)を参照。
+
+![Gazebo上のSOBITS Japan Open 2026 worldとAhaRobot](images/sobits-rcjo2026.png)

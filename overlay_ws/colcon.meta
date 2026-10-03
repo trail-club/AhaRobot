@@ -1,0 +1,15 @@
+{
+  "names": {
+    "sobits_gazebo_worlds": {
+      "cmake-args": [
+        "-DAMENT_LINT_AUTO_EXCLUDE=ament_cmake_flake8"
+      ]
+    },
+    "tmc_wrs_gz_worlds": {
+      "pytest-args": [
+        "-k",
+        "not test_flake8 and not test_copyright"
+      ]
+    }
+  }
+}

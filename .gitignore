@@ -26,3 +26,5 @@ __pycache__/
 
 # Personal notes (per-dev learning material, not shared)
 docs/personal/
+
+tools/servo/*.csv
