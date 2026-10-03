@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""STS3215 状态快照 / 位置监视（经由 ESP32 原厂固件的 Serial Forwarding）。
+"""STS3215 state snapshot / position monitor (via Serial Forwarding of ESP32 stock firmware).
 
-用法:
-  uv run servo_snapshot.py dump                 # 导出 ID4-15 的 EEPROM 区 (0x00-0x27) 到 JSON
-  uv run servo_snapshot.py dump --ids 15-15     # 只导出某个 ID
-  uv run servo_snapshot.py watch 15             # 连续打印 ID15 的当前位置（手动拨动夹爪观察方向）
+Usage:
+  uv run servo_snapshot.py dump                 # Dump EEPROM area (0x00-0x27) of ID4-15 to JSON
+  uv run servo_snapshot.py dump --ids 15-15     # Dump only a specific ID
+  uv run servo_snapshot.py watch 15             # Continuously print current position of ID15 (manually move the gripper to observe direction)
 
-只读，不写任何寄存器。
+Read-only; does not write any register.
 """
 
 import argparse
@@ -25,7 +25,7 @@ EEPROM_LEN = 0x28
 
 
 def sign_mag(v: int) -> int:
-    """STS 的 offset 是 符号位(bit11) + 11bit 大小。"""
+    """STS offset is sign bit (bit11) + 11-bit magnitude."""
     mag = v & 0x7FF
     return -mag if v & 0x800 else mag
 
@@ -49,7 +49,7 @@ args = ap.parse_args()
 
 ph = PortHandler(args.port)
 if not ph.openPort():
-    sys.exit(f"无法打开端口: {args.port}")
+    sys.exit(f"Failed to open port: {args.port}")
 ph.setBaudRate(args.baud)
 pk = PacketHandler(0)
 
@@ -57,19 +57,19 @@ if args.cmd == "dump":
     result = {"time": datetime.datetime.now().isoformat(timespec="seconds"),
               "port": args.port, "baud": args.baud, "servos": {}}
     for sid in parse_ids(args.ids):
-        # 经 ESP32 转发时一次读 40 字节会出现 "Incorrect status packet"，
-        # 所以逐字节读取（每次都是短包，和 motor_check.py 一样稳定）
+        # Reading 40 bytes at once via ESP32 forwarding causes "Incorrect status packet",
+        # so read byte-by-byte (each is a short packet, stable like motor_check.py).
         data, fail = [], None
         for addr in range(EEPROM_LEN):
             v, comm, err = pk.read1ByteTxRx(ph, sid, addr)
             if comm != COMM_SUCCESS:
-                v, comm, err = pk.read1ByteTxRx(ph, sid, addr)  # 重试一次
+                v, comm, err = pk.read1ByteTxRx(ph, sid, addr)  # retry once
             if comm != COMM_SUCCESS:
                 fail = f"addr 0x{addr:02X}: {pk.getTxRxResult(comm)}"
                 break
             data.append(v)
         if fail:
-            print(f"ID{sid:>2}: 读取失败 ({fail})")
+            print(f"ID{sid:>2}: read failed ({fail})")
             result["servos"][sid] = {"error": fail}
             continue
         word = lambda a: data[a] | (data[a + 1] << 8)
@@ -92,10 +92,10 @@ if args.cmd == "dump":
     out = args.out or f"servo_eeprom_{datetime.datetime.now():%Y%m%d_%H%M%S}.json"
     with open(out, "w") as f:
         json.dump(result, f, indent=1)
-    print(f"已保存: {out}")
+    print(f"Saved: {out}")
 
 elif args.cmd == "watch":
-    print(f"监视 ID{args.id} 的位置 {args.sec:.0f} 秒，请在力矩关闭状态下手动拨动。Ctrl+C 结束。")
+    print(f"Watching position of ID{args.id} for {args.sec:.0f} seconds. Move it manually with torque disabled. Ctrl+C to stop.")
     t_end = time.time() + args.sec
     lo, hi = 4096, -1
     try:

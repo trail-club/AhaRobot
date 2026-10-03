@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 """
-用法:
-  uv run check_zero.py [端口] [秒数，默认 10]
+Usage:
+  uv run check_zero.py [port] [seconds, default 10]
 """
 
 import csv
@@ -20,18 +20,18 @@ from astra_controller.arm_controller import ArmController  # noqa: E402
 port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
 duration = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
 
-# 连接时不发送任何命令（上游 __init__ 普通模式会自动 set_torque(1) + set_pid）
+# Do not send any command on connect (upstream __init__ in normal mode auto-calls set_torque(1) + set_pid).
 _real_set_torque = ArmController.set_torque
 ArmController.set_torque = lambda self, *a, **k: None
 ctrl = ArmController(port, do_init=True)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)
-print(f"静置测试：set_torque(1)（不设置 PID）→ 保持 {duration:.0f} 秒 → set_torque(0)")
-print("  - 全程不要用手碰机械臂，只观察：上力矩的瞬间各关节有没有转动、转了多少")
-print("  - 异响、自行持续转动、明显发热：Ctrl+C（会自动脱力），必要时断电")
-if input("确认后输入 yes: ").strip() != "yes":
-    sys.exit("已取消")
+print(f"Static test: set_torque(1) (no PID set) -> hold for {duration:.0f} seconds -> set_torque(0)")
+print("  - Do not touch the arm. Just observe: do joints rotate the moment torque is enabled, and by how much?")
+print("  - On abnormal noise, continuous rotation, or obvious heating: Ctrl+C (auto-releases torque); cut power if needed")
+if input("Type yes to confirm: ").strip() != "yes":
+    sys.exit("Cancelled")
 
 names = ["j0", "j1", "w12", "w13", "w14"]
 out = f"check_zero_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -39,7 +39,7 @@ rows = []
 
 ctrl.set_torque(1)
 t_on = time.time()
-time.sleep(0.3)  # 丢弃 set_torque(1) 之前的旧反馈
+time.sleep(0.3)  # discard stale feedback from before set_torque(1)
 try:
     last_print = 0.0
     while time.time() - t_on < duration:
@@ -54,14 +54,14 @@ try:
                 print(f"[{t:5.1f}s] {s}  grip={p[5] * 1000:5.1f}mm")
         time.sleep(0.05)
 except KeyboardInterrupt:
-    print("中断")
+    print("Interrupted")
 finally:
     ctrl.set_torque(0)
     time.sleep(0.5)
-    print("已发送 set_torque(0)")
+    print("set_torque(0) sent")
 
 with open(out, "w", newline="") as f:
     w = csv.writer(f)
     w.writerow(["t_s"] + [f"{n}_deg" for n in names] + ["grip_mm"])
     w.writerows(rows)
-print(f"{len(rows)} 个采样已保存: {out}")
+print(f"{len(rows)} samples saved: {out}")

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""第一次闭环动作测试：单关节、小幅度正弦往复，带软件限幅和自动脱力。
+"""First closed-loop motion test: single joint, small-amplitude sinusoidal sweep, with software limits and auto torque-off.
 
-流程:
-  1. 连接（不发送任何命令）
-  2. set_torque(1) → 读取当前姿态作为 hold（其余关节、腕部、夹爪都保持这个值）
-  3. set_pid()（上游默认参数 p=30）
-  4. 原地保持 2 秒，检查误差
-  5. 被测关节做 hold ± 振幅 的正弦往复
-  6. 回到 hold 保持 1 秒 → set_torque(0)
+Flow:
+  1. Connect (do not send any command)
+  2. set_torque(1) -> read current pose as `hold` (other joints, wrist, and gripper all stay at this value)
+  3. set_pid() (upstream default p=30)
+  4. Hold in place for 2 seconds, check error
+  5. The target joint performs sinusoidal sweep of hold ± amplitude
+  6. Return to hold for 1 second -> set_torque(0)
 
-保护:
-  - 软件限幅：joint0 ±85°，joint1 ±70°（相对零点）
-  - 被测关节跟随误差 > ERR_ABORT 持续 0.3 秒，或其他关节偏离 hold > OTHER_ABORT → 立即脱力
-  - Ctrl+C / 任何异常 → 脱力
+Protection:
+  - Software limits: joint0 ±85°, joint1 ±70° (relative to zero)
+  - If target joint tracking error > ERR_ABORT for 0.3 s, or other joints deviate from hold > OTHER_ABORT -> release torque immediately
+  - Ctrl+C / any exception -> release torque
 
-用法:
-  uv run motion_test.py <关节 0|1> [振幅deg=10] [周期s=8] [次数=2] [端口]
-例:
-  uv run motion_test.py 0            # joint0，±10°，8 秒一个来回，2 次
+Usage:
+  uv run motion_test.py <joint 0|1> [amplitude_deg=10] [period_s=8] [cycles=2] [port]
+Examples:
+  uv run motion_test.py 0            # joint0, ±10°, 8-second period, 2 cycles
   uv run motion_test.py 1 20 8 2
 """
 
@@ -33,9 +33,9 @@ sys.path.insert(0, os.path.join(REPO, "upstream", "astra_controller"))
 
 from astra_controller.arm_controller import ArmController  # noqa: E402
 
-LIMIT_DEG = {0: 85.0, 1: 70.0}   # 相对零点的软件限幅（实测可动范围约 ±91.9° / ±78.2°）
-ERR_ABORT_DEG = 15.0              # 被测关节跟随误差上限
-OTHER_ABORT_DEG = 10.0            # 其他关节偏离 hold 的上限
+LIMIT_DEG = {0: 85.0, 1: 70.0}   # Software limits relative to zero (measured range of motion ~ ±91.9° / ±78.2°)
+ERR_ABORT_DEG = 15.0              # Max tracking error for target joint
+OTHER_ABORT_DEG = 10.0            # Max deviation from hold for other joints
 RATE_HZ = 50
 
 if len(sys.argv) < 2 or sys.argv[1] not in ("0", "1"):
@@ -47,18 +47,18 @@ cycles = int(sys.argv[4]) if len(sys.argv) > 4 else 2
 port = sys.argv[5] if len(sys.argv) > 5 else "/dev/ttyUSB0"
 other = 1 - j
 
-# 连接时不发送任何命令（上游 __init__ 普通模式会自动 set_torque(1) + set_pid）
+# Do not send any command on connect (upstream __init__ in normal mode auto-calls set_torque(1) + set_pid).
 _real_set_torque = ArmController.set_torque
 ArmController.set_torque = lambda self, *a, **k: None
 ctrl = ArmController(port, do_init=True)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)
-print(f"joint{j}: 振幅 ±{amp:.1f}°，周期 {period:.1f} 秒，{cycles} 次；软件限幅 ±{LIMIT_DEG[j]:.0f}°")
-print("  - 腕部大致在中间，夹爪闭合，周围没有障碍物")
-print("  - 手放在 12V 电源开关旁；异常时 Ctrl+C（自动脱力），必要时断电")
-if input("确认后输入 yes: ").strip() != "yes":
-    sys.exit("已取消")
+print(f"joint{j}: amplitude ±{amp:.1f}°, period {period:.1f} s, {cycles} cycles; software limit ±{LIMIT_DEG[j]:.0f}°")
+print("  - Wrist roughly centered, gripper closed, no obstacles around")
+print("  - Keep your hand near the 12V power switch; on anomaly press Ctrl+C (auto-releases torque), cut power if needed")
+if input("Type yes to confirm: ").strip() != "yes":
+    sys.exit("Cancelled")
 
 
 def pos_now():
@@ -75,12 +75,12 @@ try:
     time.sleep(0.5)
     hold = pos_now()
     if hold is None:
-        raise RuntimeError("没有收到位置反馈")
+        raise RuntimeError("No position feedback received")
     print(f"hold: j0={math.degrees(hold[0]):+.1f}°  j1={math.degrees(hold[1]):+.1f}°")
 
     lim = math.radians(LIMIT_DEG[j])
     if abs(hold[j]) + math.radians(amp) > lim:
-        raise RuntimeError(f"hold ± 振幅 超出软件限幅 ±{LIMIT_DEG[j]:.0f}°，请先把关节放回零点附近或减小振幅")
+        raise RuntimeError(f"hold ± amplitude exceeds software limit ±{LIMIT_DEG[j]:.0f}°; return joint to near zero or reduce amplitude")
 
     ctrl.set_pid()
     time.sleep(0.1)
@@ -115,12 +115,12 @@ try:
             if abs(err) > ERR_ABORT_DEG:
                 over_since = over_since or time.time()
                 if time.time() - over_since > 0.3:
-                    aborted = f"跟随误差过大 ({err:+.1f}°)"
+                    aborted = f"tracking error too large ({err:+.1f}°)"
                     break
             else:
                 over_since = None
             if abs(dev_other) > OTHER_ABORT_DEG:
-                aborted = f"joint{other} 偏离 hold {dev_other:+.1f}°"
+                aborted = f"joint{other} deviated from hold by {dev_other:+.1f}°"
                 break
 
             if t - last_print >= 0.5:
@@ -134,14 +134,14 @@ try:
 except KeyboardInterrupt:
     aborted = "Ctrl+C"
 except Exception as e:  # noqa: BLE001
-    aborted = f"异常: {e}"
+    aborted = f"exception: {e}"
 finally:
     ctrl.set_torque(0)
     time.sleep(0.5)
-    print("已发送 set_torque(0)")
+    print("set_torque(0) sent")
 
 if aborted:
-    print(f"*** 中止: {aborted}")
+    print(f"*** Aborted: {aborted}")
 
 if rows:
     with open(out, "w", newline="") as f:
@@ -152,5 +152,5 @@ if rows:
     if moving:
         errs = [abs(r[3]) for r in moving]
         rms = math.sqrt(sum(e * e for e in errs) / len(errs))
-        print(f"运动段误差: 最大 {max(errs):.1f}°，RMS {rms:.1f}°")
-    print(f"{len(rows)} 个采样已保存: {out}")
+        print(f"Motion segment error: max {max(errs):.1f}°, RMS {rms:.1f}°")
+    print(f"{len(rows)} samples saved: {out}")
