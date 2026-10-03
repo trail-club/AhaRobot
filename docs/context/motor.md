@@ -62,9 +62,9 @@ EEPROMのオフセットを書き戻す前に処理が止まったこともあ�
 
 ### 保存済み可動域データと解釈の限界
 
-根拠は [11個測定](../../tools/servo/data/rom-2026-09-06-11servo.json)
+根拠は [11個測定](../../tools/servo/data/left_arm/rom-2026-09-06-11servo.json)
 （約120秒、サーボごとに610–611サンプル）と
-[12個測定](../../tools/servo/data/rom-2026-09-06-12servo.json)
+[12個測定](../../tools/servo/data/left_arm/rom-2026-09-06-12servo.json)
 （約118秒、549–551サンプル）。旧資料にあった別の803サンプル測定は保存されておらず、
 数値の根拠としては使わない。
 
@@ -144,7 +144,7 @@ pyserialが切断時と同じ例外として扱っていた。9月6日の応答�
 
 ### 右アームの可動域測定データ
 
-根拠は [right-Arm-2026-09-27-v1.json](../../tools/servo/data/right-Arm-2026-09-27-v1.json)。
+根拠は [right-Arm-2026-09-27-v1.json](../../tools/servo/data/right_arm/right-Arm-2026-09-27-v1.json)。
 日付と右アームという対象名はファイル名による。測定時間は約120.49秒、各IDのサンプル数は8362。
 ID4–15の12個の結果を含むため、[同日の11個構成の基板通信試験](firmware.md)とは分けて扱う。
 
@@ -168,7 +168,7 @@ ID4–15の12個の結果を含むため、[同日の11個構成の基板通信�
 旧資料に記録された、同日付の別の実機試験を扱う。
 初期化前に純正ファームの4 MBフラッシュとID4–15のサーボEEPROMを保存した。
 [バックアップ記録](firmware.md#2026-09-27--astraarmcontroller導入前のバックアップと書き込み)と
-[EEPROMデータ](../../tools/firmware/backup/backup_0927/servo_eeprom_before_init_20260927.json)が根拠で、
+[EEPROMデータ](../../tools/firmware/left_arm/servo_eeprom_before_init_20260927.json)が根拠で、
 [同日の11個構成の通信試験](firmware.md#2026-09-27--純正制御基板で通信できない問題の調査)とは区別する。
 
 ファーム書き込みの条件は上記のバックアップ記録を参照。
@@ -198,9 +198,12 @@ ID10のoffsetは正側上限2047で、設定された経緯は未確認。
 旧資料ではID15をトルクOFFで手動測定し、全閉≈3500 / 全開≈656、開く方向で読み値が減り、
 原点をまたがなかったと記録されている。この全開・全閉測定の生ログは残っていない。
 
-[ファームの `doInitJoint(15, 1448)`](../../upstream/AstraFirmwares/AstraArmController/src/dualMotor.cpp) は、
-実行時点の位置を読み値3496へ合わせる処理。旧資料では全閉で初期化する案が記載されていたが、
-現在の [init_arm.py](../../tools/servo/init_arm.py) は全開60 mmの姿勢を確認する。
-両者は一致せず、この記録から適切な初期化姿勢や再校正の要否は確定できない。
-[ArmControllerの換算](../../upstream/astra_controller/astra_controller/arm_controller.py)も含め、
-使用するファームと機体での対応確認が必要。旧資料の全閉案を実行手順として扱わない。
+実行時点のグリッパ位置を読み値3496に合わせる処理。
+[ArmControllerの換算](../../upstream/astra_controller/astra_controller/arm_controller.py)と
+現在の [init_arm.py](../../tools/servo/init_arm.py) では、開き幅60 mm（片顎30 mm）の姿勢で
+初期化すると、その位置が60 mm開きの中点として一貫する。これが現状のコードで想定された手順。
+
+左腕側は旧手順に従い全閉姿勢で `doInitJoint(15, 1448)` を実行した。
+右腕側は現状のコードに合わせて開き幅60 mmの姿勢で実行した。
+左腕側の初期化はコードが期待するゼロ点と一致しないため、
+いずれにせよ、`doInitJoint` 相当のオフセット書き込みを含む厳密な再校正が必要。
