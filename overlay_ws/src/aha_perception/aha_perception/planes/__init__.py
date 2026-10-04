@@ -23,6 +23,7 @@ from . import (
     ransac_gravity_refined,
     ransac_sequential,
 )
+from .classify import select_output_planes
 from .types import (
     ClassifyOptions,
     DepthNoiseModel,
@@ -95,4 +96,5 @@ __all__ = [
     "Plane",
     "PlaneLabel",
     "detect_planes",
+    "select_output_planes",
 ]

@@ -165,6 +165,9 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 `Plane` は単位法線 `normal`・`offset`（`normal . p + offset = 0`）・入力画素の flat index `inliers`・
 重心・平面内の凸包と面積・RMS・ラベル（floor / table / shelf / wall / other）を持つ。
 `options.detect_vertical=False` で水平面のみを出力する。
+`select_output_planes(planes, options)` はラベル付け済みの結果から水平面と壁（`wall_min_area` 0.3 m² 以上・
+高さ方向の広がり `wall_min_extent` 0.3 m 以上の垂直面）だけを順序を保って残し、斜めの面と小さい垂直面を捨てる。
+`detect_planes` 自体の出力は変えない。
 
 | 名前 | 方式 |
 | --- | --- |
@@ -187,6 +190,8 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 
 `plane_detection_node.py` はDepth（32FC1のm、または16UC1のmm）とCameraInfoから
 organized point cloudを作り、画像時刻のTFで `target_frame` へ変換して `detect_planes` を実行する。
+出力は `select_output_planes` で選んだ水平面と壁だけで、斜めの面と小さい垂直面は出さない。
+ログの要約は `3 planes (floor 1, table 1, wall 1) of 14 detected` のように出力数と検出数を示す。
 `DepthNoiseModel` の f にはCameraInfoの fx を使い、baseline・subpixelは既定値。
 画像時刻のTFが0.2 sで得られない場合は最新のTFを使いwarningを出す。
 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。
@@ -205,7 +210,7 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `depth_topic` | `/camera/depth_registered/image_rect` | RGBへ位置合わせしたDepth |
 | `camera_info_topic` | `/camera/color/camera_info` | Depthと同じ解像度のCameraInfo |
 | `max_rate` | `1.0` | 検出の上限頻度（Hz、wall clock）。0で上限なし |
-| `detect_vertical` | `true` | 壁などの垂直面も検出する |
+| `detect_vertical` | `true` | 垂直面も検出し、壁を出力する |
 | `min_depth` / `max_depth` | `0.3` / `3.0` | 使う深度の範囲（m） |
 | `max_points_per_plane` | `5000` | 出力点群の平面あたりの最大点数（0で全点） |
 | `stride` | `1` | Depthの間引き（行・列） |

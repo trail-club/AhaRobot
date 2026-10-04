@@ -1,6 +1,7 @@
 """Run plane detectors on captured real frames (no ground truth).
 
-Reports per scene x method x max depth the plane count, frame-to-frame
+Reports per scene x method x max depth x output (raw detection ``all`` or
+``selected`` by ``select_output_planes``) the plane count, frame-to-frame
 stability of horizontal planes, coverage, small fragments and runtime, plus
 the per-pixel temporal depth noise of each scene. See README.md.
 """
@@ -32,11 +33,13 @@ from aha_perception.planes import (  # noqa: E402
     DepthNoiseModel,
     DetectionOptions,
     detect_planes,
+    select_output_planes,
 )
 from real_frames import list_scenes, load_scene  # noqa: E402
 from run_bench import _cpu_name, _table  # noqa: E402
 
 DEFAULT_METHODS = ["ransac_gravity_refined", "ransac_gravity"]
+OUTPUTS = {"all": ["all"], "selected": ["selected"], "both": ["all", "selected"]}
 SMALL_AREA = 0.1  # m^2
 MATCH_HEIGHT = 0.03  # m
 MATCH_XY = 0.2  # m, centroid distance
@@ -51,9 +54,13 @@ class Run:
     scene: object
     method: str
     max_depth: float
-    planes: list  # per frame
+    planes: list  # per frame, detect_planes output
+    selected: list  # per frame, select_output_planes output
     valid: list  # per frame (H*W,) bool, depth within range
     ms: list  # per frame
+
+    def output(self, name):
+        return self.planes if name == "all" else self.selected
 
 
 def _options(scene, index, min_depth, max_depth):
@@ -68,7 +75,7 @@ def _options(scene, index, min_depth, max_depth):
 
 def run_detection(scene, method, min_depth, max_depth):
     fx, fy, cx, cy = scene.intrinsics
-    run = Run(scene, method, max_depth, [], [], [])
+    run = Run(scene, method, max_depth, [], [], [], [])
     for i, depth in enumerate(scene.depth):
         cloud = depth_to_cloud(depth, fx, fy, cx, cy)
         options = _options(scene, i, min_depth, max_depth)
@@ -76,6 +83,7 @@ def run_detection(scene, method, min_depth, max_depth):
         planes = detect_planes(cloud, method, options)
         run.ms.append((time.perf_counter() - start) * 1e3)
         run.planes.append(planes)
+        run.selected.append(select_output_planes(planes, options))
         z = depth.reshape(-1)
         run.valid.append(np.isfinite(z) & (z >= min_depth) & (z <= max_depth))
     return run
@@ -138,17 +146,18 @@ def stability(frames_planes):
     )
 
 
-def summarize(run):
-    counts = np.array([len(p) for p in run.planes])
-    small = [sum(p.area < SMALL_AREA for p in planes) for planes in run.planes]
+def summarize(run, output):
+    frames_planes = run.output(output)
+    counts = np.array([len(p) for p in frames_planes])
+    small = [sum(p.area < SMALL_AREA for p in planes) for planes in frames_planes]
     assigned = []
-    for planes, valid in zip(run.planes, run.valid):
+    for planes, valid in zip(frames_planes, run.valid):
         mask = np.zeros(valid.shape, dtype=bool)
         for p in planes:
             mask[p.inliers] = True
         n_valid = int(valid.sum())
         assigned.append((mask & valid).sum() / n_valid if n_valid else np.nan)
-    matched, h_std, iou = stability(run.planes)
+    matched, h_std, iou = stability(frames_planes)
     return {
         "planes": f"{counts.mean():.1f} ({counts.min()}-{counts.max()})",
         "small": float(np.mean(small)),
@@ -199,7 +208,7 @@ def scene_stats(scene):
     }
 
 
-def make_figure(path, scene, runs):
+def make_figure(path, scene, runs, outputs):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -213,16 +222,20 @@ def make_figure(path, scene, runs):
     depth_style = {"cmap": "viridis", "vmin": 0.0, "vmax": vmax}
     panels.append((f"depth (0-{vmax:g} m)", scene.depth[0], depth_style))
     for run in runs:
-        image = np.ones((shape[0] * shape[1], 3))
-        image[run.valid[0]] = 0.8
-        for i, plane in enumerate(run.planes[0]):
-            image[plane.inliers] = plane_palette(i)
-        small = sum(p.area < SMALL_AREA for p in run.planes[0])
-        title = (
-            f"{run.method} max {run.max_depth:g} m\n"
-            f"{len(run.planes[0])} planes, {small} < {SMALL_AREA} m2"
-        )
-        panels.append((title, image.reshape(shape + (3,)), {}))
+        # A plane keeps its detection color in the selected panel.
+        color_index = {id(p): i for i, p in enumerate(run.planes[0])}
+        for output in outputs:
+            planes = run.output(output)[0]
+            image = np.ones((shape[0] * shape[1], 3))
+            image[run.valid[0]] = 0.8
+            for plane in planes:
+                image[plane.inliers] = plane_palette(color_index[id(plane)])
+            small = sum(p.area < SMALL_AREA for p in planes)
+            title = (
+                f"{run.method} max {run.max_depth:g} m, {output}\n"
+                f"{len(planes)} planes, {small} < {SMALL_AREA} m2"
+            )
+            panels.append((title, image.reshape(shape + (3,)), {}))
     fig, axes = plt.subplots(1, len(panels), figsize=(4 * len(panels), 3.4))
     for ax, (title, image, kwargs) in zip(np.atleast_1d(axes), panels):
         ax.imshow(image, interpolation="nearest", **kwargs)
@@ -244,7 +257,7 @@ def _fmt(value, digits=2):
     return str(value)
 
 
-def build_report(args, scenes, runs, figures):
+def build_report(args, scenes, runs, outputs, figures):
     lines = [
         "# Plane detection on real frames",
         "",
@@ -254,6 +267,8 @@ def build_report(args, scenes, runs, figures):
         f"numpy {np.__version__}, scipy {scipy.__version__}",
         f"- Depth range {args.min_depth:g} m to max depth, walls on, noise model "
         "focal = fx of each scene. Floor at z = 0 only when `base height` is known",
+        "- Output `all` = `detect_planes`, `selected` = `select_output_planes` "
+        "(horizontal planes and walls); metrics use the planes of each output",
         "- Metric definitions: see README.md",
         "",
         "## Scenes",
@@ -289,22 +304,24 @@ def build_report(args, scenes, runs, figures):
     ]
     table = []
     for run in runs:
-        s = summarize(run)
-        table.append(
-            [
-                run.scene.name,
-                run.method,
-                f"{run.max_depth:g}",
-                s["planes"],
-                _fmt(s["small"], 1),
-                _fmt(s["assigned"]),
-                _fmt(s["matched"]),
-                _fmt(s["h_std_mm"], 1),
-                _fmt(s["iou"]),
-                _fmt(s["ms"], 0),
-            ]
-        )
-    header = ["scene", "method", "max depth m", "planes/frame (min-max)"]
+        for output in outputs:
+            s = summarize(run, output)
+            table.append(
+                [
+                    run.scene.name,
+                    run.method,
+                    f"{run.max_depth:g}",
+                    output,
+                    s["planes"],
+                    _fmt(s["small"], 1),
+                    _fmt(s["assigned"]),
+                    _fmt(s["matched"]),
+                    _fmt(s["h_std_mm"], 1),
+                    _fmt(s["iou"]),
+                    _fmt(s["ms"], 0),
+                ]
+            )
+    header = ["scene", "method", "max depth m", "output", "planes/frame (min-max)"]
     header += ["small/frame", "assigned px", "h matched", "h std mm", "h IoU"]
     header += ["detect ms"]
     lines += [_table(header, table), ""]
@@ -350,8 +367,10 @@ def main():
     parser.add_argument("--max-depth", type=float, nargs="+", default=[3.0])
     parser.add_argument("--min-depth", type=float, default=0.3)
     parser.add_argument("--out", type=Path, default=HERE / "results" / "real.md")
+    parser.add_argument("--output", choices=sorted(OUTPUTS), default="both")
     parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
+    outputs = OUTPUTS[args.output]
     unknown = [m for m in args.methods if m not in DETECTORS]
     if unknown:
         parser.error(f"unknown methods {unknown}, choose from {sorted(DETECTORS)}")
@@ -372,15 +391,17 @@ def main():
                 print(
                     f"{scene.name} {method} max {max_depth:g} m: "
                     f"{np.mean([len(p) for p in run.planes]):.1f} planes/frame, "
+                    f"{np.mean([len(p) for p in run.selected]):.1f} selected, "
                     f"{np.mean(run.ms):.0f} ms",
                     flush=True,
                 )
             runs += method_runs
             if not args.no_figures:
                 name = f"real_{scene.name}_{method}.png"
-                make_figure(args.out.parent / name, scene, method_runs)
+                make_figure(args.out.parent / name, scene, method_runs, outputs)
                 figures.append(name)
-    args.out.write_text(build_report(args, scenes, runs, figures) + "\n")
+    report = build_report(args, scenes, runs, outputs, figures)
+    args.out.write_text(report + "\n")
     print(f"wrote {args.out}")
 
 

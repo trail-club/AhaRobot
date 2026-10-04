@@ -4,7 +4,9 @@
 Subscribes the depth image registered to color (32FC1 m, or 16UC1 mm) and its
 CameraInfo, back-projects it to an organized cloud, transforms it to
 target_frame (origin on the floor, z up; base_footprint) with the TF at the
-image stamp and runs aha_perception.planes.detect_planes.
+image stamp and runs aha_perception.planes.detect_planes. Only horizontal
+planes and walls are published (aha_perception.planes.select_output_planes);
+oblique planes and small vertical planes are dropped.
 
 Only the latest depth frame is kept. Detection runs in a worker thread at most
 max_rate times per second (wall clock), so frames arriving while it is busy
@@ -60,6 +62,7 @@ from aha_perception.planes import (
     DepthNoiseModel,
     DetectionOptions,
     detect_planes,
+    select_output_planes,
 )
 from aha_perception.tf_jump import (
     TF_RESET_MIN_INTERVAL_S,
@@ -331,7 +334,8 @@ class PlaneDetection(Node):
             # The noise model scales with the focal length of this camera.
             noise=DepthNoiseModel(focal=fx),
         )
-        planes = detect_planes(cloud, self.method, options)
+        detected_planes = detect_planes(cloud, self.method, options)
+        planes = select_output_planes(detected_planes, options)
         detected = time.perf_counter()
 
         colors = [plane_palette(i) for i in range(len(planes))]
@@ -347,7 +351,8 @@ class PlaneDetection(Node):
         counts = Counter(plane.label.value for plane in planes)
         summary = ", ".join(f"{label} {n}" for label, n in sorted(counts.items()))
         text = (
-            f"{len(planes)} planes ({summary or 'none'}) in {total_ms:.0f} ms "
+            f"{len(planes)} planes ({summary or 'none'}) of {len(detected_planes)} "
+            f"detected in {total_ms:.0f} ms "
             f"(detect {detect_ms:.0f} ms)"
         )
         self.get_logger().debug(text)

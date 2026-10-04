@@ -88,3 +88,17 @@ def classify_planes(planes: list[Plane], options: DetectionOptions) -> None:
             if plane.area >= opts.wall_min_area and extent >= opts.wall_min_extent:
                 label = PlaneLabel.WALL
         plane.label = label
+
+
+def select_output_planes(planes: list[Plane], options: DetectionOptions) -> list[Plane]:
+    """Horizontal planes and walls, in order; needs labels from ``classify_planes``.
+
+    Oblique planes and vertical planes below the wall size are dropped. Walls are
+    kept only with ``options.detect_vertical``.
+    """
+    return [
+        plane
+        for plane in planes
+        if is_horizontal(plane.normal, options)
+        or (options.detect_vertical and plane.label == PlaneLabel.WALL)
+    ]

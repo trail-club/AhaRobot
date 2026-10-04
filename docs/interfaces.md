@@ -226,6 +226,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 
 入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
+出力する平面は水平面と壁（ラベル `wall`）だけ。
 
 ## 実機の頭部
 

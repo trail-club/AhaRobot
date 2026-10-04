@@ -131,7 +131,11 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 - 引数なしで `real_frames/` の全シーン、シーンのディレクトリを並べるとそれだけを実行する。
 - `--methods`（既定 `ransac_gravity_refined ransac_gravity`）・`--max-depth`（既定3.0、複数で比較）・`--min-depth`（既定0.3）。
 - `DepthNoiseModel` の f はシーンの fx。`base_height` があれば床が z=0 になるよう `camera_to_base` を上げる。
+- `--output`（既定 `both`）：`all` は `detect_planes` の出力、`selected` はノードと同じ `select_output_planes`（水平面と壁）後の平面、`both` は両方を `output` 列で並べる。
 - `--out`（既定 `results/real.md`）に表を、同じディレクトリに1フレーム目のラベル画像 `real_<scene>_<method>.png` を書く（`--no-figures` で省く）。
+  画像はカラー・Depthの後に max depth ごとに `--output` の各出力を並べ、`selected` でも平面の色は `all` と同じ。
+
+指標は `output` ごとに、その平面の集合で計算する。
 
 | 指標 | 定義 |
 | --- | --- |
