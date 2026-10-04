@@ -28,10 +28,51 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Claude Code
+        id: claude_action
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-sonnet-5-5
             --effort high
-            --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs."
+            --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs. Respond in Japanese."
+
+      - name: Show Claude error details
+        if: >-
+          always() &&
+          steps.claude_action.outcome == 'failure' &&
+          steps.claude_action.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude_action.outputs.execution_file }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          execution_file = os.environ["EXECUTION_FILE"]
+          with open(execution_file, encoding="utf-8") as source:
+              messages = json.load(source)
+
+          found_error = False
+          for message in messages:
+              if not isinstance(message, dict):
+                  continue
+              if message.get("type") != "result" or not message.get("is_error"):
+                  continue
+
+              found_error = True
+              print("Claude error result:")
+              detail = message.get("result")
+              if detail:
+                  if isinstance(detail, str):
+                      print(detail)
+                  else:
+                      print(json.dumps(detail, ensure_ascii=False, indent=2))
+              errors = message.get("errors")
+              if errors:
+                  print(json.dumps(errors, ensure_ascii=False, indent=2))
+
+          if not found_error:
+              print("No is_error result message was found in the execution file.")
+          PY
