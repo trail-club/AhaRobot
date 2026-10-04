@@ -18,6 +18,9 @@ Layout of the `ros__parameters` block:
 
 rad = sign * (steps - zero) / steps_per_rev * 2 pi
 (upstream astra_controller head: zero 2048, sign -1).
+
+parse_config rejects values the servo registers cannot hold (ids, zero,
+torque_limit, acc, baud) and non-positive rates, speeds and timeouts.
 """
 
 import math
@@ -26,13 +29,15 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from aha_servo.sts import BAUDS
+
 BUS_DEFAULTS = {
     "controller_name": "servo_controller",
     "port": "/dev/ttyUSB0",
     "baud": 115200,
     "rate_hz": 30.0,  # state read / command loop
     "max_speed": 1.0,  # rad/s, caps every commanded move
-    "acc": 30,  # STS acceleration register (0 = unlimited)
+    "acc": 30,  # STS acceleration register, 0..254 (0 = unlimited)
     "torque_limit": 500,  # 0..1000 (0.1 %), written at start; 0 = leave as is
     "timeout": 0.05,  # s per reply
     "goal_tolerance": 0.03,  # rad, action success when no per-joint tolerance given
@@ -120,6 +125,50 @@ class BusConfig:
         raise KeyError(name)
 
 
+# Bus keys that must be finite and > 0.
+POSITIVE_KEYS = (
+    "rate_hz",
+    "max_speed",
+    "timeout",
+    "goal_tolerance",
+    "goal_timeout",
+    "state_timeout",
+)
+
+
+def _check_range(key, value, lo, hi):
+    if not lo <= value <= hi:
+        raise ValueError(f"config: {key} {value} is out of range {lo}..{hi}")
+
+
+def _check_bus(bus):
+    if bus["baud"] not in BAUDS:
+        raise ValueError(
+            f"config: baud {bus['baud']} is not supported (one of {list(BAUDS)})"
+        )
+    _check_range("torque_limit", bus["torque_limit"], 0, 1000)
+    _check_range("acc", bus["acc"], 0, 254)
+    for key in POSITIVE_KEYS:
+        if not (math.isfinite(bus[key]) and bus[key] > 0):
+            raise ValueError(f"config: {key} must be positive, got {bus[key]}")
+
+
+def _check_joint(joint):
+    name = joint.name
+    _check_range(f"{name}.id", joint.id, 0, 253)
+    if joint.sign not in (-1, 1):
+        raise ValueError(f"config: {name}.sign must be 1 or -1, got {joint.sign}")
+    if joint.steps_per_rev <= 0:
+        raise ValueError(
+            f"config: {name}.steps_per_rev must be positive, got {joint.steps_per_rev}"
+        )
+    _check_range(f"{name}.zero", joint.zero, 0, joint.steps_per_rev - 1)
+    if not (math.isfinite(joint.min) and math.isfinite(joint.max)):
+        raise ValueError(f"config: {name}.min / {name}.max must be finite")
+    if not joint.min < joint.max:
+        raise ValueError(f"config: {name}.min must be below {name}.max")
+
+
 def parse_config(params):
     """BusConfig from the nested `ros__parameters` dict; raises ValueError."""
     names = list(params.get("joints") or [])
@@ -132,6 +181,7 @@ def parse_config(params):
     for key, default in BUS_DEFAULTS.items():
         value = params.get(key, default)
         bus[key] = type(default)(value) if value is not None else default
+    _check_bus(bus)
 
     joints = []
     for name in names:
@@ -151,12 +201,7 @@ def parse_config(params):
             steps_per_rev=int(values["steps_per_rev"]),
             positive=str(values["positive"]),
         )
-        if joint.sign not in (-1, 1):
-            raise ValueError(f"config: {name}.sign must be 1 or -1, got {joint.sign}")
-        if not joint.min < joint.max:
-            raise ValueError(f"config: {name}.min must be below {name}.max")
-        if not 0 <= joint.id <= 253:
-            raise ValueError(f"config: {name}.id {joint.id} is out of range 0..253")
+        _check_joint(joint)
         joints.append(joint)
 
     ids = [j.id for j in joints]

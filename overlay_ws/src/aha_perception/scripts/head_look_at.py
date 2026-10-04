@@ -13,7 +13,8 @@ therefore leaves a small parallax error (about 1.9 deg at 1 m), ignored here.
 
 sim_view.launch.py remaps RViz's /clicked_point (Publish Point tool) here.
 Only the latest transforms are used, so the node runs fine on the wall clock
-(no use_sim_time needed, which saves handling /clock at 1 kHz).
+(no use_sim_time needed, which saves handling /clock at 1 kHz). A target that
+arrives before the transforms are known is dropped with a warning.
 
 Without /clock the TF buffer cannot see the sim clock going back, and would
 keep the old, later transforms (rejecting new ones as TF_OLD_DATA). So the
@@ -33,7 +34,6 @@ import time
 
 import rclpy
 from geometry_msgs.msg import Point, PointStamped
-from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import (
@@ -212,15 +212,14 @@ class HeadLookAt(Node):
         # Treat the target as static in its frame: use the latest transforms.
         target = PointStamped(header=msg.header, point=msg.point)
         target.header.stamp = Time().to_msg()
+        # No timeout: waiting would only block this single-threaded node, as
+        # /tf is handled by the same executor and cannot arrive meanwhile.
         try:
             to_base = self.tf_buffer.lookup_transform(
-                BASE_FRAME,
-                target.header.frame_id,
-                Time(),
-                timeout=Duration(seconds=0.5),
+                BASE_FRAME, target.header.frame_id, Time()
             )
             pivot = self.tf_buffer.lookup_transform(
-                BASE_FRAME, PIVOT_FRAME, Time(), timeout=Duration(seconds=0.5)
+                BASE_FRAME, PIVOT_FRAME, Time()
             ).transform.translation
         except TransformException as e:
             self.get_logger().warn(f"look_at: TF unavailable: {e}")

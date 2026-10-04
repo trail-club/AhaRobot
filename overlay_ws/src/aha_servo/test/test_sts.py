@@ -53,6 +53,13 @@ class PacketTests(unittest.TestCase):
         )
         self.assertEqual(sts.goal_block(-20, 10, 0)[1:3], sts.le16(0))
 
+    def test_le16_range(self):
+        self.assertEqual(sts.le16(0), b"\x00\x00")
+        self.assertEqual(sts.le16(0xFFFF), b"\xff\xff")
+        for bad in (-1, 0x10000, 70000):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                sts.le16(bad)
+
 
 class ParseTests(unittest.TestCase):
     REPLY = hexbytes("ff ff 01 04 00 00 08 f2")  # ID1, no error, params 00 08
@@ -131,6 +138,28 @@ class FakeBusRoundTripTests(unittest.TestCase):
     def test_unsupported_baud(self):
         with self.assertRaises(ValueError):
             sts.StsBus(self.fake.port, 12345)
+
+
+class EchoTests(unittest.TestCase):
+    """Adapter that echoes every sent byte before the servo's reply."""
+
+    def setUp(self):
+        self.fake = FakeStsBus({12: 2100}, echo=True)
+        self.bus = sts.StsBus(self.fake.port, 921600, timeout=0.05, retries=2)
+
+    def tearDown(self):
+        self.bus.close()
+        self.fake.close()
+
+    def test_ping_echo_is_not_a_reply(self):
+        self.assertFalse(self.bus.ping(13))
+        self.assertTrue(self.bus.ping(12))
+
+    def test_read_write_after_echo(self):
+        self.assertEqual(self.bus.read_state(12)[0], 2100)
+        self.assertEqual(self.bus.read(12, sts.ADDR_VOLT, 1), bytes([120]))
+        self.bus.set_torque(12, True)
+        self.assertEqual(self.fake.servo(12).torque, 1)
 
 
 if __name__ == "__main__":

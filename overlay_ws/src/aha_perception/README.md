@@ -33,7 +33,9 @@ D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_m
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`）で、
 URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より低くしている。
 `head_look_at.py` と `sim_control_panel.py` はwall clockで動く。
-`head_look_at.py` はシミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
+`head_look_at.py` は最新のTFを待たずに使い、TFがまだない注視点はwarningを出して捨てる。
+シミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
+操作パネルの頭のスライダーは、パネルから送った目標に `/joint_states` が2°以内に近づくまで（最長で移動時間の4倍 + 1 s）目標値を表示し、その後は `/joint_states` に追従する。
 
 ## シミュレーション
 

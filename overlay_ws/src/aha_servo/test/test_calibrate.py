@@ -16,7 +16,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
-from aha_servo.joint_map import load_file
+from aha_servo.joint_map import load_file, update_yaml_text
 from fake_bus import FakeStsBus
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,14 +31,21 @@ def load_script():
     return module
 
 
-class CalibrateTest(unittest.TestCase):
+class CalibrateBase(unittest.TestCase):
     TTY = False  # stdin is a pipe; CalibrateTtyTest uses a pty like a terminal
+    # {joint: {key: value}} changed in the copied head.yaml before the start.
+    JOINT_VALUES = {}
 
     def setUp(self):
         self.fake = FakeStsBus({12: 2100, 13: 2000})
         self.tmp = tempfile.mkdtemp()
         self.config = os.path.join(self.tmp, "head.yaml")
-        shutil.copy(HEAD_YAML, self.config)
+        with open(HEAD_YAML, encoding="utf-8") as f:
+            text = f.read()
+        for joint, values in self.JOINT_VALUES.items():
+            text = update_yaml_text(text, joint, values)
+        with open(self.config, "w", encoding="utf-8") as f:
+            f.write(text)
         env = dict(os.environ, PYTHONUNBUFFERED="1")
         env["PYTHONPATH"] = os.pathsep.join(filter(None, [PKG, env.get("PYTHONPATH")]))
         if self.TTY:
@@ -109,6 +116,8 @@ class CalibrateTest(unittest.TestCase):
         ) as g:
             self.assertEqual(f.read(), g.read())
 
+
+class CalibrateTest(CalibrateBase):
     def test_zero_and_sign_written(self):
         self.answer("1) Hold")
         self.assertEqual([self.fake.servo(i).torque for i in (12, 13)], [0, 0])
@@ -186,6 +195,21 @@ class CalibrateTtyTest(CalibrateTest):
         self.assertEqual(
             (pan.zero, pan.sign, tilt.zero, tilt.sign), (2100, -1, 2000, 1)
         )
+
+
+class StepsPerRevTest(CalibrateBase):
+    JOINT_VALUES = {"joint_head_tilt": {"steps_per_rev": 1024, "zero": 500}}
+
+    def test_min_move_uses_each_joints_resolution(self):
+        # 5 deg is 57 steps at 4096 steps/rev (pan) but 14 at 1024 (tilt).
+        self.answer("1) Hold", move=(13, 500))
+        self.answer("2) Move joint_head_pan", move=(12, 2100 - 300))
+        self.answer("3) Move joint_head_tilt", move=(13, 540))
+        self.answer("? [y/n]", "y\n")
+        self.finish()
+        self.assertNotIn("moved only", self.out)
+        tilt = load_file(self.config).joint("joint_head_tilt")
+        self.assertEqual((tilt.zero, tilt.sign, tilt.steps_per_rev), (500, 1, 1024))
 
 
 class PromptTest(unittest.TestCase):

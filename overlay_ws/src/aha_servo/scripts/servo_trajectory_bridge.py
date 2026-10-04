@@ -21,17 +21,21 @@ Behaviour:
   - Start: ping every servo (exit 1 if one is missing), goal = present
     position (no jump), torque on.
   - Topic: only the final point is used, reached in its time_from_start.
-    An empty trajectory holds the current position.
+    An empty trajectory holds the current position (read at that moment).
   - Action: points are sent in order at their time_from_start; succeeds when
     every joint is within tolerance of the final point (goal_tolerance, or
     the `goal_tolerance` parameter), aborts `goal_timeout` s (or
     goal_time_tolerance) after the last point. Success needs a fresh state of
     every goal joint (read within `state_timeout` s); while one is stale the
     goal waits and aborts at the deadline. Cancel and the deadline abort hold
-    the last read position. A newer topic command or goal preempts (aborts) the running goal.
+    the position read at that moment. A newer topic command or goal preempts
+    (aborts) the running goal.
   - Partial joint lists are accepted; unknown joints are rejected.
   - Positions are clamped to the joint min/max (warning). Each move's servo
     speed is |delta| / segment duration, capped by `max_speed`.
+  - A joint without a fresh state gets no goal (warning): a segment due
+    while its state is stale is skipped for it, and a hold (cancel, abort,
+    empty trajectory) leaves a joint that cannot be read at its last goal.
   - header.stamp, velocities and accelerations are ignored (start on receipt).
   - Communication errors are logged (throttled) and the loop keeps running.
     joint_states carries only the joints read in that cycle (nothing while
@@ -268,30 +272,41 @@ class ServoTrajectoryBridge(Node):
         if msg.name:
             self._publish(self.state_pub.publish, msg)
 
+    def _read_joint(self, j):
+        """Read one joint (caller holds the lock); its speed in rad/s, or None."""
+        log = self.get_logger()
+        try:
+            steps, speed, _load = self.bus.read_state(j.id)
+        except (StsError, OSError) as e:
+            log.warning(
+                f"{j.name}: read failed: {e}", throttle_duration_sec=LOG_THROTTLE_S
+            )
+            return None
+        if self.bus.status_error:
+            log.warning(
+                f"{j.name}: servo reports error 0x{self.bus.status_error:02x} "
+                "(overload / overheat / voltage)",
+                throttle_duration_sec=LOG_THROTTLE_S,
+            )
+        self.present_steps[j.name] = steps
+        self.positions[j.name] = j.to_rad(steps)
+        self.read_times[j.name] = time.monotonic()
+        return j.speed_to_rad(speed)
+
+    def _is_fresh(self, name, now):
+        return now - self.read_times[name] <= self.cfg.state_timeout
+
     def _read_states(self):
         log = self.get_logger()
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         for j in self.cfg.joints:
-            try:
-                steps, speed, _load = self.bus.read_state(j.id)
-            except (StsError, OSError) as e:
-                log.warning(
-                    f"{j.name}: read failed: {e}", throttle_duration_sec=LOG_THROTTLE_S
-                )
+            velocity = self._read_joint(j)
+            if velocity is None:
                 continue
-            if self.bus.status_error:
-                log.warning(
-                    f"{j.name}: servo reports error 0x{self.bus.status_error:02x} "
-                    "(overload / overheat / voltage)",
-                    throttle_duration_sec=LOG_THROTTLE_S,
-                )
-            self.present_steps[j.name] = steps
-            self.positions[j.name] = j.to_rad(steps)
-            self.read_times[j.name] = time.monotonic()
             msg.name.append(j.name)
             msg.position.append(self.positions[j.name])
-            msg.velocity.append(j.speed_to_rad(speed))
+            msg.velocity.append(velocity)
 
         if len(msg.name) == len(self.cfg.joints):
             if self.bus_down:
@@ -317,6 +332,14 @@ class ServoTrajectoryBridge(Node):
         while self.segments and self.segments[0].send_at <= now:
             seg = self.segments.popleft()
             for name, rad in seg.targets.items():
+                if not self._is_fresh(name, now):
+                    # The speed (and a hold target) would come from an old position.
+                    self.get_logger().warning(
+                        f"{name}: no state read within {self.cfg.state_timeout:.2f} s, "
+                        "goal not sent",
+                        throttle_duration_sec=LOG_THROTTLE_S,
+                    )
+                    continue
                 j = self.joints[name]
                 steps = j.to_steps(rad)
                 cut = min(max(steps, POS_MIN), POS_MAX)
@@ -384,20 +407,43 @@ class ServoTrajectoryBridge(Node):
             prev = t
         return segments, now + prev
 
-    def _install(self, segments, replace_seq=None):
-        """New plan id; with `replace_seq`, only while that plan is current (else None)."""
+    def _install(self, segments):
+        """Replace the plan; returns the new plan id."""
         with self.lock:
-            if replace_seq is not None and self.plan_seq != replace_seq:
-                return None
-            self.segments = deque(segments)
-            self.plan_seq += 1
-            return self.plan_seq
+            return self._install_locked(segments)
+
+    def _install_locked(self, segments):
+        self.segments = deque(segments)
+        self.plan_seq += 1
+        return self.plan_seq
 
     def _hold(self, reason, replace_seq=None):
+        """Stop at the position read now; with `replace_seq`, only while that plan is current.
+
+        A joint that cannot be read now gets no goal and keeps its last one:
+        the last read position may be old, and the servo would jump back there.
+        """
         with self.lock:
-            targets = dict(self.positions)
-        segment = Segment(time.monotonic(), 0.0, targets, from_present=True)
-        if self._install([segment], replace_seq) is not None:
+            if self.bus is None or (
+                replace_seq is not None and self.plan_seq != replace_seq
+            ):
+                return
+            targets, unread = {}, []
+            for j in self.cfg.joints:
+                if self._read_joint(j) is None:
+                    unread.append(j.name)
+                else:
+                    targets[j.name] = self.positions[j.name]
+            # Install even without targets, so the rest of the old plan is dropped.
+            self._install_locked(
+                [Segment(time.monotonic(), 0.0, targets, from_present=True)]
+            )
+        if unread:
+            self.get_logger().warning(
+                f"{reason}: cannot read {', '.join(unread)}, no hold goal sent for "
+                "them (they keep their last goal)"
+            )
+        else:
             self.get_logger().info(f"{reason}: holding the current position")
 
     def _on_trajectory(self, msg):
@@ -458,11 +504,7 @@ class ServoTrajectoryBridge(Node):
                 now = time.monotonic()
                 preempted = self.plan_seq != seq
                 current = {n: self.positions[n] for n in names}
-                stale = [
-                    n
-                    for n in names
-                    if now - self.read_times[n] > self.cfg.state_timeout
-                ]
+                stale = [n for n in names if not self._is_fresh(n, now)]
             if goal_handle.is_cancel_requested:
                 self._hold("goal canceled", seq)
                 goal_handle.canceled()

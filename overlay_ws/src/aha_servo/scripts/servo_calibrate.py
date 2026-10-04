@@ -170,9 +170,9 @@ def main():
         zeros = wait_enter(bus, joints, f"1) Hold {zero_pose}, then press Enter.")
 
         signs = {}
-        min_move = round(MIN_MOVE_DEG / 360.0 * joints[0].steps_per_rev)
         for k, j in enumerate(joints, start=2):
             direction = j.positive or "the + direction"
+            min_move = round(MIN_MOVE_DEG / 360.0 * j.steps_per_rev)
             while True:
                 steps = wait_enter(
                     bus,

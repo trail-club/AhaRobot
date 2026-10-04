@@ -63,15 +63,22 @@ def pick(joint_type: str, name: str) -> tuple[float, float]:
     return FALLBACK.get(joint_type, (10.0, 1.0))
 
 
-def patch_head_tilt(root: ET.Element) -> bool:
+def child(parent: ET.Element, tag: str) -> ET.Element:
+    """The first `tag` child of parent, created when missing."""
+    elem = parent.find(tag)
+    return elem if elem is not None else ET.SubElement(parent, tag)
+
+
+def patch_head_tilt(root: ET.Element) -> None:
+    """Raises RuntimeError when the upstream link no longer has the expected shape."""
     link = root.find(f"link[@name='{HEAD_TILT_LINK}']")
     if link is None:
-        return False
+        raise RuntimeError(f"link {HEAD_TILT_LINK} not found")
+    if link.find("visual") is None:
+        raise RuntimeError(f"{HEAD_TILT_LINK} has no visual")
     for tag in ("visual", "collision"):
         for elem in link.findall(tag):
-            origin = elem.find("origin")
-            if origin is None:
-                origin = ET.SubElement(elem, "origin")
+            origin = child(elem, "origin")
             origin.set("xyz", "0 0 0")
             origin.set("rpy", "0 0 0")
             mesh = elem.find("geometry/mesh")
@@ -79,20 +86,25 @@ def patch_head_tilt(root: ET.Element) -> bool:
                 raise RuntimeError(f"{HEAD_TILT_LINK} {tag} has no mesh geometry")
             mesh.set("filename", HEAD_TILT_MESH)
             mesh.set("scale", HEAD_TILT_MESH_SCALE)
-    inertial = link.find("inertial")
-    if inertial is not None:
-        inertial.find("origin").set("xyz", HEAD_TILT_INERTIAL["xyz"])
-        inertial.find("origin").set("rpy", "0 0 0")
-        inertial.find("mass").set("value", HEAD_TILT_INERTIAL["mass"])
-        for k, v in HEAD_TILT_INERTIAL["inertia"].items():
-            inertial.find("inertia").set(k, v)
-    return True
+    inertial = child(link, "inertial")
+    origin = child(inertial, "origin")
+    origin.set("xyz", HEAD_TILT_INERTIAL["xyz"])
+    origin.set("rpy", "0 0 0")
+    child(inertial, "mass").set("value", HEAD_TILT_INERTIAL["mass"])
+    inertia = child(inertial, "inertia")
+    for k, v in HEAD_TILT_INERTIAL["inertia"].items():
+        inertia.set(k, v)
 
 
 def main(src: str, dst: str) -> int:
     tree = ET.parse(src)
     root = tree.getroot()
-    head = patch_head_tilt(root)
+    try:
+        patch_head_tilt(root)
+    except RuntimeError as e:
+        # Fail the build rather than ship the old mesh and inertia.
+        print(f"[patch_limits] {src}: {e}", file=sys.stderr)
+        return 1
     patched = 0
     for j in root.findall("joint"):
         jt = j.get("type")
@@ -108,7 +120,7 @@ def main(src: str, dst: str) -> int:
     tree.write(dst, xml_declaration=True, encoding="utf-8")
     print(
         f"[patch_limits] wrote {dst} ({patched} joints patched, "
-        f"{HEAD_TILT_LINK} mesh {'replaced' if head else 'NOT FOUND'})"
+        f"{HEAD_TILT_LINK} mesh replaced)"
     )
     return 0
 

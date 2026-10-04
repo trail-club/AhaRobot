@@ -13,9 +13,11 @@ Base:
     the base when the panel stops publishing.
 Head:
   - Pan/tilt sliders in degrees and presets, limits from config/head.yaml.
-  - Sliders follow /joint_states except while being dragged or while a
-    command sent from this panel is still executing, so they do not fight
-    with head_look_at.py or teleop_head.py.
+  - Sliders follow /joint_states except while being dragged or until the
+    head reaches a target sent from this panel (2 deg, or 4x the move
+    duration + 1 s), so they do not fight with head_look_at.py or
+    teleop_head.py and do not jump to mid-motion states when the sim runs
+    slower than real time.
 
 Runs on the wall clock (no use_sim_time): base commands are zero-stamped
 and head trajectories are unstamped (start now).
@@ -64,6 +66,11 @@ CMD_PERIOD_MS = 100
 KEY_SPEED_RATIO = 0.5
 SLIDER_THROTTLE_S = 0.25
 JOINT_STATE_TIMEOUT_S = 2.0
+# The sliders keep a sent target until the head is this close to it, or for
+# at most this many times the move duration plus a margin (sim RTF < 1).
+HOLD_TOLERANCE_RAD = math.radians(2.0)
+HOLD_TIMEOUT_RATIO = 4.0
+HOLD_TIMEOUT_MARGIN_S = 1.0
 # Knob radius relative to the pad's travel radius.
 KNOB_RATIO = 0.22
 PAD_MARGIN_PX = 4.0
@@ -87,6 +94,34 @@ def base_command(linear, angular):
     msg.twist.linear.x = float(linear)
     msg.twist.angular.z = float(angular)
     return msg
+
+
+class CommandHold:
+    """Keeps the sliders on a target sent from the panel until the head gets there.
+
+    A wall-clock hold of the move duration ends too early when the sim runs
+    slower than real time, and the sliders would jump to a mid-motion state.
+    """
+
+    def __init__(self):
+        self.target = None
+        self.until = 0.0
+
+    def start(self, target, duration, now):
+        self.target = target
+        self.until = now + HOLD_TIMEOUT_RATIO * duration + HOLD_TIMEOUT_MARGIN_S
+
+    def active(self, current, now):
+        """True until current (pan, tilt) reaches the target or the timeout passes."""
+        if self.target is None:
+            return False
+        reached = current is not None and all(
+            abs(c - t) <= HOLD_TOLERANCE_RAD for c, t in zip(current, self.target)
+        )
+        if reached or now > self.until:
+            self.target = None
+            return False
+        return True
 
 
 class JoystickPad(QWidget):
@@ -207,7 +242,7 @@ class ControlPanel(QWidget):
         self._head_current = None
         self._head_target = None
         self._last_js_time = None
-        self._hold_until = 0.0
+        self._hold = CommandHold()
         self._last_slider_send = 0.0
 
         self._build_ui()
@@ -418,7 +453,7 @@ class ControlPanel(QWidget):
         self.head_pub.publish(self.head.trajectory(pan, tilt, duration))
         now = time.monotonic()
         self._last_slider_send = now
-        self._hold_until = now + duration + 0.5
+        self._hold.start((pan, tilt), duration, now)
         self._head_target = (pan, tilt)
         self._set_sliders(pan, tilt)
 
@@ -437,11 +472,12 @@ class ControlPanel(QWidget):
             rclpy.spin_once(self.node, timeout_sec=0.0)
 
     def _refresh(self):
+        now = time.monotonic()
         connected = (
             self._last_js_time is not None
-            and time.monotonic() - self._last_js_time < JOINT_STATE_TIMEOUT_S
+            and now - self._last_js_time < JOINT_STATE_TIMEOUT_S
         )
-        if connected and time.monotonic() > self._hold_until:
+        if connected and not self._hold.active(self._head_current, now):
             self._set_sliders(*self._head_current)
 
         target = describe(*self._head_target) if self._head_target else "-"

@@ -4,7 +4,9 @@ FakeStsBus({12: 2100, 13: 2000}).port is a tty path that answers ping, read,
 write and sync write like STS3215 servos at those start positions. With torque
 on, each servo moves toward its goal at the goal speed (steps/s, 0 = max).
 Failure hooks: set_max_speed() slows a servo down, set_silent() drops every
-packet (no reply, no write) like a disconnected bus.
+packet (no reply, no write) like a disconnected bus, set_mute() keeps the
+writes but drops the replies (lost on the way back). echo=True sends every
+incoming byte back first, like a half-duplex adapter.
 """
 
 import os
@@ -62,14 +64,16 @@ class FakeServo:
 
 
 class FakeStsBus:
-    def __init__(self, servos):
+    def __init__(self, servos, echo=False):
         self.master, self.slave = os.openpty()
         tty.setraw(self.slave)
         self.port = os.ttyname(self.slave)
         self.servos = {sid: FakeServo(sid, pos) for sid, pos in servos.items()}
+        self.echo = echo
         self.lock = threading.Lock()
         self.bad_packets = 0
         self.silent = False
+        self.mute = False
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -99,8 +103,14 @@ class FakeStsBus:
         with self.lock:
             self.silent = silent
 
+    def set_mute(self, mute):
+        """Act on every packet but send no reply while True."""
+        with self.lock:
+            self.mute = mute
+
     def _reply(self, servo_id, params=b""):
-        os.write(self.master, sts.build_packet(servo_id, 0, params))
+        if not self.mute:
+            os.write(self.master, sts.build_packet(servo_id, 0, params))
 
     def _handle(self, servo_id, instruction, params):
         servo = self.servos.get(servo_id)
@@ -126,9 +136,12 @@ class FakeStsBus:
         while not self._stop.is_set():
             if select.select([self.master], [], [], STEP_S)[0]:
                 try:
-                    buf += os.read(self.master, 1024)
+                    data = os.read(self.master, 1024)
                 except OSError:
-                    pass
+                    data = b""
+                if self.echo and data:
+                    os.write(self.master, data)
+                buf += data
             with self.lock:
                 if self.silent:
                     buf.clear()

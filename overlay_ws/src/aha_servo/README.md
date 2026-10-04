@@ -20,14 +20,15 @@ Feetech STSサーボ（STS3215）のバスをROSから動かすパッケージ�
 
 | 名前 | 型 | 内容 |
 | --- | --- | --- |
-| `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` | 購読。最後の点だけ使い、空なら現在位置で停止 |
-| `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | 点を順に実行。cancel・期限切れの中断で現在位置を保持 |
+| `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` | 購読。最後の点だけ使い、空なら現在位置（その場で読んだ値）で停止 |
+| `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | 点を順に実行。cancel・期限切れの中断で現在位置（その場で読んだ値）を保持 |
 | `/<controller>/joint_states` | `sensor_msgs/msg/JointState` | この関節群だけ。`joint_state_publisher` の `source_list` で `/joint_states` に合流させる |
 
 - 起動時に全IDへpingし、応答がなければ終了コード1で終了する。目標を現在位置にしてからトルクを入れる。
 - 指令はyamlの `min` / `max` で丸めてwarningを出す。速度は `|変位| / time_from_start`、上限は `max_speed`。
 - `header.stamp` は無視し、受信時に開始する。wall clockで動く。
-- actionは目標の全関節が `state_timeout`（既定0.3 s）以内に読めているときだけ成功にする。読めない関節があれば待ち、期限（最後の点から `goal_timeout`、goalに `goal_time_tolerance` があればその値）で中断して最後に読んだ位置を保持する。
+- actionは目標の全関節が `state_timeout`（既定0.3 s）以内に読めているときだけ成功にする。読めない関節があれば待ち、期限（最後の点から `goal_timeout`、goalに `goal_time_tolerance` があればその値）で中断して位置を保持する。
+- `state_timeout` 以内に読めていない関節には指令を送らない（warning）。古い位置から速度を計算したり、古い位置へ戻したりしないため。停止（空の軌道・cancel・中断）でその場で読めない関節は直前の目標のまま動く。
 - 通信エラーは間引いてログに出して続行し、2秒続くとエラーを出す。`joint_states` にはその周期に読めた関節だけを入れる。
 - SIGINT / SIGTERMでトルクを切り、ポートを閉じる。
 
@@ -35,6 +36,7 @@ Feetech STSサーボ（STS3215）のバスをROSから動かすパッケージ�
 
 ROSのパラメータファイル。形式は `aha_servo/joint_map.py` のdocstringを参照。
 関節角は `rad = sign * (steps - zero) / steps_per_rev * 2π`。
+読み込み時に範囲を検査し、範囲外ならエラーで止まる（`id` 0..253、`zero` 0..`steps_per_rev`-1、`torque_limit` 0..1000、`acc` 0..254、`baud` は `aha_servo/sts.py` の `BAUDS`、レート・速度・timeout・toleranceは正）。
 
 ## キャリブレーション
 
@@ -63,8 +65,8 @@ zeroとsignを求め、最後の確認で `y` を入力するとyamlへ書き込
 
 ## テスト
 
-pty上で2サーボを模擬する偽のSTSバスに対し、プロトコル・キャリブレーション・nodeのtopic / action /
-丸め / cancel / 割り込み / 終了時のトルクOFFを確認する。実機は不要。
+pty上で2サーボを模擬する偽のSTSバスに対し、プロトコル（送信エコーを含む）・キャリブレーション・nodeのtopic / action /
+丸め / cancel / 割り込み / 通信断 / 終了時のトルクOFFを確認する。実機は不要。
 
 ```bash
 cd /app/overlay_ws/src/aha_servo

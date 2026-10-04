@@ -20,6 +20,7 @@ import time
 import tty
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory
@@ -49,6 +50,8 @@ from aha_perception.head_config import (
 )
 
 STEP = math.radians(5.0)
+# Callbacks run per loop at most (joint_states at 30+ Hz, loop at 10 Hz).
+DRAIN_MAX = 20
 # (pan, tilt) deltas; +pan = right, +tilt = down
 KEYS = {
     "\x1b[D": (-STEP, 0.0),  # left
@@ -87,9 +90,10 @@ def main():
     node = rclpy.create_node("aha_teleop_head")
     head = declare_head_config(node)
     pub = node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 10)
-    state = {"current": None}
+    state = {"current": None, "received": 0}
 
     def on_joint_states(msg):
+        state["received"] += 1
         pos = head_position(msg)
         if pos is not None:
             state["current"] = pos
@@ -97,10 +101,20 @@ def main():
     node.create_subscription(
         JointState, "/joint_states", on_joint_states, qos_profile_sensor_data
     )
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+
+    def drain():
+        """Take every queued joint_states, not just one per loop."""
+        for _ in range(DRAIN_MAX):
+            received = state["received"]
+            executor.spin_once(timeout_sec=0.0)
+            if state["received"] == received:
+                break
 
     deadline = time.monotonic() + 3.0
     while state["current"] is None and time.monotonic() < deadline:
-        rclpy.spin_once(node, timeout_sec=0.1)
+        executor.spin_once(timeout_sec=0.1)
     if state["current"] is None:
         print("警告: /joint_states が来ないので正面 (0, 0) から始めます")
     target = head.clamp(*(state["current"] or (0.0, 0.0)))[:2]
@@ -114,7 +128,7 @@ def main():
         running = True
         while running and rclpy.ok():
             keys = read_keys(fd, 0.1)
-            rclpy.spin_once(node, timeout_sec=0.0)
+            drain()
             new, clamped, center = target, False, False
             for key in keys:
                 if key == "q":
@@ -142,6 +156,7 @@ def main():
         pass
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+        executor.shutdown()
         node.destroy_node()
         rclpy.try_shutdown()
 

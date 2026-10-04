@@ -43,22 +43,22 @@ POS_MIN, POS_MAX = 0, 4095
 # Goal speed 0 means "no limit" on STS servos, so commanded speeds start at 1.
 SPEED_MIN, SPEED_MAX = 1, 32767
 
+BAUDS = (
+    9600,
+    19200,
+    38400,
+    57600,
+    115200,
+    230400,
+    460800,
+    500000,
+    576000,
+    921600,
+    1000000,
+)
+# The subset this platform's termios can set.
 BAUD_RATES = {
-    baud: getattr(termios, f"B{baud}")
-    for baud in (
-        9600,
-        19200,
-        38400,
-        57600,
-        115200,
-        230400,
-        460800,
-        500000,
-        576000,
-        921600,
-        1000000,
-    )
-    if hasattr(termios, f"B{baud}")
+    baud: getattr(termios, f"B{baud}") for baud in BAUDS if hasattr(termios, f"B{baud}")
 }
 
 
@@ -127,7 +127,10 @@ def parse_status(buf):
 
 
 def le16(value):
-    return bytes([value & 0xFF, (value >> 8) & 0xFF])
+    """Two bytes, little endian; raises ValueError outside 0..65535."""
+    if not 0 <= value <= 0xFFFF:
+        raise ValueError(f"{value} does not fit in 16 bits")
+    return bytes([value & 0xFF, value >> 8])
 
 
 def u16(data, offset=0):
@@ -245,6 +248,12 @@ class StsBus:
             del buf[:used]
             if status is not None:
                 sid, error, params = status
+                # A TX echo (half-duplex adapter) parses as a status with the
+                # instruction as error byte; a ping's echo would pass as the
+                # reply. A ping reply with error 0x01 has the same bytes and
+                # is dropped too.
+                if build_packet(sid, error, params) == packet:
+                    continue
                 # Ignore stray replies (other id or length) and keep reading.
                 if sid == servo_id and len(params) == n_params:
                     self.status_error = error

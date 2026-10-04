@@ -57,9 +57,9 @@ class ConversionTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def params(self, **joint):
+    def params(self, bus=None, **joint):
         block = {"id": 12, **joint}
-        return {"controller_name": "c", "joints": ["a"], "a": block}
+        return {"controller_name": "c", "joints": ["a"], "a": block, **(bus or {})}
 
     def test_defaults(self):
         cfg = parse_config(self.params())
@@ -73,11 +73,46 @@ class ConfigTests(unittest.TestCase):
             {"joints": ["a"]},
             {"joints": ["a"], "a": {"zero": 1}},
             self.params(sign=0),
+            self.params(sign=2),
             self.params(min=1.0, max=0.0),
+            self.params(min=float("nan")),
             {"joints": ["a", "b"], "a": {"id": 1}, "b": {"id": 1}},
+            self.params(id=-1),
+            self.params(id=254),
+            self.params(zero=-1),
+            self.params(zero=4096),
+            self.params(zero=1024, steps_per_rev=1024),
+            self.params(steps_per_rev=0),
+            self.params({"torque_limit": 70000}),
+            self.params({"torque_limit": -1}),
+            self.params({"acc": 255}),
+            self.params({"acc": -1}),
+            self.params({"baud": 12345}),
+            self.params({"rate_hz": 0.0}),
+            self.params({"max_speed": -1.0}),
+            self.params({"timeout": 0.0}),
+            self.params({"goal_tolerance": 0.0}),
+            self.params({"goal_timeout": float("inf")}),
+            self.params({"state_timeout": float("nan")}),
         ):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 parse_config(bad)
+
+    def test_range_limits_accepted(self):
+        for bus, joint in (
+            ({"torque_limit": 0, "acc": 0, "baud": 1000000}, {"id": 0, "zero": 0}),
+            ({"torque_limit": 1000, "acc": 254, "baud": 921600}, {"id": 253}),
+            ({}, {"zero": 4095}),
+            ({}, {"zero": 1023, "steps_per_rev": 1024, "sign": 1}),
+        ):
+            with self.subTest(bus=bus, joint=joint):
+                parse_config(self.params(bus, **joint))
+
+    def test_error_names_the_key(self):
+        with self.assertRaisesRegex(ValueError, "torque_limit 70000 .* 0..1000"):
+            parse_config(self.params({"torque_limit": 70000}))
+        with self.assertRaisesRegex(ValueError, r"a\.zero 4096 .* 0..4095"):
+            parse_config(self.params(zero=4096))
 
     def test_head_yaml(self):
         cfg = load_file(HEAD_YAML)

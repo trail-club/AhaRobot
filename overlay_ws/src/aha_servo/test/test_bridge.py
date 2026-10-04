@@ -106,7 +106,8 @@ class BridgeTest(unittest.TestCase):
         cls.state_count = 0
 
         def on_state(msg):
-            cls.states = dict(zip(msg.name, msg.position))
+            # Merge: a cycle with a failed read carries only the other joint.
+            cls.states = {**cls.states, **dict(zip(msg.name, msg.position))}
             cls.state_count += 1
 
         cls.node.create_subscription(
@@ -287,6 +288,59 @@ class BridgeTest(unittest.TestCase):
             self.fake.set_silent(False)
         count = self.state_count
         self.wait_for(lambda: self.state_count > count, 3.0, "joint_states again")
+
+    def test_8c_hold_without_fresh_read_sends_no_goal(self):
+        # Replies are lost but writes still reach the servos, which keep moving:
+        # holding the last read position would send them back there.
+        self.pub.publish(trajectory([((0.0, 0.0), 0.3)]))
+        self.wait_reached(0.0, 0.0)
+        self.pub.publish(trajectory([((1.0, 0.0), 1.5)]))
+        time.sleep(0.4)
+        self.fake.set_mute(True)
+        try:
+            time.sleep(0.5)
+            goals = {sid: len(self.fake.servo(sid).goals) for sid in START}
+            self.pub.publish(trajectory([]))
+            # Covers the hold's failed reads (3 retries per joint).
+            time.sleep(1.5)
+            for sid, n in goals.items():
+                self.assertEqual(self.fake.servo(sid).goals[n:], [], f"ID{sid}")
+        finally:
+            self.fake.set_mute(False)
+        # The servo kept its last goal.
+        self.wait_reached(1.0, 0.0)
+
+    def test_8d_stale_joint_gets_no_segment(self):
+        self.fake.set_mute(True)
+        try:
+            time.sleep(0.6)
+            goals = {sid: len(self.fake.servo(sid).goals) for sid in START}
+            self.pub.publish(trajectory([((-0.5, 0.2), 0.5)]))
+            time.sleep(1.0)
+            for sid, n in goals.items():
+                self.assertEqual(self.fake.servo(sid).goals[n:], [], f"ID{sid}")
+        finally:
+            self.fake.set_mute(False)
+        self.pub.publish(trajectory([((-0.5, 0.2), 0.5)]))
+        self.wait_reached(-0.5, 0.2)
+
+    def test_8e_cancel_after_recovery_holds_present_position(self):
+        pan = self.fake.servo(12)
+        self.pub.publish(trajectory([((0.0, 0.0), 0.3)]))
+        self.wait_reached(0.0, 0.0)
+        handle, _ = self.send_goal([((1.2, 0.0), 2.0)])
+        time.sleep(0.4)
+        self.fake.set_silent(True)
+        stale = self.steps(PAN, self.states[PAN])
+        # The servo keeps moving while the bridge cannot read it.
+        time.sleep(0.6)
+        self.fake.set_silent(False)
+        self.wait_future(handle.cancel_goal_async())
+        result = self.wait_future(handle.get_result_async())
+        self.assertEqual(result.status, GoalStatus.STATUS_CANCELED)
+        time.sleep(0.3)
+        self.assertGreater(abs(pan.goal - stale), 150, (pan.goal, stale))
+        self.assertAlmostEqual(pan.pos, pan.goal, delta=5)
 
     def test_9_shutdown_disables_torque(self):
         # Ctrl-C under ros2 launch: SIGINT from the terminal, then from launch.
