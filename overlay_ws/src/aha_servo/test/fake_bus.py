@@ -3,6 +3,8 @@
 FakeStsBus({12: 2100, 13: 2000}).port is a tty path that answers ping, read,
 write and sync write like STS3215 servos at those start positions. With torque
 on, each servo moves toward its goal at the goal speed (steps/s, 0 = max).
+Failure hooks: set_max_speed() slows a servo down, set_silent() drops every
+packet (no reply, no write) like a disconnected bus.
 """
 
 import os
@@ -27,6 +29,7 @@ class FakeServo:
         self.mem[sts.ADDR_VOLT] = 120
         self.mem[sts.ADDR_TEMP] = 30
         self.goals = []  # goal positions in write order
+        self.max_speed = MAX_SPEED  # steps/s, caps the goal speed
         self._store_state(0.0)
 
     def _store_state(self, speed):
@@ -51,7 +54,7 @@ class FakeServo:
         if not self.torque:
             self._store_state(0.0)
             return
-        speed = sts.u16(self.mem, sts.ADDR_GOAL_SPEED) or MAX_SPEED
+        speed = min(sts.u16(self.mem, sts.ADDR_GOAL_SPEED) or MAX_SPEED, self.max_speed)
         delta = self.goal - self.pos
         move = max(-speed * dt, min(speed * dt, delta))
         self.pos += move
@@ -66,6 +69,7 @@ class FakeStsBus:
         self.servos = {sid: FakeServo(sid, pos) for sid, pos in servos.items()}
         self.lock = threading.Lock()
         self.bad_packets = 0
+        self.silent = False
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -85,6 +89,15 @@ class FakeStsBus:
             servo = self.servos[servo_id]
             servo.pos = float(position)
             servo._store_state(0.0)
+
+    def set_max_speed(self, servo_id, steps_per_s=MAX_SPEED):
+        with self.lock:
+            self.servos[servo_id].max_speed = steps_per_s
+
+    def set_silent(self, silent):
+        """Drop every incoming packet while True (servos keep moving)."""
+        with self.lock:
+            self.silent = silent
 
     def _reply(self, servo_id, params=b""):
         os.write(self.master, sts.build_packet(servo_id, 0, params))
@@ -117,6 +130,8 @@ class FakeStsBus:
                 except OSError:
                     pass
             with self.lock:
+                if self.silent:
+                    buf.clear()
                 while True:
                     try:
                         packet, used = sts.parse_status(buf)

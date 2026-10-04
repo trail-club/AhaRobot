@@ -165,8 +165,12 @@ class BridgeTest(unittest.TestCase):
         self.wait_for(future.done, timeout, "future")
         return future.result()
 
-    def send_goal(self, points, joints=(PAN, TILT)):
+    def send_goal(self, points, joints=(PAN, TILT), time_tolerance=0.0):
         goal = FollowJointTrajectory.Goal(trajectory=trajectory(points, joints))
+        sec = int(time_tolerance)
+        goal.goal_time_tolerance = Duration(
+            sec=sec, nanosec=int((time_tolerance - sec) * 1e9)
+        )
         feedback = []
         handle = self.wait_future(self.action.send_goal_async(goal, feedback.append))
         return handle, feedback
@@ -242,6 +246,47 @@ class BridgeTest(unittest.TestCase):
         result = self.wait_future(handle.get_result_async())
         self.assertEqual(result.status, GoalStatus.STATUS_ABORTED)
         self.wait_reached(0.5, 0.5)
+
+    def test_8a_timeout_abort_holds(self):
+        # A slow servo misses the deadline; the abort must stop it there.
+        self.fake.set_max_speed(12, 150)
+        try:
+            handle, _ = self.send_goal([((-0.5, 0.5), 0.5)], time_tolerance=0.5)
+            result = self.wait_future(handle.get_result_async())
+            self.assertEqual(result.status, GoalStatus.STATUS_ABORTED)
+            self.assertEqual(
+                result.result.error_code,
+                FollowJointTrajectory.Result.GOAL_TOLERANCE_VIOLATED,
+            )
+            time.sleep(0.2)
+            held = dict(self.states)
+            time.sleep(1.0)
+            self.assertGreater(held[PAN], 0.0)
+            self.assertAlmostEqual(self.states[PAN], held[PAN], delta=0.02)
+        finally:
+            self.fake.set_max_speed(12)
+
+    def test_8b_stale_state_never_succeeds(self):
+        # The last read already equals the target, but the bus is silent.
+        target = (self.states[PAN], self.states[TILT])
+        self.fake.set_silent(True)
+        try:
+            time.sleep(0.5)
+            count = self.state_count
+            handle, _ = self.send_goal([(target, 0.2)], time_tolerance=0.5)
+            result = self.wait_future(handle.get_result_async())
+            self.assertEqual(result.status, GoalStatus.STATUS_ABORTED)
+            self.assertEqual(
+                result.result.error_code,
+                FollowJointTrajectory.Result.GOAL_TOLERANCE_VIOLATED,
+            )
+            self.assertIn("no state", result.result.error_string)
+            # No joint_states without fresh reads.
+            self.assertEqual(self.state_count, count)
+        finally:
+            self.fake.set_silent(False)
+        count = self.state_count
+        self.wait_for(lambda: self.state_count > count, 3.0, "joint_states again")
 
     def test_9_shutdown_disables_torque(self):
         # Ctrl-C under ros2 launch: SIGINT from the terminal, then from launch.

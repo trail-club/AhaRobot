@@ -28,6 +28,8 @@ D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_m
 可動範囲は設定値で、実機の頭の可動域は測定していない。
 
 操作パネルは `/diff_drive_controller/cmd_vel` に10 Hzで送信し、離すと0を1回送る。
+`header.stamp` は0で送り、diff_drive_controllerが受信時の自分の時刻（sim時刻）を入れる。
+送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`）で、
 URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より低くしている。
 `head_look_at.py` と `sim_control_panel.py` はwall clockで動く。

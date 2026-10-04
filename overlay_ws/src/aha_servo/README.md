@@ -21,13 +21,14 @@ Feetech STSサーボ（STS3215）のバスをROSから動かすパッケージ�
 | 名前 | 型 | 内容 |
 | --- | --- | --- |
 | `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` | 購読。最後の点だけ使い、空なら現在位置で停止 |
-| `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | 点を順に実行。cancelで現在位置を保持 |
+| `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` | 点を順に実行。cancel・期限切れの中断で現在位置を保持 |
 | `/<controller>/joint_states` | `sensor_msgs/msg/JointState` | この関節群だけ。`joint_state_publisher` の `source_list` で `/joint_states` に合流させる |
 
 - 起動時に全IDへpingし、応答がなければ終了コード1で終了する。目標を現在位置にしてからトルクを入れる。
 - 指令はyamlの `min` / `max` で丸めてwarningを出す。速度は `|変位| / time_from_start`、上限は `max_speed`。
 - `header.stamp` は無視し、受信時に開始する。wall clockで動く。
-- 通信エラーは間引いてログに出して続行し、2秒続くとエラーを出す。
+- actionは目標の全関節が `state_timeout`（既定0.3 s）以内に読めているときだけ成功にする。読めない関節があれば待ち、期限（最後の点から `goal_timeout`、goalに `goal_time_tolerance` があればその値）で中断して最後に読んだ位置を保持する。
+- 通信エラーは間引いてログに出して続行し、2秒続くとエラーを出す。`joint_states` にはその周期に読めた関節だけを入れる。
 - SIGINT / SIGTERMでトルクを切り、ポートを閉じる。
 
 ## 設定yaml

@@ -22,6 +22,7 @@
     timeout: 0.05
     goal_tolerance: 0.03
     goal_timeout: 2.0
+    state_timeout: 0.3
     zero_pose: "head facing straight ahead (robot front) and level"
 
     joints: [joint_head_pan, joint_head_tilt]

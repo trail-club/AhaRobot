@@ -37,6 +37,9 @@ BUS_DEFAULTS = {
     "timeout": 0.05,  # s per reply
     "goal_tolerance": 0.03,  # rad, action success when no per-joint tolerance given
     "goal_timeout": 2.0,  # s after the last point before the action aborts
+    # s since a joint's last successful read before its state counts as stale
+    # (covers one read with retries: 3 x timeout, plus a cycle)
+    "state_timeout": 0.3,
     "zero_pose": "",  # calibration prompt for the all-zero pose
 }
 
@@ -102,6 +105,7 @@ class BusConfig:
     timeout: float
     goal_tolerance: float
     goal_timeout: float
+    state_timeout: float
     zero_pose: str
     joints: list = field(default_factory=list)
 

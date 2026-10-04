@@ -25,13 +25,17 @@ Behaviour:
   - Action: points are sent in order at their time_from_start; succeeds when
     every joint is within tolerance of the final point (goal_tolerance, or
     the `goal_tolerance` parameter), aborts `goal_timeout` s (or
-    goal_time_tolerance) after the last point. Cancel holds the current
-    position. A newer topic command or goal preempts (aborts) the running goal.
+    goal_time_tolerance) after the last point. Success needs a fresh state of
+    every goal joint (read within `state_timeout` s); while one is stale the
+    goal waits and aborts at the deadline. Cancel and the deadline abort hold
+    the last read position. A newer topic command or goal preempts (aborts) the running goal.
   - Partial joint lists are accepted; unknown joints are rejected.
   - Positions are clamped to the joint min/max (warning). Each move's servo
     speed is |delta| / segment duration, capped by `max_speed`.
   - header.stamp, velocities and accelerations are ignored (start on receipt).
   - Communication errors are logged (throttled) and the loop keeps running.
+    joint_states carries only the joints read in that cycle (nothing while
+    the bus is silent).
   - SIGINT/SIGTERM: the state timer and running goals stop first, then torque
     off and port closed, then the node and rclpy shut down. Wall clock only.
 """
@@ -114,6 +118,7 @@ class ServoTrajectoryBridge(Node):
         self.timer = None
         self.lock = threading.Lock()
         self.positions = {}  # rad, latest read
+        self.read_times = {}  # monotonic time of the latest successful read
         self.present_steps = {}
         self.goal_steps = {}  # last commanded steps
         self.segments = deque()
@@ -172,6 +177,7 @@ class ServoTrajectoryBridge(Node):
             rad = j.to_rad(steps)
             self.present_steps[j.name] = self.goal_steps[j.name] = steps
             self.positions[j.name] = rad
+            self.read_times[j.name] = time.monotonic()
             lo, hi = j.step_range()
             note = (
                 ""
@@ -282,6 +288,7 @@ class ServoTrajectoryBridge(Node):
                 )
             self.present_steps[j.name] = steps
             self.positions[j.name] = j.to_rad(steps)
+            self.read_times[j.name] = time.monotonic()
             msg.name.append(j.name)
             msg.position.append(self.positions[j.name])
             msg.velocity.append(j.speed_to_rad(speed))
@@ -377,17 +384,21 @@ class ServoTrajectoryBridge(Node):
             prev = t
         return segments, now + prev
 
-    def _install(self, segments):
+    def _install(self, segments, replace_seq=None):
+        """New plan id; with `replace_seq`, only while that plan is current (else None)."""
         with self.lock:
+            if replace_seq is not None and self.plan_seq != replace_seq:
+                return None
             self.segments = deque(segments)
             self.plan_seq += 1
             return self.plan_seq
 
-    def _hold(self, reason):
+    def _hold(self, reason, replace_seq=None):
         with self.lock:
             targets = dict(self.positions)
-        self._install([Segment(time.monotonic(), 0.0, targets, from_present=True)])
-        self.get_logger().info(f"{reason}: holding the current position")
+        segment = Segment(time.monotonic(), 0.0, targets, from_present=True)
+        if self._install([segment], replace_seq) is not None:
+            self.get_logger().info(f"{reason}: holding the current position")
 
     def _on_trajectory(self, msg):
         if not msg.points:
@@ -444,11 +455,16 @@ class ServoTrajectoryBridge(Node):
                     pass
                 return result
             with self.lock:
+                now = time.monotonic()
                 preempted = self.plan_seq != seq
-                current = {n: self.positions.get(n) for n in names}
+                current = {n: self.positions[n] for n in names}
+                stale = [
+                    n
+                    for n in names
+                    if now - self.read_times[n] > self.cfg.state_timeout
+                ]
             if goal_handle.is_cancel_requested:
-                if not preempted:
-                    self._hold("goal canceled")
+                self._hold("goal canceled", seq)
                 goal_handle.canceled()
                 result.error_string = "canceled"
                 return result
@@ -458,27 +474,32 @@ class ServoTrajectoryBridge(Node):
                 result.error_string = "preempted by a newer command"
                 goal_handle.abort()
                 return result
-            if any(v is None for v in current.values()):
-                continue
             errors = [final[n] - current[n] for n in names]
-            feedback.header.stamp = self.get_clock().now().to_msg()
-            feedback.actual.positions = [current[n] for n in names]
-            feedback.error.positions = errors
-            self._publish(goal_handle.publish_feedback, feedback)
-
-            now = time.monotonic()
-            if now >= end and all(
-                abs(e) <= tolerance[n] for n, e in zip(names, errors)
-            ):
-                goal_handle.succeed()
-                result.error_code = Result.SUCCESSFUL
-                return result
+            if not stale:
+                feedback.header.stamp = self.get_clock().now().to_msg()
+                feedback.actual.positions = [current[n] for n in names]
+                feedback.error.positions = errors
+                self._publish(goal_handle.publish_feedback, feedback)
+                if now >= end and all(
+                    abs(e) <= tolerance[n] for n, e in zip(names, errors)
+                ):
+                    goal_handle.succeed()
+                    result.error_code = Result.SUCCESSFUL
+                    return result
             if now > deadline:
                 result.error_code = Result.GOAL_TOLERANCE_VIOLATED
-                result.error_string = "not within tolerance: " + ", ".join(
-                    f"{n} error {e:+.3f} rad" for n, e in zip(names, errors)
-                )
+                if stale:
+                    result.error_string = (
+                        f"no state read within {self.cfg.state_timeout:.2f} s: "
+                        + ", ".join(stale)
+                    )
+                else:
+                    result.error_string = "not within tolerance: " + ", ".join(
+                        f"{n} error {e:+.3f} rad" for n, e in zip(names, errors)
+                    )
                 self.get_logger().warning(f"goal aborted, {result.error_string}")
+                # Stop the failed motion, as JointTrajectoryController does.
+                self._hold("goal aborted", seq)
                 goal_handle.abort()
                 return result
 

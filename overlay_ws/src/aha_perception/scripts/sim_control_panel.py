@@ -8,15 +8,17 @@ Base:
   - WASD while the window has focus (hold to move, release to stop).
   - Publishes geometry_msgs/TwistStamped to /diff_drive_controller/cmd_vel at
     10 Hz while active, then one zero command. Losing window focus or the stop
-    button also stops.
+    button also stops. The stamp is zero, so diff_drive_controller stamps the
+    command with its own (sim) clock on receipt and its cmd_vel_timeout stops
+    the base when the panel stops publishing.
 Head:
   - Pan/tilt sliders in degrees and presets, limits from config/head.yaml.
   - Sliders follow /joint_states except while being dragged or while a
     command sent from this panel is still executing, so they do not fight
     with head_look_at.py or teleop_head.py.
 
-Runs on the wall clock (no use_sim_time): diff_drive_controller accepts
-wall-stamped TwistStamped and head trajectories are unstamped (start now).
+Runs on the wall clock (no use_sim_time): base commands are zero-stamped
+and head trajectories are unstamped (start now).
 
 Sizes follow the font metrics, so the layout scales with the font DPI
 (e.g. Xft.dpi: 192), also when it changes at runtime; the window never
@@ -77,6 +79,14 @@ KEY_DIRECTIONS = {
     Qt.Key_A: (0, 1),
     Qt.Key_D: (0, -1),
 }
+
+
+def base_command(linear, angular):
+    """TwistStamped with a zero stamp (diff_drive_controller fills in its now())."""
+    msg = TwistStamped()
+    msg.twist.linear.x = float(linear)
+    msg.twist.angular.z = float(angular)
+    return msg
 
 
 class JoystickPad(QWidget):
@@ -345,11 +355,7 @@ class ControlPanel(QWidget):
             self._publish_cmd()
 
     def _publish_cmd(self):
-        msg = TwistStamped()
-        msg.header.stamp = self.node.get_clock().now().to_msg()
-        msg.twist.linear.x = float(self._cmd[0])
-        msg.twist.angular.z = float(self._cmd[1])
-        self.cmd_pub.publish(msg)
+        self.cmd_pub.publish(base_command(*self._cmd))
 
     def stop_base(self):
         self._keys.clear()
