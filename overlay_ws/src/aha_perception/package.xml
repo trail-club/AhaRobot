@@ -2,15 +2,18 @@
 <package format="3">
   <name>aha_perception</name>
   <version>0.1.0</version>
-  <description>Camera-only RViz view and perception interfaces for AhaRobot.</description>
+  <description>RGB-D camera visualization and SAM 3.1 segmentation validation.</description>
   <maintainer email="dev@trail-club.local">trail-club perception squad</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>depth_image_proc</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
   <export>
