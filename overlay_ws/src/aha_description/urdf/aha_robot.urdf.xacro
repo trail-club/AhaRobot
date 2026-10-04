@@ -9,9 +9,11 @@
     - Adds a <ros2_control> block so both real hardware and Gazebo can drive
       the same joints via controller_manager.
     - Adds <gazebo> plugin block for gz_ros2_control (Gazebo Harmonic).
+    - Adds head camera frames and, in sim, its Gazebo sensor (see sensors.xacro).
 
   Xacro args:
-    sim            (true|false)  — include Gazebo plugin & gz_ros2_control plugin
+    sim            (true|false)  — include Gazebo plugin, gz_ros2_control plugin
+                                   and Gazebo sensors
     use_sim_time   (true|false)  — inform robot_state_publisher
 -->
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -42,5 +44,9 @@
       </plugin>
     </gazebo>
   </xacro:if>
+
+  <!-- 5. Sensors (head camera frames always; Gazebo sensor in sim) -->
+  <xacro:include filename="$(find aha_description)/urdf/sensors.xacro"/>
+  <xacro:aha_sensors sim="$(arg sim)"/>
 
 </robot>
