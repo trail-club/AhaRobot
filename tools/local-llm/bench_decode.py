@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """OpenAI互換サーバーのツール呼び出しと生成速度を確認する。
 
-使い方: OPENAI_API_KEY=<キー> python3 tools/local-llm/bench_decode.py http://10.99.0.1:8080/v1
+使い方: python3 tools/local-llm/bench_decode.py [Base URL（既定 http://10.99.0.1:8080/v1）]
+APIキーが必要なサーバーでは OPENAI_API_KEY に入れる。
 ツール呼び出しを1回確認した後、思考なし・temperature 0.6・最大512トークンで、
 コード2題・英語の文章1題・日本語の文章1題を各2回ストリーミングし、
 最初のトークンから最後のトークンまでの生成速度（TTFTを除く）の中央値を出す。
@@ -14,11 +15,11 @@ import sys
 import time
 import urllib.request
 
-BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:8000/v1"
-LABEL = sys.argv[2] if len(sys.argv) > 2 else BASE
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://10.99.0.1:8080/v1").rstrip("/")
 HEADERS = {"Content-Type": "application/json"}
 if os.environ.get("OPENAI_API_KEY"):
     HEADERS["Authorization"] = "Bearer " + os.environ["OPENAI_API_KEY"]
+RUNS = 2
 
 PROMPTS = {
     "code": [
@@ -33,8 +34,29 @@ PROMPTS = {
     ],
 }
 
+READ_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": "Read a file from disk",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+}
+
+
+def request(path, body=None):
+    """GET（bodyなし）またはJSONをPOSTし、レスポンスを返す。"""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(BASE + path, data=data, headers=HEADERS)
+    return urllib.request.urlopen(req, timeout=600)
+
 
 def stream(model, prompt):
+    """1回ストリーミングし、(TTFT秒, 生成速度tok/s) を返す。"""
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -45,23 +67,18 @@ def stream(model, prompt):
         "stream_options": {"include_usage": True},
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    req = urllib.request.Request(
-        BASE + "/chat/completions",
-        data=json.dumps(body).encode(),
-        headers=HEADERS,
-    )
-    t0 = time.time()
+    t0 = time.perf_counter()
     first = last = None
     chunks = 0
-    usage_tokens = None
-    with urllib.request.urlopen(req, timeout=600) as r:
+    tokens = None
+    with request("/chat/completions", body) as r:
         for raw in r:
             line = raw.decode().strip()
             if not line.startswith("data:") or line == "data: [DONE]":
                 continue
             d = json.loads(line[5:])
             if d.get("usage"):
-                usage_tokens = d["usage"].get("completion_tokens")
+                tokens = d["usage"].get("completion_tokens")
             for c in d.get("choices", []):
                 delta = c.get("delta", {})
                 if (
@@ -69,65 +86,42 @@ def stream(model, prompt):
                     or delta.get("reasoning_content")
                     or delta.get("reasoning")
                 ):
-                    now = time.time()
-                    first = first or now
-                    last = now
+                    last = time.perf_counter()
+                    first = first or last
                     chunks += 1
-    n = usage_tokens or chunks
-    return first - t0, n, n / (last - first) if last and last > first else 0.0
+    if first is None:
+        raise RuntimeError(f"no output for: {prompt}")
+    rate = (tokens or chunks) / (last - first) if last > first else 0.0
+    return first - t0, rate
 
 
-def check_tool_call(model):
-    tool = {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read a file from disk",
-            "parameters": {
-                "type": "object",
-                "properties": {"path": {"type": "string"}},
-                "required": ["path"],
-            },
-        },
-    }
+def tool_calls(model):
+    """ファイルを読む依頼に対して返ったツール呼び出しを "名前(引数)" のリストで返す。"""
     body = {
         "model": model,
         "messages": [
             {"role": "user", "content": "Open src/main.py and tell me what it does."}
         ],
-        "tools": [tool],
+        "tools": [READ_FILE_TOOL],
         "max_tokens": 2048,
     }
-    req = urllib.request.Request(
-        BASE + "/chat/completions",
-        data=json.dumps(body).encode(),
-        headers=HEADERS,
-    )
-    with urllib.request.urlopen(req, timeout=600) as r:
+    with request("/chat/completions", body) as r:
         calls = json.load(r)["choices"][0]["message"].get("tool_calls") or []
-    names = [f'{c["function"]["name"]}({c["function"]["arguments"]})' for c in calls]
-    print(f"[{LABEL}] tool call: {', '.join(names) if names else 'NONE'}")
+    return [f"{c['function']['name']}({c['function']['arguments']})" for c in calls]
 
 
 def main():
-    model = json.load(
-        urllib.request.urlopen(
-            urllib.request.Request(BASE + "/models", headers=HEADERS)
-        )
-    )["data"][0]["id"]
-    print(f"[{LABEL}] model={model}")
-    check_tool_call(model)
+    with request("/models") as r:
+        model = json.load(r)["data"][0]["id"]
+    print(f"model: {model}")
+    print(f"tool call: {', '.join(tool_calls(model)) or 'NONE'}")
     stream(model, "Say hi.")  # warm-up
     for kind, prompts in PROMPTS.items():
-        rates, ttfts = [], []
-        for p in prompts:
-            for _ in range(2):
-                ttft, n, rate = stream(model, p)
-                rates.append(rate)
-                ttfts.append(ttft)
+        ttfts, rates = zip(*(stream(model, p) for p in prompts for _ in range(RUNS)))
         print(
-            f"[{LABEL}] {kind}: decode median {statistics.median(rates):.1f} tok/s "
-            f"(min {min(rates):.1f}, max {max(rates):.1f}), TTFT median {statistics.median(ttfts):.2f}s"
+            f"{kind}: decode median {statistics.median(rates):.1f} tok/s "
+            f"(min {min(rates):.1f}, max {max(rates):.1f}), "
+            f"TTFT median {statistics.median(ttfts):.2f}s"
         )
 
 

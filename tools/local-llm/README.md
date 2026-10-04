@@ -56,13 +56,20 @@ tools/local-llm/server/server.sh restart   # 設定を変えた後
 | APIキー（`AUTH=keys` のとき） | Dockerボリューム `local-llm-keys` |
 
 - 待ち受けは `10.99.0.1:8080` だけで、DGX SparkのLANやlocalhostからは届かない。
-- 速度とツール呼び出しは `python3 tools/local-llm/bench_decode.py http://10.99.0.1:8080/v1` で確認する。
+- 速度とツール呼び出しは `python3 tools/local-llm/bench_decode.py` で確認する。
+- モデル・同時処理数・待ち受けアドレスなどは環境変数で変える（`server.sh` の冒頭を参照）。
 
 ### 個人ごとのAPIキーを使う場合
 
-`AUTH=keys tools/local-llm/server/server.sh restart` で起動すると、キーのないリクエストを拒否する。
-各ユーザーは `ssh <Unixユーザー名>@10.99.0.1 'bash -s' < tools/local-llm/issue-key.sh` で自分のキーを発行する
-（`--rotate` で作り直し、`--revoke` で無効化）。キー収集（`keysync.sh`、コンテナ `tensorfold-keysync`）が
-各ユーザーの `~/.config/dgx-qwen/api_key` を10秒ごとに集め、ユーザー名をラベルにする。
-`server.sh keys` で一覧、`server.sh revoke <ユーザー名>` で停止（`unrevoke` で戻す）。
-キーなしに戻す場合は `server.sh restart`。
+`AUTH=keys` で起動し直すと、各ユーザーが発行したキーのないリクエストを拒否する。`server.sh restart` でキーなしに戻る。
+
+```bash
+AUTH=keys tools/local-llm/server/server.sh restart
+# 各ユーザーが手元のPCで実行し、表示されたキーをAPI Keyに入れる（--rotate で作り直し、--revoke で無効化）
+ssh <Unixユーザー名>@10.99.0.1 'bash -s' < tools/local-llm/issue-key.sh
+tools/local-llm/server/server.sh keys                # キーが有効なユーザー
+tools/local-llm/server/server.sh revoke <ユーザー名>  # 停止（unrevoke で戻す）
+```
+
+キーは各ユーザーの `~/.config/dgx-qwen/api_key` に置かれ、コンテナ `tensorfold-keysync`（`server/keysync.sh`）が
+10秒ごとに集めてユーザー名をラベルにする。
