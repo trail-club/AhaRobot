@@ -13,6 +13,7 @@ mkdir -p ${WS}/src
 for entry in \
     astra_description:astra_description \
     astra_controller_interfaces:astra_controller_interfaces \
+    astra_controller:astra_controller \
     sobits_gazebo_worlds:sobits_gazebo_worlds \
     tmc_wrs_gz_worlds:tmc_wrs_gz/tmc_wrs_gz_worlds; do
     pkg="${entry%%:*}"

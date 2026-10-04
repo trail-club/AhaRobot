@@ -74,7 +74,8 @@ python3 tools/servo/check_zero.py /dev/ttyUSB0 10
 python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 ```
 
-`init_arm.py` の姿勢指定と過去のグリッパ校正案には不一致があり、
-[確認範囲と未確認事項](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を確認する。
+`init_arm.py` はグリッパ全閉（開き幅0 mm）の姿勢で実行する。
+以前の確認文は開き幅60 mmを指示していたため、その指示で初期化した右腕側は再実行が必要。
+根拠は [初期化前のサーボ設定とグリッパの解釈](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を参照。
 `check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
 保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。

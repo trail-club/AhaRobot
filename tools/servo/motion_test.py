@@ -28,7 +28,7 @@ import os
 import sys
 import time
 
-REPO = os.path.expanduser("~/aharobot/AhaRobot")
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "upstream", "astra_controller"))
 
 from astra_controller.arm_controller import ArmController  # noqa: E402
@@ -101,6 +101,8 @@ try:
     t0 = time.time()
     over_since = None
     last_print = -1.0
+    # compare feedback against previous command to avoid timing-induced error
+    prev_target = list(hold)
 
     while True:
         t = time.time() - t0
@@ -118,12 +120,12 @@ try:
 
         p = pos_now()
         if p is not None:
-            err = math.degrees(p[j] - target[j])
+            err = math.degrees(p[j] - prev_target[j])
             dev_other = math.degrees(p[other] - hold[other])
             rows.append(
                 [
                     round(t, 3),
-                    math.degrees(target[j]),
+                    math.degrees(prev_target[j]),
                     math.degrees(p[j]),
                     err,
                     math.degrees(p[other]),
@@ -150,6 +152,7 @@ try:
                     f"joint{other}={math.degrees(p[other]):+6.1f}°"
                 )
 
+        prev_target = list(target)
         time.sleep(1.0 / RATE_HZ)
 
 except KeyboardInterrupt:

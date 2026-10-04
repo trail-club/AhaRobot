@@ -41,7 +41,7 @@ test:
 	pre-commit run --all-files
 	bash tools/perception/macos/test.sh
 	docker exec $(CONTAINER) bash -lc \
-		"cd /app/overlay_ws && colcon build --symlink-install && source install/setup.bash && colcon test --packages-skip astra_description astra_controller_interfaces sobits_gazebo_worlds tmc_wrs_gz_worlds --event-handlers console_direct+ && colcon test-result --verbose"
+		"cd /app/overlay_ws && colcon build --symlink-install && source install/setup.bash && colcon test --packages-skip astra_description astra_controller astra_controller_interfaces sobits_gazebo_worlds tmc_wrs_gz_worlds --event-handlers console_direct+ && colcon test-result --verbose"
 
 .PHONY: sim
 sim:
