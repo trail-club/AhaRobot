@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーションと、macOSカメラ経路の入出力。controller設定は
+標準シミュレーションの入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -36,26 +36,8 @@
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
 
-## macOSカメラ経路
-
-[カメラツール](../tools/perception/macos/README.md)で別途起動する。
-`sim.launch.py use_perception:=true` はログを出すスタブで、この経路は起動しない。
-
-| Topic | 型 | 配信元 |
-| --- | --- | --- |
-| `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） | macOSの `stream_realsense.py` |
-| `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
-| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1、m単位） | 同上 |
-| `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` | コンテナの `depth_image_proc` |
-
-RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻と `camera_color_optical_frame` を使用する。
-このカメラframeとロボットのTF接続は未実装。
-macOS側の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
-[配信処理](../tools/perception/macos/stream_realsense.py)と
-[変換launch](../overlay_ws/src/aha_perception/launch/camera_view.launch.py)を参照。
-
 ## 独自型
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
 `SetNavGoal`、`PickObject` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
-シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
+シミュレーションの実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
