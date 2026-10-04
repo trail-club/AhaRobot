@@ -1,6 +1,6 @@
 # aha_perception
 
-頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、
+頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出、
 シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
 topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
@@ -144,3 +144,46 @@ Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッ�
 
 `camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
 で既定の `ws://127.0.0.1:9090` へ送ると、RVizに点群が表示される。
+
+## 平面検出 (`aha_perception.planes`)
+
+ROSに依存しない平面検出の候補実装（numpy / scipy のみ）。
+入力は organized point cloud `(H, W, 3)`（カメラ光学座標系、無効画素はNaN）、
+出力は `DetectionOptions.camera_to_base` で変換した座標系（床が z=0、`up_axis` が上）の `Plane` のリスト。
+
+```python
+from aha_perception.planes import DETECTORS, DetectionOptions, detect_planes
+
+options = DetectionOptions(camera_to_base=T_base_camera)  # 4x4
+planes = detect_planes(cloud, "ransac_gravity", options)
+```
+
+`Plane` は単位法線 `normal`・`offset`（`normal . p + offset = 0`）・入力画素の flat index `inliers`・
+重心・平面内の凸包と面積・RMS・ラベル（floor / table / shelf / wall / other）を持つ。
+`options.detect_vertical=False` で水平面のみを出力する。
+
+| 名前 | 方式 |
+| --- | --- |
+| `ransac_sequential` | voxel化した点群で固定閾値のRANSACを繰り返し、平面ごとに連結成分へ分割 |
+| `ransac_gravity` | 法線で水平・垂直候補に分け、向きを拘束したRANSAC（閾値 k·σ(Z)）と連結成分。法線はvoxelのkNN（既定）か `normals="organized"` で画像法線 |
+| `ransac_gravity_refined` | `ransac_gravity` の平面に全解像度の画素を残差比 \|n·p+d\|/(k·σ(Z)) 最小で再割当（インライアと連結な部分のみ）、小片除去、平面上の穴埋め、再フィット |
+| `ransac_gravity_cape_hybrid` | `ransac_gravity` の平面をシードに、セル単位の領域成長と画素単位の境界補正で領域を広げる |
+| `organized_region_growing` | 画像セルのPCA平面性判定、隣接セルの領域成長と同一平面の統合、画素単位の境界補正 |
+| `normal_clustering` | 積分画像法線を球面上でクラスタリングし、平面オフセットと画像上の連結成分で分割 |
+| `peac_ahc` | PEAC（Feng et al., ICRA 2014）の論文に基づく独自実装。ノード格子の凝集型階層クラスタリング（min-heap、T_MSE(Z)）と画素単位の補正 |
+| `cape` | CAPE（Proença & Gao, IROS 2018）の平面部分の再実装。セル平面性判定、法線ヒストグラムからのシード、セル領域成長、統合、境界の画素補正 |
+
+前処理（深度範囲・間引き・voxel化・座標変換）、法線推定、セル格子とモーメント和（`cells.py`）、
+画素の平面への割当（`refine.py`）、ラベル付け、
+ラベル画像から平面への変換（再フィット・k·σ(Z)での画素選別・面積フィルタ）は全候補で共通。
+深度ノイズは `DepthNoiseModel`（σ(Z) = Z²·subpixel / (f·baseline)）で与える。
+候補の比較手順は [平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md) を参照。
+
+単体テストは `colcon test --packages-select aha_perception` で実行する。
+ホストでは numpy / scipy / pytest のある Python 3.12 で次を実行する。
+
+```bash
+cd overlay_ws/src/aha_perception
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  --with pytest python -m pytest test/test_planes_*.py
+```

@@ -5,6 +5,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
 # aha_perception.head_config: head.yaml loader shared by the scripts below
+# aha_perception.planes: plane detection candidates
 ament_python_install_package(${PROJECT_NAME})
 
 install(
@@ -20,6 +21,9 @@ install(
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_sim_control_panel test/test_sim_control_panel.py TIMEOUT 60)
+  foreach(test_name classify detectors normals preprocess)
+    ament_add_pytest_test(test_planes_${test_name} test/test_planes_${test_name}.py TIMEOUT 120)
+  endforeach()
 endif()
 
 ament_package()
