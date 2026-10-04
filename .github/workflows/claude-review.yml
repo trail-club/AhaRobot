@@ -45,7 +45,11 @@ jobs:
             - performance regressions
             - incorrect assumptions or edge cases
 
-            Read CLAUDE.md for project-specific conventions.
+            Read AGENTS.md at the repository root and follow its project conventions:
+            - AhaRobot-specific code belongs in overlay_ws/.
+            - upstream/* is managed as submodules; changes belong in fork PRs and submodule SHA updates.
+            - For ROS topic, frame, or message changes, check downstream use and docs/interfaces.md.
+            - Consult the relevant package README and docs for affected areas.
 
             Do not comment on minor formatting or stylistic issues
             that should be handled by linters.
@@ -54,4 +58,6 @@ jobs:
             Only report issues that are actionable.
 
           claude_args: |
+            --model claude-sonnet-5-5
+            --effort max
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
