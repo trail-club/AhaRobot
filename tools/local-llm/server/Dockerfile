@@ -2,5 +2,3 @@
 # [grammar] (xgrammar) enables JSON schema output
 FROM nvcr.io/nvidia/pytorch:26.07-py3
 RUN python -m pip install --no-cache-dir "tensorfold[grammar] @ git+https://github.com/ashhart/TensorFold.git@609ca41"
-# Collects per-user API keys when server.sh runs with AUTH=keys
-COPY keysync.sh /usr/local/bin/keysync.sh
