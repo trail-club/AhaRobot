@@ -1,0 +1,58 @@
+diff --git a/src/dualMotor.cpp b/src/dualMotor.cpp
+index 626890e..995ecff 100644
+--- a/src/dualMotor.cpp
++++ b/src/dualMotor.cpp
+@@ -125,6 +125,20 @@ bool torque_enabled = false;
+ int setupTorque_enable = 0;
+ bool updateSetupTorque = false;
+ 
++// 初期化中の異常時: 予圧を止めて ID4-11 を脱力し、config を書かずに戻る。
++// (元は while(1) でタイマタスクを止め、WDT リセットまで PWM が出続けていた)
++static void abortInit() {
++  for (int i = 0; i < 4 * JOINT_NUM; ++i) {
++    sts.writeWord(4 + i, SCSCL_GOAL_TIME_L, 0);
++    sts.EnableTorque(4 + i, 0);
++  }
++  // RAM 上の init_pos は途中まで書き換わっている可能性があるので、
++  // 再起動 (/config.txt から再読込) か再初期化まで制御ループを止める
++  torque_enabled = false;
++  config.init_pos_inited = false;
++  Serial.println("INIT ABORTED: config not written. Reboot or re-run init.");
++}
++
+ void doSetupTorque(int enable) {
+   if (enable == 0) {
+     torque_enabled = false;
+@@ -176,9 +190,10 @@ void doSetupTorque(int enable) {
+     int init_pos0[4 * JOINT_NUM];
+     for (int i = 0; i < 4 * JOINT_NUM; ++i) {
+       init_pos0[i] = sts.ReadPos(4 + i);
+-      if (!(20 < init_pos0[i] && init_pos0[i] < 4096 - 20)) {
++      // PWM モードは offset 無効の生値。境界付近は正常 (円周演算で扱う)。読み取り失敗のみ検出
++      if (init_pos0[i] < 0 || init_pos0[i] > 4095) {
+         Serial.print("Maybe cause wrong init_pos0, check power status, or reinstall the servo #"); Serial.print(i); Serial.println();
+-        while (1) ;
++        { abortInit(); return; }
+       }
+     }
+ 
+@@ -209,13 +224,16 @@ void doSetupTorque(int enable) {
+     }
+ 
+     for (int i = 0; i < 4 * JOINT_NUM; ++i) {
+-      if (std::abs(init_pos1[i] - init_pos2[i]) > 200) {
++      int d = init_pos2[i] - init_pos1[i];  // 円周差 (0/4095 境界をまたいでも正しい)
++      if (d > 2048) d -= 4096;
++      if (d < -2048) d += 4096;
++      if (init_pos1[i] < 0 || init_pos2[i] < 0 || std::abs(d) > 200) {
+         Serial.print("Gap is too wide, check power status, or reinstall the servo #"); Serial.print(i); Serial.println();
+-        while (1) ;
++        { abortInit(); return; }
+       }
+ 
+       config.init_pos_inited = true;
+-      config.init_pos[i] = (init_pos1[i] + init_pos2[i]) / 2;
++      config.init_pos[i] = ((init_pos1[i] + d / 2) % 4096 + 4096) % 4096;  // 円周平均
+     }
+     write_config();
+   }
