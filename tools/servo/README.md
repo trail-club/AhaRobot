@@ -79,3 +79,22 @@ python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 根拠は [初期化前のサーボ設定とグリッパの解釈](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を参照。
 `check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
 保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。
+
+
+### URDFゼロ姿勢・正方向の確認用スクリプト（2026-10-04）
+[腕ごとの符号・可動域](../../docs/context/motor.md)を入れた `ArmController` を前提とする。
+`<side>` は `left` / `right`。
+
+```bash
+# URDFを表示し、指定した関節を+方向に回した姿勢を見せる（要 libgl1 libglu1-mesa）
+uv run --with yourdfpy --with "pyglet<2" tools/servo/view_urdf.py --arm l --joints 2,3,4,5,6
+
+# PIDなしでトルクを入れ、手で+方向に押して値が増えるかを見る（joint0 / joint1）
+svpy tools/servo/check_zero.py <port> 30 <side>
+
+# wristを1関節ずつ+30°指令して戻し、グリッパを15 mm開いて戻す
+svpy tools/servo/wrist_dir_test.py <port> <side> 30 15
+```
+
+`wrist_dir_test.py` はjoint0 / joint1にPIDを入れないため、腕は支えるか下ろした状態で実行する。
+終了・Ctrl+C・例外のいずれでもトルクをOFFにする。

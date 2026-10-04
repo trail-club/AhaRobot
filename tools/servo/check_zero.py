@@ -23,7 +23,7 @@ duration = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
 # Do not send any command on connect (upstream __init__ in normal mode auto-calls set_torque(1) + set_pid).
 _real_set_torque = ArmController.set_torque
 ArmController.set_torque = lambda self, *a, **k: None
-ctrl = ArmController(port, do_init=True)
+ctrl = ArmController(port, do_init=True, side=sys.argv[3] if len(sys.argv) > 3 else None)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)
