@@ -2,14 +2,13 @@
 """OpenAI互換サーバーのツール呼び出しと生成速度を確認する。
 
 使い方: python3 tools/local-llm/bench_decode.py [Base URL（既定 http://10.99.0.1:8080/v1）]
-APIキーが必要なサーバーでは OPENAI_API_KEY に入れる。
+APIキーは送らない。
 ツール呼び出しを1回確認した後、思考なし・temperature 0.6・最大512トークンで、
 コード2題・英語の文章1題・日本語の文章1題を各2回ストリーミングし、
 最初のトークンから最後のトークンまでの生成速度（TTFTを除く）の中央値を出す。
 """
 
 import json
-import os
 import statistics
 import sys
 import time
@@ -17,8 +16,6 @@ import urllib.request
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://10.99.0.1:8080/v1").rstrip("/")
 HEADERS = {"Content-Type": "application/json"}
-if os.environ.get("OPENAI_API_KEY"):
-    HEADERS["Authorization"] = "Bearer " + os.environ["OPENAI_API_KEY"]
 RUNS = 2
 
 PROMPTS = {
