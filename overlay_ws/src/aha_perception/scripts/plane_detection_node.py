@@ -55,7 +55,12 @@ from aha_perception.plane_detection_io import (
     transform_to_matrix,
     xyzrgb_records,
 )
-from aha_perception.planes import DETECTORS, DetectionOptions, detect_planes
+from aha_perception.planes import (
+    DETECTORS,
+    DepthNoiseModel,
+    DetectionOptions,
+    detect_planes,
+)
 from aha_perception.tf_jump import (
     TF_RESET_MIN_INTERVAL_S,
     JumpDetectingTransformListener,
@@ -323,6 +328,8 @@ class PlaneDetection(Node):
             min_depth=self.min_depth,
             max_depth=self.max_depth,
             detect_vertical=self.detect_vertical,
+            # The noise model scales with the focal length of this camera.
+            noise=DepthNoiseModel(focal=fx),
         )
         planes = detect_planes(cloud, self.method, options)
         detected = time.perf_counter()

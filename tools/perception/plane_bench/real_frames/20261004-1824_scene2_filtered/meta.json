@@ -1,0 +1,37 @@
+{
+  "scene": "scene2_filtered",
+  "note": "second view chosen by the user; robot on a desk",
+  "filter_label": "filtered (disparity, spatial, temporal; SDK defaults)",
+  "target_frame": "base_footprint",
+  "depth_frame": "camera_color_optical_frame",
+  "depth_encoding": "32FC1",
+  "base_height": null,
+  "ros_time": 1791105865.6097198,
+  "captured_at": "2026-10-04T18:24:18+09:00",
+  "interval": 0.5,
+  "topics": {
+    "depth": "/camera/depth_registered/image_rect",
+    "color": "/camera/color/image_raw",
+    "camera_info": "/camera/color/camera_info",
+    "joint_states": "/joint_states"
+  },
+  "distortion_model": "plumb_bob",
+  "d": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "latest_tf_frames": [],
+  "format_version": 1,
+  "frame_count": 10,
+  "width": 640,
+  "height": 480,
+  "depth_unit": "mm",
+  "head_joint_names": [
+    "joint_head_pan",
+    "joint_head_tilt"
+  ],
+  "color_file": "color.jpg"
+}

@@ -4,6 +4,7 @@
 の全候補を合成シーンで評価し、`results/` にレポートとCSVを書き出す。
 ROSとコンテナは不要で、ホストの uv で実行する。
 これまでの比較結果と条件は [results/comparison.md](results/comparison.md) にまとめている。
+実機で取得したDepthでの確認は [実機フレーム](#実機フレーム) を参照。
 
 ## 実行
 
@@ -79,3 +80,66 @@ GTラベルは平面ごとの画像上の連結成分（400画素以上かつ0.0
 `surfaces` は面の名前からクラス（floor / table / shelf / wall / other）への対応、
 `primitives` の `Quad.tag`・`Box.faces`・`Cylinder.top` にその名前を指定した面がGT平面になる。
 `tags` はレポートのグループ（table / shelf / coplanar / walls / far / floor / clutter）に使う。
+
+## 実機フレーム
+
+実機の頭部カメラのDepthを `real_frames/` に保存し、ロボットなしで検出を確認する。GTはない。
+
+### 取得
+
+実機のカメラ（`real_head_camera.launch.py camera:=true` と [stream_realsense.py](../macos/pointcloud/README.md#rosbridgeへの直接送信)）
+が動いている状態で、開発コンテナから実行する。`ROS_DOMAIN_ID` はロボットと同じ値にする。
+`aha_perception` を別のbuild baseでビルドした場合（例 `/tmp/plane_ws/install`）はその `setup.bash` も読み込む。
+
+```bash
+docker exec -it aharobot_aha_project_1 bash -lc '
+  source /app/overlay_ws/install/setup.bash &&
+  source /tmp/plane_ws/install/setup.bash &&
+  export ROS_DOMAIN_ID=<ロボットと同じ値> TZ=Asia/Tokyo &&
+  python3 /app/tools/perception/plane_bench/capture_real.py \
+    --scene desk --filter-label filtered --note "机の上から床と壁"'
+```
+
+- `--scene`（必須）：ディレクトリ名に入れるシーン名。
+- `--frames`（既定5）・`--interval`（既定0.5 s）：保存するフレーム数と間隔。`--timeout`（既定30 s）で打ち切り、取れた分だけ保存する。
+- `--filter-label`：Depthの後処理の有無など（`filtered` / `raw`）。`meta.json` に記録するだけ。
+- `--base-height`：`target_frame` の原点の床からの高さ（m）。不明なら省く（`null`）。
+- `--target-frame`（既定 `base_footprint`）・`--note`・`--out-dir`（既定はこのディレクトリの `real_frames/`）。
+
+Depth（`/camera/depth_registered/image_rect`）・RGB・CameraInfo・`/joint_states` を購読し、
+Depthの時刻のTF `target_frame` ← Depthのframe（得られなければ最新）と頭の関節角を記録する。
+ディレクトリ名の日時はプロセスのローカル時刻（コンテナはUTCのため `TZ` を指定する）。
+
+### 形式
+
+`real_frames/<YYYYMMDD-HHMM>_<scene>/` に次を置く。読み書きは `real_frames.py`（numpyのみ）の
+`save_scene` / `load_scene` / `list_scenes`。`load_scene` はDepthをm（無効はNaN）で返す。
+
+| ファイル | 内容 |
+| --- | --- |
+| `frames.npz` | `depth_mm`（N×H×W uint16、0は無効）、`camera_to_base`（N×4×4、Depthの光学frame → `target_frame`）、`stamps`（N, s）、`k`（9）、`head_joints`（N×2、pan・tilt rad、不明はNaN） |
+| `color.jpg` | 1フレーム目のRGB（cv2かPILがない場合は省く） |
+| `meta.json` | scene・note・filter_label・target_frame・Depthのframe・幅と高さ・base_height・ROS時刻・フレーム数・関節名・TFを最新で代用したフレーム |
+
+### 評価
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  --with matplotlib python tools/perception/plane_bench/run_real.py --max-depth 2.0 3.0
+```
+
+- 引数なしで `real_frames/` の全シーン、シーンのディレクトリを並べるとそれだけを実行する。
+- `--methods`（既定 `ransac_gravity_refined ransac_gravity`）・`--max-depth`（既定3.0、複数で比較）・`--min-depth`（既定0.3）。
+- `DepthNoiseModel` の f はシーンの fx。`base_height` があれば床が z=0 になるよう `camera_to_base` を上げる。
+- `--out`（既定 `results/real.md`）に表を、同じディレクトリに1フレーム目のラベル画像 `real_<scene>_<method>.png` を書く（`--no-figures` で省く）。
+
+| 指標 | 定義 |
+| --- | --- |
+| planes/frame | フレームあたりの平面数（平均、最小–最大） |
+| small/frame | 面積0.1 m²未満の平面の数 |
+| assigned px | 深度範囲内の有効画素のうち、いずれかの平面に入った割合 |
+| h matched | 連続フレームで対応した水平面の割合。高さ差3 cm以内・重心のxy距離20 cm以内をハンガリアン法で対応させる |
+| h std | 対応をつないだ水平面ごとの高さの標準偏差（mm）の平均 |
+| h IoU | 対応した水平面のインライア画素のIoUの平均 |
+| detect ms | `detect_planes` の経過時間（1スレッド） |
+| temporal noise | 全フレームで有効な画素の深度の標準偏差の中央値を平均深度0.5 mごとに集計し、モデルのσ(Z)と並べる |

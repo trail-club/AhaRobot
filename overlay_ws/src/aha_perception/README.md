@@ -187,6 +187,7 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 
 `plane_detection_node.py` はDepth（32FC1のm、または16UC1のmm）とCameraInfoから
 organized point cloudを作り、画像時刻のTFで `target_frame` へ変換して `detect_planes` を実行する。
+`DepthNoiseModel` の f にはCameraInfoの fx を使い、baseline・subpixelは既定値。
 画像時刻のTFが0.2 sで得られない場合は最新のTFを使いwarningを出す。
 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。
 `/tf` の時刻が戻るとTFバッファを消す（`head_look_at.py` と共通の `aha_perception.tf_jump`）。

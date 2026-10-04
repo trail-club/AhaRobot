@@ -43,3 +43,7 @@ export DYLD_LIBRARY_PATH="$venv/realsense-sdk/lib"
 
 既定は送信先 `ws://127.0.0.1:9090`、640×480、撮影15 fps、送信上限5回/s。
 `--ws-url`・`--width` / `--height`・`--fps`・`--rate` で変更する。
+
+Depthには、RGBへの位置合わせの前にlibrealsenseの後処理
+（disparity変換 → spatial → temporal → depthへ戻す、オプションはSDKの既定値）を全フレームにかける。
+`--no-filter` で後処理なしのDepthを送る。有効な後処理は起動時のログに出る。
