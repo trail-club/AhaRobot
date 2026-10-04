@@ -9,6 +9,7 @@ simulation.
 
   ros2 launch aha_perception real_head_camera.launch.py
   ros2 launch aha_perception real_head_camera.launch.py camera:=true
+  ros2 launch aha_perception real_head_camera.launch.py camera:=true planes:=true
   ros2 launch aha_perception real_head_camera.launch.py port:=/dev/ttyUSB1 baud:=921600 rviz:=false
 
 Starts:
@@ -24,6 +25,8 @@ Starts:
                           pointcloud.launch.py. The D435i stream
                           (stream_realsense.py through rosbridge) is started
                           separately, see aha_perception/README.md.
+  - planes:=true          plane_detection.launch.py (needs the camera stream,
+                          i.e. camera:=true)
 
 Do not run next to sim.launch.py on the same ROS_DOMAIN_ID: both serve
 /head_controller and /joint_states.
@@ -139,6 +142,19 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("camera")),
     )
 
+    planes = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [
+                    FindPackageShare("aha_perception"),
+                    "launch",
+                    "plane_detection.launch.py",
+                ]
+            )
+        ),
+        condition=IfCondition(LaunchConfiguration("planes")),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -173,11 +189,18 @@ def generate_launch_description():
                 description="Start rosbridge (127.0.0.1:9090) and the point cloud node "
                 "for the real D435i stream",
             ),
+            DeclareLaunchArgument(
+                "planes",
+                default_value="false",
+                description="Start plane detection on the head depth camera "
+                "(with camera:=true)",
+            ),
             rsp,
             jsp,
             OpaqueFunction(function=head_bridge),
             sim_view,
             rosbridge,
             pointcloud,
+            planes,
         ]
     )

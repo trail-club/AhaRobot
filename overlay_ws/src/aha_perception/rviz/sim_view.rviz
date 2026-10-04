@@ -7,6 +7,7 @@ Panels:
         - /Robot1
         - /Mapping1
         - /Camera1
+        - /Planes1
       Splitter Ratio: 0.5
     Tree Height: 400
   - Class: rviz_common/Views
@@ -241,6 +242,46 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /aha/perception/look_at/markers
+          Value: true
+
+    - Class: rviz_common/Group
+      Name: Planes
+      Enabled: true
+      Value: true
+      Displays:
+        - Alpha: 1
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: RGB8
+          Decay Time: 0
+          Enabled: true
+          Name: Plane points
+          Position Transformer: XYZ
+          Selectable: true
+          Size (Pixels): 3
+          Size (m): 0.01
+          Style: Flat Squares
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            Filter size: 10
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /aha/perception/planes/cloud
+          Use Fixed Frame: true
+          Use rainbow: true
+          Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: Plane outlines
+          Namespaces:
+            hull: true
+            label: true
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /aha/perception/planes/markers
           Value: true
 
   Enabled: true

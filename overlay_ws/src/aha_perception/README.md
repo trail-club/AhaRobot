@@ -16,12 +16,13 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 
 | launch | 内容 |
 | --- | --- |
-| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`pointcloud.launch.py`、`sim_view.launch.py` |
+| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py` |
 | `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用 |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
 | `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`） |
-| `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ）をシミュレーションと同じUIで動かす |
+| `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
+| `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
 
 ## ノード
 
@@ -30,6 +31,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
+| `plane_detection_node.py` | 頭部のDepthから床・机・棚・壁の平面を検出し、点群とMarkerArrayで出力する（[平面検出](#平面検出のノード)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
 `aha_perception.head_config` 経由で読む。符号は +pan = ロボットの右、+tilt = 下。
@@ -40,7 +42,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`）で、
 URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より低くしている。
-`head_look_at.py` と `sim_control_panel.py` はwall clockで動く。
+`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py` はwall clockで動く。
 `head_look_at.py` は最新のTFを待たずに使い、TFがまだない注視点はwarningを出して捨てる。
 シミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
 操作パネルの頭のスライダーは、パネルから送った目標に `/joint_states` が2°以内に近づくまで（最長で移動時間の4倍 + 1 s）目標値を表示し、その後は `/joint_states` に追従する。
@@ -87,6 +89,7 @@ ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=
 | `fixed_frame` | `odom` | RVizのfixed frame |
 | `control_panel` | `true` | 操作パネルの起動 |
 | `use_sim_time` | `true` | bridge・点群node・RVizでシミュレーション時刻を使う |
+| `planes` | `false` | 平面検出（`plane_detection.launch.py`）の起動 |
 
 Gazeboを止めずに表示だけ再起動する場合は `rviz:=false` で起動し、別ターミナルで以下を実行する。
 
@@ -137,6 +140,7 @@ ROS_DOMAIN_ID=7 ros2 run aha_perception teleop_head.py  # 別シェルからキ�
 | `port` / `baud` | 空（configの値） | configの上書き |
 | `rviz` | `true` | `sim_view.launch.py` をfixed frame `base_link` で起動。台車の操作は無効 |
 | `camera` | `false` | rosbridge（127.0.0.1:9090）と `pointcloud.launch.py` を起動 |
+| `planes` | `false` | 平面検出（`plane_detection.launch.py`）を起動。`camera:=true` と併用する |
 
 TFはrobot_state_publisher（`sim:=false`）とjoint_state_publisherが出す。
 `/joint_states` の頭は `/head_controller/joint_states`、その他の関節は0。
@@ -178,6 +182,39 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 ラベル画像から平面への変換（再フィット・k·σ(Z)での画素選別・面積フィルタ）は全候補で共通。
 深度ノイズは `DepthNoiseModel`（σ(Z) = Z²·subpixel / (f·baseline)）で与える。
 候補の比較手順は [平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md) を参照。
+
+### 平面検出のノード
+
+`plane_detection_node.py` はDepth（32FC1のm、または16UC1のmm）とCameraInfoから
+organized point cloudを作り、画像時刻のTFで `target_frame` へ変換して `detect_planes` を実行する。
+画像時刻のTFが0.2 sで得られない場合は最新のTFを使いwarningを出す。
+最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。
+`/tf` の時刻が戻るとTFバッファを消す（`head_look_at.py` と共通の `aha_perception.tf_jump`）。
+
+```bash
+ros2 launch aha_perception plane_detection.launch.py
+```
+
+launch引数は `method`・`target_frame`・`max_rate`。その他はノードのパラメータで変える。
+
+| パラメータ | 既定 | 内容 |
+| --- | --- | --- |
+| `method` | `ransac_gravity_refined` | `DETECTORS` の名前 |
+| `target_frame` | `base_footprint` | 出力frame。原点が床、z軸が上のframeにする |
+| `depth_topic` | `/camera/depth_registered/image_rect` | RGBへ位置合わせしたDepth |
+| `camera_info_topic` | `/camera/color/camera_info` | Depthと同じ解像度のCameraInfo |
+| `max_rate` | `1.0` | 検出の上限頻度（Hz、wall clock）。0で上限なし |
+| `detect_vertical` | `true` | 壁などの垂直面も検出する |
+| `min_depth` / `max_depth` | `0.3` / `3.0` | 使う深度の範囲（m） |
+| `max_points_per_plane` | `5000` | 出力点群の平面あたりの最大点数（0で全点） |
+| `stride` | `1` | Depthの間引き（行・列） |
+
+出力は `target_frame`、Depthの時刻で配信する（topic・型は [ROSインターフェース](../../../docs/interfaces.md#平面検出)）。
+`/aha/perception/planes/cloud` は平面のインライア点を平面ごとに色分けする。
+`/aha/perception/planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`）を出す。
+文字は水平面が `table 0.72 m` のように床からの高さ、垂直面が `wall 2.3 m2` のように面積。
+ラベルの色は床が灰、机が緑、棚が橙、壁が青、その他が紫。
+`rviz/sim_view.rviz` の `Planes` グループに両topicの表示がある。
 
 単体テストは `colcon test --packages-select aha_perception` で実行する。
 ホストでは numpy / scipy / pytest のある Python 3.12 で次を実行する。

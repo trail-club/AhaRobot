@@ -212,6 +212,21 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
 RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
 
+## 平面検出
+
+`plane_detection.launch.py`（`perception.launch.py` / `real_head_camera.launch.py` の `planes:=true` で起動）の
+`plane_detection_node.py` が扱う。設定は [aha_perception](../overlay_ws/src/aha_perception/README.md#平面検出のノード)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 入力Depth（32FC1 m / 16UC1 mm） | `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image` |
+| 入力の内部パラメータ | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| 平面のインライア点（x, y, z, rgb） | `/aha/perception/planes/cloud` | `sensor_msgs/msg/PointCloud2` |
+| 平面の凸包とラベル | `/aha/perception/planes/markers` | `visualization_msgs/msg/MarkerArray` |
+
+入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
+時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
+
 ## 実機の頭部
 
 `real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の

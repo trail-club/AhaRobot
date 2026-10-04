@@ -10,6 +10,7 @@ arguments are read from the command line. Starts:
     /camera/depth_registered/image_rect (frame camera_color_optical_frame)
   - pointcloud.launch.py: /camera/depth/points
   - rviz:=true (default)  sim_view.launch.py (RViz, control panel, head look-at)
+  - planes:=true          plane_detection.launch.py: /aha/perception/planes/*
 
 The real camera does not use this file: camera_view.launch.py (Mac/Linux
 RealSense stream through rosbridge) and real_head_camera.launch.py (real head
@@ -66,6 +67,13 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
+    planes = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([share, "launch", "plane_detection.launch.py"])
+        ),
+        condition=IfCondition(LaunchConfiguration("planes")),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -88,8 +96,14 @@ def generate_launch_description():
                 default_value="true",
                 description="Start the control panel (base joystick + head)",
             ),
+            DeclareLaunchArgument(
+                "planes",
+                default_value="false",
+                description="Start plane detection on the head depth camera",
+            ),
             camera_bridge,
             pointcloud,
             sim_view,
+            planes,
         ]
     )
