@@ -289,3 +289,28 @@ signは上流の頭部設定（zero 2048、sign −1）と一致し、zeroは異
 頭の機械的な可動域は測定していない。yamlの `min` / `max`（pan ±90°、tilt 上30°〜下60°）は設定値で、
 その全範囲を動かしたかは記録していない。指令角と実際の角度の誤差、追従遅れ、通信エラーの頻度、
 長時間の運転、透過ブリッジ（921600 bps）での動作は確認していない。
+
+## 2026-10-04 — ブラケット取り付け後の頭部サーボの再校正
+
+### 対象・条件
+
+印刷した [D435i用ブラケット](../../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)を
+頭部に取り付けた後、同じ頭部のpan（ID12）とtilt（ID13）を
+[servo_calibrate.py](../../overlay_ws/src/aha_servo/scripts/servo_calibrate.py)で再校正した（ユーザーからの報告）。
+接続・電源の条件は記録していない。
+
+### 結果
+
+| 関節 | ID | zero（step） | sign |
+| --- | --- | --- | --- |
+| pan | 12 | 1873 | −1 |
+| tilt | 13 | 1083 | −1 |
+
+結果は [aha_servo/config/head.yaml](../../overlay_ws/src/aha_servo/config/head.yaml) に書き込み、
+同日の前回の校正値（pan 2207 / tilt 3090）を置き換えた。signは前回と同じ。
+
+### 記録していない範囲
+
+zeroが変わった理由（取り付け時にホーンを外したか、歯の位置を変えたか）は記録していない。
+signを求めたときの位置の変化（step）と、正面・水平の姿勢をどう合わせたかも記録していない。
+再校正後のROS経由の動作と、前回の記録で確認していない範囲（可動域・誤差・追従遅れなど）は確認していない。

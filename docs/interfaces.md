@@ -34,7 +34,20 @@
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
 グリッパは同ファイルの2関節の順序で位置を指定する。
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
-標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
+標準launchに `/cmd_vel` / `/odom` へのremapはない。
+
+## SLAM（シミュレーションのみ）
+
+`sim.launch.py use_nav:=true` で [aha_navigation](../overlay_ws/src/aha_navigation/README.md) が起動する。
+`use_nav:=false`（既定）では `/scan` のbridge、`/map`、`map` frameはない。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 2D LiDAR（frame `laser_link`、10 Hz） | `/scan` | `sensor_msgs/msg/LaserScan` |
+| 占有格子地図 | `/map` | `nav_msgs/msg/OccupancyGrid` |
+
+slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
+LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
 
 ## 頭部カメラ
 
@@ -58,7 +71,7 @@ RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
 
 TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
-取付位置は [頭部ブラケット](../hardware/head_cam_mount_d435i/README.md)の設計値。
+取付位置は [頭部ブラケット](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)の設計値。
 
 ## 頭部の注視
 
