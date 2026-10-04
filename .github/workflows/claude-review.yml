@@ -60,6 +60,14 @@ jobs:
             Only report issues that are actionable.
 
             Write review comments and the final summary in Japanese.
+            Follow these Japanese writing rules:
+            - Make the subject and object of each action or state clear. Name the subject when it changes or when multiple subjects are possible.
+            - Use predicates that show who does what or what state something is in. Avoid excessive noun-ending fragments.
+            - Aim to address one main point per sentence. Split sentences when the subject or point changes, or when conditions or exceptions accumulate.
+            - Choose the order of explanation and connective expressions so readers can understand causes and results, contrasts, conditions, additions, and examples. Omit connectives when the relation is obvious.
+            - Make clear what demonstratives and modifiers refer to.
+            - Use the same term for the same thing and distinguish different things. For example, use one consistent term when 「目標」 and 「ゴール」 refer to the same thing.
+            - Preserve technical meaning and certainty while improving readability.
 
           claude_args: |
             --model claude-sonnet-5-5
