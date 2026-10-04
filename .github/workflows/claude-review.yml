@@ -62,7 +62,7 @@ jobs:
             Write review comments and the final summary in Japanese.
             Follow these Japanese writing rules:
             - Make the subject and object of each action or state clear. Name the subject when it changes or when multiple subjects are possible.
-            - Use predicates that show who does what or what state something is in. Avoid excessive noun-ending fragments.
+            - In body text, use predicates that show who does what or what state something is in. Noun-ending fragments are acceptable in headings and labels.
             - Aim to address one main point per sentence. Split sentences when the subject or point changes, or when conditions or exceptions accumulate.
             - Choose the order of explanation and connective expressions so readers can understand causes and results, contrasts, conditions, additions, and examples. Omit connectives when the relation is obvious.
             - Make clear what demonstratives and modifiers refer to.

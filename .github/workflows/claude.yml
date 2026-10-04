@@ -43,7 +43,7 @@ jobs:
             For pull request requests, use the PR_NUMBER environment value to inspect the current changes with gh pr diff and the base/head metadata with gh pr view. issue_comment runs may check out the default branch, so do not treat local HEAD or origin/main as the PR diff without verifying the refs.
             日本語で文章を書くときは、次のルールに従う。
             - 動作や状態の主体と対象を明確にする。主体が変わる場合や、複数の主体が考えられる場合は明示する。
-            - 何がどうするのか、どのような状態なのかが分かる述語を用いる。体言止めを多用しない。
+            - 本文では、何がどうするのか、どのような状態なのかが分かる述語を用いる。見出しやラベルでは体言止めを使ってよい。
             - 一文で扱う中心的な論点は一つを目安とする。主体や論点が切り替わる場合、条件や例外が重なる場合は文を分ける。
             - 原因と結果、対比、条件、補足、例示などの関係が分かるように、説明順序と接続表現を選ぶ。関係が明白な場合は接続詞を省略してよい。
             - 指示語と修飾語が何を指すかを明確にする。
