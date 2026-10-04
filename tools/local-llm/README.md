@@ -6,41 +6,30 @@ DGX Spark上のQwen3.8-27Bを、各自のPCからAPIで使う。Clineなどの�
 | --- | --- |
 | Base URL | `http://10.99.0.1:8080/v1`（OpenAI互換） |
 | モデルID | `qwen3.8-27b` |
-| 認証 | 個人のAPIキー（`Authorization: Bearer <キー>`） |
-| 接続経路 | Cloudflare One（WARP）。trail-club/directory-access の名簿に載っている人だけが届く |
+| 認証 | なし。Cloudflare One（WARP）経由で、trail-club/directory-access の名簿に載っている人だけが届く |
 
-## 1. APIキーの発行
+## 1. 接続確認
 
-Cloudflare OneをConnectedにし、このリポジトリ直下で実行する。DGX Sparkに自分用のキーを作って表示する。
-
-```bash
-ssh <Unixユーザー名>@10.99.0.1 'bash -s' < tools/local-llm/issue-key.sh
-```
-
-- 10秒ほどで使えるようになる。再実行すると同じキーを表示する。
-- キーはDGX Sparkの `~/.config/dgx-qwen/api_key`（本人だけが読める）に保存される。共有やコミットはしない。
-- 作り直す場合は `'bash -s -- --rotate'`、無効にする場合は `'bash -s -- --revoke'` を指定する。
-
-## 2. 接続確認
+Cloudflare OneをConnectedにして（directory-access のREADMEを参照）、PCで実行する。
 
 ```bash
-curl -H "Authorization: Bearer <キー>" http://10.99.0.1:8080/v1/models
+curl http://10.99.0.1:8080/v1/models
 ```
 
 `qwen3.8-27b` が返れば接続できている。
 
-## 3. エージェントの設定
+## 2. エージェントの設定
 
 Cline（VS Code拡張 `saoudrizwan.claude-dev`）では、API Providerを **OpenAI Compatible** にして次を入力する。
 
 | 項目 | 値 |
 | --- | --- |
 | Base URL | `http://10.99.0.1:8080/v1` |
-| API Key | 発行したキー |
+| API Key | 任意の文字列（例: `local`）。空欄にできないため |
 | Model ID | `qwen3.8-27b` |
 | Context Window | `131072` |
 
-他のOpenAI互換クライアントも、Base URL・APIキー・モデルIDの3つで接続する。
+他のOpenAI互換クライアントも、Base URL・モデルID・任意のAPIキーで接続する。
 
 ## 注意
 
@@ -54,18 +43,26 @@ Cline（VS Code拡張 `saoudrizwan.claude-dev`）では、API Providerを **Open
 `server/` にTensorFoldのイメージと起動スクリプトがある。dockerグループのメンバーなら誰でも操作できる。
 
 ```bash
-tools/local-llm/server/server.sh build              # イメージ local/tensorfold:0.6.5 を作る
-tools/local-llm/server/server.sh start              # サーバーとキー収集を起動（DGX Sparkの再起動後も自動で起動）
+tools/local-llm/server/server.sh build     # イメージ local/tensorfold:0.6.5 を作る
+tools/local-llm/server/server.sh start     # 起動（DGX Sparkの再起動後も自動で起動）
 tools/local-llm/server/server.sh status
-tools/local-llm/server/server.sh keys               # キーが有効なユーザーと無効にしたユーザー
-tools/local-llm/server/server.sh revoke <ユーザー名>  # キーを止める（unrevoke で戻す）
+tools/local-llm/server/server.sh restart   # 設定を変えた後
 ```
 
 | データ | 置き場所 |
 | --- | --- |
 | モデル | `/srv/shared/models/huggingface`（Hugging Faceのキャッシュ形式。`HF_DIR` で変更）。無い場合は初回起動時に取得する |
-| APIキー | Dockerボリューム `local-llm-keys`（`keys.txt`、`revoked.txt`） |
 | カーネルのビルド結果 | Dockerボリューム `local-llm-cache` |
+| APIキー（`AUTH=keys` のとき） | Dockerボリューム `local-llm-keys` |
 
-- キー収集（`keysync.sh`、コンテナ `tensorfold-keysync`）は、各ユーザーの `~/.config/dgx-qwen/api_key` を10秒ごとに集め、ユーザー名をラベルにする。本人だけが読めるファイル以外とリンクは無視する。
-- 速度とツール呼び出しは `OPENAI_API_KEY=<キー> python3 tools/local-llm/bench_decode.py http://10.99.0.1:8080/v1` で確認する。
+- 待ち受けは `10.99.0.1:8080` だけで、DGX SparkのLANやlocalhostからは届かない。
+- 速度とツール呼び出しは `python3 tools/local-llm/bench_decode.py http://10.99.0.1:8080/v1` で確認する。
+
+### 個人ごとのAPIキーを使う場合
+
+`AUTH=keys tools/local-llm/server/server.sh restart` で起動すると、キーのないリクエストを拒否する。
+各ユーザーは `ssh <Unixユーザー名>@10.99.0.1 'bash -s' < tools/local-llm/issue-key.sh` で自分のキーを発行する
+（`--rotate` で作り直し、`--revoke` で無効化）。キー収集（`keysync.sh`、コンテナ `tensorfold-keysync`）が
+各ユーザーの `~/.config/dgx-qwen/api_key` を10秒ごとに集め、ユーザー名をラベルにする。
+`server.sh keys` で一覧、`server.sh revoke <ユーザー名>` で停止（`unrevoke` で戻す）。
+キーなしに戻す場合は `server.sh restart`。
