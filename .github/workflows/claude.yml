@@ -22,9 +22,16 @@ jobs:
       id-token: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-sonnet-5-5
             --effort max
+            --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs."
