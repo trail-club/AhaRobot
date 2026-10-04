@@ -51,14 +51,21 @@ Cline（VS Code拡張 `saoudrizwan.claude-dev`）では、API Providerを **Open
 
 ## サーバーの管理
 
-`server/` にTensorFoldのイメージと起動スクリプトがある。データは `~/local-llm`（`LOCAL_LLM_DATA` で変更）に置く。
+`server/` にTensorFoldのイメージと起動スクリプトがある。dockerグループのメンバーなら誰でも操作できる。
 
 ```bash
-tools/local-llm/server/server.sh build     # イメージ local/tensorfold:0.6.5 を作る
-tools/local-llm/server/server.sh start     # サーバーとキー収集を起動（再起動後も自動で起動）
+tools/local-llm/server/server.sh build              # イメージ local/tensorfold:0.6.5 を作る
+tools/local-llm/server/server.sh start              # サーバーとキー収集を起動（DGX Sparkの再起動後も自動で起動）
 tools/local-llm/server/server.sh status
+tools/local-llm/server/server.sh keys               # キーが有効なユーザーと無効にしたユーザー
+tools/local-llm/server/server.sh revoke <ユーザー名>  # キーを止める（unrevoke で戻す）
 ```
 
-- `keysync.sh` が各ユーザーの `~/.config/dgx-qwen/api_key` を10秒ごとに集め、ユーザー名をラベルにして `keys/keys.txt` を作る。本人だけが読めるファイル以外とリンクは無視する。
-- ユーザーのキーを止める場合は `~/local-llm/keys/revoked.txt` にユーザー名を書く。
+| データ | 置き場所 |
+| --- | --- |
+| モデル | `/srv/shared/models/huggingface`（Hugging Faceのキャッシュ形式。`HF_DIR` で変更）。無い場合は初回起動時に取得する |
+| APIキー | Dockerボリューム `local-llm-keys`（`keys.txt`、`revoked.txt`） |
+| カーネルのビルド結果 | Dockerボリューム `local-llm-cache` |
+
+- キー収集（`keysync.sh`、コンテナ `tensorfold-keysync`）は、各ユーザーの `~/.config/dgx-qwen/api_key` を10秒ごとに集め、ユーザー名をラベルにする。本人だけが読めるファイル以外とリンクは無視する。
 - 速度とツール呼び出しは `OPENAI_API_KEY=<キー> python3 tools/local-llm/bench_decode.py http://10.99.0.1:8080/v1` で確認する。
