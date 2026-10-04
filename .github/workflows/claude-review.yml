@@ -57,6 +57,8 @@ jobs:
             Prefer inline comments on the relevant code.
             Only report issues that are actionable.
 
+            Write review comments and the final summary in Japanese.
+
           claude_args: |
             --model claude-sonnet-5-5
             --effort high

@@ -34,4 +34,4 @@ jobs:
           claude_args: |
             --model claude-sonnet-5-5
             --effort high
-            --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs."
+            --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs. Respond in Japanese."
