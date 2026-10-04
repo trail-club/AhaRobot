@@ -40,6 +40,10 @@ sim:
 	docker exec -it aharobot_aha_project_1 bash -lc \
 		"source /app/overlay_ws/install/setup.bash && ros2 launch aha_bringup sim.launch.py"
 
+.PHONY: test
+test:
+	python3 -m pytest overlay_ws/src/aha_arm_teleop/test -q
+
 .PHONY: clean
 clean:
 	rm -rf overlay_ws/build overlay_ws/install overlay_ws/log

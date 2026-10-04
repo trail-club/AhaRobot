@@ -157,3 +157,13 @@ python3 teach_calibrate.py --seconds 45 --verify
 ## 測定データ
 
 `data/` に実測値を置いている。詳細と結論は [`docs/servo-bringup.md`](../../docs/servo-bringup.md)。
+
+## ROS 経由で両腕を動かす
+
+ファーム (`arm_node`) が両腕の `/joint_states` を出しているときは、このディレクトリの
+シリアル直叩きではなく ROS 側のキーボード教示を使う。キーの意味と step / lead /
+可動域はここと同じで、左腕が小文字、右腕が大文字。手順は
+[`docs/arm-keyboard-teleop.md`](../../docs/arm-keyboard-teleop.md)。
+
+制御基板がまだ Waveshare のシリアル転送デモのままだと `arm_node` は話さない。
+そのあいだは今までどおり `keyboard_teleop.py`。

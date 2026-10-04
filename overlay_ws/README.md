@@ -9,6 +9,7 @@
 | `aha_description` | 上流 URDF を xacro で wrap し、差動二輪ベース / `<ros2_control>` / (将来) センサを追加 |
 | `aha_gazebo` | Gazebo Harmonic world と Gazebo 起動 launch |
 | `aha_bringup` | sim / real の統合起動 launch |
+| `aha_arm_teleop` | 両腕のキーボード教示。`arm_node` の `joint_command` へ出す |
 
 ## 前提
 
@@ -73,6 +74,16 @@ ros2 launch aha_bringup sim.launch.py
 - `world:=empty.sdf` (default)
 - `use_sim_time:=true` (default)
 - `headless:=true` — GUI 無し (macOS / CI 推奨)
+
+**実機の両腕をキーボードで教示する:**
+
+`arm_node` が `/joint_states` を出していることが前提。シリアル転送デモのままでは動かない。手順は [`docs/arm-keyboard-teleop.md`](../docs/arm-keyboard-teleop.md)。
+
+```bash
+ros2 launch aha_bringup arms.launch.py
+# 別の対話シェル
+ros2 run aha_arm_teleop keyboard_teleop
+```
 
 **ベースをキーボードで走らせる (別シェルで):**
 

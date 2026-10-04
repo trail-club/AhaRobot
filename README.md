@@ -19,6 +19,7 @@ RoboCup@Home (OPL) 向け AhaRobot ソフトウェアスタック。
         ├── aha_description               # URDF xacro (base / ros2_control / sensors)
         ├── aha_gazebo                    # Gazebo Harmonic world / launch
         ├── aha_bringup                   # sim / real の統合起動 launch
+        ├── aha_arm_teleop                # 両腕キーボード教示 (arm_node の joint_command)
         ├── aha_msgs                      # 班横断の msg / srv / action
         ├── aha_navigation                # SLAM / Nav2 (navigation squad)
         ├── aha_manipulation              # MoveIt / pick (manipulation squad)
@@ -78,7 +79,11 @@ make shell        # or: docker exec -it aharobot_aha_project_1 bash
 ros2 launch aha_description view_robot.launch.py
 ```
 
-### 5. キーボードで動かす
+### 5. 実機の両腕をキーボードで動かす
+
+`arm_node` 経由。キーと可動域は `tools/servo/keyboard_teleop.py` を踏襲し、左腕が小文字、右腕が大文字。手順は [`docs/arm-keyboard-teleop.md`](docs/arm-keyboard-teleop.md)。
+
+### 6. キーボードで台車を動かす
 
 ```bash
 ros2 run aha_bringup teleop_base.sh
@@ -110,6 +115,7 @@ Phase 4 以降で teleop / lerobot / WebRTC 系 (`astra_teleop*`, `lerobot`, `ai
 - [Docker 開発環境](docs/docker.md) — コンテナで sim を立ち上げる手順
 - [CAD 寸法メモ](docs/cad-measurements.md) — Astra.STEP から抽出した / できていない寸法
 - [サーボ立ち上げ実測メモ](docs/servo-bringup.md) — 実機の ID 構成 / 対向符号 / 可動域（**焼く前に必読**）
+- [両腕キーボード教示](docs/arm-keyboard-teleop.md) — `arm_node` 経由で左右の 5 関節とグリッパをキー操作する
 - [サーボ立ち上げツール](tools/servo/README.md) — 配線・可動域・符号を実機で測るスクリプト
 
 ## ロードマップ (概要)
