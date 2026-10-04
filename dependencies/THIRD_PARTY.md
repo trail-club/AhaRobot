@@ -2,7 +2,7 @@
 
 ## AhaRobot独自コード
 
-`overlay_ws/src/aha_*` の8パッケージは、それぞれの `package.xml` に `Apache-2.0` を宣言している。
+`overlay_ws/src/aha_*` の9パッケージは、それぞれの `package.xml` に `Apache-2.0` を宣言している。
 例: [aha_description/package.xml](../overlay_ws/src/aha_description/package.xml)、[aha_gazebo/package.xml](../overlay_ws/src/aha_gazebo/package.xml)。
 リポジトリ直下にはLICENSEファイルがなく、`tools/`・`docker/`などを含む全体のライセンスは未整備。
 上流から取り込んだコード・URDF・mesh・素材への適用範囲は、独自コードの宣言とは別に確認する。
@@ -27,6 +27,13 @@
 
 `AstraFirmwares` 内の各コントローラも[入れ子のsubmodule](../upstream/AstraFirmwares/.gitmodules)。
 親リポジトリの宣言だけで各コントローラのライセンスを確定せず、個別の記載を確認する。
+
+### Astra由来の派生資源
+
+| 資源 | 由来 | 扱い |
+| --- | --- | --- |
+| [hardware/head_cam_mount_d435i](../hardware/head_cam_mount_d435i/README.md) | `Astra_Hardwares` の `HeadCamMount`（[HeadCamMount.STL](../upstream/Astra_Hardwares/Astra/STL/HeadCamMount.STL)）のホーン接続部を作り直したD435i用ブラケット | 上流と同じGPL-3.0と非商用の追加制限 |
+| [aha_description/meshes/head_cam_mount_d435i.stl](../overlay_ws/src/aha_description/meshes/head_cam_mount_d435i.stl) | 上記ブラケットのURDF用mesh | 同上。`aha_description` の `Apache-2.0` 宣言とは別に扱う |
 
 ## SOBITS / TMCのシミュレーション資源
 
