@@ -9,15 +9,20 @@
     - Adds a <ros2_control> block so both real hardware and Gazebo can drive
       the same joints via controller_manager.
     - Adds <gazebo> plugin block for gz_ros2_control (Gazebo Harmonic).
+    - Adds head camera frames and, in sim, its Gazebo sensor (see sensors.xacro).
+    - Adds a sim-only 2D LiDAR when lidar:=true (see lidar.xacro).
 
   Xacro args:
-    sim            (true|false)  — include Gazebo plugin & gz_ros2_control plugin
+    sim            (true|false)  — include Gazebo plugin, gz_ros2_control plugin
+                                   and Gazebo sensors
+    lidar          (true|false)  — add the sim-only 2D LiDAR (default: same as sim)
     use_sim_time   (true|false)  — inform robot_state_publisher
 -->
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="sim" default="true"/>
   <xacro:arg name="apple_pick_mode" default="false"/>
+  <xacro:arg name="lidar" default="$(arg sim)"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 
   <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh).
@@ -51,6 +56,16 @@
         </plugin>
       </xacro:if>
     </gazebo>
+  </xacro:if>
+
+  <!-- 5. Sensors (head camera frames always; Gazebo sensor in sim) -->
+  <xacro:include filename="$(find aha_description)/urdf/sensors.xacro"/>
+  <xacro:aha_sensors sim="$(arg sim)"/>
+
+  <!-- 6. Sim-only 2D LiDAR (used by aha_navigation SLAM) -->
+  <xacro:if value="$(arg lidar)">
+    <xacro:include filename="$(find aha_description)/urdf/lidar.xacro"/>
+    <xacro:aha_sim_lidar/>
   </xacro:if>
 
 </robot>

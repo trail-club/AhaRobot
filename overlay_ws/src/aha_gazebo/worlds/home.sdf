@@ -3,7 +3,7 @@
   Simple @Home-style world for AhaRobot.
   - 6 x 5 m room with 4 walls (0.1 m thick, 2.5 m tall)
   - kitchen counter (long table) on the +Y wall
-  - dining table + 2 chairs in the middle
+  - dining table + 2 chairs south of the spawn point
   - a few graspable objects on the counter (bottle, can, box)
 
   All primitive geometry — no external meshes needed.
@@ -99,10 +99,13 @@
       </link>
     </model>
 
-    <!-- Dining table: 1.2 x 0.8 x 0.75 m, centered -->
+    <!-- The robot footprint at spawn spans x -0.58..0.07, y +-0.28 around the
+         origin, so furniture must stay clear of it. -->
+
+    <!-- Dining table: 1.2 x 0.8 x 0.75 m, south of the spawn point -->
     <model name="dining_table">
       <static>true</static>
-      <pose>0 -0.5 0.375 0 0 0</pose>
+      <pose>0 -1.4 0.375 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>1.2 0.8 0.75</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>1.2 0.8 0.75</size></box></geometry>
@@ -113,7 +116,7 @@
     <!-- Two chairs (simple boxes as placeholder) -->
     <model name="chair_1">
       <static>true</static>
-      <pose>-0.9 -0.5 0.23 0 0 0</pose>
+      <pose>-0.9 -1.4 0.23 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.4 0.4 0.45</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.4 0.4 0.45</size></box></geometry>
@@ -122,7 +125,7 @@
     </model>
     <model name="chair_2">
       <static>true</static>
-      <pose>0.9 -0.5 0.23 0 0 0</pose>
+      <pose>0.9 -1.4 0.23 0 0 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>0.4 0.4 0.45</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>0.4 0.4 0.45</size></box></geometry>

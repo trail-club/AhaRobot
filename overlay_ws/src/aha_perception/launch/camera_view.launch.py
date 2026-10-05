@@ -2,11 +2,15 @@
 
 The Mac RealSense process and rosbridge_server are deliberately started
 outside this launch.  This launch consumes the three standard camera topics,
-uses depth_image_proc for PointCloud2 generation, and starts RViz.
+includes pointcloud.launch.py (depth_image_proc, shared with the simulation)
+for PointCloud2 generation, and starts RViz.
+
+The simulation uses perception.launch.py instead.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -24,20 +28,17 @@ def generate_launch_description():
                 ),
                 description="RViz configuration for the camera-only view",
             ),
-            Node(
-                package="depth_image_proc",
-                executable="point_cloud_xyzrgb_node",
-                name="point_cloud_xyzrgb",
-                remappings=[
-                    ("rgb/image_rect_color", "/camera/color/image_raw"),
-                    ("rgb/camera_info", "/camera/color/camera_info"),
-                    (
-                        "depth_registered/image_rect",
-                        "/camera/depth_registered/image_rect",
-                    ),
-                    ("points", "/camera/depth/points"),
-                ],
-                output="screen",
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("aha_perception"),
+                            "launch",
+                            "pointcloud.launch.py",
+                        ]
+                    )
+                ),
+                launch_arguments={"use_sim_time": "false"}.items(),
             ),
             Node(
                 package="rviz2",

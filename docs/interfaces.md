@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーションと、macOSカメラ経路の入出力。controller設定は
+標準シミュレーション、頭部カメラ、実機の頭部の入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -36,6 +36,7 @@
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
 グリッパは同ファイルの2関節の順序で位置を指定する。
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
+
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
 `apple_pick.launch.py` は `/model/apple/pose` を成功判定に使い、`/apple/attach` をGazeboのDetachableJointへ送る。両topicはこのデモだけで使う。
 
@@ -58,23 +59,64 @@ world poseの座標はworld、policyのodom座標は `odom`。
 評価launchは `sim.launch.py bridge_clock:=false` とし、poseと同じ周期の評価用clockを配信する。
 標準launchの `bridge_clock` は既定で `true`。
 
-## macOSカメラ経路
 
-[カメラツール](../tools/perception/macos/README.md)で別途起動する。
-`sim.launch.py use_perception:=true` はログを出すスタブで、この経路は起動しない。
+## SLAM（シミュレーションのみ）
 
-| Topic | 型 | 配信元 |
+`sim.launch.py use_nav:=true` で [aha_navigation](../overlay_ws/src/aha_navigation/README.md) が起動する。
+`use_nav:=false`（既定）では `/scan` のbridge、`/map`、`map` frameはない。
+
+| 用途 | 名前 | 型 |
 | --- | --- | --- |
-| `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） | macOSの `stream_realsense.py` |
-| `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
-| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1、m単位） | 同上 |
-| `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` | コンテナの `depth_image_proc` |
+| 2D LiDAR（frame `laser_link`、10 Hz） | `/scan` | `sensor_msgs/msg/LaserScan` |
+| 占有格子地図 | `/map` | `nav_msgs/msg/OccupancyGrid` |
 
-RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻と `camera_color_optical_frame` を使用する。
-このカメラframeとロボットのTF接続は未実装。
-macOS側の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
-[配信処理](../tools/perception/macos/stream_realsense.py)と
-[変換launch](../overlay_ws/src/aha_perception/launch/camera_view.launch.py)を参照。
+slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
+LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
+
+## 頭部カメラ
+
+| Topic | 型 |
+| --- | --- |
+| `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） |
+| `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1、m単位） |
+| `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` |
+
+| 経路 | 起動 | 上3topicの配信元 |
+| --- | --- | --- |
+| シミュレーション | `sim.launch.py use_perception:=true` | Gazeboの `rgbd_camera`（640×480、15 Hz）を `ros_gz_bridge` で変換 |
+| 実機カメラ | [カメラツール](../tools/perception/macos/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
+| 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
+
+`/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)
+の `depth_image_proc` が生成する。全topicは `camera_color_optical_frame` を使い、
+RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
+`stream_realsense.py` の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
+
+TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
+`robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
+取付位置は [頭部ブラケット](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)の設計値。
+
+## 頭部の注視
+
+`sim_view.launch.py`（`use_perception:=true` と `real_head_camera.launch.py` の既定 `rviz:=true` で起動）の
+`head_look_at.py` が扱う。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 注視点の指令（任意のframe） | `/aha/perception/look_at` | `geometry_msgs/msg/PointStamped` |
+| 注視点と視線の表示 | `/aha/perception/look_at/markers` | `visualization_msgs/msg/MarkerArray` |
+
+`head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
+RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
+
+## 実機の頭部
+
+`real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
+`servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
+`/head_controller/follow_joint_trajectory` を提供する。
+頭の関節状態は `/head_controller/joint_states` から `joint_state_publisher` が `/joint_states` へ合流させ、
+頭以外の関節は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
 
 ## 独自型
 

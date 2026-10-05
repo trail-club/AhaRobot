@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<!--
+  Sim-only 2D LiDAR (/scan is bridged by aha_navigation/launch/nav.launch.py).
+  No LiDAR is modeled on the real robot, so this is added only when
+  lidar:=true (default: same as sim).
+
+  Frames:
+    base_link
+      └── laser_link   (fixed)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- In front of the lift column (x -0.063..-0.018) and just above the arms
+       at lift=0 (z <= 0.32), so the scan has no self-hits in the default pose.
+       Raising the lift sweeps the arms through this plane. -->
+  <xacro:property name="lidar_mount_xyz" value="0.08 0 0.35"/>
+  <xacro:property name="lidar_mount_rpy" value="0 0 0"/>
+  <xacro:property name="lidar_samples"   value="540"/>
+  <!-- 270 deg; the rear is blocked by the body -->
+  <xacro:property name="lidar_min_angle" value="-2.356"/>
+  <xacro:property name="lidar_max_angle" value="2.356"/>
+  <xacro:property name="lidar_range_min" value="0.12"/>
+  <xacro:property name="lidar_range_max" value="12.0"/>
+  <xacro:property name="lidar_rate"      value="10"/>
+
+  <xacro:macro name="aha_sim_lidar">
+    <link name="laser_link">
+      <visual>
+        <geometry><cylinder radius="0.035" length="0.04"/></geometry>
+        <material name="laser_black"><color rgba="0.05 0.05 0.05 1"/></material>
+      </visual>
+    </link>
+    <joint name="laser_joint" type="fixed">
+      <parent link="base_link"/>
+      <child  link="laser_link"/>
+      <origin xyz="${lidar_mount_xyz}" rpy="${lidar_mount_rpy}"/>
+    </joint>
+
+    <gazebo reference="laser_link">
+      <sensor name="base_lidar" type="gpu_lidar">
+        <always_on>true</always_on>
+        <update_rate>${lidar_rate}</update_rate>
+        <visualize>false</visualize>
+        <topic>scan</topic>
+        <gz_frame_id>laser_link</gz_frame_id>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${lidar_samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${lidar_min_angle}</min_angle>
+              <max_angle>${lidar_max_angle}</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>${lidar_range_min}</min>
+            <max>${lidar_range_max}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>
