@@ -3,19 +3,30 @@
 import math
 import json
 import time
+from functools import partial
 from types import MappingProxyType
 
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
+from message_filters import Subscriber, TimeSynchronizer
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image, JointState
+from rclpy.time import Time
+from sensor_msgs.msg import CameraInfo, Image, JointState
 from std_msgs.msg import Float64MultiArray, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from tf2_ros import Buffer, TransformException, TransformListener
 
-from .api import Action, CONTROLLER_JOINTS, GRIPPER_JOINTS, JOINT_LIMITS, Observation
+from .api import (
+    Action,
+    CameraObservation,
+    CONTROLLER_JOINTS,
+    GRIPPER_JOINTS,
+    JOINT_LIMITS,
+    Observation,
+)
 from .evaluation import WorldState
 
 
@@ -27,7 +38,9 @@ def yaw(quaternion):
 
 
 class RosEnvironment(Node):
-    def __init__(self, task, head_image_topic=""):
+    def __init__(
+        self, task, head_image_topic="", *, cameras=False, camera_timeout=10.0
+    ):
         super().__init__(
             "task_evaluator",
             parameter_overrides=[Parameter("use_sim_time", value=True)],
@@ -37,6 +50,10 @@ class RosEnvironment(Node):
         self.velocities = {}
         self.odom = None
         self.image = None
+        self.cameras_enabled = cameras
+        self.camera_timeout = camera_timeout
+        self.camera_samples = {}
+        self.camera_filters = []
         self.world = None
         self.received = {}
         self.previous_object = None
@@ -79,6 +96,34 @@ class RosEnvironment(Node):
         self.required = {"joints", "odom", "state"}
         if head_image_topic:
             self.required.add("image")
+        if cameras:
+            self.tf_buffer = Buffer(node=self)
+            self.tf_listener = TransformListener(self.tf_buffer, self)
+            for name, topics in {
+                "head": (
+                    (Image, "/camera/color/image_raw"),
+                    (CameraInfo, "/camera/color/camera_info"),
+                    (Image, "/camera/depth_registered/image_rect"),
+                ),
+                "left_wrist": (
+                    (Image, "/camera/left_wrist/image_raw"),
+                    (CameraInfo, "/camera/left_wrist/camera_info"),
+                ),
+                "right_wrist": (
+                    (Image, "/camera/right_wrist/image_raw"),
+                    (CameraInfo, "/camera/right_wrist/camera_info"),
+                ),
+            }.items():
+                subscribers = [
+                    Subscriber(
+                        self, message_type, topic, qos_profile=qos_profile_sensor_data
+                    )
+                    for message_type, topic in topics
+                ]
+                synchronizer = TimeSynchronizer(subscribers, queue_size=5)
+                synchronizer.registerCallback(partial(self.on_camera, name))
+                self.camera_filters.append((subscribers, synchronizer))
+                self.required.add("camera:" + name)
 
     def mark(self, source):
         self.received[source] = time.monotonic()
@@ -115,6 +160,51 @@ class RosEnvironment(Node):
     def on_image(self, message):
         self.image = message
         self.mark("image")
+
+    def on_camera(self, name, image, camera_info, depth_image=None):
+        messages = [image, camera_info]
+        if depth_image is not None:
+            messages.append(depth_image)
+        if any(message.header != image.header for message in messages):
+            return
+        previous = self.camera_samples.get(name)
+        if previous is not None and Time.from_msg(image.header.stamp) <= Time.from_msg(
+            previous[0].header.stamp
+        ):
+            return
+        self.camera_samples[name] = (image, camera_info, depth_image)
+        self.mark("camera:" + name)
+
+    def camera_observations(self):
+        if not self.cameras_enabled:
+            return {}
+        if len(self.camera_samples) != 3:
+            return None
+        now = self.get_clock().now().nanoseconds * 1e-9
+        stamps = [
+            Time.from_msg(sample[0].header.stamp).nanoseconds * 1e-9
+            for sample in self.camera_samples.values()
+        ]
+        # At 15 Hz, allow one period of camera skew and bounded transport delay.
+        if max(stamps) - min(stamps) > 0.1 or any(
+            not -0.1 <= now - stamp <= 0.5 for stamp in stamps
+        ):
+            return None
+        observations = {}
+        for name, (image, info, depth) in self.camera_samples.items():
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    "base_link",
+                    image.header.frame_id,
+                    Time.from_msg(image.header.stamp),
+                )
+            except TransformException:
+                return None
+            observations[name] = CameraObservation(image, info, transform, depth)
+        return observations
+
+    def observation_ready(self):
+        return self.camera_observations() is not None
 
     def on_state(self, message):
         sample = json.loads(message.data)
@@ -184,15 +274,27 @@ class RosEnvironment(Node):
             and math.isfinite(self.world.object_speed)
             and abs(self.get_clock().now().nanoseconds * 1e-9 - self.world.sim_time)
             <= 0.2
+            and self.observation_ready()
         )
+
+    def stale_sources(self):
+        now = time.monotonic()
+        return {
+            source: round(now - self.received.get(source, -math.inf), 3)
+            for source in self.required
+            if now - self.received.get(source, -math.inf)
+            >= (self.camera_timeout if source.startswith("camera:") else 2)
+        }
 
     def fresh(self):
-        now = time.monotonic()
-        return all(
-            now - self.received.get(source, -math.inf) < 2 for source in self.required
-        )
+        return not self.stale_sources()
 
     def observation(self):
+        cameras = self.camera_observations()
+        if cameras is None:
+            raise RuntimeError(
+                "Camera images or their timestamped transforms are unavailable"
+            )
         return Observation(
             self.get_clock().now().nanoseconds * 1e-9,
             self.task.task_id,
@@ -200,7 +302,8 @@ class RosEnvironment(Node):
             MappingProxyType(dict(self.positions)),
             MappingProxyType(dict(self.velocities)),
             self.odom,
-            self.image,
+            cameras["head"].image if cameras else self.image,
+            MappingProxyType(cameras),
         )
 
     def apply(self, action):

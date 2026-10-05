@@ -124,7 +124,14 @@ def generate_launch_description():
 
     robot_description = {
         "robot_description": ParameterValue(
-            Command(["xacro ", xacro_path, " sim:=true"]),
+            Command(
+                [
+                    "xacro ",
+                    xacro_path,
+                    " sim:=true cameras:=",
+                    LaunchConfiguration("cameras"),
+                ]
+            ),
             value_type=str,
         ),
     }
@@ -260,6 +267,7 @@ def generate_launch_description():
             OpaqueFunction(function=_validate_spawn),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument("cameras", default_value="true"),
             DeclareLaunchArgument(
                 "robot_name",
                 default_value="aha_robot",

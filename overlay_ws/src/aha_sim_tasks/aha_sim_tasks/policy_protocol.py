@@ -4,22 +4,54 @@ import base64
 import json
 from types import MappingProxyType
 
-from .api import Action, Observation
+from .api import Action, CameraObservation, Observation
 
 
 def encode(message):
     return json.dumps(message, allow_nan=False, separators=(",", ":")).encode() + b"\n"
 
 
-def observation_message(observation):
-    image = None
-    if observation.head_image is not None:
-        from rclpy.serialization import serialize_message
-        from sensor_msgs.msg import Image
+def _encode_ros(message, message_type):
+    from rclpy.serialization import serialize_message
 
-        if not isinstance(observation.head_image, Image):
-            raise TypeError("head_image must be a sensor_msgs/msg/Image")
-        image = base64.b64encode(serialize_message(observation.head_image)).decode()
+    if not isinstance(message, message_type):
+        raise TypeError(f"Expected {message_type.__name__} camera message")
+    return base64.b64encode(serialize_message(message)).decode()
+
+
+def _decode_ros(message, message_type):
+    from rclpy.serialization import deserialize_message
+
+    return deserialize_message(base64.b64decode(message, validate=True), message_type)
+
+
+def observation_message(observation):
+    cameras = {}
+    if observation.cameras or observation.head_image is not None:
+        from geometry_msgs.msg import TransformStamped
+        from sensor_msgs.msg import CameraInfo, Image
+
+        for name, camera in observation.cameras.items():
+            if not isinstance(camera, CameraObservation):
+                raise TypeError("cameras must contain CameraObservation values")
+            cameras[name] = {
+                "image": _encode_ros(camera.image, Image),
+                "camera_info": _encode_ros(camera.camera_info, CameraInfo),
+                "base_transform": _encode_ros(camera.base_transform, TransformStamped),
+                "depth_image": (
+                    _encode_ros(camera.depth_image, Image)
+                    if camera.depth_image is not None
+                    else None
+                ),
+            }
+    # Avoid transferring the head RGB pixels twice in every policy call.
+    head = observation.cameras.get("head")
+    image = (
+        _encode_ros(observation.head_image, Image)
+        if observation.head_image is not None
+        and (head is None or observation.head_image is not head.image)
+        else None
+    )
     return {
         "op": "act",
         "observation": {
@@ -30,17 +62,32 @@ def observation_message(observation):
             "joint_velocities": dict(observation.joint_velocities),
             "odometry": list(observation.odometry),
             "head_image": image,
+            "cameras": cameras,
         },
     }
 
 
 def decode_observation(message):
+    cameras = {}
     image = message["head_image"]
-    if image is not None:
-        from rclpy.serialization import deserialize_message
-        from sensor_msgs.msg import Image
+    if message.get("cameras") or image is not None:
+        from geometry_msgs.msg import TransformStamped
+        from sensor_msgs.msg import CameraInfo, Image
 
-        image = deserialize_message(base64.b64decode(image, validate=True), Image)
+        for name, camera in message.get("cameras", {}).items():
+            cameras[name] = CameraObservation(
+                image=_decode_ros(camera["image"], Image),
+                camera_info=_decode_ros(camera["camera_info"], CameraInfo),
+                base_transform=_decode_ros(camera["base_transform"], TransformStamped),
+                depth_image=(
+                    _decode_ros(camera["depth_image"], Image)
+                    if camera["depth_image"] is not None
+                    else None
+                ),
+            )
+        image = _decode_ros(image, Image) if image is not None else None
+    if image is None and "head" in cameras:
+        image = cameras["head"].image
     return Observation(
         sim_time=message["sim_time"],
         task_id=message["task_id"],
@@ -49,6 +96,7 @@ def decode_observation(message):
         joint_velocities=MappingProxyType(message["joint_velocities"]),
         odometry=tuple(message["odometry"]),
         head_image=image,
+        cameras=MappingProxyType(cameras),
     )
 
 

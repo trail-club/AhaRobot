@@ -1,0 +1,15 @@
+1791209898.7657232 [INFO] [launch]: All log files can be found below /app/overlay_ws/evaluation-results_episodes/81e9e9005dc24c6695517f8cd7e787cf/place_apple_001/ros_logs/2026-10-05-14-18-18-764892-orbstack-57239
+1791209898.7658486 [INFO] [launch]: Default logging verbosity is set to INFO
+1791209899.1799729 [INFO] [parameter_bridge-1]: process started with pid [57255]
+1791209899.1837921 [INFO] [gazebo-2]: process started with pid [57256]
+1791209899.1841693 [INFO] [robot_state_publisher-3]: process started with pid [57257]
+1791209899.1843553 [INFO] [create-4]: process started with pid [57259]
+1791209899.1845191 [INFO] [spawner-5]: process started with pid [57260]
+1791209899.1847389 [INFO] [gz-6]: process started with pid [57261]
+1791209899.1848059 [INFO] [parameter_bridge-7]: process started with pid [57262]
+1791209900.2317202 [INFO] [create-4]: process has finished cleanly [pid 57259]
+1791209905.6315944 [INFO] [spawner-5]: process has finished cleanly [pid 57260]
+1791209905.6389937 [INFO] [spawner-8]: process started with pid [57546]
+1791209906.7502179 [INFO] [spawner-8]: process has finished cleanly [pid 57546]
+1791209934.6700158 [WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+1791209934.6753798 [WARNING] [launch]: user interrupted with ctrl-c (SIGINT) again, ignoring...

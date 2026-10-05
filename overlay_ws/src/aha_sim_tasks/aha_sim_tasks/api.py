@@ -35,6 +35,16 @@ JOINT_LIMITS = {
 
 
 @dataclass(frozen=True)
+class CameraObservation:
+    image: Any  # sensor_msgs/msg/Image (RGB)
+    camera_info: Any  # sensor_msgs/msg/CameraInfo
+    base_transform: (
+        Any  # geometry_msgs/msg/TransformStamped: base_link -> optical frame
+    )
+    depth_image: Any | None = None  # Optional aligned depth, 32FC1 in metres
+
+
+@dataclass(frozen=True)
 class Observation:
     sim_time: float
     task_id: str
@@ -43,6 +53,7 @@ class Observation:
     joint_velocities: Mapping[str, float]
     odometry: tuple[float, float, float]  # x, y, yaw in odom
     head_image: Any | None = None  # Optional sensor_msgs/msg/Image
+    cameras: Mapping[str, CameraObservation] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

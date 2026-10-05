@@ -13,6 +13,7 @@
 
   Gazebo topics (bridged to ROS by aha_perception/launch/perception.launch.py):
     head_camera/{image,depth_image,camera_info}  rgbd_camera, depth aligned to color
+    {left,right}_wrist_camera/{image,camera_info}  RGB cameras
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -51,7 +52,51 @@
   <xacro:property name="camera_depth_far"          value="10.0"/>
   <xacro:property name="camera_depth_noise_stddev" value="0.005"/>
 
-  <xacro:macro name="aha_sensors" params="sim">
+  <!-- Virtual wrist mounts, outside the palm and finger meshes (max x < 0.09 m).
+       Both palms have the same local geometry. Look toward the grasp center
+       near (0.063, 0, 0.195), along +z with a small inward tilt.
+       These visual-only mounts add no collision geometry or payload mass. -->
+  <xacro:macro name="aha_wrist_camera" params="side parent">
+    <link name="${side}_wrist_camera_link">
+      <visual>
+        <geometry><box size="0.02 0.025 0.025"/></geometry>
+        <material name="camera_dark_grey"/>
+      </visual>
+    </link>
+    <joint name="${side}_wrist_camera_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${side}_wrist_camera_link"/>
+      <origin xyz="0.115 0 0.045" rpy="0 -1.904 0"/>
+    </joint>
+    <link name="${side}_wrist_camera_optical_frame"/>
+    <joint name="${side}_wrist_camera_optical_joint" type="fixed">
+      <parent link="${side}_wrist_camera_link"/>
+      <child link="${side}_wrist_camera_optical_frame"/>
+      <origin xyz="0.011 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+    <gazebo reference="${side}_wrist_camera_link">
+      <sensor name="${side}_wrist_camera" type="camera">
+        <pose>0.011 0 0 0 0 0</pose>
+        <always_on>true</always_on>
+        <update_rate>${camera_rate}</update_rate>
+        <visualize>false</visualize>
+        <topic>${side}_wrist_camera/image</topic>
+        <gz_frame_id>${side}_wrist_camera_optical_frame</gz_frame_id>
+        <camera>
+          <camera_info_topic>${side}_wrist_camera/camera_info</camera_info_topic>
+          <horizontal_fov>${pi/2}</horizontal_fov>
+          <image>
+            <width>${camera_width}</width>
+            <height>${camera_height}</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip><near>0.02</near><far>3.0</far></clip>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="aha_sensors" params="sim cameras:=true">
 
     <link name="camera_link">
       <visual>
@@ -73,6 +118,7 @@
     </joint>
 
     <xacro:if value="${sim}">
+      <xacro:if value="${cameras}">
       <gazebo reference="camera_link">
         <sensor name="head_camera" type="rgbd_camera">
           <!-- Same offset as camera_optical_joint so the image origin is camera_color_optical_frame -->
@@ -107,6 +153,9 @@
           </camera>
         </sensor>
       </gazebo>
+      <xacro:aha_wrist_camera side="left" parent="link_l6"/>
+      <xacro:aha_wrist_camera side="right" parent="link_r6"/>
+      </xacro:if>
     </xacro:if>
 
   </xacro:macro>

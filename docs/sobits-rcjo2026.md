@@ -13,7 +13,8 @@
 | `spawn_x` / `spawn_y` / `spawn_z` / `spawn_yaw` | 初期位置の上書き |
 | `headless:=true` | GUIなし |
 | `use_sim_time:=true` | 既定。ROS nodeでシミュレーション時刻を使う |
-| `use_perception:=true` | 頭部カメラのbridge・点群・RVizを起動。`rviz:=false` でRVizと操作パネルを除く。[aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照 |
+| `cameras:=false` | 頭部・左右の手首カメラのセンサを除く。既定は `true` |
+| `use_perception:=true` | 頭部・手首カメラのbridge、頭部の点群、RVizを起動。`rviz:=false` でRVizと操作パネルを除く。[aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照 |
 | `use_nav:=true` | シミュレーション専用2D LiDARの `/scan` bridgeとslam_toolboxを起動。[aha_navigation](../overlay_ws/src/aha_navigation/README.md)を参照 |
 | `use_manip` | 既定は `false`。現在のlaunchはスタブ |
 

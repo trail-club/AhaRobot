@@ -31,17 +31,27 @@ table, and apple. Entity names, object/table positions, robot spawn, and scripte
 gripper settings are defined in [config/scene.json](config/scene.json).
 The launch expands [worlds/task_tables.sdf.xacro](worlds/task_tables.sdf.xacro)
 from that configuration and passes the configured robot spawn explicitly.
-No GPU is required for the default server-only run.
+The default run renders the head RGB-D and both wrist RGB cameras with Ogre2.
+Headless runs use EGL and need a working rendering backend; GPU acceleration is
+recommended. Software rendering is supported but can substantially slow episodes.
+`--no-cameras` disables camera sensors, the rendering system, and camera
+observations for a CPU-only physics evaluation.
 Use `--no-headless` to display Gazebo.
 
 To watch pick-and-place, run:
 
 ```bash
 ros2 run aha_sim_tasks evaluate --task place_apple --policy scripted \
-  --episodes 1 --no-headless --output /tmp/aha-evaluation/watch.json
+  --episodes 1 --no-headless --camera-view --output /tmp/aha-evaluation/watch.json
 ```
 
-The server and GUI stop at the end of an episode, before the next task starts.
+`--camera-view` opens a separate Gazebo window with head and both wrist RGB
+feeds selected automatically. The viewer inherits the episode's Gazebo partition;
+an independently started `gz gui -s ImageDisplay` cannot discover these isolated
+topics. The image viewer also works with the default headless server when the
+3D window is not needed. It requires cameras and a working GUI display.
+
+The server and GUI windows stop at the end of an episode, before the next task starts.
 Cleanup also stops Gazebo processes that leave the original process group,
 identified by the episode's unique transport partition. Configure the
 container's display using the development-container GUI instructions linked above.
@@ -82,7 +92,10 @@ are stopped on completion or error, including descendants in either partition.
 
 The scripted policy opens the right gripper, raises the lift, approaches using
 wheel odometry with heading correction, lowers and closes the gripper, then
-lifts. For placement it drives to the destination, lowers, opens, and withdraws
+lifts. It aims the head down and right toward the tables and right gripper;
+`scripted.head_pan` and `scripted.head_tilt` in `config/scene.json` set the angles
+in radians. A level head sees only the gray background above the low tables.
+For placement it drives to the destination, lowers, opens, and withdraws
 the gripper by raising the lift. It reads proprioception and odometry and derives
 waypoints from static scene geometry and the configured gripper offset; it never
 reads live world state. This baseline drives straight along the spawn heading.
@@ -138,7 +151,7 @@ def create_policy():
 Place the module on the runner's Python path, which the worker inherits. Each
 episode creates and resets a new policy. `act` runs at up to 10 Hz in wall time.
 Observation fields are simulation time, task ID, language instruction, joint positions/velocities,
-wheel odometry `(x, y, yaw)` in `odom`, and optional `head_image`. Joint mappings
+wheel odometry `(x, y, yaw)` in `odom`, `cameras`, and optional `head_image`. Joint mappings
 are read-only snapshots. Object/world poses, finger contacts, and score are absent
 from policy observations.
 
@@ -156,12 +169,35 @@ This separation prevents accidental use of privileged state by team-owned
 policies. It is not a security sandbox: the processes share the host and
 filesystem, and policy code could deliberately join the evaluation transports.
 
-The built-in scene does not render a head camera. If an image publisher is
-available in the evaluation ROS domain, `--head-image-topic /your/image/topic`
-subscribes with sensor-data QoS and passes the latest `sensor_msgs/msg/Image` as
-`head_image`; otherwise it is `None`. With a topic specified, evaluation waits
-for images and treats a stopped image stream as an error. This API does not
-require a particular model or image representation.
+By default, `observation.cameras` is a read-only mapping with keys `head`,
+`left_wrist`, and `right_wrist`. Each `CameraObservation` contains:
+
+- `image`: RGB `sensor_msgs/msg/Image` with its simulation timestamp and optical frame.
+- `camera_info`: matching `sensor_msgs/msg/CameraInfo` with intrinsics.
+- `base_transform`: `geometry_msgs/msg/TransformStamped` from `base_link` to that
+  optical frame, looked up at the image timestamp.
+- `depth_image`: aligned `32FC1` depth in metres for the head; `None` for the wrists.
+
+RGB, calibration, and head depth are paired by exact timestamp and optical frame.
+Policy calls wait until all views have transforms, camera timestamps differ by
+at most 0.1 s, and images are no more than 0.5 s behind the simulation clock
+(up to 0.1 s ahead is allowed for clock transport delay).
+Joint states and odometry remain the latest snapshots, rather than samples
+synchronized to image exposure. Camera liveness has a 10 s wall deadline
+(`--camera-timeout` changes it), allowing dropped frames on slow renderers while
+the simulation-time age/skew limits still prevent stale images reaching a policy.
+Joint, odometry, and scoring-state liveness retain their 2 s wall deadline.
+A stopped required camera stream fails the episode.
+`head_image` aliases `cameras["head"].image` for existing policies. All camera
+messages cross the same private IPC boundary; evaluation topics remain excluded.
+Camera streams and simulated mounts are described in
+[aha_perception](../aha_perception/README.md#シミュレーション).
+
+With `--no-cameras`, `cameras` is empty and `head_image` is `None`.
+For a legacy external image publisher in the evaluation ROS domain, use
+`--no-cameras --head-image-topic /your/image/topic`; the latest Image becomes
+`head_image`, without calibration or transform pairing. The runner waits for
+that stream and treats a stopped stream as an error.
 
 Actions command base linear/angular velocity and named position targets for the
 arms, lifts, head, and grippers. Positions use the existing controller joint

@@ -11,17 +11,20 @@
   <depend>gz_plugin_vendor</depend>
   <build_depend>nlohmann-json-dev</build_depend>
   <exec_depend>aha_bringup</exec_depend>
+  <exec_depend>aha_perception</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>controller_manager_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>message_filters</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
   <exec_depend>xacro</exec_depend>
   <test_depend>ament_cmake_pytest</test_depend>

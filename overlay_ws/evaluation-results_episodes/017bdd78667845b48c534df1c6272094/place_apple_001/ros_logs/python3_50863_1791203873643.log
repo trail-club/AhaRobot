@@ -1,0 +1,9 @@
+[INFO] [1791203873.687248971] [spawner_diff_drive_controller]: waiting for service /controller_manager/list_controllers to become available...
+[INFO] [1791203876.517172284] [spawner_diff_drive_controller]: Loaded diff_drive_controller
+[INFO] [1791203876.687204778] [spawner_diff_drive_controller]: Loaded left_arm_controller
+[INFO] [1791203876.754768291] [spawner_diff_drive_controller]: Loaded right_arm_controller
+[INFO] [1791203876.802013524] [spawner_diff_drive_controller]: Loaded left_gripper_controller
+[INFO] [1791203876.850294171] [spawner_diff_drive_controller]: Loaded right_gripper_controller
+[INFO] [1791203876.898207055] [spawner_diff_drive_controller]: Loaded lift_controller
+[INFO] [1791203876.956743596] [spawner_diff_drive_controller]: Loaded head_controller
+[INFO] [1791203877.111449959] [spawner_diff_drive_controller]: Configured and activated all the parsed controllers list : ['diff_drive_controller', 'left_arm_controller', 'right_arm_controller', 'left_gripper_controller', 'right_gripper_controller', 'lift_controller', 'head_controller']!

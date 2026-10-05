@@ -1,0 +1,299 @@
+[INFO] [launch]: All log files can be found below /app/overlay_ws/evaluation-results_episodes/017bdd78667845b48c534df1c6272094/place_apple_001/ros_logs/2026-10-05-12-37-46-149954-orbstack-50666
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [parameter_bridge-1]: process started with pid [50682]
+[INFO] [gazebo-2]: process started with pid [50683]
+[INFO] [robot_state_publisher-3]: process started with pid [50684]
+[INFO] [create-4]: process started with pid [50685]
+[INFO] [spawner-5]: process started with pid [50686]
+[INFO] [parameter_bridge-6]: process started with pid [50688]
+[robot_state_publisher-3] [INFO] [1791203866.730816385] [robot_state_publisher]: Robot initialized
+[create-4] [INFO] [1791203866.739785730] [ros_gz_sim]: Requesting list of world names.
+[parameter_bridge-6] [INFO] [1791203866.779040614] [ros_gz_bridge]: Creating GZ->ROS Bridge: [/evaluation/state (gz.msgs.StringMsg) -> /evaluation/state (std_msgs/msg/String)] (Lazy 0)
+[parameter_bridge-6] [INFO] [1791203866.780663801] [ros_gz_bridge]: Creating GZ->ROS Bridge: [/evaluation/clock (gz.msgs.Clock) -> /evaluation/clock (rosgraph_msgs/msg/Clock)] (Lazy 0)
+[spawner-5] [INFO] [1791203866.862474862] [spawner_joint_state_broadcaster]: waiting for service /controller_manager/list_controllers to become available...
+[create-4] [INFO] [1791203867.688110555] [ros_gz_sim]: Waiting messages on topic [robot_description].
+[create-4] [INFO] [1791203867.701820374] [ros_gz_sim]: Entity creation successful.
+[parameter_bridge-1] [INFO] [1791203867.787326118] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/image (gz.msgs.Image) -> /camera/color/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.794504644] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/depth_image (gz.msgs.Image) -> /camera/depth_registered/image_rect (sensor_msgs/msg/Image)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.796040745] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/camera_info (gz.msgs.CameraInfo) -> /camera/color/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.797175080] [camera_bridge]: Creating GZ->ROS Bridge: [/left_wrist_camera/image (gz.msgs.Image) -> /camera/left_wrist/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.797817730] [camera_bridge]: Creating GZ->ROS Bridge: [/left_wrist_camera/camera_info (gz.msgs.CameraInfo) -> /camera/left_wrist/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.798322874] [camera_bridge]: Creating GZ->ROS Bridge: [/right_wrist_camera/image (gz.msgs.Image) -> /camera/right_wrist/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[parameter_bridge-1] [INFO] [1791203867.798786517] [camera_bridge]: Creating GZ->ROS Bridge: [/right_wrist_camera/camera_info (gz.msgs.CameraInfo) -> /camera/right_wrist/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)
+[INFO] [create-4]: process has finished cleanly [pid 50685]
+[gazebo-2] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="aha_robot"]/link[@name="base_footprint"]/sensor[@name="base_lidar"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-2] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="aha_robot"]/link[@name="link_head_tilt"]/sensor[@name="head_camera"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-2] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="aha_robot"]/link[@name="link_l6"]/sensor[@name="left_wrist_camera"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-2] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="aha_robot"]/link[@name="link_r6"]/sensor[@name="right_wrist_camera"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-2] [INFO] [1791203869.350912008] [gz_ros_control]: Loading controller_manager
+[gazebo-2] [INFO] [1791203869.371554468] [controller_manager]: Using ROS clock for triggering controller manager cycles.
+[gazebo-2] [WARN] [1791203869.371587636] [controller_manager]: The resource manager is not yet initialized, will wait for the robot description to initialize it..
+[gazebo-2] [INFO] [1791203869.381881699] [controller_manager]: Subscribing to '/robot_description' topic for robot description.
+[gazebo-2] [WARN] [1791203869.381935534] [gz_ros_control]: Waiting RM to load and initialize hardware...
+[gazebo-2] [WARN] [1791203870.383822751] [controller_manager]: Waiting for data on 'robot_description' topic to finish initialization
+[gazebo-2] [INFO] [1791203870.464849615] [controller_manager]: Received robot description from topic.
+[gazebo-2] [INFO] [1791203870.465036414] [controller_manager]: Enforcing command limits is disabled. Command limits from URDF will be ignored.
+[gazebo-2] [INFO] [1791203870.479187541] [gz_ros_control]: The position_proportional_gain has been set to: 0.1
+[gazebo-2] [INFO] [1791203870.479266628] [gz_ros_control]: Loading joint: left_wheel_joint
+[gazebo-2] [INFO] [1791203870.479271961] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479275461] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479277878] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479282378] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479284045] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479296004] [gz_ros_control]: Loading joint: right_wheel_joint
+[gazebo-2] [INFO] [1791203870.479300587] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479302087] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479304212] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479305587] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479306879] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479312879] [gz_ros_control]: Loading joint: joint_l1
+[gazebo-2] [INFO] [1791203870.479314838] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479316380] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479318171] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479319630] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.479321005] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479322380] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479327588] [gz_ros_control]: Loading joint: joint_r1
+[gazebo-2] [INFO] [1791203870.479329297] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479330880] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479332547] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479334755] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.479338630] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479339922] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479343631] [gz_ros_control]: Loading joint: joint_l2
+[gazebo-2] [INFO] [1791203870.479345089] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479346589] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479348089] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479349672] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.479350964] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479352214] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479356464] [gz_ros_control]: Loading joint: joint_l3
+[gazebo-2] [INFO] [1791203870.479358006] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479363048] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479366340] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479367757] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.479369215] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479370632] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479375298] [gz_ros_control]: Loading joint: joint_l4
+[gazebo-2] [INFO] [1791203870.479376882] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479378215] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479380715] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479382090] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.479383507] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.479384882] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479388507] [gz_ros_control]: Loading joint: joint_l5
+[gazebo-2] [INFO] [1791203870.479390007] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.479391424] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.479392716] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.479455135] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480307543] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480310334] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480319168] [gz_ros_control]: Loading joint: joint_l6
+[gazebo-2] [INFO] [1791203870.480321543] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480323585] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480325418] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480327168] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480328877] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480330502] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480337169] [gz_ros_control]: Loading joint: joint_l7r
+[gazebo-2] [INFO] [1791203870.480339627] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480341336] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480344294] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480345627] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480347253] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480348586] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480352294] [gz_ros_control]: Loading joint: joint_l7l
+[gazebo-2] [INFO] [1791203870.480353836] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480355128] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480356586] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480357836] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480359170] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480360378] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480364378] [gz_ros_control]: Loading joint: joint_r2
+[gazebo-2] [INFO] [1791203870.480365878] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480367462] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480368878] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480372503] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480373962] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480375212] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480379045] [gz_ros_control]: Loading joint: joint_r3
+[gazebo-2] [INFO] [1791203870.480380712] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480382421] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480383921] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480385379] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480386671] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480387921] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480392671] [gz_ros_control]: Loading joint: joint_r4
+[gazebo-2] [INFO] [1791203870.480394129] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480395754] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480397296] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480399380] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480400755] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480402005] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480405963] [gz_ros_control]: Loading joint: joint_r5
+[gazebo-2] [INFO] [1791203870.480407463] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480409505] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480412547] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480414005] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480415297] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480416547] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480420380] [gz_ros_control]: Loading joint: joint_r6
+[gazebo-2] [INFO] [1791203870.480424380] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480425672] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480426964] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480428256] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480429506] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480430839] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480444381] [gz_ros_control]: Loading joint: joint_r7r
+[gazebo-2] [INFO] [1791203870.480450215] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480452132] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480453923] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480455548] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480464507] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480466132] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480478216] [gz_ros_control]: Loading joint: joint_r7l
+[gazebo-2] [INFO] [1791203870.480483758] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480507884] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480514759] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480516342] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480518092] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480519759] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480527051] [gz_ros_control]: Loading joint: joint_head_pan
+[gazebo-2] [INFO] [1791203870.480529051] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480530676] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480532426] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480534135] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480535926] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480537510] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480541760] [gz_ros_control]: Loading joint: joint_head_tilt
+[gazebo-2] [INFO] [1791203870.480543760] [gz_ros_control]: 	State:
+[gazebo-2] [INFO] [1791203870.480545593] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480547344] [gz_ros_control]: 		 velocity
+[gazebo-2] [INFO] [1791203870.480548719] [gz_ros_control]: 		 effort
+[gazebo-2] [INFO] [1791203870.480550135] [gz_ros_control]: 	Command:
+[gazebo-2] [INFO] [1791203870.480551469] [gz_ros_control]: 		 position
+[gazebo-2] [INFO] [1791203870.480699141] [controller_manager]: Initialize hardware 'aha_hardware' 
+[gazebo-2] [WARN] [1791203870.480718392] [controller_manager.hardware_component.system.aha_hardware]: Executor is not available during hardware component initialization for 'aha_hardware'. Skipping node creation!
+[gazebo-2] [INFO] [1791203870.480777602] [controller_manager]: Successful initialization of hardware 'aha_hardware'
+[gazebo-2] [INFO] [1791203870.480939442] [controller_manager]: Activating component 'aha_hardware'.
+[gazebo-2] [INFO] [1791203870.480954859] [resource_manager]: 'configure' hardware 'aha_hardware' 
+[gazebo-2] [INFO] [1791203870.480958484] [gz_ros_control]: System Successfully configured!
+[gazebo-2] [INFO] [1791203870.480960984] [resource_manager]: Successful 'configure' of hardware 'aha_hardware'
+[gazebo-2] [INFO] [1791203870.480970026] [resource_manager]: 'activate' hardware 'aha_hardware' 
+[gazebo-2] [INFO] [1791203870.480980402] [resource_manager]: Successful 'activate' of hardware 'aha_hardware'
+[gazebo-2] [WARN] [1791203870.481084614] [controller_manager]: Component 'aha_hardware' does not have read or write statistics initialized, skipping registration.
+[gazebo-2] [INFO] [1791203870.481091156] [controller_manager]: Resource Manager has been successfully initialized. Starting Controller Manager services...
+[gazebo-2] [INFO] [1791203871.185957082] [controller_manager]: Loading controller : 'joint_state_broadcaster' of type 'joint_state_broadcaster/JointStateBroadcaster'
+[gazebo-2] [INFO] [1791203871.187047707] [controller_manager]: Loading controller 'joint_state_broadcaster'
+[gazebo-2] [INFO] [1791203871.205969601] [controller_manager]: Controller 'joint_state_broadcaster' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-5] [INFO] [1791203871.215549969] [spawner_joint_state_broadcaster]: Loaded joint_state_broadcaster
+[gazebo-2] [INFO] [1791203871.216742598] [controller_manager]: Configuring controller: 'joint_state_broadcaster'
+[gazebo-2] [INFO] [1791203871.217136863] [joint_state_broadcaster]: 'joints' or 'interfaces' parameter is empty. All available state interfaces will be published
+[gazebo-2] [INFO] [1791203871.325570281] [controller_manager]: Activating controllers: [ joint_state_broadcaster ]
+[gazebo-2] [WARN] [1791203872.258800526] [gz_ros_control]:  Desired controller update period (0.01 s) is slower than the gazebo simulation period (0.001 s).
+[gazebo-2] [WARN] [1791203873.267057904] [controller_manager]: No clock received, using time argument instead! Check your node's clock configuration (use_sim_time parameter) and if a valid clock source is available
+[gazebo-2] [INFO] [1791203873.268847973] [controller_manager]: Successfully switched controllers!
+[spawner-5] [INFO] [1791203873.299111636] [spawner_joint_state_broadcaster]: Configured and activated joint_state_broadcaster
+[INFO] [spawner-5]: process has finished cleanly [pid 50686]
+[INFO] [spawner-7]: process started with pid [50863]
+[spawner-7] [INFO] [1791203873.687248971] [spawner_diff_drive_controller]: waiting for service /controller_manager/list_controllers to become available...
+[gazebo-2] [INFO] [1791203876.463784899] [controller_manager]: Loading controller : 'diff_drive_controller' of type 'diff_drive_controller/DiffDriveController'
+[gazebo-2] [INFO] [1791203876.464688225] [controller_manager]: Loading controller 'diff_drive_controller'
+[gazebo-2] [INFO] [1791203876.489722062] [controller_manager]: Controller 'diff_drive_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.517172284] [spawner_diff_drive_controller]: Loaded diff_drive_controller
+[gazebo-2] [INFO] [1791203876.608526504] [controller_manager]: Configuring controller: 'diff_drive_controller'
+[gazebo-2] [INFO] [1791203876.633992191] [controller_manager]: Loading controller : 'left_arm_controller' of type 'joint_trajectory_controller/JointTrajectoryController'
+[gazebo-2] [INFO] [1791203876.634054152] [controller_manager]: Loading controller 'left_arm_controller'
+[gazebo-2] [INFO] [1791203876.653634738] [controller_manager]: Controller 'left_arm_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.687204778] [spawner_diff_drive_controller]: Loaded left_arm_controller
+[gazebo-2] [INFO] [1791203876.688072686] [controller_manager]: Configuring controller: 'left_arm_controller'
+[gazebo-2] [INFO] [1791203876.688249026] [left_arm_controller]: No specific joint names are used for command interfaces. Using 'joints' parameter.
+[gazebo-2] [INFO] [1791203876.688273694] [left_arm_controller]: Command interfaces are [position] and state interfaces are [position velocity].
+[gazebo-2] [INFO] [1791203876.688297737] [left_arm_controller]: Using 'splines' interpolation method.
+[gazebo-2] [INFO] [1791203876.691754619] [left_arm_controller]: Action status changes will be monitored at 20.00 Hz.
+[gazebo-2] [INFO] [1791203876.700309032] [left_arm_controller]: Setting initial scaling factor to 1.000000
+[gazebo-2] [INFO] [1791203876.700746382] [left_arm_controller]: No scaling interface set. This controller will not read speed scaling from the hardware.
+[gazebo-2] [INFO] [1791203876.730324144] [controller_manager]: Loading controller : 'right_arm_controller' of type 'joint_trajectory_controller/JointTrajectoryController'
+[gazebo-2] [INFO] [1791203876.730357311] [controller_manager]: Loading controller 'right_arm_controller'
+[gazebo-2] [INFO] [1791203876.730804204] [controller_manager]: Controller 'right_arm_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.754768291] [spawner_diff_drive_controller]: Loaded right_arm_controller
+[gazebo-2] [INFO] [1791203876.758483726] [controller_manager]: Configuring controller: 'right_arm_controller'
+[gazebo-2] [INFO] [1791203876.758641190] [right_arm_controller]: No specific joint names are used for command interfaces. Using 'joints' parameter.
+[gazebo-2] [INFO] [1791203876.758654732] [right_arm_controller]: Command interfaces are [position] and state interfaces are [position velocity].
+[gazebo-2] [INFO] [1791203876.758660816] [right_arm_controller]: Using 'splines' interpolation method.
+[gazebo-2] [INFO] [1791203876.759961574] [right_arm_controller]: Action status changes will be monitored at 20.00 Hz.
+[gazebo-2] [INFO] [1791203876.766184939] [right_arm_controller]: Setting initial scaling factor to 1.000000
+[gazebo-2] [INFO] [1791203876.766208231] [right_arm_controller]: No scaling interface set. This controller will not read speed scaling from the hardware.
+[gazebo-2] [INFO] [1791203876.772948865] [controller_manager]: Loading controller : 'left_gripper_controller' of type 'forward_command_controller/ForwardCommandController'
+[gazebo-2] [INFO] [1791203876.772973616] [controller_manager]: Loading controller 'left_gripper_controller'
+[gazebo-2] [INFO] [1791203876.777690131] [controller_manager]: Controller 'left_gripper_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.802013524] [spawner_diff_drive_controller]: Loaded left_gripper_controller
+[gazebo-2] [INFO] [1791203876.805013014] [controller_manager]: Configuring controller: 'left_gripper_controller'
+[gazebo-2] [INFO] [1791203876.806311481] [left_gripper_controller]: configure successful
+[gazebo-2] [INFO] [1791203876.823226714] [controller_manager]: Loading controller : 'right_gripper_controller' of type 'forward_command_controller/ForwardCommandController'
+[gazebo-2] [INFO] [1791203876.823424305] [controller_manager]: Loading controller 'right_gripper_controller'
+[gazebo-2] [INFO] [1791203876.825491676] [controller_manager]: Controller 'right_gripper_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.850294171] [spawner_diff_drive_controller]: Loaded right_gripper_controller
+[gazebo-2] [INFO] [1791203876.854678423] [controller_manager]: Configuring controller: 'right_gripper_controller'
+[gazebo-2] [INFO] [1791203876.855762840] [right_gripper_controller]: configure successful
+[gazebo-2] [INFO] [1791203876.862425596] [controller_manager]: Loading controller : 'lift_controller' of type 'joint_trajectory_controller/JointTrajectoryController'
+[gazebo-2] [INFO] [1791203876.862453430] [controller_manager]: Loading controller 'lift_controller'
+[gazebo-2] [INFO] [1791203876.862784610] [controller_manager]: Controller 'lift_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.898207055] [spawner_diff_drive_controller]: Loaded lift_controller
+[gazebo-2] [INFO] [1791203876.898442564] [controller_manager]: Configuring controller: 'lift_controller'
+[gazebo-2] [INFO] [1791203876.898530817] [lift_controller]: No specific joint names are used for command interfaces. Using 'joints' parameter.
+[gazebo-2] [INFO] [1791203876.898540276] [lift_controller]: Command interfaces are [position] and state interfaces are [position velocity].
+[gazebo-2] [INFO] [1791203876.898545109] [lift_controller]: Using 'splines' interpolation method.
+[gazebo-2] [INFO] [1791203876.900209507] [lift_controller]: Action status changes will be monitored at 20.00 Hz.
+[gazebo-2] [INFO] [1791203876.903956317] [lift_controller]: Setting initial scaling factor to 1.000000
+[gazebo-2] [INFO] [1791203876.903987110] [lift_controller]: No scaling interface set. This controller will not read speed scaling from the hardware.
+[gazebo-2] [INFO] [1791203876.909320315] [controller_manager]: Loading controller : 'head_controller' of type 'joint_trajectory_controller/JointTrajectoryController'
+[gazebo-2] [INFO] [1791203876.909347608] [controller_manager]: Loading controller 'head_controller'
+[gazebo-2] [INFO] [1791203876.909665995] [controller_manager]: Controller 'head_controller' node arguments: --ros-args --params-file /app/overlay_ws/install/aha_description/share/aha_description/config/controllers.yaml -p use_sim_time:=true --param use_sim_time:=true 
+[spawner-7] [INFO] [1791203876.956743596] [spawner_diff_drive_controller]: Loaded head_controller
+[gazebo-2] [INFO] [1791203876.957627255] [controller_manager]: Configuring controller: 'head_controller'
+[gazebo-2] [INFO] [1791203876.957837597] [head_controller]: No specific joint names are used for command interfaces. Using 'joints' parameter.
+[gazebo-2] [INFO] [1791203876.957984061] [head_controller]: Command interfaces are [position] and state interfaces are [position velocity].
+[gazebo-2] [INFO] [1791203876.957995311] [head_controller]: Using 'splines' interpolation method.
+[gazebo-2] [INFO] [1791203876.961026261] [head_controller]: Action status changes will be monitored at 20.00 Hz.
+[gazebo-2] [INFO] [1791203876.967658807] [head_controller]: Setting initial scaling factor to 1.000000
+[gazebo-2] [INFO] [1791203876.967683475] [head_controller]: No scaling interface set. This controller will not read speed scaling from the hardware.
+[gazebo-2] [INFO] [1791203877.085430334] [controller_manager]: Activating controllers: [ diff_drive_controller left_arm_controller right_arm_controller left_gripper_controller right_gripper_controller lift_controller head_controller ]
+[gazebo-2] [INFO] [1791203877.087945556] [left_gripper_controller]: activate successful
+[gazebo-2] [INFO] [1791203877.088001850] [right_gripper_controller]: activate successful
+[gazebo-2] [INFO] [1791203877.089829962] [controller_manager]: Successfully switched controllers!
+[spawner-7] [INFO] [1791203877.111449959] [spawner_diff_drive_controller]: Configured and activated all the parsed controllers list : ['diff_drive_controller', 'left_arm_controller', 'right_arm_controller', 'left_gripper_controller', 'right_gripper_controller', 'lift_controller', 'head_controller']!
+[INFO] [spawner-7]: process has finished cleanly [pid 50863]
+[gazebo-2] [WARN] [1791203877.656254774] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203880.066286198] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203882.569772756] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203885.081305956] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203889.063960408] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203895.555285117] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203899.984916499] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203904.686654970] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203910.182942633] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203913.225191552] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203919.879972201] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203924.348302000] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203934.964206205] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203937.410773562] [diff_drive_controller]: Velocity command timed out. Braking.
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[gazebo-2] [WARN] [1791203942.234330260] [diff_drive_controller]: Velocity command timed out. Braking.
+[gazebo-2] [WARN] [1791203944.707032784] [diff_drive_controller]: Velocity command timed out. Braking.
+[ERROR] [parameter_bridge-6]: process[parameter_bridge-6] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+[ERROR] [robot_state_publisher-3]: process[robot_state_publisher-3] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+[ERROR] [gazebo-2]: process[gazebo-2] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+[ERROR] [parameter_bridge-1]: process[parameter_bridge-1] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+[INFO] [parameter_bridge-6]: sending signal 'SIGTERM' to process[parameter_bridge-6]
+[INFO] [robot_state_publisher-3]: sending signal 'SIGTERM' to process[robot_state_publisher-3]
+[INFO] [gazebo-2]: sending signal 'SIGTERM' to process[gazebo-2]
+[INFO] [parameter_bridge-1]: sending signal 'SIGTERM' to process[parameter_bridge-1]
+[parameter_bridge-6] [INFO] [1791203946.045913427] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[robot_state_publisher-3] [INFO] [1791203946.046576551] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[parameter_bridge-1] [INFO] [1791203946.050322045] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[ERROR] [gazebo-2]: process has died [pid 50683, exit code -15, cmd 'ruby /opt/ros/jazzy/opt/gz_tools_vendor/bin/gz sim /tmp/aha-task-scene-r2aj8egt/task_tables.sdf -r -s --headless-rendering --force-version 8'].
+[parameter_bridge-1] Fatal glibc error: tpp.c:83 (__pthread_tpp_change_priority): assertion failed: new_prio == -1 || (new_prio >= fifo_min_prio && new_prio <= fifo_max_prio)
+[ERROR] [parameter_bridge-1]: process has died [pid 50682, exit code -6, cmd '/opt/ros/jazzy/lib/ros_gz_bridge/parameter_bridge --ros-args -r __node:=camera_bridge --params-file /tmp/launch_params_nvwjjejv'].
+[INFO] [parameter_bridge-6]: process has finished cleanly [pid 50688]
+[INFO] [robot_state_publisher-3]: process has finished cleanly [pid 50684]

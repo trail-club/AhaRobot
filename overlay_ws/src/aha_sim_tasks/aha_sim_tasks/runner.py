@@ -62,12 +62,19 @@ def run_episode(args, task):
                     "aha_sim_tasks",
                     "environment.launch.py",
                     "headless:=" + ("true" if args.headless else "false"),
+                    "cameras:=" + ("true" if args.cameras else "false"),
+                    "camera_view:=" + ("true" if args.camera_view else "false"),
                 ],
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
             rclpy.init()
-            node = RosEnvironment(task, args.head_image_topic)
+            node = RosEnvironment(
+                task,
+                args.head_image_topic,
+                cameras=args.cameras,
+                camera_timeout=args.camera_timeout,
+            )
             deadline = time.monotonic() + 90
             while not node.ready():
                 if simulator.poll() is not None:
@@ -89,7 +96,9 @@ def run_episode(args, task):
                 if simulator.poll() is not None:
                     raise RuntimeError("Simulator exited during the episode")
                 if not node.fresh():
-                    raise RuntimeError("Simulation observations stopped arriving")
+                    raise RuntimeError(
+                        f"Simulation observations stopped arriving: {node.stale_sources()}"
+                    )
                 action = policy.poll()
                 if action is not None:
                     node.apply(action)
@@ -111,7 +120,11 @@ def run_episode(args, task):
                 if time.monotonic() - episode_started >= args.wall_timeout:
                     result["status"] = "wall_timeout"
                     break
-                if policy.pending is None and time.monotonic() >= next_action:
+                if (
+                    policy.pending is None
+                    and time.monotonic() >= next_action
+                    and node.observation_ready()
+                ):
                     policy.act(node.observation())
             else:
                 raise RuntimeError("ROS context shut down during evaluation")
@@ -157,9 +170,26 @@ def main():
         "--headless", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
+        "--camera-view",
+        action="store_true",
+        help="Open head and wrist image panels in the episode's Gazebo partition",
+    )
+    parser.add_argument(
+        "--cameras",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Render and observe head RGB-D and both wrist RGB cameras",
+    )
+    parser.add_argument(
+        "--camera-timeout",
+        type=float,
+        default=10,
+        help="Wall seconds allowed without a synchronized camera frame",
+    )
+    parser.add_argument(
         "--head-image-topic",
         default="",
-        help="Optional existing ROS Image topic; waits for images if supplied",
+        help="External legacy head Image topic (requires --no-cameras)",
     )
     parser.add_argument(
         "--wall-timeout",
@@ -194,6 +224,12 @@ def main():
     parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.camera_view and not args.cameras:
+        parser.error("--camera-view requires cameras; remove --no-cameras")
+    if args.cameras and args.head_image_topic:
+        parser.error(
+            "--head-image-topic requires --no-cameras; built-in cameras supply head_image"
+        )
     if args.policy_ros_domain_id is None:
         args.policy_ros_domain_id = (args.ros_domain_id + 1) % 233
     if (
@@ -207,6 +243,7 @@ def main():
                 args.wall_timeout,
                 args.policy_timeout,
                 args.policy_startup_timeout,
+                args.camera_timeout,
             )
         )
     ):
@@ -229,6 +266,9 @@ def main():
         "policy": args.policy,
         "ros_domain_id": args.ros_domain_id,
         "policy_ros_domain_id": args.policy_ros_domain_id,
+        "cameras": args.cameras,
+        "camera_view": args.camera_view,
+        "camera_timeout": args.camera_timeout,
         "tasks": {name: asdict(tasks[name]) for name in selected},
         "episodes": [],
     }
@@ -277,6 +317,10 @@ def main():
                 "--head-image-topic",
                 args.head_image_topic,
                 "--headless" if args.headless else "--no-headless",
+                "--cameras" if args.cameras else "--no-cameras",
+                "--camera-timeout",
+                str(args.camera_timeout),
+                *(["--camera-view"] if args.camera_view else []),
             ]
             with (directory / "episode.log").open("w") as log:
                 process = subprocess.Popen(

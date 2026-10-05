@@ -1,0 +1,29 @@
+1791207303.6466920 [INFO] [launch]: All log files can be found below /app/overlay_ws/evaluation-results_episodes/a5b675e323e2404cb803f3ef1d5e5193/place_apple_001/ros_logs/2026-10-05-13-35-03-645767-orbstack-54852
+1791207303.6469557 [INFO] [launch]: Default logging verbosity is set to INFO
+1791207304.0553694 [INFO] [parameter_bridge-1]: process started with pid [54868]
+1791207304.0556450 [INFO] [gazebo-2]: process started with pid [54869]
+1791207304.0557010 [INFO] [robot_state_publisher-3]: process started with pid [54870]
+1791207304.0557423 [INFO] [create-4]: process started with pid [54871]
+1791207304.0557783 [INFO] [spawner-5]: process started with pid [54873]
+1791207304.0558822 [INFO] [gz-6]: process started with pid [54874]
+1791207304.0559306 [INFO] [parameter_bridge-7]: process started with pid [54875]
+1791207305.2603538 [INFO] [create-4]: process has finished cleanly [pid 54871]
+1791207310.6300786 [INFO] [spawner-5]: process has finished cleanly [pid 54873]
+1791207310.6540489 [INFO] [spawner-8]: process started with pid [55159]
+1791207313.2658861 [INFO] [spawner-8]: process has finished cleanly [pid 55159]
+1791207468.2611561 [WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+1791207473.2814786 [ERROR] [parameter_bridge-7]: process[parameter_bridge-7] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+1791207473.2821312 [ERROR] [gz-6]: process[gz-6] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+1791207473.2824225 [ERROR] [robot_state_publisher-3]: process[robot_state_publisher-3] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+1791207473.2826662 [ERROR] [gazebo-2]: process[gazebo-2] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+1791207473.2829821 [ERROR] [parameter_bridge-1]: process[parameter_bridge-1] failed to terminate '5' seconds after receiving 'SIGINT', escalating to 'SIGTERM'
+1791207473.2833023 [INFO] [parameter_bridge-7]: sending signal 'SIGTERM' to process[parameter_bridge-7]
+1791207473.2911308 [INFO] [gz-6]: sending signal 'SIGTERM' to process[gz-6]
+1791207473.2919066 [INFO] [robot_state_publisher-3]: sending signal 'SIGTERM' to process[robot_state_publisher-3]
+1791207473.2977400 [INFO] [gazebo-2]: sending signal 'SIGTERM' to process[gazebo-2]
+1791207473.2987638 [INFO] [parameter_bridge-1]: sending signal 'SIGTERM' to process[parameter_bridge-1]
+1791207473.3018134 [ERROR] [gazebo-2]: process has died [pid 54869, exit code -15, cmd 'ruby /opt/ros/jazzy/opt/gz_tools_vendor/bin/gz sim /tmp/aha-task-scene-_6tgc8gv/task_tables.sdf -r --force-version 8'].
+1791207473.5431519 [INFO] [robot_state_publisher-3]: process has finished cleanly [pid 54870]
+1791207473.5573986 [INFO] [parameter_bridge-7]: process has finished cleanly [pid 54875]
+1791207473.5591598 [INFO] [parameter_bridge-1]: process has finished cleanly [pid 54868]
+1791207474.2718668 [INFO] [gz-6]: process has finished cleanly [pid 54874]

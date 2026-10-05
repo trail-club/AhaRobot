@@ -14,7 +14,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 EVALUATOR_DOMAIN = 91
 POLICY_DOMAIN = 92
 sys.path.insert(0, str(PACKAGE_ROOT))
-from aha_sim_tasks.api import Action, Observation  # noqa: E402
+from aha_sim_tasks.api import Action, CameraObservation, Observation  # noqa: E402
 from aha_sim_tasks.policy_process import PolicyProcess  # noqa: E402
 from aha_sim_tasks.policy_protocol import (  # noqa: E402
     decode_observation,
@@ -172,6 +172,85 @@ def create(): return Probe()
     try:
         ready(process)
         process.act(observation(image))
+        assert response(process) == Action()
+    finally:
+        process.close()
+
+
+def test_three_camera_bundle_survives_worker_ipc(worker_environment):
+    pytest.importorskip("rclpy")
+    from dataclasses import replace
+    from geometry_msgs.msg import TransformStamped
+    from sensor_msgs.msg import CameraInfo, Image
+
+    (worker_environment / "camera_probe.py").write_text("""
+from aha_sim_tasks.api import Action
+class Probe:
+    def reset(self, task_id, instruction): pass
+    def act(self, observation):
+        assert set(observation.cameras) == {"head", "left_wrist", "right_wrist"}
+        for i, (name, camera) in enumerate(observation.cameras.items()):
+            assert bytes(camera.image.data) == bytes([i]) * (640 * 480 * 3)
+            assert camera.image.header == camera.camera_info.header
+            assert camera.camera_info.k[0] == 320
+            assert camera.base_transform.header.frame_id == "base_link"
+            assert camera.base_transform.child_frame_id == name + "_optical"
+            assert camera.base_transform.header.stamp == camera.image.header.stamp
+            if name == "head":
+                assert camera.image is observation.head_image
+                assert camera.depth_image.encoding == "32FC1"
+                assert len(camera.depth_image.data) == 640 * 480 * 4
+            else:
+                assert camera.depth_image is None
+        try:
+            observation.cameras["extra"] = None
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("Camera mapping is mutable")
+        return Action()
+def create(): return Probe()
+""")
+    cameras = {}
+    for i, name in enumerate(("head", "left_wrist", "right_wrist")):
+        image = Image(
+            height=480,
+            width=640,
+            encoding="rgb8",
+            step=1920,
+            data=bytes([i]) * (640 * 480 * 3),
+        )
+        image.header.frame_id = name + "_optical"
+        image.header.stamp.sec = 12
+        info = CameraInfo(
+            header=image.header,
+            height=480,
+            width=640,
+            k=[320.0, 0.0, 320.0, 0.0, 320.0, 240.0, 0.0, 0.0, 1.0],
+        )
+        transform = TransformStamped(child_frame_id=image.header.frame_id)
+        transform.header.frame_id = "base_link"
+        transform.header.stamp = image.header.stamp
+        depth = None
+        if name == "head":
+            depth = Image(
+                header=image.header,
+                height=480,
+                width=640,
+                encoding="32FC1",
+                step=2560,
+                data=bytes(640 * 480 * 4),
+            )
+        cameras[name] = CameraObservation(image, info, transform, depth)
+    source = replace(
+        observation(cameras["head"].image), cameras=MappingProxyType(cameras)
+    )
+    message = observation_message(source)
+    assert message["observation"]["head_image"] is None  # Pixels transferred once.
+    process = worker(worker_environment, "camera_probe:create")
+    try:
+        ready(process)
+        process.act(source)
         assert response(process) == Action()
     finally:
         process.close()

@@ -1,6 +1,7 @@
 # aha_perception
 
-頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI。
+頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、
+シミュレーションの左右の手首RGBカメラのbridge。
 topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)、
 macOSのカメラ経路は [カメラツール](../../../tools/perception/macos/README.md)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
@@ -9,7 +10,8 @@ D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_m
 
 | launch | 内容 |
 | --- | --- |
-| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。Gazeboカメラのbridge（`config/sim_camera_bridge.yaml`）、`pointcloud.launch.py`、`sim_view.launch.py` |
+| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`pointcloud.launch.py`、`sim_view.launch.py` |
+| `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用 |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
 | `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`） |
@@ -41,6 +43,20 @@ URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より�
 
 ```bash
 ros2 launch aha_bringup sim.launch.py use_perception:=true
+```
+
+手首カメラは `link_l6` / `link_r6` に固定した仮想取付位置から
+グリッパの把持中心へ向き、水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
+取付位置と光学特性は実機で校正していない。カメラのvisualに質量やcollisionは追加していない。
+手首カメラの画像はRVizのImage表示で `/camera/left_wrist/image_raw` または
+`/camera/right_wrist/image_raw` を選択して確認できる。
+`cameras:=false` はカメラセンサを除くため、画像を使う場合は付けない。
+
+GUIなしで画像だけ配信する場合は以下を使う。Ogre2/EGLによる描画が必要で、GPUを推奨する。
+ソフトウェア描画ではシミュレーションが遅くなる場合がある。
+
+```bash
+ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=false
 ```
 
 `perception.launch.py` の引数はコマンドラインで渡す。

@@ -105,6 +105,8 @@ class ScriptedPolicy:
             linear_velocity=velocity,
             angular_velocity=angular if velocity else 0.0,
             joint_positions={
+                "joint_head_pan": settings["head_pan"],
+                "joint_head_tilt": settings["head_tilt"],
                 "joint_r1": desired_height,
                 "joint_r7r": opening,
                 "joint_r7l": -opening,

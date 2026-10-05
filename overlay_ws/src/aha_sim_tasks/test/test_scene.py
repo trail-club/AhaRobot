@@ -96,3 +96,40 @@ def test_real_robot_sdf_retains_both_configured_finger_collision_links(tmp_path)
             joint for joint in model.findall("joint") if joint.findtext("child") == name
         ]
         assert len(joints) == 1 and joints[0].get("type") == "prismatic"
+
+
+@pytest.mark.parametrize("cameras", [True, False])
+def test_rendering_and_robot_sensors_can_be_disabled_together(tmp_path, cameras):
+    from ament_index_python.packages import get_package_share_directory
+
+    world = ET.fromstring(
+        expand_world(
+            PACKAGE / "worlds/task_tables.sdf.xacro",
+            PACKAGE / "config/scene.json",
+            cameras,
+        )
+    )
+    sensors = world.find("world/plugin[@name='gz::sim::systems::Sensors']")
+    assert (sensors is not None) == cameras
+    robot = (
+        Path(get_package_share_directory("aha_description"))
+        / "urdf/aha_robot.urdf.xacro"
+    )
+    urdf = tmp_path / "robot.urdf"
+    urdf.write_text(
+        subprocess.check_output(
+            ["xacro", str(robot), "sim:=true", "cameras:=" + str(cameras).lower()],
+            text=True,
+        )
+    )
+    model = ET.fromstring(
+        subprocess.check_output(["gz", "sdf", "-p", str(urdf)], text=True)
+    )
+    names = {
+        sensor.attrib["name"]
+        for sensor in model.findall(".//sensor")
+        if sensor.attrib["type"] in ("camera", "rgbd_camera")
+    }
+    assert names == (
+        {"head_camera", "left_wrist_camera", "right_wrist_camera"} if cameras else set()
+    )

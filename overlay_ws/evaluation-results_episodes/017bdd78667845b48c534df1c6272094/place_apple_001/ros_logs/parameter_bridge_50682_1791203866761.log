@@ -1,0 +1,7 @@
+[INFO] [1791203867.787326118] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/image (gz.msgs.Image) -> /camera/color/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[INFO] [1791203867.794504644] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/depth_image (gz.msgs.Image) -> /camera/depth_registered/image_rect (sensor_msgs/msg/Image)] (Lazy 0)
+[INFO] [1791203867.796040745] [camera_bridge]: Creating GZ->ROS Bridge: [/head_camera/camera_info (gz.msgs.CameraInfo) -> /camera/color/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)
+[INFO] [1791203867.797175080] [camera_bridge]: Creating GZ->ROS Bridge: [/left_wrist_camera/image (gz.msgs.Image) -> /camera/left_wrist/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[INFO] [1791203867.797817730] [camera_bridge]: Creating GZ->ROS Bridge: [/left_wrist_camera/camera_info (gz.msgs.CameraInfo) -> /camera/left_wrist/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)
+[INFO] [1791203867.798322874] [camera_bridge]: Creating GZ->ROS Bridge: [/right_wrist_camera/image (gz.msgs.Image) -> /camera/right_wrist/image_raw (sensor_msgs/msg/Image)] (Lazy 0)
+[INFO] [1791203867.798786517] [camera_bridge]: Creating GZ->ROS Bridge: [/right_wrist_camera/camera_info (gz.msgs.CameraInfo) -> /camera/right_wrist/camera_info (sensor_msgs/msg/CameraInfo)] (Lazy 0)

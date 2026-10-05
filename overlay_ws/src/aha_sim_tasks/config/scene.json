@@ -13,6 +13,8 @@
   "apple_radius": 0.04,
   "table_size": [0.24, 0.28, 0.12],
   "scripted": {
+    "head_pan": 0.6,
+    "head_tilt": 1.0,
     "gripper_offset": [0.472, -0.426],
     "open_position": 0.06,
     "grasp_position": 0.035,
