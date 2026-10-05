@@ -72,6 +72,10 @@ D435i相当のノイズを加える。座標は base_link（x前方・z上・床
 - 内部パラメータは 640x480、fx = fy = 465.7、cx = 319.5、cy = 239.5（`Intrinsics`）
 - 乱数のシードはシーン名とノイズ倍率から決まり、実行ごとに同じフレームになる
 
+`NOISE_PRESETS` に実機に合わせたノイズ（`d435i_raw` / `d435i_filtered`、[ノイズの較正](#ノイズの較正)）があり、
+`noise_preset(name, fx)` で f を画像の fx にして使う。`generate_sequence` は静止カメラの連続フレームを返し、
+遮蔽帯・穴・静的ノイズ場は系列で共通、それ以外のノイズはフレームごとに引く（[系列評価](#系列評価)）。
+
 GTラベルは平面ごとの画像上の連結成分（400画素以上かつ0.02 m²以上）。
 物体の面・脚・棚の側板・小さすぎる面は don't care、円柱の側面・flying pixel・外れ値は非平面、
 評価範囲（0.3–4.0 m）外と欠損は無効として扱う。
@@ -147,3 +151,69 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | h IoU | 対応した水平面のインライア画素のIoUの平均 |
 | detect ms | `detect_planes` の経過時間（1スレッド） |
 | temporal noise | 全フレームで有効な画素の深度の標準偏差の中央値を平均深度0.5 mごとに集計し、モデルのσ(Z)と並べる |
+
+## ノイズの較正
+
+実機フレーム（静止カメラ）と合成の静止系列に同じ統計（`noise_stats.compute`）をかけ、
+`NoiseParams` を実機に合わせる。`d435i_raw` は `filter_label` が `raw`、`d435i_filtered` は `filtered` のシーンから求める。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  python tools/perception/plane_bench/calibrate_noise.py
+```
+
+- 実機の統計から初期値を求め、合成シーン `calib_desk`（手前の机・2.6 mの壁）と `calib_wall`（2.7 mの壁・机）の
+  10フレーム系列の統計との比で3回補正する。
+- `--out`（既定 `results/noise_calibration.md`）に、プリセット値と実機・合成の統計の比較表を書く。
+  求めた値は標準出力にも出し、`scenes.NOISE_PRESETS` と一致するかを表示する。値を変えたら `NOISE_PRESETS` を手で更新する。
+
+統計の定義（深度はZ²で正規化して比べる）：
+
+| 統計 | 定義 |
+| --- | --- |
+| temporal subpixel | 深度エッジ・無効画素から2 px以上離れた全フレーム有効画素の時間標準偏差を、平均深度0.25 mごとに σ/Z²·f·b の中央値（10サンプルの偏りを補正）にし、0.75–3.5 mのビンの中央値をとる |
+| correlated fraction / correlation px / aspect | 1.0–3.5 mの画素で、フレームと時間平均の差の行・列方向の自己相関（ラグ1–24 px）に c·exp(−d²/4s²) を当てはめる。px は縦の s、aspect は横/縦 |
+| static | 時間平均Depthで `ransac_gravity` が検出した15000画素以上の平面（0.75 m以上）に平面を当てはめ、残差の分散から時間ノイズの寄与（σ²/N）を引く。static level は subpixel 単位の標準偏差、static / temporal はその比、相関長は時間ノイズの寄与を除いた自己相関から求める |
+| invalid / never-valid / flicker | 無効画素の割合（全フレーム）、どのフレームでも無効な画素、一部のフレームだけ無効な画素（一度でも有効な画素に対する割合） |
+| flicker rate / decay px | never-valid 画素からの距離ごとのフリッカー率をフレームあたりの欠損確率に直し、q(d) = rate·exp(−(d−1)/decay) を当てはめる。6 pxより遠い画素は isolated dropout |
+| gross outlier | 画素ごとの中央値から 8 MAD かつ深度の10%を超えて外れたサンプルの割合 |
+
+## プリセット
+
+`scenes.NOISE_PRESETS` の `default` は従来の単フレームのノイズ、`d435i_raw` / `d435i_filtered` は較正値。
+較正で使う `NoiseParams` の項目：
+
+| 項目 | 内容 |
+| --- | --- |
+| `subpixel` | フレームあたりの深度ノイズ σ(Z) = Z²·subpixel / (f·b)（時間成分と静的成分の合計） |
+| `static_fraction` / `static_correlation_px` | σ² のうち系列で固定する割合と、その静的ノイズ場のガウシアン相関（px） |
+| `correlated_fraction` / `correlation_px` / `correlation_aspect` | 時間成分のうち空間相関をもつ割合、縦のガウシアン相関（px）、横/縦の比 |
+| `flicker_rate` / `flicker_px` | 固定の無効画素（遮蔽帯・穴・距離範囲外）から距離 d の画素が各フレームで欠ける確率 rate·exp(−(d−1)/px) |
+| `dropout` / `holes` / `outlier_rate` | フレームごとの孤立した欠損、系列で固定の楕円の穴の数、フレームごとの外れ値 |
+| `quantization` | 深度の丸め幅（m、0で無効） |
+
+`subpixel` と相関長は適用する画像の画素単位（較正は実機の fx = 603）。
+fx の異なる画像で `focal = fx` とすると、m単位の σ(Z) は fx の比で変わり、検出器の `DepthNoiseModel(focal=fx)` との比は保たれる。
+
+## 系列評価
+
+合成シーンを静止カメラの連続フレームとして生成し、フレームごとの検出精度（GTあり）と安定性を評価する。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  python tools/perception/plane_bench/run_sequence.py
+```
+
+- `--scenes`（既定は全シーン）・`--presets`（既定 `default d435i_raw d435i_filtered`）・
+  `--methods`（既定 `ransac_gravity_refined ransac_gravity`）・`--frames`（既定10）・`--max-depth`（既定3.0、複数可）。
+- 内部パラメータはベンチと同じ `Intrinsics()`、プリセットと検出器のノイズモデルの f は fx。深度範囲とGTの評価範囲は0.3 m–max depth。
+  シードはシーン名とプリセットから決まる。1スレッドで実行する。
+- `--out`（既定 `results/sequence.md`）にプリセット × 手法ごとのシーン平均と、シーンごとの表を書き、同名の `.csv` に行ごとの値を書く。
+
+| 指標 | 定義 |
+| --- | --- |
+| PQ / F1 / recall / precision / h recall / h height | `detect_planes` の出力をフレームごとに [指標](#指標) で評価した値の、系列内の平均 ± 標準偏差 |
+| persistence | 水平GT平面（面の名前と重心距離15 cm以内でフレーム間をつなぐ）ごとの、存在するフレームのうち対応した割合の平均 |
+| persistent | 存在する全フレームで対応した水平GT平面の割合 |
+| planes all / selected | `detect_planes` と `select_output_planes` のフレームあたりの平面数（平均、最小–最大） |
+| h matched / h std / h IoU | `run_real.py` と同じフレーム間の安定性（GTを使わない） |
