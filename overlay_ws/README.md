@@ -9,7 +9,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | --- | --- |
 | `aha_description` | URDF xacro、差動二輪ベース、ros2_control設定 |
 | `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
-| `aha_bringup` | ロボット生成とcontrollerの起動、[apple pick task](src/aha_bringup/README.md) |
+| `aha_bringup` | [ロボット生成とcontrollerの起動](src/aha_bringup/README.md) |
 | `aha_sim_tasks` | [タスク・policy評価](src/aha_sim_tasks/README.md)、approach / pick / pick-and-place |
 | `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
 | `aha_msgs` | msg / srv / action定義 |

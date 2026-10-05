@@ -9,7 +9,7 @@ install(
 )
 
 install(
-  PROGRAMS scripts/teleop_base.sh scripts/demo_arms.sh scripts/pick_apple.py
+  PROGRAMS scripts/teleop_base.sh scripts/demo_arms.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 

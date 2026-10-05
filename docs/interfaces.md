@@ -29,7 +29,6 @@
 | 軌道指令 | `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
 | 軌道action | `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
 | グリッパ位置指令 | `/left_gripper_controller/commands` / `/right_gripper_controller/commands` | `std_msgs/msg/Float64MultiArray` |
-| Apple pick demoのGazebo pose | `/model/apple/pose` | `tf2_msgs/msg/TFMessage`（`gz.msgs.Pose_V`からbridge） |
 
 軌道の `<controller>` は `left_arm_controller` / `right_arm_controller` / `lift_controller` /
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
@@ -37,8 +36,6 @@
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
-`apple_pick.launch.py` は `/model/apple/pose` を成功判定に使う。このtopicはこのデモだけで使う。
-appleは接触・摩擦・重力で動く自由剛体で、attach指令topicはない。
 
 ## タスク評価
 

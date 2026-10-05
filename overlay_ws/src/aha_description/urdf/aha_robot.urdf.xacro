@@ -21,7 +21,6 @@
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="sim" default="true"/>
-  <xacro:arg name="apple_pick_mode" default="false"/>
   <xacro:arg name="lidar" default="$(arg sim)"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 
