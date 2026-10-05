@@ -200,7 +200,8 @@ Camera streams and simulated mounts are described in
 
 With `--no-cameras`, `cameras` is empty and `head_image` is `None`.
 For a legacy external image publisher in the evaluation ROS domain, use
-`--no-cameras --head-image-topic /your/image/topic`; the latest Image becomes
+`--head-image-topic /your/image/topic` (built-in cameras are turned off
+automatically; combining it with `--cameras` is an error); the latest Image becomes
 `head_image`, without calibration or transform pairing. The runner waits for
 that stream and treats a stopped stream as an error.
 

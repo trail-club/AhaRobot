@@ -62,8 +62,9 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
 この観測系は物体の運動を変更しない。policyには `/joint_states`、車輪odom、シミュレーション時刻、
 タスクID・言語指示を渡す。既定では頭部RGB-D・左右の手首RGBカメラを描画し、画像・校正・画像時刻のbase_linkからのTFを
-policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは同オプションと
-`--head-image-topic` の指定時のみsensor-data QoSで購読する。
+policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは
+`--head-image-topic` の指定時のみsensor-data QoSで購読する。このとき内蔵カメラは無効になり、
+`--cameras` との併用はエラーになる。
 world poseの座標はworld、policyのodom座標は `odom`。
 評価はcontrollerの速度・関節位置指令を発行する。
 評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。

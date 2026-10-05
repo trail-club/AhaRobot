@@ -1,9 +1,0 @@
-[INFO] [1791207314.936657175] [task_evaluator]: Policy phase: prepare
-[INFO] [1791207319.355654093] [task_evaluator]: Policy phase: approach
-[INFO] [1791207329.684461556] [task_evaluator]: Policy phase: lower
-[INFO] [1791207333.671517946] [task_evaluator]: Policy phase: close
-[INFO] [1791207335.884545166] [task_evaluator]: Policy phase: lift
-[INFO] [1791207340.351861781] [task_evaluator]: Policy phase: transfer
-[INFO] [1791207348.891000825] [task_evaluator]: Policy phase: place
-[INFO] [1791207353.277401754] [task_evaluator]: Policy phase: release
-[INFO] [1791207355.246929730] [task_evaluator]: Policy phase: done

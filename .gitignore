@@ -22,6 +22,9 @@ __pycache__/
 /overlay_ws/src/sobits_gazebo_worlds
 /overlay_ws/src/tmc_wrs_gz_worlds
 
+# Simulation evaluation outputs (aha_sim_tasks evaluate)
+overlay_ws/evaluation-results*
+
 # Session artifacts
 .claude/
 

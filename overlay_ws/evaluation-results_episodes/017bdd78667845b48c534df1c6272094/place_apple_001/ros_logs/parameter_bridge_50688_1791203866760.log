@@ -1,3 +1,0 @@
-[INFO] [1791203866.779040614] [ros_gz_bridge]: Creating GZ->ROS Bridge: [/evaluation/state (gz.msgs.StringMsg) -> /evaluation/state (std_msgs/msg/String)] (Lazy 0)
-[INFO] [1791203866.780663801] [ros_gz_bridge]: Creating GZ->ROS Bridge: [/evaluation/clock (gz.msgs.Clock) -> /evaluation/clock (rosgraph_msgs/msg/Clock)] (Lazy 0)
-[INFO] [1791203946.045913427] [rclcpp]: signal_handler(SIGINT/SIGTERM)

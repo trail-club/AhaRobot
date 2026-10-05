@@ -196,3 +196,69 @@ def test_episode_bounds_unusable_camera_bundles(
         assert result["wall_seconds"] == expected
     assert {"node", "destroy", "policy", "simulator"} <= set(stopped)
     assert bool(actions) is not pending
+
+
+@pytest.mark.parametrize(
+    ("flags", "cameras"),
+    [
+        ([], True),
+        (["--no-cameras"], False),
+        (["--head-image-topic", "/head"], False),
+        (["--no-cameras", "--head-image-topic", "/head"], False),
+    ],
+)
+def test_cameras_default_follows_head_image_topic(
+    monkeypatch, tmp_path, flags, cameras
+):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    seen = []
+    monkeypatch.setattr(
+        runner, "run_episode", lambda args, task: seen.append(args) or 0
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--episode",
+            "--task",
+            "place_apple",
+            "--output",
+            str(tmp_path / "result.json"),
+            *flags,
+        ],
+    )
+    assert runner.main() == 0
+    assert seen[0].cameras is cameras
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--cameras", "--head-image-topic", "/head"],
+        ["--no-cameras", "--camera-view"],
+        ["--head-image-topic", "/head", "--camera-view"],
+    ],
+)
+def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--episode",
+            "--task",
+            "place_apple",
+            "--output",
+            str(tmp_path / "result.json"),
+            *flags,
+        ],
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        runner.main()
+    assert exit_info.value.code == 2

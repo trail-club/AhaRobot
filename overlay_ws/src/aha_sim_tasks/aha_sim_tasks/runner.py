@@ -187,8 +187,9 @@ def main():
     parser.add_argument(
         "--cameras",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Render and observe head RGB-D and both wrist RGB cameras",
+        default=None,
+        help="Render and observe head RGB-D and both wrist RGB cameras "
+        "(default: on, off when --head-image-topic is given)",
     )
     parser.add_argument(
         "--camera-timeout",
@@ -199,7 +200,8 @@ def main():
     parser.add_argument(
         "--head-image-topic",
         default="",
-        help="External legacy head Image topic (requires --no-cameras)",
+        help="External legacy head Image topic (disables built-in cameras; "
+        "cannot be combined with --cameras)",
     )
     parser.add_argument(
         "--wall-timeout",
@@ -234,11 +236,14 @@ def main():
     parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.cameras is None:
+        args.cameras = not args.head_image_topic
     if args.camera_view and not args.cameras:
         parser.error("--camera-view requires cameras; remove --no-cameras")
     if args.cameras and args.head_image_topic:
         parser.error(
-            "--head-image-topic requires --no-cameras; built-in cameras supply head_image"
+            "--head-image-topic cannot be combined with --cameras; "
+            "built-in cameras supply head_image"
         )
     if args.policy_ros_domain_id is None:
         args.policy_ros_domain_id = (args.ros_domain_id + 1) % 233
