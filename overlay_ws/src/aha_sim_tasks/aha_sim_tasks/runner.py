@@ -14,7 +14,8 @@ import uuid
 from ament_index_python.packages import get_package_share_directory
 
 from .evaluation import Evaluator, load_tasks
-from .policies import load_policy, policy_factory
+from .policy_process import PolicyProcess
+from .processes import policy_partition, stop_group
 
 
 def write_json(path, value):
@@ -36,12 +37,24 @@ def run_episode(args, task):
         "metrics": {},
     }
     simulator = None
+    policy = None
     node = None
     evaluator = None
     with (args.output.parent / "simulator.log").open("w") as log:
         try:
-            policy = load_policy(args.policy)
-            policy.reset(task.task_id, task.instruction)
+            policy = PolicyProcess(
+                args.policy,
+                task.task_id,
+                task.instruction,
+                args.policy_ros_domain_id,
+                args.output.parent,
+                os.environ["GZ_PARTITION"],
+                startup_timeout=args.policy_startup_timeout,
+                action_timeout=args.policy_timeout,
+            )
+            while not policy.ready:
+                policy.poll()
+                time.sleep(0.01)
             simulator = subprocess.Popen(
                 [
                     "ros2",
@@ -77,6 +90,13 @@ def run_episode(args, task):
                     raise RuntimeError("Simulator exited during the episode")
                 if not node.fresh():
                     raise RuntimeError("Simulation observations stopped arriving")
+                action = policy.poll()
+                if action is not None:
+                    node.apply(action)
+                    if policy.phase != previous_phase:
+                        node.get_logger().info(f"Policy phase: {policy.phase}")
+                        previous_phase = policy.phase
+                    next_action = time.monotonic() + 0.1
                 if (
                     abs(node.get_clock().now().nanoseconds * 1e-9 - node.world.sim_time)
                     > 0.5
@@ -91,13 +111,8 @@ def run_episode(args, task):
                 if time.monotonic() - episode_started >= args.wall_timeout:
                     result["status"] = "wall_timeout"
                     break
-                if time.monotonic() >= next_action:
-                    node.apply(policy.act(node.observation()))
-                    phase = getattr(policy, "phase", None)
-                    if phase != previous_phase:
-                        node.get_logger().info(f"Policy phase: {phase}")
-                        previous_phase = phase
-                    next_action = time.monotonic() + 0.1
+                if policy.pending is None and time.monotonic() >= next_action:
+                    policy.act(node.observation())
             else:
                 raise RuntimeError("ROS context shut down during evaluation")
         except Exception as error:
@@ -112,6 +127,8 @@ def run_episode(args, task):
                 node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()
+            if policy is not None:
+                policy.close()
             if simulator is not None and simulator.poll() is None:
                 simulator.send_signal(signal.SIGINT)
                 try:
@@ -121,59 +138,6 @@ def run_episode(args, task):
             result["wall_seconds"] = time.monotonic() - started
             write_json(args.output, result)
     return 0 if result["status"] == "success" else 1
-
-
-def partition_processes(partition):
-    """Find this episode's processes, including Gazebo's detached GUI/server."""
-    if not partition:
-        return set()
-    marker = f"GZ_PARTITION={partition}".encode()
-    processes = set()
-    for entry in Path("/proc").iterdir():
-        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
-            continue
-        try:
-            if entry.stat().st_uid != os.getuid():
-                continue
-            if marker in (entry / "environ").read_bytes().split(b"\0"):
-                processes.add(int(entry.name))
-        except (OSError, ProcessLookupError):
-            continue
-    return processes
-
-
-def signal_partition(partition, sig):
-    for pid in partition_processes(partition):
-        try:
-            os.kill(pid, sig)
-        except ProcessLookupError:
-            pass
-
-
-def stop_group(process, partition):
-    # Gazebo's combined GUI/server CLI creates separate process groups, so a
-    # group signal alone can leave a controller manager in the ROS domain.
-    try:
-        os.killpg(process.pid, signal.SIGINT)
-    except ProcessLookupError:
-        pass
-    signal_partition(partition, signal.SIGINT)
-    try:
-        process.wait(timeout=15)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    signal_partition(partition, signal.SIGKILL)
-    process.wait()
-    deadline = time.monotonic() + 3
-    while partition_processes(partition):
-        if time.monotonic() >= deadline:
-            raise RuntimeError(f"Simulator processes did not stop: {partition}")
-        signal_partition(partition, signal.SIGKILL)
-        time.sleep(0.05)
 
 
 def main():
@@ -209,17 +173,45 @@ def main():
         default=87,
         help="Isolated evaluation ROS domain (0..232)",
     )
+    parser.add_argument(
+        "--policy-ros-domain-id",
+        type=int,
+        help="Worker ROS domain (0..232); defaults to evaluation domain + 1, wrapping to 0",
+    )
+    parser.add_argument(
+        "--policy-timeout",
+        type=float,
+        default=30,
+        help="Wall seconds allowed for each policy.act call",
+    )
+    parser.add_argument(
+        "--policy-startup-timeout",
+        type=float,
+        default=120,
+        help="Wall seconds allowed for policy import, construction, and reset",
+    )
     parser.add_argument("--output", type=Path, default=Path("evaluation-results.json"))
     parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.policy_ros_domain_id is None:
+        args.policy_ros_domain_id = (args.ros_domain_id + 1) % 233
     if (
         args.episodes < 1
         or not 0 <= args.ros_domain_id <= 232
-        or not 0 < args.wall_timeout < float("inf")
+        or not 0 <= args.policy_ros_domain_id <= 232
+        or args.policy_ros_domain_id == args.ros_domain_id
+        or any(
+            not 0 < timeout < float("inf")
+            for timeout in (
+                args.wall_timeout,
+                args.policy_timeout,
+                args.policy_startup_timeout,
+            )
+        )
     ):
         parser.error(
-            "episodes and wall-timeout must be positive; ros-domain-id must be in 0..232"
+            "episodes and timeouts must be positive; ROS domains must be distinct and in 0..232"
         )
     if args.list_tasks:
         print(
@@ -232,11 +224,11 @@ def main():
         if args.task == "all":
             parser.error("internal episode requires a single task")
         return run_episode(args, tasks[args.task])
-    # Fail fast for a misspelled or unavailable policy before launching Gazebo.
-    policy_factory(args.policy)
     selected = list(tasks) if args.task == "all" else [args.task]
     report = {
         "policy": args.policy,
+        "ros_domain_id": args.ros_domain_id,
+        "policy_ros_domain_id": args.policy_ros_domain_id,
         "tasks": {name: asdict(tasks[name]) for name in selected},
         "episodes": [],
     }
@@ -270,6 +262,14 @@ def main():
                 name,
                 "--policy",
                 args.policy,
+                "--ros-domain-id",
+                str(args.ros_domain_id),
+                "--policy-ros-domain-id",
+                str(args.policy_ros_domain_id),
+                "--policy-timeout",
+                str(args.policy_timeout),
+                "--policy-startup-timeout",
+                str(args.policy_startup_timeout),
                 "--output",
                 str(episode_result),
                 "--wall-timeout",
@@ -287,11 +287,19 @@ def main():
                     start_new_session=True,
                 )
                 try:
-                    process.wait(timeout=args.wall_timeout + 110)
+                    process.wait(
+                        timeout=args.wall_timeout + args.policy_startup_timeout + 110
+                    )
                 except subprocess.TimeoutExpired:
                     pass
                 finally:
-                    stop_group(process, environment["GZ_PARTITION"])
+                    stop_group(
+                        process,
+                        environment["GZ_PARTITION"],
+                        other_partitions=(
+                            policy_partition(environment["GZ_PARTITION"]),
+                        ),
+                    )
             if episode_result.is_file():
                 result = json.loads(episode_result.read_text())
             else:

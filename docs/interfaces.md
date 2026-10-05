@@ -40,8 +40,10 @@
 ## タスク評価
 
 [aha_sim_tasks](../overlay_ws/src/aha_sim_tasks/README.md) はepisodeごとに独立したROS domainと
-Gazebo partitionでシミュレーションを起動する。policyの入出力は既存controllerのtopicを使うため、
-標準シミュレーションのtopic / frameは変更しない。
+Gazebo partitionでシミュレーションを起動する。policyは別プロセス・別ROS domain・別Gazebo partitionで動き、
+観測とActionだけをIPCで交換する。既存controllerへの指令は評価側のROS adapterが配信するため、
+標準シミュレーションのtopic / frameは変更しない。評価用topicをpolicy側のdomainへbridgeしない。
+domain設定・policy API・分離の保証範囲はパッケージのREADMEを参照。
 
 | 用途 | 名前 | 型 |
 | --- | --- | --- |

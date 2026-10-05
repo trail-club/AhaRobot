@@ -17,9 +17,12 @@ The runner starts a fresh simulator for **each episode**, including the robot,
 controllers, object, and contact state.
 The evaluation launch activates the command controllers as one group and waits
 for their active states before calling the policy.
-Evaluation uses ROS domain 87 by default
-(`--ros-domain-id` changes it) and a separate Gazebo transport partition per
-episode. The domain must be unused by other ROS applications.
+Simulation and scoring use ROS domain 87 by default (`--ros-domain-id` changes it).
+Each policy runs in a separate Python subprocess, using ROS domain 88 by default
+and a different Gazebo transport partition. `--policy-ros-domain-id` changes the
+worker domain; otherwise it is the evaluation domain plus one, wrapping 232 to 0.
+The two domains must differ and be unused by other ROS applications.
+Both Gazebo partitions are unique per episode.
 The scene publishes `/clock` at 20 Hz together with the scoring poses so that
 clock traffic remains bounded on CPU-only hosts.
 
@@ -65,8 +68,14 @@ restarts it.
 
 Startup has a 90 s wall deadline. Missing/stale observations cause an error;
 `--wall-timeout` (default 240 s after startup) also bounds slow or paused
-simulations. The parent process imposes an additional deadline that covers a
-policy adapter hanging. Simulator processes are stopped on completion or error.
+simulations. Policy import, construction, and `reset` have a separate 120 s wall
+deadline (`--policy-startup-timeout`); each `act` call has a 30 s wall deadline
+(`--policy-timeout`). Increase these for models with longer loading or inference.
+The evaluator continues receiving ROS updates and scoring while inference runs;
+at most one policy call is outstanding. Worker errors, crashes, invalid commands,
+and policy timeouts fail the episode with status `error`.
+The parent process also bounds the entire episode. Simulator and policy processes
+are stopped on completion or error, including descendants in either partition.
 
 The scripted policy opens the right gripper, raises the lift, approaches using
 wheel odometry with heading correction, lowers and closes the gripper, then
@@ -92,8 +101,9 @@ simulated holding and release, rather than real robot grasp quality.
 
 ## Connect another policy
 
-`--policy my_package.my_policy:create_policy` imports and calls a factory. The
-returned object implements this interface from [api.py](aha_sim_tasks/api.py):
+`--policy my_package.my_policy:create_policy` imports and calls a factory only in
+the policy worker. Built-in policies use the same worker boundary. The returned
+object implements this interface from [api.py](aha_sim_tasks/api.py):
 
 ```python
 from aha_sim_tasks.api import Action, Observation
@@ -111,12 +121,26 @@ def create_policy():
     return MyPolicy()
 ```
 
-Place the module on the evaluation process's Python path. Each episode creates
-and resets a new policy. `act` runs at up to 10 Hz in wall time. Observation fields
-are simulation time, task ID, language instruction, joint positions/velocities,
+Place the module on the runner's Python path, which the worker inherits. Each
+episode creates and resets a new policy. `act` runs at up to 10 Hz in wall time.
+Observation fields are simulation time, task ID, language instruction, joint positions/velocities,
 wheel odometry `(x, y, yaw)` in `odom`, and optional `head_image`. Joint mappings
 are read-only snapshots. Object/world poses, finger contacts, and score are absent
 from policy observations.
+
+Only these observation fields cross a private IPC socket; the worker returns an
+`Action`, validated by the evaluator before publishing controller commands.
+Joint mappings remain read-only snapshots, and optional images retain their
+`sensor_msgs/msg/Image` type after serialization. Policy stdout/stderr and
+tracebacks are written to `policy.log` in the episode's artifact directory.
+The worker has no evaluator Python frames or evaluator-owned `RosEnvironment`
+object, and its default ROS/Gazebo connections cannot discover evaluation topics.
+No ROS topics are bridged into its domain: ROS-based policy components must receive their input
+from `Observation` and return commands through `Action`.
+
+This separation prevents accidental use of privileged state by team-owned
+policies. It is not a security sandbox: the processes share the host and
+filesystem, and policy code could deliberately join the evaluation transports.
 
 The built-in scene does not render a head camera. If an image publisher is
 available in the evaluation ROS domain, `--head-image-topic /your/image/topic`

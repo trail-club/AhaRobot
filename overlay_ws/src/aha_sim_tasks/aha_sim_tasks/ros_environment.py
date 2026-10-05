@@ -1,4 +1,4 @@
-"""ROS transport adapter; world state is used exclusively by the evaluator."""
+"""Evaluator-side ROS adapter; only public observations cross policy IPC."""
 
 import math
 import time

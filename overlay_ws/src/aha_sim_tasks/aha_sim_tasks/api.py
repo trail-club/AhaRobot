@@ -1,4 +1,8 @@
-"""The policy API contains robot observations and commands, without scoring state."""
+"""Robot observations and commands exchanged with a separate policy process.
+
+Scoring state is excluded from this IPC API. Process and transport separation
+prevent accidental access; team-owned policy code is not security-sandboxed.
+"""
 
 from dataclasses import dataclass, field
 import math

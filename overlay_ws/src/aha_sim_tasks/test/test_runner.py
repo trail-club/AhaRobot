@@ -10,7 +10,11 @@ import uuid
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from aha_sim_tasks.runner import partition_processes, stop_group  # noqa: E402
+from aha_sim_tasks.processes import (  # noqa: E402
+    partition_processes,
+    policy_partition,
+    stop_group,
+)
 
 
 WORKER = """
@@ -21,9 +25,10 @@ Path(sys.argv[1]).write_text('ready')
 time.sleep(60)
 """
 PARENT = """
-import subprocess, sys, time
+import os, subprocess, sys, time
 from pathlib import Path
 child = subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]],
+                         env={**os.environ, 'GZ_PARTITION': sys.argv[5]},
                          start_new_session=True)
 while not Path(sys.argv[2]).exists():
     time.sleep(0.01)
@@ -34,8 +39,13 @@ if sys.argv[4] == 'wait':
 
 
 @pytest.mark.parametrize("parent_exited", [False, True])
-def test_cleanup_stops_detached_worker_even_after_parent_exits(tmp_path, parent_exited):
+@pytest.mark.parametrize("separate_partition", [False, True])
+def test_cleanup_stops_detached_worker_even_after_parent_exits(
+    tmp_path, parent_exited, separate_partition
+):
     partition = "aha-evaluation-test-" + uuid.uuid4().hex
+    worker_partition = policy_partition(partition) if separate_partition else partition
+    extra_partitions = (worker_partition,) if separate_partition else ()
     other_partition = partition + "-other"
     other = subprocess.Popen(
         [
@@ -58,6 +68,7 @@ def test_cleanup_stops_detached_worker_even_after_parent_exits(tmp_path, parent_
             str(tmp_path / "ready"),
             str(tmp_path / "pid"),
             "exit" if parent_exited else "wait",
+            worker_partition,
         ],
         env={**os.environ, "GZ_PARTITION": partition},
         start_new_session=True,
@@ -73,10 +84,11 @@ def test_cleanup_stops_detached_worker_even_after_parent_exits(tmp_path, parent_
         assert os.getpgid(worker) == worker
         if parent_exited:
             parent.wait(timeout=5)
-        assert worker in partition_processes(partition)
-        stop_group(parent, partition)
+        assert worker in partition_processes(worker_partition)
+        stop_group(parent, partition, other_partitions=extra_partitions)
         assert not partition_processes(partition)
+        assert not partition_processes(worker_partition)
         assert other.poll() is None
     finally:
-        stop_group(parent, partition)
+        stop_group(parent, partition, other_partitions=extra_partitions)
         stop_group(other, other_partition)
