@@ -70,6 +70,10 @@ GT平面と検出平面をハンガリアン法で1対1に対応させる。コ�
 
 `scenes.py` が解析形状（矩形・箱・円柱）を頭部カメラ（高さ1.43 m、pan/tilt）からレイキャストし、
 D435i相当のノイズを加える。座標は base_link（x前方・z上・床 z=0）。
+ノイズモデル（`NoiseParams`・`NOISE_PRESETS`・`noise_preset`・`FrozenNoise`）は
+[`aha_perception.depth_noise`](../../../overlay_ws/src/aha_perception/aha_perception/depth_noise.py) にあり、
+シミュレーションの [Depthノイズ](../../../overlay_ws/src/aha_perception/README.md#depthノイズ) と共通。
+`scenes.py` はそれを再エクスポートし、`corrupt_frame` でflying pixel・外れ値を非平面、欠損を無効にラベルを付け替える。
 
 - 深度ノイズ σ(Z) = Z²·0.08 / (f·0.05 m)、半分は空間相関（ガウシアン 1.5 px）。ノイズ倍率は ×0.5 / ×1 / ×2
 - ステレオの遮蔽帯（前景の左側の欠損）、深度エッジの flying pixel、ランダムな欠損と穴、外れ値
@@ -172,7 +176,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 - 実機の統計から初期値を求め、合成シーン `calib_desk`（手前の机・2.6 mの壁）と `calib_wall`（2.7 mの壁・机）の
   10フレーム系列の統計との比で3回補正する。
 - `--out`（既定 `results/noise_calibration.md`）に、プリセット値と実機・合成の統計の比較表を書く。
-  求めた値は標準出力にも出し、`scenes.NOISE_PRESETS` と一致するかを表示する。値を変えたら `NOISE_PRESETS` を手で更新する。
+  求めた値は標準出力にも出し、`NOISE_PRESETS` と一致するかを表示する。値を変えたら `aha_perception.depth_noise` の `NOISE_PRESETS` を手で更新する。
 
 統計の定義（深度はZ²で正規化して比べる）：
 
@@ -187,7 +191,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 
 ## プリセット
 
-`scenes.NOISE_PRESETS` の `default` は従来の単フレームのノイズ、`d435i_raw` / `d435i_filtered` は較正値。
+`NOISE_PRESETS` の `default` は従来の単フレームのノイズ、`d435i_raw` / `d435i_filtered` は較正値。
 較正で使う `NoiseParams` の項目：
 
 | 項目 | 内容 |

@@ -1,19 +1,32 @@
 """Synthetic organized depth scenes with per-pixel ground-truth planes.
 
 Analytic boxes, cylinders and rectangles are ray-cast from a head camera pose
-into a D435i-like depth image, then corrupted with a stereo noise model.
+into a D435i-like depth image, then corrupted with the stereo noise model of
+``aha_perception.depth_noise``.
 Coordinates are in the robot base frame (x forward, y left, z up, floor z=0).
 """
 
 from __future__ import annotations
 
+import pathlib
+import sys
 import zlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter
 from scipy.ndimage import label as connected_label
+
+_REPO = pathlib.Path(__file__).resolve().parents[3]
+_PERCEPTION = _REPO / "overlay_ws" / "src" / "aha_perception"
+if str(_PERCEPTION) not in sys.path:
+    sys.path.insert(0, str(_PERCEPTION))
+
+# The noise model and presets are re-exported for the bench scripts.
+from aha_perception.depth_noise import NOISE_PRESETS as NOISE_PRESETS  # noqa: E402
+from aha_perception.depth_noise import FrozenNoise as FrozenNoise  # noqa: E402
+from aha_perception.depth_noise import NoiseParams, corrupt_depth  # noqa: E402
+from aha_perception.depth_noise import noise_preset as noise_preset  # noqa: E402
 
 INVALID = -3
 DONT_CARE = -2
@@ -62,80 +75,6 @@ class CameraPose:
         transform[:3, :3] = yaw @ pitch @ optical
         transform[:3, 3] = (self.x, self.y, self.height)
         return transform
-
-
-@dataclass(frozen=True)
-class NoiseParams:
-    """D435i-like corruption. ``scale`` multiplies the noise-dependent terms.
-
-    ``subpixel`` sets the per-frame depth sigma. In a sequence
-    (``generate_sequence``) the shadow, the holes and ``static_fraction`` of
-    the depth noise variance are frozen; the rest is drawn per frame.
-    ``correlation_px`` is the vertical Gaussian sigma of the correlated part,
-    ``correlation_aspect`` the horizontal / vertical ratio. Pixels at distance
-    d (px) from a frozen invalid pixel drop out per frame with probability
-    ``flicker_rate * exp(-(d - 1) / flicker_px)``. ``quantization`` rounds
-    the depth (m, 0 = off). The defaults keep the original single-frame model.
-    """
-
-    baseline: float = 0.05
-    subpixel: float = 0.08
-    focal: float = 465.7
-    scale: float = 1.0
-    correlated_fraction: float = 0.5
-    correlation_px: float = 1.5
-    dropout: float = 0.005
-    holes: int = 3
-    flying_prob: float = 0.3
-    outlier_rate: float = 0.001
-    shadow: bool = True
-    min_range: float = 0.28
-    max_range: float = 6.0
-    correlation_aspect: float = 1.0
-    static_fraction: float = 0.0
-    static_correlation_px: float = 14.0
-    flicker_rate: float = 0.0
-    flicker_px: float = 2.0
-    quantization: float = 0.0
-
-
-# Fitted to the real D435i captures by calibrate_noise.py; see
-# results/noise_calibration.md. ``focal`` is replaced by the image fx.
-NOISE_PRESETS = {
-    "default": NoiseParams(),
-    "d435i_raw": NoiseParams(
-        subpixel=0.201,
-        correlated_fraction=0.987,
-        correlation_px=7.1,
-        dropout=0.0006,
-        holes=11,
-        outlier_rate=0.0,
-        correlation_aspect=1.3,
-        static_fraction=0.53,
-        static_correlation_px=16.6,
-        flicker_rate=0.091,
-        flicker_px=1.9,
-        quantization=0.001,
-    ),
-    "d435i_filtered": NoiseParams(
-        subpixel=0.154,
-        correlated_fraction=0.981,
-        correlation_px=8.5,
-        dropout=0.0002,
-        holes=13,
-        outlier_rate=0.0,
-        correlation_aspect=1.3,
-        static_fraction=0.82,
-        static_correlation_px=16.2,
-        flicker_rate=0.084,
-        flicker_px=1.7,
-        quantization=0.001,
-    ),
-}
-
-
-def noise_preset(name: str, focal: float) -> NoiseParams:
-    return replace(NOISE_PRESETS[name], focal=focal)
 
 
 @dataclass
@@ -309,29 +248,6 @@ def raycast(scene: Scene, intrinsics: Intrinsics):
     return depth, codes
 
 
-def _shift(values, dy, dx, fill):
-    out = np.full_like(values, fill)
-    h, w = values.shape
-    out[max(0, -dy) : h - max(0, dy), max(0, -dx) : w - max(0, dx)] = values[
-        max(0, dy) : h - max(0, -dy), max(0, dx) : w - max(0, -dx)
-    ]
-    return out
-
-
-@dataclass
-class FrozenNoise:
-    """Noise components shared by every frame of a sequence."""
-
-    holes: np.ndarray  # (H, W) bool
-    static: np.ndarray | None  # (H, W) unit-variance field
-    near_invalid: np.ndarray | None  # (H, W) px to the nearest frozen invalid
-
-
-def _unit_field(rng, shape, sigma):
-    field_ = gaussian_filter(rng.standard_normal(shape), sigma)
-    return field_ / field_.std()
-
-
 def corrupt(depth, codes, noise: NoiseParams, rng: np.random.Generator):
     """Apply the stereo noise model; corrupted pixels are relabeled."""
     z, codes, _ = corrupt_frame(depth, codes, noise, rng)
@@ -350,95 +266,11 @@ def corrupt_frame(
     With ``frozen`` None the frozen components are drawn from ``rng`` in the
     same order as the single-frame model.
     """
-    z = depth.copy()
+    result = corrupt_depth(depth, noise, rng, frozen)
     codes = codes.copy()
-    if noise.shadow:
-        fb = noise.focal * noise.baseline
-        shadow = np.zeros(z.shape, dtype=bool)
-        for s in range(1, 25):
-            right = _shift(z, 0, s, np.inf)
-            with np.errstate(invalid="ignore", divide="ignore"):
-                width = fb * (1.0 / right - 1.0 / z)
-                shadow |= (z - right > 0.03) & (s <= width)
-        z[shadow] = np.inf
-    with np.errstate(invalid="ignore"):
-        frozen_invalid = (
-            ~np.isfinite(z) | (depth < noise.min_range) | (depth > noise.max_range)
-        )
-
-    shifts = ((0, 1), (0, -1), (1, 0), (-1, 0))
-    stack = np.stack([_shift(z, dy, dx, np.inf) for dy, dx in shifts])
-    usable = np.isfinite(stack) & np.isfinite(z)
-    far = np.where(usable, stack, -np.inf).max(axis=0)
-    with np.errstate(invalid="ignore"):
-        fly = np.isfinite(far) & (far - z > 0.05)
-        fly &= rng.random(z.shape) < min(1.0, noise.flying_prob * noise.scale)
-        alpha = rng.uniform(0.2, 0.8, z.shape)
-        z = np.where(fly, z + alpha * (far - z), z)
-    codes[fly] = NON_PLANAR
-
-    sigma = np.square(np.where(np.isfinite(z), z, 0.0)) * (
-        noise.subpixel / (noise.focal * noise.baseline)
-    )
-    iid = rng.standard_normal(z.shape)
-    corr_sigma = noise.correlation_px
-    if noise.correlation_aspect != 1.0:
-        corr_sigma = (
-            noise.correlation_px,
-            noise.correlation_px * noise.correlation_aspect,
-        )
-    corr = gaussian_filter(rng.standard_normal(z.shape), corr_sigma)
-    corr /= corr.std()
-    mix = (
-        np.sqrt(1 - noise.correlated_fraction) * iid
-        + np.sqrt(noise.correlated_fraction) * corr
-    )
-    static = None
-    if noise.static_fraction > 0:
-        if frozen is None:
-            static = _unit_field(rng, z.shape, noise.static_correlation_px)
-        else:
-            static = frozen.static
-        mix = (
-            np.sqrt(1 - noise.static_fraction) * mix
-            + np.sqrt(noise.static_fraction) * static
-        )
-    z = z + noise.scale * sigma * mix
-
-    drop = rng.random(z.shape) < noise.dropout * noise.scale
-    if frozen is None:
-        h, w = z.shape
-        v, u = np.mgrid[:h, :w]
-        holes = np.zeros(z.shape, dtype=bool)
-        for _ in range(noise.holes):
-            cy, cx = rng.uniform(0, h), rng.uniform(0, w)
-            ry, rx = rng.uniform(4, 15, size=2)
-            holes |= ((v - cy) / ry) ** 2 + ((u - cx) / rx) ** 2 <= 1
-    else:
-        holes = frozen.holes
-    drop |= holes
-    near_invalid = None
-    if noise.flicker_rate > 0:
-        if frozen is None or frozen.near_invalid is None:
-            near_invalid = distance_transform_edt(~(frozen_invalid | holes))
-        else:
-            near_invalid = frozen.near_invalid
-        rate = min(1.0, noise.flicker_rate * noise.scale)
-        drop |= rng.random(z.shape) < rate * np.exp(
-            -(near_invalid - 1.0) / noise.flicker_px
-        )
-    z[drop] = np.inf
-
-    outlier = np.isfinite(z) & (rng.random(z.shape) < noise.outlier_rate * noise.scale)
-    z = np.where(outlier, z * rng.uniform(0.5, 1.5, z.shape), z)
-    codes[outlier] = NON_PLANAR
-    if noise.quantization > 0:
-        z = np.round(z / noise.quantization) * noise.quantization
-
-    invalid = ~np.isfinite(z) | (z < noise.min_range) | (z > noise.max_range)
-    z[invalid] = np.nan
-    codes[invalid] = INVALID
-    return z, codes, FrozenNoise(holes, static, near_invalid)
+    codes[result.flying | result.outlier] = NON_PLANAR
+    codes[np.isnan(result.depth)] = INVALID
+    return result.depth, codes, result.frozen
 
 
 def _instances(

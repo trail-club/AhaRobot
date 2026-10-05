@@ -7,6 +7,7 @@ from aha_perception.plane_detection_io import (
     POINT_DTYPE,
     depth_from_buffer,
     depth_mm_to_m,
+    depth_to_buffer,
     depth_to_cloud,
     label_color,
     pack_rgb,
@@ -72,6 +73,22 @@ def test_depth_from_buffer_32f_and_16u_with_padding():
         depth_from_buffer(b"", 1, 1, 4, "rgb8")
     with pytest.raises(ValueError):
         depth_from_buffer(image.tobytes(), 3, 4, 8, "32FC1")
+
+
+def test_depth_to_buffer_round_trip_and_invalid():
+    depth = np.array([[1.25, np.nan, np.inf], [0.0, 2.0004, 70.0]], np.float32)
+    data, step = depth_to_buffer(depth, "32FC1")
+    assert step == 12
+    out = depth_from_buffer(data, 2, 3, step, "32FC1")
+    np.testing.assert_array_equal(np.isnan(out), [[0, 1, 1], [0, 0, 0]])
+    np.testing.assert_array_equal(out[0, 0], depth[0, 0])
+
+    data, step = depth_to_buffer(depth, "16UC1")
+    assert step == 6
+    mm = np.frombuffer(data, "<u2").reshape(2, 3)
+    np.testing.assert_array_equal(mm, [[1250, 0, 0], [0, 2000, 65535]])
+    with pytest.raises(ValueError):
+        depth_to_buffer(depth, "rgb8")
 
 
 def test_transform_to_matrix():

@@ -98,12 +98,14 @@ class SequenceTests(unittest.TestCase):
         self.assertAlmostEqual(float(np.var((z1[ok] - z0[ok]) / sigma)), 1.0, delta=0.1)
 
     def test_flicker_drops_pixels_next_to_frozen_invalid(self):
+        from scipy.ndimage import distance_transform_edt
+
         noise = replace(self.quiet, flicker_rate=0.5, flicker_px=1.0)
         _, depth = self._depth(noise, n=6)
         finite = np.isfinite(depth)
         flicker = finite.any(axis=0) & ~finite.all(axis=0)
         never = ~finite.any(axis=0)
-        distance = scenes.distance_transform_edt(~never)
+        distance = distance_transform_edt(~never)
         self.assertGreater(flicker[(distance > 0) & (distance <= 1.5)].mean(), 0.5)
         self.assertLess(flicker[distance > 6].mean(), 0.01)
 

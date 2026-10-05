@@ -167,6 +167,9 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 | 実機カメラ | [カメラツール](../tools/perception/macos/pointcloud/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
 | 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
 
+シミュレーションで `depth_noise:=d435i_filtered`（または `d435i_raw`）を付けると、bridgeのDepthは
+`/camera/depth_registered/image_rect_clean` に出て、`sim_depth_noise.py` が実機D435i相当のノイズを加えた
+`/camera/depth_registered/image_rect` を配信する（[Depthノイズ](../overlay_ws/src/aha_perception/README.md#depthノイズ)）。
 `/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)
 の `depth_image_proc` が生成する。全topicは `camera_color_optical_frame` を使い、
 RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。

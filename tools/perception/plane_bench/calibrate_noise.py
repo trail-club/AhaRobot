@@ -4,7 +4,7 @@ Computes ``noise_stats`` on the real scenes (``d435i_raw`` from raw captures,
 ``d435i_filtered`` from filtered ones), derives ``NoiseParams``, checks them by
 running the same statistics on synthetic static sequences, and writes
 ``results/noise_calibration.md``. The printed presets are copied into
-``scenes.NOISE_PRESETS`` by hand. See README.md.
+``NOISE_PRESETS`` of ``aha_perception.depth_noise`` by hand. See README.md.
 """
 
 import os
@@ -448,9 +448,10 @@ def build_report(groups_by_preset, presets, real_static, focal, elapsed):
         "",
         "Unlisted fields keep the defaults. `focal` is set to the image fx. "
         + (
-            "`scenes.NOISE_PRESETS` holds these values."
+            "`aha_perception.depth_noise.NOISE_PRESETS` holds these values."
             if not stale
-            else f"`scenes.NOISE_PRESETS` differs for {', '.join(stale)}."
+            else "`aha_perception.depth_noise.NOISE_PRESETS` differs for "
+            f"{', '.join(stale)}."
         ),
         "",
     ]
@@ -553,7 +554,10 @@ def main():
     log(f"wrote {args.out}")
     for name, params in presets.items():
         state = "matches" if NOISE_PRESETS.get(name) == params else "differs from"
-        print(f"{name} {state} scenes.NOISE_PRESETS:\n{preset_source(name, params)}")
+        print(
+            f"{name} {state} aha_perception.depth_noise.NOISE_PRESETS:\n"
+            f"{preset_source(name, params)}"
+        )
 
 
 if __name__ == "__main__":

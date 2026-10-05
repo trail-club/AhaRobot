@@ -64,6 +64,22 @@ def depth_from_buffer(
     return image.astype(np.float32)
 
 
+def depth_to_buffer(depth: np.ndarray, encoding: str) -> tuple[bytes, int]:
+    """Depth in meters (non-finite = invalid) to a little-endian payload and step.
+
+    32FC1 keeps the values (NaN for invalid); 16UC1 rounds to millimeters with
+    0 for invalid.
+    """
+    if encoding == "32FC1":
+        image = np.where(np.isfinite(depth), depth, np.nan).astype("<f4")
+    elif encoding == "16UC1":
+        mm = np.where(np.isfinite(depth), np.round(depth * 1e3), 0.0)
+        image = np.clip(mm, 0, np.iinfo(np.uint16).max).astype("<u2")
+    else:
+        raise ValueError(f"unsupported depth encoding {encoding!r}")
+    return image.tobytes(), image.shape[1] * image.itemsize
+
+
 def depth_to_cloud(
     depth: np.ndarray, fx: float, fy: float, cx: float, cy: float, stride: int = 1
 ) -> np.ndarray:

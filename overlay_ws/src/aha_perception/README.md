@@ -16,8 +16,8 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 
 | launch | 内容 |
 | --- | --- |
-| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py` |
-| `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用 |
+| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`depth_noise` 指定時は `sim_depth_noise.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py` |
+| `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用。`depth_topic` で頭部Depthの配信先を変える |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
 | `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`） |
@@ -32,6 +32,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 | `plane_detection_node.py` | 頭部のDepthから床・机・棚・壁の平面を検出し、点群とMarkerArrayで出力する（[平面検出](#平面検出のノード)） |
+| `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
 `aha_perception.head_config` 経由で読む。符号は +pan = ロボットの右、+tilt = 下。
@@ -42,7 +43,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`）で、
 URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より低くしている。
-`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py` はwall clockで動く。
+`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py`・`sim_depth_noise.py` はwall clockで動く。
 `head_look_at.py` は最新のTFを待たずに使い、TFがまだない注視点はwarningを出して捨てる。
 シミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
 操作パネルの頭のスライダーは、パネルから送った目標に `/joint_states` が2°以内に近づくまで（最長で移動時間の4倍 + 1 s）目標値を表示し、その後は `/joint_states` に追従する。
@@ -90,6 +91,7 @@ ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=
 | `control_panel` | `true` | 操作パネルの起動 |
 | `use_sim_time` | `true` | bridge・点群node・RVizでシミュレーション時刻を使う |
 | `planes` | `false` | 平面検出（`plane_detection.launch.py`）の起動 |
+| `depth_noise` | `none` | Depthに加えるノイズ（`none` / `d435i_filtered` / `d435i_raw`、[Depthノイズ](#depthノイズ)） |
 
 Gazeboを止めずに表示だけ再起動する場合は `rviz:=false` で起動し、別ターミナルで以下を実行する。
 
@@ -108,6 +110,34 @@ ros2 run aha_perception teleop_head.py  # キーボード操作（対話シェ�
 
 地図と重ねる場合は `use_nav:=true fixed_frame:=map` を付ける。
 RVizの設定には `/map` / `/scan` の表示とslam_toolboxパネルが含まれ、これらのtopicがあれば表示する。
+
+### Depthノイズ
+
+```bash
+ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true depth_noise:=d435i_filtered
+```
+
+`depth_noise` を指定すると、bridgeはDepthを `/camera/depth_registered/image_rect_clean` に出し、
+`sim_depth_noise.py` がノイズを加えて `/camera/depth_registered/image_rect` に出す。
+点群・平面検出・RVizはノイズを加えたDepthを使う。
+
+- ノイズは平面検出ベンチマークと共通の `aha_perception.depth_noise` で、プリセットは実機D435iの静止フレームに合わせた値
+  （`d435i_filtered` / `d435i_raw`、[較正](../../../tools/perception/plane_bench/README.md#ノイズの較正)）。
+- 静的な誤差場と穴は最初のフレームで引き、画像座標に固定する（画像サイズが変わると引き直す）。
+  時間方向のノイズ、無効画素の周りのフリッカー、孤立した欠損、flying pixel、遮蔽帯（前景の左側）はフレームごとに計算する。
+- f はCameraInfoの fx。プリセットは画素単位で較正した値（実機 fx ≈ 603）のため、シミュレーション（fx ≈ 465）での
+  m単位の σ(Z) は実機の約1.3倍になる（平面検出の `DepthNoiseModel(focal=fx)` との比は同じ）。
+- 6 mより遠い画素は無効になる。入力の無効画素（NaN・inf・0以下）は無効のまま。
+- Gazebo自体のDepthノイズ（ガウシアン σ 5 mm、`aha_description/urdf/sensors.xacro`）は残り、その上に加わる。
+- 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。10 sごとに処理時間と捨てた数をログに出す。
+
+| パラメータ | 既定 | 内容 |
+| --- | --- | --- |
+| `preset` | `d435i_filtered` | `NOISE_PRESETS` の名前（launchの `depth_noise`） |
+| `input_topic` | `/camera/depth_registered/image_rect_clean` | 入力のDepth（32FC1のm、または16UC1のmm） |
+| `output_topic` | `/camera/depth_registered/image_rect` | 出力のDepth。header・エンコーディングは入力と同じ（16ビットは16UC1） |
+| `camera_info_topic` | `/camera/color/camera_info` | fxの取得 |
+| `seed` | `0` | 乱数のシード |
 
 ## 実機の頭部とカメラ
 
@@ -252,5 +282,6 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 ```bash
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
-  --with pytest python -m pytest test/test_planes_*.py
+  --with pytest python -m pytest test/test_planes_*.py test/test_plane_detection_io.py \
+  test/test_depth_noise.py
 ```
