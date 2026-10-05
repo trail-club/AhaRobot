@@ -230,6 +230,36 @@ def test_standard_sim_preserves_explicit_pose(monkeypatch):
     assert context.launch_configurations["spawn_z"] == "0.1"
 
 
+def test_standard_clock_bridge_can_be_supplied_by_parent(monkeypatch):
+    from launch_ros.actions import Node
+
+    module = load_launch("aha_bringup", "sim.launch.py")
+    monkeypatch.setattr(
+        module, "get_package_share_directory", lambda package: str(SOURCE / package)
+    )
+    monkeypatch.setattr(
+        module, "get_package_prefix", lambda package: "/install/" + package
+    )
+    context = LaunchContext()
+    description = module.generate_launch_description()
+    for action in description.entities:
+        if isinstance(action, DeclareLaunchArgument):
+            action.execute(context)
+    clock_bridge = next(
+        action
+        for action in description.entities
+        if isinstance(action, Node)
+        and perform_substitutions(
+            context, normalize_to_list_of_substitutions(action.node_executable)
+        )
+        == "parameter_bridge"
+    )
+    assert context.launch_configurations["bridge_clock"] == "true"
+    assert clock_bridge.condition.evaluate(context)
+    context.launch_configurations["bridge_clock"] = "false"
+    assert not clock_bridge.condition.evaluate(context)
+
+
 def test_default_gazebo_expands_arena_and_preserves_resources(tmp_path, monkeypatch):
     import hashlib
     from launch.actions import IncludeLaunchDescription

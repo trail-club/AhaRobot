@@ -1,0 +1,322 @@
+"""Evaluate policies in isolated, freshly started Gazebo episodes."""
+
+import argparse
+from dataclasses import asdict
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+from ament_index_python.packages import get_package_share_directory
+
+from .evaluation import Evaluator, load_tasks
+from .policies import load_policy, policy_factory
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    temporary.replace(path)
+
+
+def run_episode(args, task):
+    import rclpy
+    from .ros_environment import RosEnvironment
+
+    started = time.monotonic()
+    result = {
+        "task_id": task.task_id,
+        "policy": args.policy,
+        "status": "error",
+        "metrics": {},
+    }
+    simulator = None
+    node = None
+    evaluator = None
+    with (args.output.parent / "simulator.log").open("w") as log:
+        try:
+            policy = load_policy(args.policy)
+            policy.reset(task.task_id, task.instruction)
+            simulator = subprocess.Popen(
+                [
+                    "ros2",
+                    "launch",
+                    "aha_sim_tasks",
+                    "environment.launch.py",
+                    "headless:=" + ("true" if args.headless else "false"),
+                ],
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            rclpy.init()
+            node = RosEnvironment(task, args.head_image_topic)
+            deadline = time.monotonic() + 90
+            while not node.ready():
+                if simulator.poll() is not None:
+                    raise RuntimeError(
+                        "Simulator exited during startup; see simulator.log"
+                    )
+                if time.monotonic() >= deadline:
+                    missing = node.required - node.received.keys()
+                    raise RuntimeError(
+                        f"Simulation readiness timed out; missing observations: {sorted(missing)}; see simulator.log"
+                    )
+                rclpy.spin_once(node, timeout_sec=0.1)
+            evaluator = Evaluator(task, node.world.sim_time)
+            episode_started = time.monotonic()
+            next_action = episode_started
+            previous_phase = None
+            while rclpy.ok():
+                rclpy.spin_once(node, timeout_sec=0.02)
+                if simulator.poll() is not None:
+                    raise RuntimeError("Simulator exited during the episode")
+                if not node.fresh():
+                    raise RuntimeError("Simulation observations stopped arriving")
+                if (
+                    abs(node.get_clock().now().nanoseconds * 1e-9 - node.world.sim_time)
+                    > 0.5
+                ):
+                    raise RuntimeError(
+                        "ROS simulation clock diverged from Gazebo pose timestamps"
+                    )
+                status = evaluator.update(node.world)
+                if status is not None:
+                    result["status"] = status
+                    break
+                if time.monotonic() - episode_started >= args.wall_timeout:
+                    result["status"] = "wall_timeout"
+                    break
+                if time.monotonic() >= next_action:
+                    node.apply(policy.act(node.observation()))
+                    phase = getattr(policy, "phase", None)
+                    if phase != previous_phase:
+                        node.get_logger().info(f"Policy phase: {phase}")
+                        previous_phase = phase
+                    next_action = time.monotonic() + 0.1
+            else:
+                raise RuntimeError("ROS context shut down during evaluation")
+        except Exception as error:
+            result["reason"] = f"{type(error).__name__}: {error}"
+        finally:
+            if evaluator is not None:
+                result["metrics"] = evaluator.metrics
+            if node is not None:
+                if rclpy.ok():
+                    node.stop()
+                    rclpy.spin_once(node, timeout_sec=0.1)
+                node.destroy_node()
+            if rclpy.ok():
+                rclpy.shutdown()
+            if simulator is not None and simulator.poll() is None:
+                simulator.send_signal(signal.SIGINT)
+                try:
+                    simulator.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    simulator.terminate()
+            result["wall_seconds"] = time.monotonic() - started
+            write_json(args.output, result)
+    return 0 if result["status"] == "success" else 1
+
+
+def partition_processes(partition):
+    """Find this episode's processes, including Gazebo's detached GUI/server."""
+    if not partition:
+        return set()
+    marker = f"GZ_PARTITION={partition}".encode()
+    processes = set()
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            if marker in (entry / "environ").read_bytes().split(b"\0"):
+                processes.add(int(entry.name))
+        except (OSError, ProcessLookupError):
+            continue
+    return processes
+
+
+def signal_partition(partition, sig):
+    for pid in partition_processes(partition):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def stop_group(process, partition):
+    # Gazebo's combined GUI/server CLI creates separate process groups, so a
+    # group signal alone can leave a controller manager in the ROS domain.
+    try:
+        os.killpg(process.pid, signal.SIGINT)
+    except ProcessLookupError:
+        pass
+    signal_partition(partition, signal.SIGINT)
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    signal_partition(partition, signal.SIGKILL)
+    process.wait()
+    deadline = time.monotonic() + 3
+    while partition_processes(partition):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Simulator processes did not stop: {partition}")
+        signal_partition(partition, signal.SIGKILL)
+        time.sleep(0.05)
+
+
+def main():
+    tasks = load_tasks(
+        Path(get_package_share_directory("aha_sim_tasks")) / "config/tasks.json"
+    )
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", choices=["all", *tasks], default="all")
+    parser.add_argument("--policy", default="scripted")
+    parser.add_argument(
+        "--episodes",
+        type=int,
+        default=1,
+        help="Episodes per task; each starts a fresh simulator",
+    )
+    parser.add_argument(
+        "--headless", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument(
+        "--head-image-topic",
+        default="",
+        help="Optional existing ROS Image topic; waits for images if supplied",
+    )
+    parser.add_argument(
+        "--wall-timeout",
+        type=float,
+        default=240,
+        help="Wall seconds per episode, excluding startup",
+    )
+    parser.add_argument(
+        "--ros-domain-id",
+        type=int,
+        default=87,
+        help="Isolated evaluation ROS domain (0..232)",
+    )
+    parser.add_argument("--output", type=Path, default=Path("evaluation-results.json"))
+    parser.add_argument("--list-tasks", action="store_true")
+    parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if (
+        args.episodes < 1
+        or not 0 <= args.ros_domain_id <= 232
+        or not 0 < args.wall_timeout < float("inf")
+    ):
+        parser.error(
+            "episodes and wall-timeout must be positive; ros-domain-id must be in 0..232"
+        )
+    if args.list_tasks:
+        print(
+            json.dumps({name: asdict(task) for name, task in tasks.items()}, indent=2)
+        )
+        return 0
+    args.output = args.output.resolve()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    if args.episode:
+        if args.task == "all":
+            parser.error("internal episode requires a single task")
+        return run_episode(args, tasks[args.task])
+    # Fail fast for a misspelled or unavailable policy before launching Gazebo.
+    policy_factory(args.policy)
+    selected = list(tasks) if args.task == "all" else [args.task]
+    report = {
+        "policy": args.policy,
+        "tasks": {name: asdict(tasks[name]) for name in selected},
+        "episodes": [],
+    }
+    run_id = uuid.uuid4().hex
+    for name in selected:
+        for index in range(1, args.episodes + 1):
+            directory = (
+                args.output.parent
+                / (args.output.stem + "_episodes")
+                / run_id
+                / f"{name}_{index:03d}"
+            )
+            directory.mkdir(parents=True)
+            episode_result = directory / "result.json"
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    "ROS_DOMAIN_ID": str(args.ros_domain_id),
+                    "GZ_PARTITION": f"aha-evaluation-{run_id}-{name}-{index}",
+                    "ROS_LOG_DIR": str(directory / "ros_logs"),
+                    "ROS_HOME": str(directory / "ros_home"),
+                    "GZ_SIM_LOG_PATH": str(directory / "gz_logs"),
+                }
+            )
+            command = [
+                sys.executable,
+                "-m",
+                "aha_sim_tasks.runner",
+                "--episode",
+                "--task",
+                name,
+                "--policy",
+                args.policy,
+                "--output",
+                str(episode_result),
+                "--wall-timeout",
+                str(args.wall_timeout),
+                "--head-image-topic",
+                args.head_image_topic,
+                "--headless" if args.headless else "--no-headless",
+            ]
+            with (directory / "episode.log").open("w") as log:
+                process = subprocess.Popen(
+                    command,
+                    env=environment,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+                try:
+                    process.wait(timeout=args.wall_timeout + 110)
+                except subprocess.TimeoutExpired:
+                    pass
+                finally:
+                    stop_group(process, environment["GZ_PARTITION"])
+            if episode_result.is_file():
+                result = json.loads(episode_result.read_text())
+            else:
+                result = {
+                    "task_id": name,
+                    "policy": args.policy,
+                    "status": "error",
+                    "reason": "Episode process exited or exceeded its deadline; see episode.log",
+                    "metrics": {},
+                }
+            result.update(episode=index, artifacts=str(directory))
+            report["episodes"].append(result)
+            successes = sum(
+                episode["status"] == "success" for episode in report["episodes"]
+            )
+            report["summary"] = {
+                "successes": successes,
+                "episodes": len(report["episodes"]),
+                "success_rate": successes / len(report["episodes"]),
+            }
+            write_json(args.output, report)
+            print(f"{name} episode {index}: {result['status']}", flush=True)
+    print(f"Results: {args.output}")
+    return 0 if report["summary"]["success_rate"] == 1 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
