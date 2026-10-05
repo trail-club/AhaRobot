@@ -17,7 +17,6 @@
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="sim" default="true"/>
-  <xacro:arg name="apple_pick_mode" default="false"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 
   <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh).
@@ -41,15 +40,6 @@
               name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <parameters>$(arg controllers_yaml)</parameters>
       </plugin>
-      <xacro:if value="$(arg apple_pick_mode)">
-        <plugin filename="gz-sim-detachable-joint-system"
-                name="gz::sim::systems::DetachableJoint">
-          <parent_link>link_r6</parent_link>
-          <child_model>apple</child_model>
-          <child_link>link</child_link>
-          <attach_topic>/apple/attach</attach_topic>
-        </plugin>
-      </xacro:if>
     </gazebo>
   </xacro:if>
 

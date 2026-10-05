@@ -128,8 +128,7 @@ def generate_launch_description():
                 [
                     "xacro ",
                     xacro_path,
-                    " sim:=true apple_pick_mode:=",
-                    LaunchConfiguration("apple_pick_mode"),
+                    " sim:=true",
                 ]
             ),
             value_type=str,
@@ -271,11 +270,6 @@ def generate_launch_description():
                 "bridge_clock",
                 default_value="true",
                 description="Bridge Gazebo's clock; disable when a parent launch supplies /clock",
-            ),
-            DeclareLaunchArgument(
-                "apple_pick_mode",
-                default_value="false",
-                description="Enable the Gazebo grasp latch used by the apple-pick demo",
             ),
             DeclareLaunchArgument("use_nav", default_value="false"),
             DeclareLaunchArgument(

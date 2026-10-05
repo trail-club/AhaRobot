@@ -42,7 +42,6 @@ def generate_launch_description():
                         [FindPackageShare("aha_sim_tasks"), "worlds", "task_tables.sdf"]
                     ),
                     "headless": LaunchConfiguration("headless"),
-                    "apple_pick_mode": "false",
                     "bridge_clock": "false",
                     "activate_controllers_as_group": "true",
                 }.items(),
@@ -52,7 +51,7 @@ def generate_launch_description():
                 executable="parameter_bridge",
                 arguments=[
                     "/evaluation/poses@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V",
-                    "/evaluation/grasped@std_msgs/msg/Bool[gz.msgs.Boolean",
+                    "/evaluation/finger_contacts@std_msgs/msg/UInt32[gz.msgs.UInt32",
                     "/evaluation/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
                 ],
                 remappings=[("/evaluation/clock", "/clock")],

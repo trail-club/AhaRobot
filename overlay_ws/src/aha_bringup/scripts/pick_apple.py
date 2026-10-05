@@ -12,7 +12,9 @@ from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from std_msgs.msg import Empty, Float64MultiArray
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Float64MultiArray
 from tf2_msgs.msg import TFMessage
 from trajectory_msgs.msg import JointTrajectoryPoint
 
@@ -20,9 +22,9 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 class PickAppleTask(Node):
     APPROACH_DISTANCE = 0.49
     APPROACH_SPEED = 0.12
-    APPROACH_LIFT_HEIGHT = 0.12
-    GRASP_LIFT_HEIGHT = 0.16
-    PICK_LIFT_HEIGHT = 0.28
+    APPROACH_LIFT_HEIGHT = 0.18
+    GRASP_LIFT_HEIGHT = 0.05
+    PICK_LIFT_HEIGHT = 0.18
     GRASP_FINGER_POSITION = 0.035
     PICKED_APPLE_MIN_Z = 0.24
     PICK_CONFIRMATION_TIME = 1.0
@@ -51,7 +53,10 @@ class PickAppleTask(Node):
         self._gripper = self.create_publisher(
             Float64MultiArray, "/right_gripper_controller/commands", 10
         )
-        self._grasp_latch = self.create_publisher(Empty, "/apple/attach", 10)
+        self._finger_positions = None
+        self.create_subscription(
+            JointState, "/joint_states", self._on_joints, qos_profile_sensor_data
+        )
         self._lift = ActionClient(
             self,
             FollowJointTrajectory,
@@ -60,6 +65,14 @@ class PickAppleTask(Node):
 
     def _on_odom(self, message):
         self._odom = message
+
+    def _on_joints(self, message):
+        positions = dict(zip(message.name, message.position))
+        if "joint_r7r" in positions and "joint_r7l" in positions:
+            self._finger_positions = (
+                positions["joint_r7r"],
+                positions["joint_r7l"],
+            )
 
     def _on_world_poses(self, message):
         for transform in message.transforms:
@@ -83,38 +96,39 @@ class PickAppleTask(Node):
                 self._base_command.get_subscription_count() > 0
                 and self._odom_sub.get_publisher_count() > 0
                 and self._gripper.get_subscription_count() > 0
-                and self._grasp_latch.get_subscription_count() > 0
+                and self._finger_positions is not None
                 and self._lift.server_is_ready()
             ):
                 return
             rclpy.spin_once(self, timeout_sec=0.1)
         raise RuntimeError(
-            "Timed out waiting for the base, lift, right gripper, "
-            "and Gazebo grasp latch"
+            "Timed out waiting for the base, lift, and right gripper controllers"
         )
 
     def _set_gripper(self, positions):
         message = Float64MultiArray(data=positions)
-        # Repeat the command briefly so it is received immediately after discovery.
-        for _ in range(4):
-            self._gripper.publish(message)
-            time.sleep(0.05)
-        time.sleep(0.8)
-
-    def _attach_apple(self):
-        deadline = time.monotonic() + 5.0
-        while (
-            self._grasp_latch.get_subscription_count() == 0
-            and time.monotonic() < deadline
-        ):
-            rclpy.spin_once(self, timeout_sec=0.1)
-        if self._grasp_latch.get_subscription_count() == 0:
-            raise RuntimeError("Timed out waiting for the Gazebo apple grasp latch")
-
-        message = Empty()
-        for _ in range(4):
-            self._grasp_latch.publish(message)
-            time.sleep(0.05)
+        opening = positions[0] >= 0.055
+        started = self.get_clock().now().nanoseconds * 1e-9
+        deadline = time.monotonic() + 15.0
+        next_command = 0.0
+        while time.monotonic() < deadline:
+            if time.monotonic() >= next_command:
+                self._gripper.publish(message)
+                next_command = time.monotonic() + 0.1
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if self._finger_positions is None:
+                continue
+            right, left = self._finger_positions
+            # Object contact can stop a closing finger before its target.
+            reached = (
+                right >= 0.055 and left <= -0.055
+                if opening
+                else right <= 0.047 and left >= -0.047
+            )
+            elapsed = self.get_clock().now().nanoseconds * 1e-9 - started
+            if reached and elapsed >= 1.0:
+                return
+        raise RuntimeError("Timed out waiting for the right gripper to move")
 
     @staticmethod
     def _yaw(orientation):
@@ -254,12 +268,7 @@ class PickAppleTask(Node):
         self._lift_right_arm(self.GRASP_LIFT_HEIGHT)
 
         self.get_logger().info("Closing the gripper around the apple")
-        self._set_gripper(
-            [self.GRASP_FINGER_POSITION, -self.GRASP_FINGER_POSITION]
-        )
-        self.get_logger().info("Attaching the apple in the Gazebo grasp model")
-        self._attach_apple()
-
+        self._set_gripper([self.GRASP_FINGER_POSITION, -self.GRASP_FINGER_POSITION])
         self.get_logger().info("Lifting the apple")
         self._lift_right_arm(self.PICK_LIFT_HEIGHT)
         self._verify_pick()

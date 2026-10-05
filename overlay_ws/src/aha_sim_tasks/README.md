@@ -14,7 +14,7 @@ ros2 run aha_sim_tasks evaluate --task all --policy scripted --episodes 2 \
 ```
 
 The runner starts a fresh simulator for **each episode**, including the robot,
-controllers, object, and grasp state.
+controllers, object, and contact state.
 The evaluation launch activates the command controllers as one group and waits
 for their active states before calling the policy.
 Evaluation uses ROS domain 87 by default
@@ -52,7 +52,7 @@ is available to exercise the timeout path.
 
 Definitions are in [config/tasks.json](config/tasks.json). All distances are metres,
 angles radians, and task deadlines/hold durations use **simulation time**.
-Scoring uses Gazebo world poses and the grasp system state, independently of the
+Scoring uses Gazebo world poses and measured finger contacts, independently of the
 policy. A policy's completion claim cannot produce success. Duplicate or
 out-of-order samples cannot advance a hold; a gap over 0.5 s in pose samples
 restarts it.
@@ -60,8 +60,8 @@ restarts it.
 | Task | Success, continuously for the hold duration | Hold | Deadline |
 | --- | --- | --- | --- |
 | `approach_apple` | Robot world x/y within 0.04 m of `(0.49, 0)`, yaw within 0.08 rad of zero, base speed at most 0.02 m/s | 1 s | 45 s |
-| `pick_apple` | Apple grasped and its center at least 0.24 m above the floor | 1 s | 60 s |
-| `place_apple` | Previously grasped and lifted to 0.24 m; now released, center within 0.08 m in x and y and 0.02 m in z of `(1.362, -0.426, 0.16)`, speed at most 0.03 m/s | 2 s | 90 s |
+| `pick_apple` | Both right-gripper fingers contact the apple and its center is at least 0.24 m above the floor | 1 s | 60 s |
+| `place_apple` | Previously lifted to 0.24 m with both fingers in contact; now neither finger contacts it, center within 0.08 m in x and y and 0.02 m in z of `(1.362, -0.426, 0.16)`, speed at most 0.03 m/s | 2 s | 90 s |
 
 Startup has a 90 s wall deadline. Missing/stale observations cause an error;
 `--wall-timeout` (default 240 s after startup) also bounds slow or paused
@@ -76,16 +76,19 @@ scene waypoints.
 
 ## Grasp model
 
-The world loads `aha_task_grasp`, an AhaRobot-specific Gazebo system. The apple
-starts released. After observing open fingers, the system creates a fixed grasp
-joint only when both fingers close to at most 0.047 m displacement and the apple
-center is within 0.055 m of the right gripper center. Opening both fingers to at
-least 0.055 m releases the joint. The system reads measured joint positions;
-there is no policy-facing attach command and no object teleportation.
+The apple is a free rigid body. Finger collisions, friction, controller motion,
+and gravity determine whether it is lifted, slips, or falls when the fingers open.
+The world loads `aha_task_evaluation`, a passive Gazebo system that requests the
+apple collision's contact data from the physics engine. It publishes the number
+of distinct right-gripper fingers touching the apple (0, 1, or 2) at 20 Hz for
+scoring, together with world poses and the evaluation clock. Table contact and
+multiple contact points on a single finger do not count as a two-finger grasp.
+The system never attaches the object or changes its motion.
 
-This proximity latch is an abstraction for testing task execution and scoring.
-It does not validate finger contact, grasp force, or real robot grasp quality.
-The world uses primitive table/apple geometry and the current robot model.
+The world uses primitive table/apple geometry and the upstream robot collision
+meshes. Apple friction is set to 1.0; geometry, friction, and actuator response
+have not been calibrated against real hardware. Contact-based scoring verifies
+simulated holding and release, rather than real robot grasp quality.
 
 ## Connect another policy
 
@@ -112,7 +115,7 @@ Place the module on the evaluation process's Python path. Each episode creates
 and resets a new policy. `act` runs at up to 10 Hz in wall time. Observation fields
 are simulation time, task ID, language instruction, joint positions/velocities,
 wheel odometry `(x, y, yaw)` in `odom`, and optional `head_image`. Joint mappings
-are read-only snapshots. Object/world poses, grasp state, and score are absent
+are read-only snapshots. Object/world poses, finger contacts, and score are absent
 from policy observations.
 
 The built-in scene does not render a head camera. If an image publisher is
@@ -140,7 +143,7 @@ supports the three listed tasks; another task needs a corresponding policy.
 ## Checks
 
 The package's unit tests run through the repository's `make test` / colcon checks.
-The evaluation command above runs the actual robot, controllers, grasp plugin,
+The evaluation command above runs the robot, controllers, physical contacts,
 and success checks in Gazebo. A failure baseline can be run with:
 
 ```bash

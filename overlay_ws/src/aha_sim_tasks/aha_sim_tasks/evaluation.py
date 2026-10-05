@@ -39,7 +39,7 @@ class WorldState:
     robot_pose: tuple[float, float, float]  # world x, y, yaw
     object_position: tuple[float, float, float]
     object_speed: float
-    grasped: bool
+    finger_contacts: int  # Distinct right-gripper fingers touching the apple (0..2).
     robot_speed: float = 0.0
 
 
@@ -79,7 +79,8 @@ class Evaluator:
             "robot_pose": state.robot_pose,
             "object_position": state.object_position,
             "object_speed": state.object_speed,
-            "grasped": state.grasped,
+            "finger_contacts": state.finger_contacts,
+            "grasped": state.finger_contacts == 2,
             "robot_speed": state.robot_speed,
             "was_lifted": self.was_lifted,
         }
@@ -87,7 +88,7 @@ class Evaluator:
             self.result = "timeout"
             return self.result
         p = self.task.parameters
-        lifted = state.grasped and state.object_position[2] >= p.get(
+        lifted = state.finger_contacts == 2 and state.object_position[2] >= p.get(
             "min_height", math.inf
         )
         self.was_lifted = self.was_lifted or lifted
@@ -107,7 +108,7 @@ class Evaluator:
             tx, ty, tz = p["object_target"]
             satisfied = (
                 self.was_lifted
-                and not state.grasped
+                and state.finger_contacts == 0
                 and abs(x - tx) <= p["xy_tolerance"]
                 and abs(y - ty) <= p["xy_tolerance"]
                 and abs(z - tz) <= p["z_tolerance"]

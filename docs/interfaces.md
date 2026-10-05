@@ -30,14 +30,14 @@
 | 軌道action | `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
 | グリッパ位置指令 | `/left_gripper_controller/commands` / `/right_gripper_controller/commands` | `std_msgs/msg/Float64MultiArray` |
 | Apple pick demoのGazebo pose | `/model/apple/pose` | `tf2_msgs/msg/TFMessage`（`gz.msgs.Pose_V`からbridge） |
-| Apple pick demoのgrasp latch | `/apple/attach` | `std_msgs/msg/Empty`（`gz.msgs.Empty`へbridge） |
 
 軌道の `<controller>` は `left_arm_controller` / `right_arm_controller` / `lift_controller` /
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
 グリッパは同ファイルの2関節の順序で位置を指定する。
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
-`apple_pick.launch.py` は `/model/apple/pose` を成功判定に使い、`/apple/attach` をGazeboのDetachableJointへ送る。両topicはこのデモだけで使う。
+`apple_pick.launch.py` は `/model/apple/pose` を成功判定に使う。このtopicはこのデモだけで使う。
+appleは接触・摩擦・重力で動く自由剛体で、attach指令topicはない。
 
 ## タスク評価
 
@@ -48,13 +48,15 @@ Gazebo partitionでシミュレーションを起動する。policyの入出力�
 | 用途 | 名前 | 型 |
 | --- | --- | --- |
 | 評価用world pose | `/evaluation/poses` | `tf2_msgs/msg/TFMessage`（`gz.msgs.Pose_V`からbridge、20 Hz） |
-| 評価用grasp状態 | `/evaluation/grasped` | `std_msgs/msg/Bool`（`gz.msgs.Boolean`からbridge、20 Hz） |
+| 評価用指接触数 | `/evaluation/finger_contacts` | `std_msgs/msg/UInt32`（`gz.msgs.UInt32`からbridge、20 Hz） |
 | 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
 
-world poseとgrasp状態は成功判定用。policyには `/joint_states`、車輪odom、シミュレーション時刻、
+world poseと指接触数は成功判定用。指接触数はappleに接触中の右グリッパの指の数（0 / 1 / 2）。
+pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
+この観測系は物体の運動を変更しない。policyには `/joint_states`、車輪odom、シミュレーション時刻、
 タスクID・言語指示を渡す。画像topicは指定時のみ `sensor_msgs/msg/Image` としてsensor-data QoSで購読する。
 world poseの座標はworld、policyのodom座標は `odom`。
-評価はcontrollerの速度・関節位置指令を発行し、graspのattach/detach topicは公開しない。
+評価はcontrollerの速度・関節位置指令を発行する。
 評価launchは `sim.launch.py bridge_clock:=false` とし、poseと同じ周期の評価用clockを配信する。
 標準launchの `bridge_clock` は既定で `true`。
 

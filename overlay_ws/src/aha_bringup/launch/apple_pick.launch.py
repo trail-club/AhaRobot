@@ -17,7 +17,6 @@ def generate_launch_description():
         launch_arguments={
             "world": "apple_pick.sdf",
             "headless": LaunchConfiguration("headless"),
-            "apple_pick_mode": "true",
         }.items(),
     )
     task = Node(
@@ -29,15 +28,7 @@ def generate_launch_description():
     world_poses = Node(
         package="ros_gz_bridge",
         executable="parameter_bridge",
-        arguments=[
-            "/model/apple/pose@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V"
-        ],
-        output="screen",
-    )
-    grasp_latch = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        arguments=["/apple/attach@std_msgs/msg/Empty]gz.msgs.Empty"],
+        arguments=["/model/apple/pose@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V"],
         output="screen",
     )
 
@@ -50,7 +41,6 @@ def generate_launch_description():
             ),
             simulator,
             world_poses,
-            grasp_latch,
             task,
         ]
     )

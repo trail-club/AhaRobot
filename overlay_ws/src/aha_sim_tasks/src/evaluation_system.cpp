@@ -3,27 +3,27 @@
 
 #include <chrono>
 #include <utility>
-#include <gz/math/Pose3.hh>
-#include <gz/msgs/boolean.pb.h>
+#include <gz/msgs/uint32.pb.h>
 #include <gz/msgs/clock.pb.h>
 #include <gz/msgs/pose_v.pb.h>
 #include <gz/msgs/Utility.hh>
 #include <gz/plugin/Register.hh>
-#include <gz/sim/Joint.hh>
 #include <gz/sim/Model.hh>
 #include <gz/sim/System.hh>
 #include <gz/sim/Util.hh>
-#include <gz/sim/components/DetachableJoint.hh>
-#include <gz/sim/components/JointPosition.hh>
+#include <gz/sim/components/Collision.hh>
+#include <gz/sim/components/ContactSensorData.hh>
 #include <gz/sim/components/Model.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/transport/Node.hh>
 
+#include "finger_contacts.hh"
+
 namespace aha_sim_tasks
 {
-// A proximity grasp abstraction, driven by measured finger positions. Starts
-// released and never teleports the object. The policy cannot command the latch.
-class GraspSystem : public gz::sim::System,
+// Passive scoring instrumentation. Physics alone moves the apple; this system
+// only requests contact measurements and publishes them with world poses.
+class EvaluationSystem : public gz::sim::System,
                     public gz::sim::ISystemPreUpdate,
                     public gz::sim::ISystemPostUpdate
 {
@@ -34,56 +34,41 @@ class GraspSystem : public gz::sim::System,
     using namespace gz::sim;
     if (info.paused)
       return;
-    if (this->robot == kNullEntity)
-    {
-      this->robot = ecm.EntityByComponents(components::Model(),
-                                           components::Name("aha_robot"));
-      if (this->robot == kNullEntity)
-        return;
-      Model model(this->robot);
-      this->gripper = model.LinkByName(ecm, "link_r6");
-      this->rightFinger = model.JointByName(ecm, "joint_r7r");
-      this->leftFinger = model.JointByName(ecm, "joint_r7l");
-      Joint(this->rightFinger).EnablePositionCheck(ecm);
-      Joint(this->leftFinger).EnablePositionCheck(ecm);
-      const Entity apple = ecm.EntityByComponents(components::Model(),
-                                                 components::Name("apple"));
-      this->object = Model(apple).LinkByName(ecm, "link");
-    }
-    if (this->gripper == kNullEntity || this->object == kNullEntity)
+    if (this->collision != kNullEntity)
       return;
-    const auto *right = ecm.Component<components::JointPosition>(this->rightFinger);
-    const auto *left = ecm.Component<components::JointPosition>(this->leftFinger);
-    if (!right || !left || right->Data().empty() || left->Data().empty())
+    this->robot = ecm.EntityByComponents(components::Model(),
+                                        components::Name("aha_robot"));
+    const Entity apple = ecm.EntityByComponents(components::Model(),
+                                               components::Name("apple"));
+    if (this->robot == kNullEntity || apple == kNullEntity)
       return;
-    const bool open = right->Data()[0] >= 0.055 && left->Data()[0] <= -0.055;
-    const bool closed = right->Data()[0] <= 0.047 && left->Data()[0] >= -0.047;
-    if (open)
+    Model robotModel(this->robot);
+    this->object = Model(apple).LinkByName(ecm, "link");
+    this->rightFinger = robotModel.LinkByName(ecm, "link_r7r");
+    this->leftFinger = robotModel.LinkByName(ecm, "link_r7l");
+    if (this->object == kNullEntity || this->rightFinger == kNullEntity ||
+        this->leftFinger == kNullEntity)
+      return;
+    const auto collisions = ecm.ChildrenByComponents(
+        this->object, components::Collision(), components::Name("fruit_collision"));
+    if (collisions.empty())
+      return;
+    this->collision = collisions.front();
+    for (const auto link : {this->rightFinger, this->leftFinger})
     {
-      this->opened = true;
-      if (this->joint != kNullEntity)
-      {
-        ecm.RequestRemoveEntity(this->joint);
-        this->joint = kNullEntity;
-      }
+      auto &ids = link == this->rightFinger ? this->rightCollisions : this->leftCollisions;
+      for (const auto entity : ecm.ChildrenByComponents(link, components::Collision()))
+        ids.insert(entity);
     }
-    const auto grasp = worldPose(this->gripper, ecm) *
-                       gz::math::Pose3d(0.063, 0, 0.195, 0, 0, 0);
-    const double distance = grasp.Pos().Distance(worldPose(this->object, ecm).Pos());
-    if (this->opened && closed && distance <= 0.055 && this->joint == kNullEntity)
-    {
-      this->joint = ecm.CreateEntity();
-      ecm.CreateComponent(this->joint,
-          components::DetachableJoint({this->gripper, this->object, "fixed"}));
-      this->opened = false;
-    }
+    // The Physics system fills and clears this component on every step.
+    ecm.CreateComponent(this->collision, components::ContactSensorData());
   }
 
   void PostUpdate(const gz::sim::UpdateInfo &info,
                   const gz::sim::EntityComponentManager &ecm) override
   {
     if (info.paused || this->robot == gz::sim::kNullEntity ||
-        this->object == gz::sim::kNullEntity)
+        this->collision == gz::sim::kNullEntity)
       return;
     if (info.simTime - this->lastPublish >= std::chrono::milliseconds(50))
     {
@@ -95,8 +80,11 @@ class GraspSystem : public gz::sim::System,
       clock.mutable_sim()->set_sec(seconds.count());
       clock.mutable_sim()->set_nsec(nanoseconds.count());
       this->clockPublisher.Publish(clock);
-      gz::msgs::Boolean state;
-      state.set_data(this->joint != gz::sim::kNullEntity);
+      const auto *contacts = ecm.Component<gz::sim::components::ContactSensorData>(
+          this->collision);
+      gz::msgs::UInt32 state;
+      state.set_data(contacts ? FingerContactCount(contacts->Data(), this->collision,
+          this->rightCollisions, this->leftCollisions) : 0);
       this->publisher.Publish(state);
       gz::msgs::Pose_V poses;
       for (const auto &[name, entity] :
@@ -123,22 +111,22 @@ class GraspSystem : public gz::sim::System,
  private:
   gz::transport::Node node;
   gz::transport::Node::Publisher publisher =
-      this->node.Advertise<gz::msgs::Boolean>("/evaluation/grasped");
+      this->node.Advertise<gz::msgs::UInt32>("/evaluation/finger_contacts");
   gz::transport::Node::Publisher posePublisher =
       this->node.Advertise<gz::msgs::Pose_V>("/evaluation/poses");
   gz::transport::Node::Publisher clockPublisher =
       this->node.Advertise<gz::msgs::Clock>("/evaluation/clock");
   gz::sim::Entity robot = gz::sim::kNullEntity;
-  gz::sim::Entity gripper = gz::sim::kNullEntity;
   gz::sim::Entity object = gz::sim::kNullEntity;
+  gz::sim::Entity collision = gz::sim::kNullEntity;
   gz::sim::Entity rightFinger = gz::sim::kNullEntity;
   gz::sim::Entity leftFinger = gz::sim::kNullEntity;
-  gz::sim::Entity joint = gz::sim::kNullEntity;
-  bool opened = false;
+  std::unordered_set<gz::sim::Entity> rightCollisions;
+  std::unordered_set<gz::sim::Entity> leftCollisions;
   std::chrono::steady_clock::duration lastPublish{};
 };
 }
 
-GZ_ADD_PLUGIN(aha_sim_tasks::GraspSystem, gz::sim::System,
-              aha_sim_tasks::GraspSystem::ISystemPreUpdate,
-              aha_sim_tasks::GraspSystem::ISystemPostUpdate)
+GZ_ADD_PLUGIN(aha_sim_tasks::EvaluationSystem, gz::sim::System,
+              aha_sim_tasks::EvaluationSystem::ISystemPreUpdate,
+              aha_sim_tasks::EvaluationSystem::ISystemPostUpdate)

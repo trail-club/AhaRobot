@@ -11,7 +11,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, JointState
-from std_msgs.msg import Bool, Float64MultiArray
+from std_msgs.msg import Float64MultiArray, UInt32
 from tf2_msgs.msg import TFMessage
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -38,7 +38,7 @@ class RosEnvironment(Node):
         self.odom = None
         self.image = None
         self.world = None
-        self.grasped = False
+        self.finger_contacts = 0
         self.received = {}
         self.previous_object = None
         self.previous_robot = None
@@ -73,12 +73,14 @@ class RosEnvironment(Node):
             qos_profile_sensor_data,
         )
         self.create_subscription(TFMessage, "/evaluation/poses", self.on_poses, 10)
-        self.create_subscription(Bool, "/evaluation/grasped", self.on_grasp, 10)
+        self.create_subscription(
+            UInt32, "/evaluation/finger_contacts", self.on_contacts, 10
+        )
         if head_image_topic:
             self.create_subscription(
                 Image, head_image_topic, self.on_image, qos_profile_sensor_data
             )
-        self.required = {"joints", "odom", "poses", "grasp"}
+        self.required = {"joints", "odom", "poses", "contacts"}
         if head_image_topic:
             self.required.add("image")
 
@@ -114,9 +116,9 @@ class RosEnvironment(Node):
         )
         self.mark("odom")
 
-    def on_grasp(self, message):
-        self.grasped = message.data
-        self.mark("grasp")
+    def on_contacts(self, message):
+        self.finger_contacts = message.data
+        self.mark("contacts")
 
     def on_image(self, message):
         self.image = message
@@ -159,7 +161,7 @@ class RosEnvironment(Node):
             (translation.x, translation.y, yaw(robot.transform.rotation)),
             position,
             speed,
-            self.grasped,
+            self.finger_contacts,
             robot_speed,
         )
         self.mark("poses")
