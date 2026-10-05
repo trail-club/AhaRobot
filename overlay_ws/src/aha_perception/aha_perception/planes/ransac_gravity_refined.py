@@ -5,7 +5,8 @@ image is re-assigned to the plane with the smallest residual ratio
 ``|n.p + d| / (k sigma(z))`` (no normal gating). A plane may only take pixels
 connected in the image to its RANSAC inliers, small pieces are dropped, small
 holes are closed with pixels that are still on the plane, and the planes are
-refitted on the final inliers.
+refitted on the final inliers. With ``merge=True`` coplanar fragments are
+merged before and after the refinement.
 """
 
 from __future__ import annotations
@@ -63,4 +64,5 @@ def detect(
         return planes
     frame = full_resolution(prepare_frame(cloud, options, 1))
     labels = refine_planes(frame, planes, options, params)
-    return planes_from_labels(frame, labels, options, params.hole_k)
+    planes = planes_from_labels(frame, labels, options, params.hole_k)
+    return ransac_gravity.merge_fragments(frame, planes, options, params, params.hole_k)

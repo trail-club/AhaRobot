@@ -3,7 +3,8 @@
 [`aha_perception.planes`](../../../overlay_ws/src/aha_perception/README.md#平面検出-aha_perceptionplanes)
 の全候補を合成シーンで評価し、`results/` にレポートとCSVを書き出す。
 ROSとコンテナは不要で、ホストの uv で実行する。
-これまでの比較結果と条件は [results/comparison.md](results/comparison.md) にまとめている。
+これまでの比較結果と条件は [results/comparison.md](results/comparison.md)、
+検出器のノイズモデルと断片統合の比較は [results/tuning.md](results/tuning.md) にまとめている。
 実機で取得したDepthでの確認は [実機フレーム](#実機フレーム) を参照。
 
 ## 実行
@@ -36,6 +37,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | `sweep.csv` | スイープ設定ごとの集計値（ノイズ×1のフレーム） |
 | `labels_<scene>_a.png` / `_b.png` | GTと各候補のラベル画像（a: 初期4候補、b: 追加4候補）。対応したGTと同色、誤検出はマゼンタ |
 | `comparison.md` | 手で整理した比較のまとめ（実行では更新しない） |
+| `tuning.md` / `tuning_*.png` | 手で整理した検出器の設定の比較と、`make_tuning_figures.py` の画像 |
 
 実行時間は 640x480 入力1フレームあたり、前処理を含む。`cpu` はプロセスCPU時間、
 `wall` は経過時間で、内部でマルチスレッド化する Open3D では `wall` が小さくなる。
@@ -136,7 +138,9 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 - `--methods`（既定 `ransac_gravity_refined ransac_gravity`）・`--max-depth`（既定3.0、複数で比較）・`--min-depth`（既定0.3）。
 - `DepthNoiseModel` の f はシーンの fx。`base_height` があれば床が z=0 になるよう `camera_to_base` を上げる。
 - `--output`（既定 `both`）：`all` は `detect_planes` の出力、`selected` はノードと同じ `select_output_planes`（水平面と壁）後の平面、`both` は両方を `output` 列で並べる。
-- `--out`（既定 `results/real.md`）に表を、同じディレクトリに1フレーム目のラベル画像 `real_<scene>_<method>.png` を書く（`--no-figures` で省く）。
+- 検出器の設定は [設定の比較](#設定の比較) の引数で指定し、表の `config` 列に出す。
+- `--out`（既定 `results/real.md`）に表を、同じディレクトリに1フレーム目のラベル画像 `real_<scene>_<method>.png`
+  （設定が複数なら `real_<scene>_<method>_<設定>.png`）を書く（`--no-figures` で省く）。
   画像はカラー・Depthの後に max depth ごとに `--output` の各出力を並べ、`selected` でも平面の色は `all` と同じ。
 
 指標は `output` ごとに、その平面の集合で計算する。
@@ -208,7 +212,9 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
   `--methods`（既定 `ransac_gravity_refined ransac_gravity`）・`--frames`（既定10）・`--max-depth`（既定3.0、複数可）。
 - 内部パラメータはベンチと同じ `Intrinsics()`、プリセットと検出器のノイズモデルの f は fx。深度範囲とGTの評価範囲は0.3 m–max depth。
   シードはシーン名とプリセットから決まる。1スレッドで実行する。
-- `--out`（既定 `results/sequence.md`）にプリセット × 手法ごとのシーン平均と、シーンごとの表を書き、同名の `.csv` に行ごとの値を書く。
+- `--out`（既定 `results/sequence.md`）にプリセット × 手法 × 設定ごとのシーン平均と、シーンごとの表を書き、同名の `.csv` に行ごとの値を書く。
+- 検出器の設定（`config` 列）は [設定の比較](#設定の比較) の引数で指定する。
+- `--jobs N`：系列（シーン × プリセット × max depth）ごとにN個のプロセスで並列に実行する。`detect ms` は1より大きいと競合で増える。
 
 | 指標 | 定義 |
 | --- | --- |
@@ -217,3 +223,33 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | persistent | 存在する全フレームで対応した水平GT平面の割合 |
 | planes all / selected | `detect_planes` と `select_output_planes` のフレームあたりの平面数（平均、最小–最大） |
 | h matched / h std / h IoU | `run_real.py` と同じフレーム間の安定性（GTを使わない） |
+
+## 設定の比較
+
+`run_sequence.py` と `run_real.py` は検出器の設定を次の引数の直積で並べる（`configs.py`）。
+設定名は `sub 0.16, merge` のように表す。
+
+- `--detector-subpixel S ...`（既定0.08）：検出器の `DepthNoiseModel(focal=fx, subpixel=S)`。
+- `--merge off on`（既定 `off`）：params の `merge`（[断片の統合](../../../overlay_ws/src/aha_perception/README.md#平面検出-aha_perceptionplanes)）。
+- `--param KEY=VALUE ...`：全設定に共通の params の値（例 `merge_k=3 refine_k=4`）。全手法の params にない項目はエラー。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  python tools/perception/plane_bench/run_sequence.py \
+  --detector-subpixel 0.08 0.16 --merge off on --jobs 12 --out /tmp/grid.md
+```
+
+`make_tuning_figures.py` は設定ごとのラベル画像を `--out`（既定 `results/`）に `<prefix>_<scene>.png`・`<prefix>_real_<scene>.png` として書く（matplotlibが必要）。
+合成シーン（`--scenes`、既定 `table_1.5m clutter_room`）は `--presets`（既定 `d435i_filtered d435i_raw`）× 設定ごとに1行で、
+1フレーム目の深度誤差・GT・検出（1フレーム目の `all` / `selected`、6フレーム目の `all`）を並べ、検出は対応したGTと同色、誤検出はマゼンタ。
+実機シーン（`--real <dir> ...`）は設定ごとに1行で、カラー画像と同じ検出の列を並べる。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  --with matplotlib python tools/perception/plane_bench/make_tuning_figures.py \
+  --configs sub=0.08 sub=0.16,merge=on --labels current candidate \
+  --real tools/perception/plane_bench/real_frames/<scene>
+```
+
+- `--configs`：1行ずつの設定。`sub=` が subpixel、ほかは params の `KEY=VALUE` をカンマで並べる。`--labels` で行の名前を付ける。
+- `--method`（既定 `ransac_gravity_refined`）・`--max-depth`（既定3.0）・`--min-depth`（既定0.3）・`--prefix`（既定 `tuning`）。

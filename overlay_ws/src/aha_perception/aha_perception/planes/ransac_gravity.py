@@ -4,7 +4,8 @@ Normals (kNN PCA on the voxels, or organized-image normals averaged per voxel
 with ``normals="organized"``) split the voxelised cloud into horizontal and
 vertical candidates using the up axis. RANSAC runs per group with hypotheses constrained to that
 orientation and an inlier threshold of ``k * sigma(z)``. Inliers must also
-agree in normal direction and are split into connected components.
+agree in normal direction and are split into connected components. With
+``merge=True`` coplanar fragments are merged (``merge.merge_coplanar``).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .geometry import point_components, ransac_plane
+from .merge import merge_coplanar
 from .normals import knn_normals, organized_normals
 from .preprocess import prepare_frame, voxel_downsample
 from .segmentation import planes_from_labels
@@ -37,6 +39,28 @@ class RansacGravityParams:
     component_radius: float = 0.05
     min_component_points: int = 40
     seed: int = 0
+    # Coplanar fragment merging (merge.merge_coplanar), off by default.
+    merge: bool = False
+    merge_angle_deg: float = 10.0
+    merge_k: float = 4.0
+    merge_gap_px: int = 3
+    merge_hull_gap: float = -1.0
+
+
+def merge_fragments(frame, planes, options, params, refine_k=None) -> list[Plane]:
+    """``merge_coplanar`` with the ``merge_*`` fields of ``params`` if enabled."""
+    if not params.merge:
+        return planes
+    return merge_coplanar(
+        frame,
+        planes,
+        options,
+        angle_deg=params.merge_angle_deg,
+        k=params.merge_k,
+        gap_px=params.merge_gap_px,
+        hull_gap=params.merge_hull_gap,
+        refine_k=refine_k,
+    )
 
 
 def _voxel_normals_from_image(frame, pixels, inverse, count, params, options):
@@ -132,4 +156,5 @@ def detect(
             assigned[pool[inliers]] = True
 
     labels.reshape(-1)[pixels] = voxel_labels[inverse]
-    return planes_from_labels(frame, labels, options)
+    planes = planes_from_labels(frame, labels, options)
+    return merge_fragments(frame, planes, options, params)

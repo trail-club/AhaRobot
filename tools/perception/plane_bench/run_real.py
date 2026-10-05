@@ -1,6 +1,7 @@
 """Run plane detectors on captured real frames (no ground truth).
 
-Reports per scene x method x max depth x output (raw detection ``all`` or
+Reports per scene x method x detector configuration (``configs.py``) x max
+depth x output (raw detection ``all`` or
 ``selected`` by ``select_output_planes``) the plane count, frame-to-frame
 stability of horizontal planes, coverage, small fragments and runtime, plus
 the per-pixel temporal depth noise of each scene. See README.md.
@@ -35,6 +36,7 @@ from aha_perception.planes import (  # noqa: E402
     detect_planes,
     select_output_planes,
 )
+from configs import Config, add_arguments, from_arguments  # noqa: E402
 from real_frames import list_scenes, load_scene  # noqa: E402
 from run_bench import _cpu_name, _table  # noqa: E402
 
@@ -58,29 +60,31 @@ class Run:
     selected: list  # per frame, select_output_planes output
     valid: list  # per frame (H*W,) bool, depth within range
     ms: list  # per frame
+    config: str = ""  # configs.Config label
 
     def output(self, name):
         return self.planes if name == "all" else self.selected
 
 
-def _options(scene, index, min_depth, max_depth):
-    fx = scene.intrinsics[0]
+def _options(scene, index, min_depth, max_depth, config):
     return DetectionOptions(
         camera_to_base=scene.camera_to_floor()[index],
         min_depth=min_depth,
         max_depth=max_depth,
-        noise=DepthNoiseModel(focal=fx),
+        noise=config.noise(scene.intrinsics[0]),
     )
 
 
-def run_detection(scene, method, min_depth, max_depth):
+def run_detection(scene, method, min_depth, max_depth, config=None):
+    config = config or Config()
+    params = config.detector_params(method)
     fx, fy, cx, cy = scene.intrinsics
-    run = Run(scene, method, max_depth, [], [], [], [])
+    run = Run(scene, method, max_depth, [], [], [], [], config.label)
     for i, depth in enumerate(scene.depth):
         cloud = depth_to_cloud(depth, fx, fy, cx, cy)
-        options = _options(scene, i, min_depth, max_depth)
+        options = _options(scene, i, min_depth, max_depth, config)
         start = time.perf_counter()
-        planes = detect_planes(cloud, method, options)
+        planes = detect_planes(cloud, method, options, params)
         run.ms.append((time.perf_counter() - start) * 1e3)
         run.planes.append(planes)
         run.selected.append(select_output_planes(planes, options))
@@ -232,7 +236,7 @@ def make_figure(path, scene, runs, outputs):
                 image[plane.inliers] = plane_palette(color_index[id(plane)])
             small = sum(p.area < SMALL_AREA for p in planes)
             title = (
-                f"{run.method} max {run.max_depth:g} m, {output}\n"
+                f"{run.method} [{run.config}] max {run.max_depth:g} m, {output}\n"
                 f"{len(planes)} planes, {small} < {SMALL_AREA} m2"
             )
             panels.append((title, image.reshape(shape + (3,)), {}))
@@ -267,6 +271,8 @@ def build_report(args, scenes, runs, outputs, figures):
         f"numpy {np.__version__}, scipy {scipy.__version__}",
         f"- Depth range {args.min_depth:g} m to max depth, walls on, noise model "
         "focal = fx of each scene. Floor at z = 0 only when `base height` is known",
+        "- Detector configurations (`config`): "
+        f"{'; '.join(f'`{label}`' for label in args.config_labels)}",
         "- Output `all` = `detect_planes`, `selected` = `select_output_planes` "
         "(horizontal planes and walls); metrics use the planes of each output",
         "- Metric definitions: see README.md",
@@ -310,6 +316,7 @@ def build_report(args, scenes, runs, outputs, figures):
                 [
                     run.scene.name,
                     run.method,
+                    run.config,
                     f"{run.max_depth:g}",
                     output,
                     s["planes"],
@@ -321,7 +328,8 @@ def build_report(args, scenes, runs, outputs, figures):
                     _fmt(s["ms"], 0),
                 ]
             )
-    header = ["scene", "method", "max depth m", "output", "planes/frame (min-max)"]
+    header = ["scene", "method", "config", "max depth m", "output"]
+    header += ["planes/frame (min-max)"]
     header += ["small/frame", "assigned px", "h matched", "h std mm", "h IoU"]
     header += ["detect ms"]
     lines += [_table(header, table), ""]
@@ -369,11 +377,14 @@ def main():
     parser.add_argument("--out", type=Path, default=HERE / "results" / "real.md")
     parser.add_argument("--output", choices=sorted(OUTPUTS), default="both")
     parser.add_argument("--no-figures", action="store_true")
+    add_arguments(parser)
     args = parser.parse_args()
     outputs = OUTPUTS[args.output]
     unknown = [m for m in args.methods if m not in DETECTORS]
     if unknown:
         parser.error(f"unknown methods {unknown}, choose from {sorted(DETECTORS)}")
+    configs = from_arguments(parser, args, args.methods)
+    args.config_labels = [c.label for c in configs]
     paths = args.scenes or list_scenes(args.root)
     if not paths:
         parser.error(f"no scenes given and none under {args.root}")
@@ -384,22 +395,26 @@ def main():
         scene = load_scene(path)
         scenes.append(scene)
         for method in args.methods:
-            method_runs = []
-            for max_depth in args.max_depth:
-                run = run_detection(scene, method, args.min_depth, max_depth)
-                method_runs.append(run)
-                print(
-                    f"{scene.name} {method} max {max_depth:g} m: "
-                    f"{np.mean([len(p) for p in run.planes]):.1f} planes/frame, "
-                    f"{np.mean([len(p) for p in run.selected]):.1f} selected, "
-                    f"{np.mean(run.ms):.0f} ms",
-                    flush=True,
-                )
-            runs += method_runs
-            if not args.no_figures:
-                name = f"real_{scene.name}_{method}.png"
-                make_figure(args.out.parent / name, scene, method_runs, outputs)
-                figures.append(name)
+            for config in configs:
+                method_runs = []
+                for max_depth in args.max_depth:
+                    run = run_detection(
+                        scene, method, args.min_depth, max_depth, config
+                    )
+                    method_runs.append(run)
+                    print(
+                        f"{scene.name} {method} [{config.label}] max {max_depth:g} m: "
+                        f"{np.mean([len(p) for p in run.planes]):.1f} planes/frame, "
+                        f"{np.mean([len(p) for p in run.selected]):.1f} selected, "
+                        f"{np.mean(run.ms):.0f} ms",
+                        flush=True,
+                    )
+                runs += method_runs
+                if not args.no_figures:
+                    suffix = f"_{config.slug}" if len(configs) > 1 else ""
+                    name = f"real_{scene.name}_{method}{suffix}.png"
+                    make_figure(args.out.parent / name, scene, method_runs, outputs)
+                    figures.append(name)
     report = build_report(args, scenes, runs, outputs, figures)
     args.out.write_text(report + "\n")
     print(f"wrote {args.out}")

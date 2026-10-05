@@ -184,6 +184,22 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 画素の平面への割当（`refine.py`）、ラベル付け、
 ラベル画像から平面への変換（再フィット・k·σ(Z)での画素選別・面積フィルタ）は全候補で共通。
 深度ノイズは `DepthNoiseModel`（σ(Z) = Z²·subpixel / (f·baseline)）で与える。
+
+`ransac_gravity` と `ransac_gravity_refined` は params の `merge=True`（既定 `False`）で同一平面の断片を統合する（`merge.py` の `merge_coplanar`）。
+法線の差が `merge_angle_deg`（既定10°）未満、平均法線方向の重心の差が `merge_k`·σ(Z)（既定4、Zは2平面の平均深度の大きい方）未満で、
+画像上のインライアが `merge_gap_px`（既定3 px）以内で接する組を、重心の差が小さい順に統合する。
+両方が水平（または垂直）な組は、和集合に当てはめた平面も水平（垂直）な場合だけ統合する。
+`merge_hull_gap` を0以上にすると、平面上に投影した凸包の距離がその値（m）以下の組も統合する（既定 −1 で無効）。
+統合した平面だけを `planes_from_labels` で再フィットし、全平面のラベルを付け直す。`ransac_gravity_refined` は画素の再割当の前後で統合する。
+
+```python
+from aha_perception.planes import DETECTORS, DepthNoiseModel
+
+params = DETECTORS["ransac_gravity_refined"].params_type(merge=True)
+options = DetectionOptions(camera_to_base=T_base_camera, noise=DepthNoiseModel(focal=fx))
+planes = detect_planes(cloud, "ransac_gravity_refined", options, params)
+```
+
 候補の比較手順は [平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md) を参照。
 
 ### 平面検出のノード

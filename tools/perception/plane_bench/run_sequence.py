@@ -1,7 +1,8 @@
 """Run plane detectors on synthetic static frame sequences with ground truth.
 
-For each scene x noise preset x method x max depth, a sequence from
-``scenes.generate_sequence`` is detected frame by frame. Reports GT accuracy
+For each scene x noise preset x method x detector configuration x max depth,
+a sequence from ``scenes.generate_sequence`` is detected frame by frame.
+Configurations come from ``configs.py``. Reports GT accuracy
 per frame (mean and std over frames), plane counts of the raw and selected
 output, frame-to-frame stability as in ``run_real.py`` and the GT detection
 persistence of horizontal planes. See README.md.
@@ -13,10 +14,12 @@ for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_var, "1")
 
 import argparse  # noqa: E402
+import contextlib  # noqa: E402
 import datetime  # noqa: E402
 import platform  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
+from concurrent.futures import ProcessPoolExecutor  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -28,11 +31,11 @@ sys.path.insert(0, str(HERE))
 
 from aha_perception.planes import (  # noqa: E402
     DETECTORS,
-    DepthNoiseModel,
     DetectionOptions,
     detect_planes,
     select_output_planes,
 )
+from configs import Config, add_arguments, from_arguments  # noqa: E402
 from metrics import MatchParams, aggregate, evaluate  # noqa: E402
 from run_bench import _cpu_name, _table, _write_csv  # noqa: E402
 from run_real import Run, summarize  # noqa: E402
@@ -104,7 +107,9 @@ def make_sequence(scene, preset, max_depth, n_frames, intrinsics=None):
     )
 
 
-def run_sequence(frames, method, max_depth):
+def run_sequence(frames, method, max_depth, config=None):
+    config = config or Config()
+    params = config.detector_params(method)
     run = Run(frames[0], method, max_depth, [], [], [], [])
     frame_stats = []
     for frame in frames:
@@ -112,10 +117,10 @@ def run_sequence(frames, method, max_depth):
             camera_to_base=frame.camera_to_base,
             min_depth=MIN_DEPTH,
             max_depth=max_depth,
-            noise=DepthNoiseModel(focal=frame.intrinsics.fx),
+            noise=config.noise(frame.intrinsics.fx),
         )
         start = time.perf_counter()
-        planes = detect_planes(frame.cloud, method, options)
+        planes = detect_planes(frame.cloud, method, options, params)
         ms = (time.perf_counter() - start) * 1e3
         run.planes.append(planes)
         run.selected.append(select_output_planes(planes, options))
@@ -179,7 +184,8 @@ def build_report(args, rows, elapsed):
         "",
         f"- Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} by "
         f"`run_sequence.py` in {elapsed / 60:.1f} min",
-        f"- CPU: {_cpu_name()}, single thread; Python {platform.python_version()}, "
+        f"- CPU: {_cpu_name()}, single thread per process; Python "
+        f"{platform.python_version()}, "
         f"numpy {np.__version__}, scipy {scipy.__version__}",
         f"- {args.frames} frames per sequence of a static camera; frozen noise "
         "(static field, holes, shadow) shared, the rest per frame. Presets from "
@@ -187,21 +193,29 @@ def build_report(args, rows, elapsed):
         f"- Depth range {MIN_DEPTH:g} m to max depth; GT evaluation range the same",
         "- Accuracy uses the raw `detect_planes` output; `selected` = "
         "`select_output_planes`. Metric definitions: see README.md",
+        "- Detector configurations (`config`): "
+        f"{'; '.join(f'`{label}`' for label in args.config_labels)}; "
+        f"{args.jobs} worker process(es)",
         "",
         "## By preset and method (mean over scenes)",
         "",
     ]
+
+    def key_of(r):
+        return (r["preset"], r["method"], r["config"], r["max_depth"])
+
     keys = sorted(
-        {(r["preset"], r["method"], r["max_depth"]) for r in rows},
-        key=lambda k: (k[2], args.presets.index(k[0]), args.methods.index(k[1])),
+        {key_of(r) for r in rows},
+        key=lambda k: (
+            k[3],
+            args.presets.index(k[0]),
+            args.methods.index(k[1]),
+            args.config_labels.index(k[2]),
+        ),
     )
     table = []
-    for preset, method, max_depth in keys:
-        group = [
-            r
-            for r in rows
-            if (r["preset"], r["method"], r["max_depth"]) == (preset, method, max_depth)
-        ]
+    for preset, method, config, max_depth in keys:
+        group = [r for r in rows if key_of(r) == (preset, method, config, max_depth)]
 
         def mean(key, group=group):
             return _nanmean([r[key] for r in group])
@@ -210,6 +224,7 @@ def build_report(args, rows, elapsed):
             [
                 preset,
                 method,
+                config,
                 f"{max_depth:g}",
                 _fmt(mean("pq_mean"), 3),
                 _fmt(mean("pq_std"), 3),
@@ -226,8 +241,8 @@ def build_report(args, rows, elapsed):
                 _fmt(mean("detect_ms"), 0),
             ]
         )
-    header = ["preset", "method", "max depth m", "PQ", "PQ std", "F1", "h recall"]
-    header += ["h height cm", "persistence", "persistent", "planes all"]
+    header = ["preset", "method", "config", "max depth m", "PQ", "PQ std", "F1"]
+    header += ["h recall", "h height cm", "persistence", "persistent", "planes all"]
     header += ["planes selected", "h matched", "h std mm", "h IoU", "detect ms"]
     lines += [
         _table(header, table),
@@ -249,6 +264,7 @@ def build_report(args, rows, elapsed):
             r["max_depth"],
             args.presets.index(r["preset"]),
             args.methods.index(r["method"]),
+            args.config_labels.index(r["config"]),
         ),
     ):
         table.append(
@@ -256,6 +272,7 @@ def build_report(args, rows, elapsed):
                 r["scene"],
                 r["preset"],
                 r["method"],
+                r["config"],
                 f"{r['max_depth']:g}",
                 _pm(r, "pq", 3),
                 _pm(r, "f1", 3),
@@ -271,8 +288,8 @@ def build_report(args, rows, elapsed):
                 _fmt(r["h_iou"]),
             ]
         )
-    header = ["scene", "preset", "method", "max depth m", "PQ", "F1", "recall"]
-    header += ["precision", "h height cm", "persistence", "persistent"]
+    header = ["scene", "preset", "method", "config", "max depth m", "PQ", "F1"]
+    header += ["recall", "precision", "h height cm", "persistence", "persistent"]
     header += ["planes all (min-max)", "planes selected (min-max)", "h matched"]
     header += ["h std mm", "h IoU"]
     lines += [
@@ -283,6 +300,28 @@ def build_report(args, rows, elapsed):
     return "\n".join(lines)
 
 
+def run_job(job):
+    """Rows of one (scene, preset, max depth) sequence for all methods x configs."""
+    index, name, preset, max_depth, n_frames, methods, configs = job
+    scene = next(s for s in scene_set() if s.name == name)
+    frames = make_sequence(scene, preset, max_depth, n_frames)
+    rows = []
+    for method in methods:
+        for config in configs:
+            run, stats = run_sequence(frames, method, max_depth, config)
+            row = {
+                "scene": name,
+                "scene_index": index,
+                "preset": preset,
+                "method": method,
+                "config": config.label,
+                "max_depth": max_depth,
+            }
+            row.update(summarize_sequence(frames, run, stats))
+            rows.append(row)
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenes", nargs="*", default=None)
@@ -291,6 +330,13 @@ def main():
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--max-depth", type=float, nargs="+", default=[3.0])
     parser.add_argument("--out", type=Path, default=HERE / "results" / "sequence.md")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="worker processes over sequences (detect ms is inflated when > 1)",
+    )
+    add_arguments(parser)
     args = parser.parse_args()
     for name, known, valid in (
         ("methods", args.methods, DETECTORS),
@@ -301,33 +347,35 @@ def main():
             parser.error(f"unknown {name} {unknown}, choose from {sorted(valid)}")
     if args.frames < 2:
         parser.error("--frames must be >= 2")
+    configs = from_arguments(parser, args, args.methods)
+    args.config_labels = [c.label for c in configs]
     scenes = [s for s in scene_set() if not args.scenes or s.name in args.scenes]
     if not scenes:
         parser.error("no matching scenes")
+    jobs = [
+        (index, scene.name, preset, max_depth, args.frames, args.methods, configs)
+        for index, scene in enumerate(scenes)
+        for preset in args.presets
+        for max_depth in args.max_depth
+    ]
     started = time.perf_counter()
     rows = []
-    for index, scene in enumerate(scenes):
-        for preset in args.presets:
-            for max_depth in args.max_depth:
-                frames = make_sequence(scene, preset, max_depth, args.frames)
-                for method in args.methods:
-                    run, stats = run_sequence(frames, method, max_depth)
-                    row = {
-                        "scene": scene.name,
-                        "scene_index": index,
-                        "preset": preset,
-                        "method": method,
-                        "max_depth": max_depth,
-                    }
-                    row.update(summarize_sequence(frames, run, stats))
-                    rows.append(row)
-                    print(
-                        f"[{time.perf_counter() - started:6.1f} s] {scene.name} "
-                        f"{preset} {method} max {max_depth:g} m: "
-                        f"PQ {row['pq_mean']:.3f}, persistence "
-                        f"{_fmt(row['persistence'])}",
-                        flush=True,
-                    )
+    with contextlib.ExitStack() as stack:
+        if args.jobs > 1:
+            pool = stack.enter_context(ProcessPoolExecutor(args.jobs))
+            results = pool.map(run_job, jobs)
+        else:
+            results = map(run_job, jobs)
+        for job_rows in results:
+            rows += job_rows
+            for row in job_rows:
+                print(
+                    f"[{time.perf_counter() - started:6.1f} s] {row['scene']} "
+                    f"{row['preset']} {row['method']} [{row['config']}] max "
+                    f"{row['max_depth']:g} m: PQ {row['pq_mean']:.3f}, persistence "
+                    f"{_fmt(row['persistence'])}",
+                    flush=True,
+                )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = build_report(args, rows, time.perf_counter() - started)
     args.out.write_text(report + "\n")
