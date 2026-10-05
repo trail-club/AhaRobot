@@ -150,7 +150,7 @@ def generate_launch_description():
         executable="create",
         arguments=[
             "-name",
-            "aha_robot",
+            LaunchConfiguration("robot_name"),
             "-topic",
             "robot_description",
             "-x",
@@ -260,6 +260,11 @@ def generate_launch_description():
             OpaqueFunction(function=_validate_spawn),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument(
+                "robot_name",
+                default_value="aha_robot",
+                description="Gazebo model name for the spawned robot",
+            ),
             DeclareLaunchArgument(
                 "bridge_clock",
                 default_value="true",

@@ -10,9 +10,8 @@
 
 namespace aha_sim_tasks
 {
-// Count distinct fingers touching this object in the current physics step.
-// No history, proximity threshold, or commanded finger position is involved.
-inline unsigned int FingerContactCount(const gz::msgs::Contacts &contacts,
+// Bits identify the fingers touching in this physics step (right=1, left=2).
+inline unsigned int FingerContactMask(const gz::msgs::Contacts &contacts,
     gz::sim::Entity objectCollision,
     const std::unordered_set<gz::sim::Entity> &rightCollisions,
     const std::unordered_set<gz::sim::Entity> &leftCollisions)
@@ -29,8 +28,40 @@ inline unsigned int FingerContactCount(const gz::msgs::Contacts &contacts,
     right = right || rightCollisions.count(other) != 0;
     left = left || leftCollisions.count(other) != 0;
   }
-  return static_cast<unsigned int>(right) + static_cast<unsigned int>(left);
+  return static_cast<unsigned int>(right) | (static_cast<unsigned int>(left) << 1);
 }
+
+inline unsigned int FingerContactCount(const gz::msgs::Contacts &contacts,
+    gz::sim::Entity objectCollision,
+    const std::unordered_set<gz::sim::Entity> &rightCollisions,
+    const std::unordered_set<gz::sim::Entity> &leftCollisions)
+{
+  const auto mask = FingerContactMask(contacts, objectCollision, rightCollisions, leftCollisions);
+  return (mask & 1u) + ((mask >> 1) & 1u);
+}
+
+// Collect distinct fingers across a publication window, not just its final step.
+// TakeCount clears the window: there is no persistence into the next sample.
+class FingerContactWindow
+{
+ public:
+  void Add(const gz::msgs::Contacts &contacts, gz::sim::Entity objectCollision,
+      const std::unordered_set<gz::sim::Entity> &rightCollisions,
+      const std::unordered_set<gz::sim::Entity> &leftCollisions)
+  {
+    this->mask |= FingerContactMask(contacts, objectCollision, rightCollisions, leftCollisions);
+  }
+
+  unsigned int TakeCount()
+  {
+    const auto count = (this->mask & 1u) + ((this->mask >> 1) & 1u);
+    this->mask = 0;
+    return count;
+  }
+
+ private:
+  unsigned int mask = 0;
+};
 }
 
 #endif

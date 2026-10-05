@@ -23,13 +23,15 @@ and a different Gazebo transport partition. `--policy-ros-domain-id` changes the
 worker domain; otherwise it is the evaluation domain plus one, wrapping 232 to 0.
 The two domains must differ and be unused by other ROS applications.
 Both Gazebo partitions are unique per episode.
-The scene publishes `/clock` at 20 Hz together with the scoring poses so that
+The scene publishes `/clock` at 20 Hz together with the scoring state so that
 clock traffic remains bounded on CPU-only hosts.
 
-All tasks use the same two-table scene; the robot starts at `(0, 0, 0.05)` m with
-yaw zero. The apple
-starts at `(0.962, -0.426, 0.16)` m on the brown source table. The green destination
-table is 0.4 m farther along x. No GPU is required for the default server-only run.
+All tasks use the same two-table scene: a brown source table, green destination
+table, and apple. Entity names, object/table positions, robot spawn, and scripted
+gripper settings are defined in [config/scene.json](config/scene.json).
+The launch expands [worlds/task_tables.sdf.xacro](worlds/task_tables.sdf.xacro)
+from that configuration and passes the configured robot spawn explicitly.
+No GPU is required for the default server-only run.
 Use `--no-headless` to display Gazebo.
 
 To watch pick-and-place, run:
@@ -56,15 +58,16 @@ is available to exercise the timeout path.
 Definitions are in [config/tasks.json](config/tasks.json). All distances are metres,
 angles radians, and task deadlines/hold durations use **simulation time**.
 Scoring uses Gazebo world poses and measured finger contacts, independently of the
-policy. A policy's completion claim cannot produce success. Duplicate or
-out-of-order samples cannot advance a hold; a gap over 0.5 s in pose samples
+policy. Poses, contact count, and simulation timestamp arrive in one atomic
+`/evaluation/state` sample. A policy's completion claim cannot produce success. Duplicate or
+out-of-order samples cannot advance a hold; a gap over 0.5 s in state samples
 restarts it.
 
-| Task | Success, continuously for the hold duration | Hold | Deadline |
+| Task | Every scoring sample satisfies this for the hold duration | Hold | Deadline |
 | --- | --- | --- | --- |
-| `approach_apple` | Robot world x/y within 0.04 m of `(0.49, 0)`, yaw within 0.08 rad of zero, base speed at most 0.02 m/s | 1 s | 45 s |
-| `pick_apple` | Both right-gripper fingers contact the apple and its center is at least 0.24 m above the floor | 1 s | 60 s |
-| `place_apple` | Previously lifted to 0.24 m with both fingers in contact; now neither finger contacts it, center within 0.08 m in x and y and 0.02 m in z of `(1.362, -0.426, 0.16)`, speed at most 0.03 m/s | 2 s | 90 s |
+| `approach_apple` | Robot world x/y within 0.04 m of the source approach target derived from the scene and gripper offset, yaw within 0.08 rad of the spawn heading, base speed at most 0.02 m/s | 1 s | 45 s |
+| `pick_apple` | The contact window includes both right-gripper fingers and the apple's center is at least 0.24 m above the floor | 1 s | 60 s |
+| `place_apple` | Previously lifted to 0.24 m with both fingers in a contact window; now contact windows are empty, center within 0.08 m in x and y and 0.02 m in z of the configured destination position, speed at most 0.03 m/s | 2 s | 90 s |
 
 Startup has a 90 s wall deadline. Missing/stale observations cause an error;
 `--wall-timeout` (default 240 s after startup) also bounds slow or paused
@@ -79,20 +82,31 @@ are stopped on completion or error, including descendants in either partition.
 
 The scripted policy opens the right gripper, raises the lift, approaches using
 wheel odometry with heading correction, lowers and closes the gripper, then
-lifts. For placement it drives another 0.4 m, lowers, opens, and withdraws the
-gripper by raising the lift. It reads proprioception and odometry and uses fixed
-scene waypoints.
+lifts. For placement it drives to the destination, lowers, opens, and withdraws
+the gripper by raising the lift. It reads proprioception and odometry and derives
+waypoints from static scene geometry and the configured gripper offset; it never
+reads live world state. This baseline drives straight along the spawn heading.
+Scene targets requiring lateral motion or backward driving fail explicitly;
+they need a policy supporting those motions. `--list-tasks` displays resolved
+numeric scoring targets.
 
 ## Grasp model
 
 The apple is a free rigid body. Finger collisions, friction, controller motion,
 and gravity determine whether it is lifted, slips, or falls when the fingers open.
 The world loads `aha_task_evaluation`, a passive Gazebo system that requests the
-apple collision's contact data from the physics engine. It publishes the number
-of distinct right-gripper fingers touching the apple (0, 1, or 2) at 20 Hz for
-scoring, together with world poses and the evaluation clock. Table contact and
+apple collision's contact data from the physics engine. At each physics step it
+collects the distinct right-gripper fingers touching the apple. Every 50 ms it
+publishes their union (0, 1, or 2) together with end-of-window poses and a timestamp,
+then clears the contact window. Thus a single solver step without contact does
+not erase evidence from the same window; no evidence carries into the next one.
+Two fingers means each touched at least once during that window, rather than
+necessarily touching on the same physics step. Release requires an entire window
+with no finger contact, followed by the task's release hold duration. Table contact and
 multiple contact points on a single finger do not count as a two-finger grasp.
 The system never attaches the object or changes its motion.
+Unresolved model/link/collision paths are logged on first failure, whenever the
+missing set changes, and every 5 wall seconds while resolution keeps failing.
 
 The world uses primitive table/apple geometry and the upstream robot collision
 meshes. Apple friction is set to 1.0; geometry, friction, and actuator response
@@ -161,7 +175,8 @@ episode. A result has status `success`, `timeout`, `wall_timeout`, or `error`.
 
 Add a JSON task entry to reuse an existing criterion (`approach`, `pick`, `place`).
 New criteria are implemented in [evaluation.py](aha_sim_tasks/evaluation.py);
-scene changes belong in `worlds/` and the launch. The bundled scripted policy
+scene geometry and baseline settings belong in `config/scene.json`, with world
+structure in `worlds/`. The bundled scripted policy
 supports the three listed tasks; another task needs a corresponding policy.
 
 ## Checks

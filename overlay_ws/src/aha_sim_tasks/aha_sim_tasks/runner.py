@@ -102,7 +102,7 @@ def run_episode(args, task):
                     > 0.5
                 ):
                     raise RuntimeError(
-                        "ROS simulation clock diverged from Gazebo pose timestamps"
+                        "ROS simulation clock diverged from evaluation state timestamps"
                     )
                 status = evaluator.update(node.world)
                 if status is not None:

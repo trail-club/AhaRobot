@@ -4,6 +4,7 @@ import importlib
 import math
 
 from .api import Action, Observation
+from .scene import load_scene, scripted_distances
 
 
 class NoopPolicy:
@@ -24,6 +25,9 @@ class ScriptedPolicy:
         self.phase = "prepare"
         self.phase_time = None
         self.start_pose = None
+        scene = load_scene()
+        self.settings = scene["scripted"]
+        self.approach_distance, self.transfer_distance = scripted_distances(scene)
 
     def act(self, observation: Observation) -> Action:
         if self.start_pose is None:
@@ -35,11 +39,18 @@ class ScriptedPolicy:
         age = observation.sim_time - self.phase_time
         joints = observation.joint_positions
         height = joints["joint_r1"]
-        opened = joints["joint_r7r"] >= 0.055 and joints["joint_r7l"] <= -0.055
-        # Contact can stop a finger before the commanded 0.035 m displacement.
-        closed = joints["joint_r7r"] <= 0.047 and joints["joint_r7l"] >= -0.047
-        desired_height = 0.18
-        opening = 0.06
+        settings = self.settings
+        open_limit = settings["open_position"] - settings["open_tolerance"]
+        closed_limit = settings["grasp_position"] + settings["closed_tolerance"]
+        opened = (
+            joints["joint_r7r"] >= open_limit and joints["joint_r7l"] <= -open_limit
+        )
+        # Apple contact can stop a finger before the commanded grasp position.
+        closed = (
+            joints["joint_r7r"] <= closed_limit and joints["joint_r7l"] >= -closed_limit
+        )
+        desired_height = settings["transport_lift"]
+        opening = settings["open_position"]
         velocity = 0.0
         heading_error = math.atan2(math.sin(heading - yaw), math.cos(heading - yaw))
         angular = max(-0.15, min(0.15, 1.5 * heading_error))
@@ -52,38 +63,42 @@ class ScriptedPolicy:
             if abs(height - desired_height) < 0.008 and opened and age > 0.8:
                 advance("approach")
         elif self.phase == "approach":
-            if distance >= 0.49:
+            if distance >= self.approach_distance:
                 advance("done" if self.task_id == "approach_apple" else "lower")
             else:
-                velocity = min(0.12, max(0.035, (0.49 - distance) * 1.5))
+                velocity = min(
+                    0.12, max(0.035, (self.approach_distance - distance) * 1.5)
+                )
         elif self.phase == "lower":
-            desired_height = 0.05
+            desired_height = settings["pick_lift"]
             if abs(height - desired_height) < 0.005 and age > 1.0:
                 advance("close")
         elif self.phase == "close":
-            desired_height = 0.05
-            opening = 0.035
+            desired_height = settings["pick_lift"]
+            opening = settings["grasp_position"]
             if closed and age > 1.0:
                 advance("lift")
         elif self.phase == "lift":
-            opening = 0.035
+            opening = settings["grasp_position"]
             if abs(height - desired_height) < 0.008 and age > 2.0:
                 advance("hold" if self.task_id == "pick_apple" else "transfer")
         elif self.phase == "hold":
-            opening = 0.035
+            opening = settings["grasp_position"]
         elif self.phase == "transfer":
-            opening = 0.035
-            if distance >= 0.89:
+            opening = settings["grasp_position"]
+            if distance >= self.transfer_distance:
                 advance("place")
             else:
-                velocity = min(0.10, max(0.025, (0.89 - distance) * 1.5))
+                velocity = min(
+                    0.10, max(0.025, (self.transfer_distance - distance) * 1.5)
+                )
         elif self.phase == "place":
-            desired_height = 0.05
-            opening = 0.035
+            desired_height = settings["pick_lift"]
+            opening = settings["grasp_position"]
             if abs(height - desired_height) < 0.005 and age > 1.5:
                 advance("release")
         elif self.phase == "release":
-            desired_height = 0.05
+            desired_height = settings["pick_lift"]
             if opened and age > 1.0:
                 advance("done")
         return Action(

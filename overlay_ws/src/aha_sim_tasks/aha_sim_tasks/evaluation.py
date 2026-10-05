@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 
+from .scene import approach_target, load_scene
+
 
 @dataclass(frozen=True)
 class Task:
@@ -16,7 +18,8 @@ class Task:
     parameters: dict
 
 
-def load_tasks(path: Path) -> dict[str, Task]:
+def load_tasks(path: Path, scene=None) -> dict[str, Task]:
+    scene = load_scene(path.with_name("scene.json")) if scene is None else scene
     tasks = {}
     for task_id, entry in json.loads(path.read_text()).items():
         entry = dict(entry)
@@ -29,6 +32,11 @@ def load_tasks(path: Path) -> dict[str, Task]:
         for key in ("timeout", "hold_time"):
             if not math.isfinite(common[key]) or common[key] <= 0:
                 raise ValueError(f"{task_id}: {key} must be finite and positive")
+        # Named targets are resolved once from the same geometry as the world.
+        if entry.get("robot_target") == "source_approach":
+            entry["robot_target"] = approach_target(scene)
+        if entry.get("object_target") == "destination_position":
+            entry["object_target"] = list(scene["destination_position"])
         tasks[task_id] = Task(task_id=task_id, parameters=entry, **common)
     return tasks
 
@@ -39,7 +47,8 @@ class WorldState:
     robot_pose: tuple[float, float, float]  # world x, y, yaw
     object_position: tuple[float, float, float]
     object_speed: float
-    finger_contacts: int  # Distinct right-gripper fingers touching the apple (0..2).
+    # Distinct fingers that touched during the sample window (0..2).
+    finger_contacts: int
     robot_speed: float = 0.0
 
 

@@ -4,7 +4,7 @@
     "criterion": "approach",
     "timeout": 45.0,
     "hold_time": 1.0,
-    "robot_target": [0.49, 0.0, 0.0],
+    "robot_target": "source_approach",
     "position_tolerance": 0.04,
     "yaw_tolerance": 0.08,
     "max_robot_speed": 0.02
@@ -22,7 +22,7 @@
     "timeout": 90.0,
     "hold_time": 2.0,
     "min_height": 0.24,
-    "object_target": [1.362, -0.426, 0.16],
+    "object_target": "destination_position",
     "xy_tolerance": 0.08,
     "z_tolerance": 0.02,
     "max_object_speed": 0.03

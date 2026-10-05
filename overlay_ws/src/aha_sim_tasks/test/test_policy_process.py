@@ -11,6 +11,8 @@ import uuid
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+EVALUATOR_DOMAIN = 91
+POLICY_DOMAIN = 92
 sys.path.insert(0, str(PACKAGE_ROOT))
 from aha_sim_tasks.api import Action, Observation  # noqa: E402
 from aha_sim_tasks.policy_process import PolicyProcess  # noqa: E402
@@ -23,7 +25,7 @@ from aha_sim_tasks.processes import partition_processes  # noqa: E402
 
 @pytest.fixture
 def worker_environment(tmp_path, monkeypatch):
-    monkeypatch.setenv("ROS_DOMAIN_ID", "87")
+    monkeypatch.setenv("ROS_DOMAIN_ID", str(EVALUATOR_DOMAIN))
     monkeypatch.setenv("GZ_PARTITION", "aha-worker-test-" + uuid.uuid4().hex)
     monkeypatch.setenv(
         "PYTHONPATH",
@@ -40,7 +42,7 @@ def worker(directory, policy="noop", **kwargs):
         policy,
         "pick_apple",
         "Pick the apple.",
-        88,
+        POLICY_DOMAIN,
         directory,
         os.environ["GZ_PARTITION"],
         **kwargs,
@@ -118,7 +120,7 @@ def create():
         data = json.loads((directory / "record.json").read_text())
         assert "boundary_probe" not in sys.modules
         assert data["pid"] != os.getpid()
-        assert data["domain"] == "88"
+        assert data["domain"] == str(POLICY_DOMAIN)
         assert data["partition"] != os.environ["GZ_PARTITION"]
         assert not data["evaluator_imported"] and not data["parent_frame"]
         assert data["read_only"]
@@ -238,7 +240,7 @@ def test_policy_domain_must_differ_from_evaluator(worker_environment):
             "noop",
             "pick_apple",
             "Pick.",
-            87,
+            EVALUATOR_DOMAIN,
             worker_environment,
             os.environ["GZ_PARTITION"],
         )
@@ -248,15 +250,13 @@ def test_worker_cannot_discover_evaluation_topics(worker_environment):
     rclpy = pytest.importorskip("rclpy")
     from rclpy.context import Context
     from rclpy.executors import SingleThreadedExecutor
-    from std_msgs.msg import UInt32
-    from tf2_msgs.msg import TFMessage
+    from std_msgs.msg import String
 
     (worker_environment / "discovery_probe.py").write_text("""
 import json, os, time
 from pathlib import Path
 import rclpy
-from std_msgs.msg import UInt32
-from tf2_msgs.msg import TFMessage
+from std_msgs.msg import UInt32, String
 from aha_sim_tasks.api import Action
 class Probe:
     def reset(self, task_id, instruction):
@@ -264,10 +264,8 @@ class Probe:
         self.node = rclpy.create_node("policy_discovery_probe")
         self.received = []
         self.local = []
-        self.node.create_subscription(TFMessage, "/evaluation/poses",
-                                      lambda msg: self.received.append("poses"), 10)
-        self.node.create_subscription(UInt32, "/evaluation/finger_contacts",
-                                      lambda msg: self.received.append("contacts"), 10)
+        self.node.create_subscription(String, "/evaluation/state",
+                                      lambda msg: self.received.append("state"), 10)
         self.publisher = self.node.create_publisher(UInt32, "/policy_probe", 10)
         self.node.create_subscription(UInt32, "/policy_probe",
                                       lambda msg: self.local.append(msg.data), 10)
@@ -283,20 +281,18 @@ class Probe:
 def create(): return Probe()
 """)
     context = Context()
-    rclpy.init(context=context, domain_id=87)
+    rclpy.init(context=context, domain_id=EVALUATOR_DOMAIN)
     node = rclpy.create_node("evaluation_privileged_probe", context=context)
     executor = SingleThreadedExecutor(context=context)
     executor.add_node(node)
-    poses = node.create_publisher(TFMessage, "/evaluation/poses", 10)
-    contacts = node.create_publisher(UInt32, "/evaluation/finger_contacts", 10)
+    state = node.create_publisher(String, "/evaluation/state", 10)
     process = worker(worker_environment, "discovery_probe:create")
     try:
         ready(process)
         process.act(observation())
         deadline = time.monotonic() + 10
         while process.pending is not None:
-            poses.publish(TFMessage())
-            contacts.publish(UInt32(data=2))
+            state.publish(String(data='{"privileged": true}'))
             executor.spin_once(timeout_sec=0.01)
             process.poll()
             assert time.monotonic() < deadline

@@ -1,6 +1,7 @@
 """Evaluator-side ROS adapter; only public observations cross policy IPC."""
 
 import math
+import json
 import time
 from types import MappingProxyType
 
@@ -11,8 +12,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, JointState
-from std_msgs.msg import Float64MultiArray, UInt32
-from tf2_msgs.msg import TFMessage
+from std_msgs.msg import Float64MultiArray, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from .api import Action, CONTROLLER_JOINTS, GRIPPER_JOINTS, JOINT_LIMITS, Observation
@@ -38,7 +38,6 @@ class RosEnvironment(Node):
         self.odom = None
         self.image = None
         self.world = None
-        self.finger_contacts = 0
         self.received = {}
         self.previous_object = None
         self.previous_robot = None
@@ -72,15 +71,12 @@ class RosEnvironment(Node):
             self.on_odom,
             qos_profile_sensor_data,
         )
-        self.create_subscription(TFMessage, "/evaluation/poses", self.on_poses, 10)
-        self.create_subscription(
-            UInt32, "/evaluation/finger_contacts", self.on_contacts, 10
-        )
+        self.create_subscription(String, "/evaluation/state", self.on_state, 10)
         if head_image_topic:
             self.create_subscription(
                 Image, head_image_topic, self.on_image, qos_profile_sensor_data
             )
-        self.required = {"joints", "odom", "poses", "contacts"}
+        self.required = {"joints", "odom", "state"}
         if head_image_topic:
             self.required.add("image")
 
@@ -116,28 +112,32 @@ class RosEnvironment(Node):
         )
         self.mark("odom")
 
-    def on_contacts(self, message):
-        self.finger_contacts = message.data
-        self.mark("contacts")
-
     def on_image(self, message):
         self.image = message
         self.mark("image")
 
-    def on_poses(self, message):
-        models = {
-            transform.child_frame_id.strip("/")
-            .replace("::", "/")
-            .split("/")[-1]: transform
-            for transform in message.transforms
-        }
-        if "apple" not in models or "aha_robot" not in models:
+    def on_state(self, message):
+        sample = json.loads(message.data)
+        if sample["schema_version"] != 1 or sample["frame_id"] != "world":
+            raise ValueError("Unsupported evaluation state schema or frame")
+        stamp = sample["stamp"]
+        sim_time = stamp["sec"] + stamp["nanosec"] * 1e-9
+        position = tuple(sample["object_position"])
+        robot_pose = tuple(sample["robot_pose"])
+        contacts = sample["finger_contacts"]
+        if (
+            len(position) != 3
+            or len(robot_pose) != 3
+            or type(contacts) is not int
+            or not 0 <= contacts <= 2
+            or not all(
+                math.isfinite(value) for value in (sim_time, *position, *robot_pose)
+            )
+        ):
+            raise ValueError("Invalid evaluation state")
+        # Reject delayed/duplicate samples before changing any speed history.
+        if self.world is not None and sim_time <= self.world.sim_time:
             return
-        apple, robot = models["apple"], models["aha_robot"]
-        stamp = apple.header.stamp
-        sim_time = stamp.sec + stamp.nanosec * 1e-9
-        point = apple.transform.translation
-        position = (point.x, point.y, point.z)
         speed = math.inf
         if self.previous_object is not None:
             previous_time, previous_position = self.previous_object
@@ -146,8 +146,7 @@ class RosEnvironment(Node):
                     sim_time - previous_time
                 )
         self.previous_object = (sim_time, position)
-        translation = robot.transform.translation
-        robot_xy = (translation.x, translation.y)
+        robot_xy = robot_pose[:2]
         robot_speed = math.inf
         if self.previous_robot is not None:
             previous_time, previous_xy = self.previous_robot
@@ -158,13 +157,13 @@ class RosEnvironment(Node):
         self.previous_robot = (sim_time, robot_xy)
         self.world = WorldState(
             sim_time,
-            (translation.x, translation.y, yaw(robot.transform.rotation)),
+            robot_pose,
             position,
             speed,
-            self.finger_contacts,
+            contacts,
             robot_speed,
         )
-        self.mark("poses")
+        self.mark("state")
 
     def ready(self):
         return (
