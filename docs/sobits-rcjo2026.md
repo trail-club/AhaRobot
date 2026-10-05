@@ -13,7 +13,9 @@
 | `spawn_x` / `spawn_y` / `spawn_z` / `spawn_yaw` | 初期位置の上書き |
 | `headless:=true` | GUIなし |
 | `use_sim_time:=true` | 既定。ROS nodeでシミュレーション時刻を使う |
-| `use_nav` / `use_manip` / `use_perception` | 既定は `false`。現在の各launchはスタブ |
+| `use_perception:=true` | 頭部カメラのbridge・点群・RVizを起動。`rviz:=false` でRVizと操作パネルを除く。[aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照 |
+| `use_nav:=true` | シミュレーション専用2D LiDARの `/scan` bridgeとslam_toolboxを起動。[aha_navigation](../overlay_ws/src/aha_navigation/README.md)を参照 |
+| `use_manip` | 既定は `false`。現在のlaunchはスタブ |
 
 Xacroは起動時にSDFへ展開し、[preset](../overlay_ws/src/aha_gazebo/config/rcjo2026.json)の
 チェックサム・world名・モデル参照を検証する。worldの形状は変更しない。

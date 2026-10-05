@@ -1,0 +1,27 @@
+# ros_gz_bridge topics for the simulated head camera (perception.launch.py).
+#
+# The Gazebo rgbd_camera (aha_description/urdf/sensors.xacro) is bridged to
+# the same topics as the real RealSense pipeline
+# (tools/perception/macos/stream_realsense.py): depth is aligned to color and
+# every message is stamped with frame_id camera_color_optical_frame.
+# The Gazebo point cloud (head_camera/points) is intentionally not bridged;
+# pointcloud.launch.py builds /camera/depth/points with depth_image_proc,
+# exactly as on the real robot. /clock is bridged by aha_bringup.
+
+- ros_topic_name: "/camera/color/image_raw"
+  gz_topic_name: "/head_camera/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera/depth_registered/image_rect"
+  gz_topic_name: "/head_camera/depth_image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/camera/color/camera_info"
+  gz_topic_name: "/head_camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
