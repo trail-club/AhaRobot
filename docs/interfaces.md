@@ -34,7 +34,39 @@
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
 グリッパは同ファイルの2関節の順序で位置を指定する。
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
-標準launchに `/cmd_vel` / `/odom` へのremapはない。
+
+標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
+
+## タスク評価
+
+[aha_sim_tasks](../overlay_ws/src/aha_sim_tasks/README.md) はepisodeごとに独立したGazebo partitionで
+シミュレーションを起動する。評価用とpolicy用のROS domainは別々だが、それぞれ全episode共通。
+policyは別プロセス・別Gazebo partitionで動き、
+観測とActionだけをIPCで交換する。既存controllerへの指令は評価側のROS adapterが配信するため、
+標準シミュレーションのtopic / frameは変更しない。評価用topicをpolicy側のdomainへbridgeしない。
+domain設定・policy API・分離の保証範囲はパッケージのREADMEを参照。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
+| 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
+
+`/evaluation/state` は1つのJSONに `schema_version: 1`、`frame_id: "world"`、
+`stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
+`robot_pose`（world x / y / yaw）、`object_position`（world x / y / z）、
+`finger_contacts`（0 / 1 / 2）を持つ。poseと接触数を別topicから組み合わせない。
+指接触数は直前の50 ms窓内にappleへ接触した右グリッパの指の数。
+窓内の和集合とholdの意味は [Grasp model](../overlay_ws/src/aha_sim_tasks/README.md#grasp-model) を参照。
+姿勢・時刻は窓の終端で、成功判定はこのstateの `stamp` を使う。
+重複・逆順のstateは速度履歴とfreshnessも更新しない。
+pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
+この観測系は物体の運動を変更しない。policyには `/joint_states`、車輪odom、シミュレーション時刻、
+タスクID・言語指示を渡す。画像topicは指定時のみ `sensor_msgs/msg/Image` としてsensor-data QoSで購読する。
+world poseの座標はworld、policyのodom座標は `odom`。
+評価はcontrollerの速度・関節位置指令を発行する。
+評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。
+標準launchの `bridge_clock` は既定で `true`。
+
 
 ## SLAM（シミュレーションのみ）
 

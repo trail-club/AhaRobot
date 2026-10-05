@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<sdf version="1.10" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="scene_config" default="$(find aha_sim_tasks)/config/scene.json"/>
+  <xacro:property name="scene" value="${xacro.load_yaml('$(arg scene_config)')}"/>
+  <world name="task_tables">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="aha_task_evaluation" name="aha_sim_tasks::EvaluationSystem">
+      <robot_model>${scene.entities.robot_model}</robot_model>
+      <object_model>${scene.entities.object_model}</object_model>
+      <object_link>${scene.entities.object_link}</object_link>
+      <object_collision>${scene.entities.object_collision}</object_collision>
+      <right_finger_link>${scene.entities.right_finger_link}</right_finger_link>
+      <left_finger_link>${scene.entities.left_finger_link}</left_finger_link>
+    </plugin>
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>5 5</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>5 5</size></plane></geometry>
+          <material><ambient>0.65 0.65 0.65 1</ambient><diffuse>0.75 0.75 0.75 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="source_table">
+      <static>true</static>
+      <pose>${scene.source_position[0]} ${scene.source_position[1]} ${scene.source_position[2] - scene.apple_radius - scene.table_size[2]/2} 0 0 0</pose>
+      <link name="top">
+        <collision name="collision"><geometry><box><size>${scene.table_size[0]} ${scene.table_size[1]} ${scene.table_size[2]}</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>${scene.table_size[0]} ${scene.table_size[1]} ${scene.table_size[2]}</size></box></geometry>
+          <material><ambient>0.38 0.22 0.12 1</ambient><diffuse>0.48 0.28 0.16 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="destination_table">
+      <static>true</static>
+      <pose>${scene.destination_position[0]} ${scene.destination_position[1]} ${scene.destination_position[2] - scene.apple_radius - scene.table_size[2]/2} 0 0 0</pose>
+      <link name="top">
+        <collision name="collision"><geometry><box><size>${scene.table_size[0]} ${scene.table_size[1]} ${scene.table_size[2]}</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>${scene.table_size[0]} ${scene.table_size[1]} ${scene.table_size[2]}</size></box></geometry>
+          <material><ambient>0.08 0.45 0.12 1</ambient><diffuse>0.10 0.65 0.16 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="${scene.entities.object_model}">
+      <pose>${scene.source_position[0]} ${scene.source_position[1]} ${scene.source_position[2]} 0 0 0</pose>
+      <link name="${scene.entities.object_link}">
+        <inertial>
+          <mass>0.08</mass>
+          <inertia>
+            <ixx>${0.4 * 0.08 * scene.apple_radius**2}</ixx><iyy>${0.4 * 0.08 * scene.apple_radius**2}</iyy><izz>${0.4 * 0.08 * scene.apple_radius**2}</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <collision name="${scene.entities.object_collision}">
+          <geometry><sphere><radius>${scene.apple_radius}</radius></sphere></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="fruit_visual">
+          <geometry><sphere><radius>${scene.apple_radius}</radius></sphere></geometry>
+          <material><ambient>0.65 0.03 0.02 1</ambient><diffuse>0.90 0.04 0.02 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -1,0 +1,24 @@
+{
+  "entities": {
+    "robot_model": "aha_robot",
+    "object_model": "apple",
+    "object_link": "link",
+    "object_collision": "fruit_collision",
+    "right_finger_link": "link_r7r",
+    "left_finger_link": "link_r7l"
+  },
+  "robot_spawn": {"x": 0.0, "y": 0.0, "z": 0.05, "yaw": 0.0},
+  "source_position": [0.962, -0.426, 0.16],
+  "destination_position": [1.362, -0.426, 0.16],
+  "apple_radius": 0.04,
+  "table_size": [0.24, 0.28, 0.12],
+  "scripted": {
+    "gripper_offset": [0.472, -0.426],
+    "open_position": 0.06,
+    "grasp_position": 0.035,
+    "open_tolerance": 0.005,
+    "closed_tolerance": 0.012,
+    "pick_lift": 0.05,
+    "transport_lift": 0.18
+  }
+}

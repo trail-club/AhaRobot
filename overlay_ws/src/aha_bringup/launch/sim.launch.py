@@ -24,7 +24,7 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
@@ -54,7 +54,7 @@ CONTROLLERS_AFTER_JSB = [
 ]
 
 
-def _spawner(name, switch_timeout: int = 30):
+def _spawner(name, switch_timeout: int = 30, condition=None):
     # Default spawner's controller-switch timeout is 5 s, which is too short
     # on slow hosts (macOS docker software rendering) and makes JSB fail to
     # activate on first try. Bump so /joint_states reliably comes up.
@@ -69,6 +69,7 @@ def _spawner(name, switch_timeout: int = 30):
             str(switch_timeout),
         ],
         output="screen",
+        condition=condition,
     )
 
 
@@ -149,7 +150,7 @@ def generate_launch_description():
         executable="create",
         arguments=[
             "-name",
-            "aha_robot",
+            LaunchConfiguration("robot_name"),
             "-topic",
             "robot_description",
             "-x",
@@ -168,6 +169,7 @@ def generate_launch_description():
         package="ros_gz_bridge",
         executable="parameter_bridge",
         arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+        condition=IfCondition(LaunchConfiguration("bridge_clock")),
         output="screen",
     )
 
@@ -177,7 +179,33 @@ def generate_launch_description():
     load_rest = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=jsb,
-            on_exit=[_spawner(c) for c in CONTROLLERS_AFTER_JSB],
+            on_exit=[
+                Node(
+                    package="controller_manager",
+                    executable="spawner",
+                    arguments=[
+                        *CONTROLLERS_AFTER_JSB,
+                        "--controller-manager",
+                        "/controller_manager",
+                        "--switch-timeout",
+                        "30",
+                        "--activate-as-group",
+                    ],
+                    condition=IfCondition(
+                        LaunchConfiguration("activate_controllers_as_group")
+                    ),
+                    output="screen",
+                ),
+                *[
+                    _spawner(
+                        c,
+                        condition=UnlessCondition(
+                            LaunchConfiguration("activate_controllers_as_group")
+                        ),
+                    )
+                    for c in CONTROLLERS_AFTER_JSB
+                ],
+            ],
         )
     )
 
@@ -232,7 +260,22 @@ def generate_launch_description():
             OpaqueFunction(function=_validate_spawn),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument(
+                "robot_name",
+                default_value="aha_robot",
+                description="Gazebo model name for the spawned robot",
+            ),
+            DeclareLaunchArgument(
+                "bridge_clock",
+                default_value="true",
+                description="Bridge Gazebo's clock; disable when a parent launch supplies /clock",
+            ),
             DeclareLaunchArgument("use_nav", default_value="false"),
+            DeclareLaunchArgument(
+                "activate_controllers_as_group",
+                default_value="false",
+                description="Load command controllers and activate them in one switch",
+            ),
             DeclareLaunchArgument("use_manip", default_value="false"),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),

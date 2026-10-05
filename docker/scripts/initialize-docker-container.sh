@@ -35,6 +35,15 @@ fi
 if [ -d "${WS}/src" ]; then
     source /opt/ros/jazzy/setup.bash
     cd ${WS}
+    # The Dockerfile removes apt indexes to keep the image small. Refresh
+    # them on first startup so rosdep can resolve packages installed at runtime.
+    shopt -s nullglob
+    apt_package_lists=(/var/lib/apt/lists/*_Packages*)
+    shopt -u nullglob
+    if [ ${#apt_package_lists[@]} -eq 0 ]; then
+        echo "[init] refreshing apt package indexes"
+        sudo apt-get update
+    fi
     # These upstream dependencies serve the unused random-world manager only.
     rosdep install --from-paths src --ignore-src -r -y \
         --skip-keys "gz_human_sim sobits_interfaces" || \

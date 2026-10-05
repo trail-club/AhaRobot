@@ -1,0 +1,30 @@
+{
+  "approach_apple": {
+    "instruction": "Approach the apple on the source table and stop.",
+    "criterion": "approach",
+    "timeout": 45.0,
+    "hold_time": 1.0,
+    "robot_target": "source_approach",
+    "position_tolerance": 0.04,
+    "yaw_tolerance": 0.08,
+    "max_robot_speed": 0.02
+  },
+  "pick_apple": {
+    "instruction": "Pick up the apple from the source table and hold it above the table.",
+    "criterion": "pick",
+    "timeout": 60.0,
+    "hold_time": 1.0,
+    "min_height": 0.24
+  },
+  "place_apple": {
+    "instruction": "Pick up the apple and place it on the green destination table.",
+    "criterion": "place",
+    "timeout": 90.0,
+    "hold_time": 2.0,
+    "min_height": 0.24,
+    "object_target": "destination_position",
+    "xy_tolerance": 0.08,
+    "z_tolerance": 0.02,
+    "max_object_speed": 0.03
+  }
+}
