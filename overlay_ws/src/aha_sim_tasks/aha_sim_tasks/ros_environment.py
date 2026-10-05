@@ -3,6 +3,7 @@
 import math
 import json
 import time
+from collections import deque
 from functools import partial
 from types import MappingProxyType
 
@@ -167,12 +168,13 @@ class RosEnvironment(Node):
             messages.append(depth_image)
         if any(message.header != image.header for message in messages):
             return
-        previous = self.camera_samples.get(name)
-        if previous is not None and Time.from_msg(image.header.stamp) <= Time.from_msg(
-            previous[0].header.stamp
+        samples = self.camera_samples.setdefault(name, deque(maxlen=10))
+        if samples and Time.from_msg(image.header.stamp) <= Time.from_msg(
+            samples[-1][0].header.stamp
         ):
             return
-        self.camera_samples[name] = (image, camera_info, depth_image)
+        # Retain more than the 0.5 s age window at 15 Hz while TF catches up.
+        samples.append((image, camera_info, depth_image))
         self.mark("camera:" + name)
 
     def camera_observations(self):
@@ -180,28 +182,43 @@ class RosEnvironment(Node):
             return {}
         if len(self.camera_samples) != 3:
             return None
-        now = self.get_clock().now().nanoseconds * 1e-9
-        stamps = [
-            Time.from_msg(sample[0].header.stamp).nanoseconds * 1e-9
-            for sample in self.camera_samples.values()
-        ]
-        # At 15 Hz, allow one period of camera skew and bounded transport delay.
-        if max(stamps) - min(stamps) > 0.1 or any(
-            not -0.1 <= now - stamp <= 0.5 for stamp in stamps
-        ):
-            return None
-        observations = {}
-        for name, (image, info, depth) in self.camera_samples.items():
-            try:
-                transform = self.tf_buffer.lookup_transform(
-                    "base_link",
-                    image.header.frame_id,
-                    Time.from_msg(image.header.stamp),
+        now = self.get_clock().now().nanoseconds
+
+        def available_samples(samples):
+            for image, info, depth in reversed(samples):
+                stamp = Time.from_msg(image.header.stamp)
+                if not -100_000_000 <= now - stamp.nanoseconds <= 500_000_000:
+                    continue
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        "base_link", image.header.frame_id, stamp
+                    )
+                except TransformException:
+                    continue
+                yield (
+                    stamp.nanoseconds,
+                    CameraObservation(image, info, transform, depth),
                 )
-            except TransformException:
-                return None
-            observations[name] = CameraObservation(image, info, transform, depth)
-        return observations
+
+        candidates = {
+            name: available_samples(samples)
+            for name, samples in self.camera_samples.items()
+        }
+        selected = {name: next(samples, None) for name, samples in candidates.items()}
+        while all(sample is not None for sample in selected.values()):
+            oldest = min(stamp for stamp, _ in selected.values())
+            ahead = [
+                name
+                for name, (stamp, _) in selected.items()
+                if stamp - oldest > 100_000_000
+            ]
+            if not ahead:
+                return {name: camera for name, (_, camera) in selected.items()}
+            # Only advance views too far ahead of the oldest available sample.
+            # Each view is searched newest-first without a Cartesian bundle search.
+            for name in ahead:
+                selected[name] = next(candidates[name], None)
+        return None
 
     def observation_ready(self):
         return self.camera_observations() is not None

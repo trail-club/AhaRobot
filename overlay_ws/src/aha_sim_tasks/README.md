@@ -179,15 +179,20 @@ By default, `observation.cameras` is a read-only mapping with keys `head`,
 - `depth_image`: aligned `32FC1` depth in metres for the head; `None` for the wrists.
 
 RGB, calibration, and head depth are paired by exact timestamp and optical frame.
-Policy calls wait until all views have transforms, camera timestamps differ by
-at most 0.1 s, and images are no more than 0.5 s behind the simulation clock
-(up to 0.1 s ahead is allowed for clock transport delay).
+Each view retains up to 10 paired samples to tolerate delayed TF delivery.
+Policy calls use the newest compatible bundle whose views all have timestamped
+transforms, camera timestamps differ by at most 0.1 s, and images are no more
+than 0.5 s behind the simulation clock (up to 0.1 s ahead is allowed for clock
+transport delay).
 Joint states and odometry remain the latest snapshots, rather than samples
 synchronized to image exposure. Camera liveness has a 10 s wall deadline
 (`--camera-timeout` changes it), allowing dropped frames on slow renderers while
 the simulation-time age/skew limits still prevent stale images reaching a policy.
 Joint, odometry, and scoring-state liveness retain their 2 s wall deadline.
-A stopped required camera stream fails the episode.
+A stopped required camera stream, or no usable complete camera bundle for that
+deadline after startup, fails the episode with status `error`, including when
+images keep arriving but TF is missing. The bundle deadline is checked while
+policy inference is pending and resets whenever a usable bundle is available.
 `head_image` aliases `cameras["head"].image` for existing policies. All camera
 messages cross the same private IPC boundary; evaluation topics remain excluded.
 Camera streams and simulated mounts are described in

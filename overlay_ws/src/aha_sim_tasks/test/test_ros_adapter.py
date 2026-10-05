@@ -220,7 +220,8 @@ def test_camera_callback_rejects_mismatched_frames_and_older_samples():
     assert node.camera_samples == {}
     RosEnvironment.on_camera(node, "head", *camera_sample("head", 50_000_000))
     RosEnvironment.on_camera(node, "head", *camera_sample("head"))
-    assert node.camera_samples["head"][0].header.stamp.nanosec == 50_000_000
+    assert node.camera_samples["head"][-1][0].header.stamp.nanosec == 50_000_000
+    assert len(node.camera_samples["head"]) == 1
 
 
 def test_camera_bundle_rejects_skew_stale_images_and_missing_tf():
@@ -229,9 +230,9 @@ def test_camera_bundle_rejects_skew_stale_images_and_missing_tf():
     node = camera_environment()
     for name in ("head", "left_wrist", "right_wrist"):
         RosEnvironment.on_camera(node, name, *camera_sample(name))
-    node.camera_samples["right_wrist"][0].header.stamp.sec = 9
+    node.camera_samples["right_wrist"][-1][0].header.stamp.sec = 9
     assert RosEnvironment.camera_observations(node) is None
-    node.camera_samples["right_wrist"][0].header.stamp.sec = 10
+    node.camera_samples["right_wrist"][-1][0].header.stamp.sec = 10
     node.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(nanoseconds=11_000_000_000)
     )
@@ -244,6 +245,78 @@ def test_camera_bundle_rejects_skew_stale_images_and_missing_tf():
         raise TransformException("Missing TF")
 
     node.tf_buffer.lookup_transform = missing
+    assert RosEnvironment.camera_observations(node) is None
+
+
+def test_camera_history_handles_tf_lag_longer_than_a_frame_period():
+    from copy import deepcopy
+    from tf2_ros import TransformException
+
+    node = camera_environment()
+    transform = node.tf_buffer.lookup_transform
+    clock = 10_000_000_000
+    node.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=clock)
+    )
+
+    def delayed_transform(parent, child, stamp):
+        if stamp.nanoseconds > clock - 133_000_000:
+            raise TransformException("TF has not arrived yet")
+        return transform(parent, child, stamp)
+
+    node.tf_buffer.lookup_transform = delayed_transform
+    for frame in range(9):
+        stamp = round(frame * 1e9 / 15)
+        clock = 10_000_000_000 + stamp
+        for name in ("head", "left_wrist", "right_wrist"):
+            image, info = camera_sample(name, stamp)
+            depth = deepcopy(image) if name == "head" else None
+            RosEnvironment.on_camera(node, name, image, info, depth)
+        bundle = RosEnvironment.camera_observations(node)
+        if frame < 2:
+            assert bundle is None
+            continue
+        assert bundle is not None
+        expected_stamp = round((frame - 2) * 1e9 / 15)
+        for camera in bundle.values():
+            assert camera.image.header.stamp.nanosec == expected_stamp
+            assert camera.base_transform.header.stamp == camera.image.header.stamp
+            assert camera.camera_info.header == camera.image.header
+        assert bundle["head"].depth_image.header == bundle["head"].image.header
+
+    # Once TF catches up, the most recent retained images are selected.
+    node.tf_buffer.lookup_transform = transform
+    bundle = RosEnvironment.camera_observations(node)
+    assert all(camera.image.header.stamp.nanosec == stamp for camera in bundle.values())
+
+
+def test_camera_history_falls_back_to_newest_bundle_with_compatible_skew():
+    node = camera_environment()
+    node.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=10_400_000_000)
+    )
+    for name in ("head", "left_wrist", "right_wrist"):
+        RosEnvironment.on_camera(node, name, *camera_sample(name, 50_000_000))
+        newest = 200_000_000 if name == "head" else 400_000_000
+        RosEnvironment.on_camera(node, name, *camera_sample(name, newest))
+    bundle = RosEnvironment.camera_observations(node)
+    assert bundle is not None
+    assert all(
+        camera.image.header.stamp.nanosec == 50_000_000 for camera in bundle.values()
+    )
+
+
+def test_camera_history_is_bounded_and_expired_frames_cannot_reach_policy():
+    node = camera_environment()
+    for frame in range(30):
+        for name in ("head", "left_wrist", "right_wrist"):
+            RosEnvironment.on_camera(
+                node, name, *camera_sample(name, frame * 1_000_000)
+            )
+    assert all(len(samples) == 10 for samples in node.camera_samples.values())
+    node.get_clock = lambda: SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=11_000_000_000)
+    )
     assert RosEnvironment.camera_observations(node) is None
 
 

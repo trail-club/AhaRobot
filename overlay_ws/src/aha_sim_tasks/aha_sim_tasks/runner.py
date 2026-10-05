@@ -89,6 +89,7 @@ def run_episode(args, task):
                 rclpy.spin_once(node, timeout_sec=0.1)
             evaluator = Evaluator(task, node.world.sim_time)
             episode_started = time.monotonic()
+            last_camera_bundle = episode_started
             next_action = episode_started
             previous_phase = None
             while rclpy.ok():
@@ -98,6 +99,15 @@ def run_episode(args, task):
                 if not node.fresh():
                     raise RuntimeError(
                         f"Simulation observations stopped arriving: {node.stale_sources()}"
+                    )
+                observation_ready = node.observation_ready()
+                now = time.monotonic()
+                if observation_ready:
+                    last_camera_bundle = now
+                elif now - last_camera_bundle >= args.camera_timeout:
+                    raise RuntimeError(
+                        f"Camera bundle unavailable for {args.camera_timeout:g} wall seconds; "
+                        "synchronized images or their timestamped transforms are missing"
                     )
                 action = policy.poll()
                 if action is not None:
@@ -123,7 +133,7 @@ def run_episode(args, task):
                 if (
                     policy.pending is None
                     and time.monotonic() >= next_action
-                    and node.observation_ready()
+                    and observation_ready
                 ):
                     policy.act(node.observation())
             else:
@@ -184,7 +194,7 @@ def main():
         "--camera-timeout",
         type=float,
         default=10,
-        help="Wall seconds allowed without a synchronized camera frame",
+        help="Wall seconds allowed without camera frames or a complete TF-valid bundle",
     )
     parser.add_argument(
         "--head-image-topic",
