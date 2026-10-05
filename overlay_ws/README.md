@@ -12,9 +12,10 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_bringup` | ロボット生成とcontrollerの起動 |
 | `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
 | `aha_msgs` | msg / srv / action定義 |
-| `aha_navigation` | navigation用パッケージ。launchはスタブ |
+| `aha_navigation` | シミュレーションのSLAM（slam_toolbox）。[README](src/aha_navigation/README.md)を参照 |
 | `aha_manipulation` | manipulation用パッケージ。launchはスタブ |
-| `aha_perception` | 知覚用パッケージ。実行手順は[README](src/aha_perception/README.md)を参照 |
+| `aha_perception` | 頭部カメラの点群・RViz表示・頭部の操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
+| `aha_servo` | STSサーボのJointTrajectoryブリッジとキャリブレーション。[README](src/aha_servo/README.md)を参照 |
 
 ## ビルド・起動
 
@@ -52,5 +53,7 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 
 - 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
 - 昇降は左右2軸として記述しているが、実機は共通軸。
-- Gazeboセンサ、SLAM / Nav2、MoveItの統合は未実装。macOSカメラは別経路で動作する。
+- Gazeboのセンサは頭部カメラとシミュレーション専用の2D LiDAR。実機のURDFにLiDARはない。
+- Nav2、MoveItの統合は未実装。SLAMはシミュレーションのみ。
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。
+  実機の頭部は `aha_servo` のブリッジで動かす。

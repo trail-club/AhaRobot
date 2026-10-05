@@ -1,0 +1,114 @@
+<?xml version="1.0"?>
+<!--
+  Sensors for AhaRobot.
+
+  Frames:
+    link_head_tilt
+      └── camera_link                    (fixed; D435i body center, x forward, z up at zero head joints)
+            └── camera_color_optical_frame  (fixed; RGB optical center, REP-103 optical: z forward, x right, y down)
+
+  Camera frames are always emitted because the real head RealSense (D435i)
+  publishes in camera_color_optical_frame. The Gazebo sensor is emitted only
+  when sim:=true.
+
+  Gazebo topics (bridged to ROS by aha_perception/launch/perception.launch.py):
+    head_camera/{image,depth_image,camera_info}  rgbd_camera, depth aligned to color
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- D435i body size; camera_link is the body center -->
+  <xacro:property name="camera_body_x" value="0.02505"/>
+  <xacro:property name="camera_body_y" value="0.09"/>
+  <xacro:property name="camera_body_z" value="0.025"/>
+
+  <!-- RGB optical center relative to camera_link (x forward, y left, z up).
+       realsense-ros _d435.urdf.xacro: the depth origin is zero_depth_to_glass
+       (4.2 mm) + glass_to_front (0.1 mm) behind the front face and 17.5 mm left
+       of the body center; the color imager is 15 mm further left.
+       => about 8.2 mm forward, 32.5 mm left. -->
+  <xacro:property name="camera_color_xyz"
+                  value="${camera_body_x/2 - 0.0042 - 0.0001} ${0.0175 + 0.015} 0"/>
+
+  <!-- Head camera mount relative to link_head_tilt (origin on the tilt and pan axes).
+       Design values of aha_perception/hardware/head_cam_mount_d435i:
+       the camera back face is 40 mm (forward_offset) in front of the tilt axis,
+       centered on the pan axis and at the tilt axis height, so the body center is
+       40 + 25.05/2 = 52.525 mm forward.
+       rpy compensates link_head_tilt's axes (+x forward, +y down, +z left). -->
+  <xacro:property name="camera_back_offset" value="0.040"/>
+  <xacro:property name="camera_mount_xyz" value="${camera_back_offset + camera_body_x/2} 0 0"/>
+  <xacro:property name="camera_mount_rpy" value="${pi/2} 0 0"/>
+
+  <!-- Head camera stream, matching tools/perception/macos/stream_realsense.py -->
+  <xacro:property name="camera_width"  value="640"/>
+  <xacro:property name="camera_height" value="480"/>
+  <xacro:property name="camera_rate"   value="15"/>
+  <!-- 69 deg, D435i color HFOV -->
+  <xacro:property name="camera_hfov"   value="1.204"/>
+
+  <!-- Depth range and noise -->
+  <xacro:property name="camera_depth_near"         value="0.28"/>
+  <xacro:property name="camera_depth_far"          value="10.0"/>
+  <xacro:property name="camera_depth_noise_stddev" value="0.005"/>
+
+  <xacro:macro name="aha_sensors" params="sim">
+
+    <link name="camera_link">
+      <visual>
+        <geometry><box size="${camera_body_x} ${camera_body_y} ${camera_body_z}"/></geometry>
+        <material name="camera_dark_grey"><color rgba="0.15 0.15 0.15 1"/></material>
+      </visual>
+    </link>
+    <joint name="camera_joint" type="fixed">
+      <parent link="link_head_tilt"/>
+      <child  link="camera_link"/>
+      <origin xyz="${camera_mount_xyz}" rpy="${camera_mount_rpy}"/>
+    </joint>
+
+    <link name="camera_color_optical_frame"/>
+    <joint name="camera_optical_joint" type="fixed">
+      <parent link="camera_link"/>
+      <child  link="camera_color_optical_frame"/>
+      <origin xyz="${camera_color_xyz}" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <xacro:if value="${sim}">
+      <gazebo reference="camera_link">
+        <sensor name="head_camera" type="rgbd_camera">
+          <!-- Same offset as camera_optical_joint so the image origin is camera_color_optical_frame -->
+          <pose>${camera_color_xyz} 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>${camera_rate}</update_rate>
+          <visualize>false</visualize>
+          <topic>head_camera</topic>
+          <gz_frame_id>camera_color_optical_frame</gz_frame_id>
+          <camera>
+            <horizontal_fov>${camera_hfov}</horizontal_fov>
+            <image>
+              <width>${camera_width}</width>
+              <height>${camera_height}</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.1</near>
+              <far>10.0</far>
+            </clip>
+            <depth_camera>
+              <clip>
+                <near>${camera_depth_near}</near>
+                <far>${camera_depth_far}</far>
+              </clip>
+            </depth_camera>
+            <noise>
+              <type>gaussian</type>
+              <mean>0.0</mean>
+              <stddev>${camera_depth_noise_stddev}</stddev>
+            </noise>
+          </camera>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>
