@@ -46,6 +46,8 @@ class ClassifyOptions:
     shelf_min_area_ratio: float = 0.15
     wall_min_area: float = 0.3
     wall_min_extent: float = 0.3
+    # select_output_planes drops horizontal planes facing down (seen from below).
+    drop_downward: bool = True
 
 
 def _identity4() -> np.ndarray:

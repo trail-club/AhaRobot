@@ -1,6 +1,11 @@
 import numpy as np
 
-from aha_perception.planes import DetectionOptions, PlaneLabel, select_output_planes
+from aha_perception.planes import (
+    ClassifyOptions,
+    DetectionOptions,
+    PlaneLabel,
+    select_output_planes,
+)
 from aha_perception.planes.classify import classify_planes
 from aha_perception.planes.segmentation import make_plane
 
@@ -109,6 +114,18 @@ def test_select_output_planes_keeps_horizontal_and_walls_in_order():
         PlaneLabel.OTHER,
         PlaneLabel.TABLE,
     ]
+
+
+def test_select_output_planes_drop_downward():
+    board = _horizontal(0.8, 1.0, 1.3, -0.4, 0.4)
+    underside = _horizontal(1.58, 1.5, 1.85, -0.4, 0.4)
+    assert underside.normal[2] < 0 < board.normal[2]
+    planes = [board, underside]
+    options = DetectionOptions()
+    classify_planes(planes, options)
+    assert [id(p) for p in select_output_planes(planes, options)] == [id(board)]
+    options.classify = ClassifyOptions(drop_downward=False)
+    assert len(select_output_planes(planes, options)) == 2
 
 
 def test_select_output_planes_drops_walls_without_detect_vertical():

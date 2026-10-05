@@ -277,19 +277,35 @@ def _codes(scene: Scene, primitive) -> np.ndarray:
     return np.array([NON_PLANAR, code(primitive.top)])
 
 
-def raycast(scene: Scene, intrinsics: Intrinsics):
-    """Noise-free depth (optical z, inf = no hit) and per-pixel surface codes."""
+def raycast_faces(scene: Scene, intrinsics: Intrinsics):
+    """Noise-free depth and, per pixel, the hit primitive index and face (-1 = none).
+
+    Faces index ``_FACES`` for a ``Box``, 0 for a ``Quad``, and 0 (side) / 1 (top)
+    for a ``Cylinder``.
+    """
     transform = scene.pose.camera_to_base()
     rays = intrinsics.rays() @ transform[:3, :3].T
     origin = transform[:3, 3]
     depth = np.full(rays.shape[:2], np.inf)
-    codes = np.full(rays.shape[:2], NON_PLANAR, dtype=np.int64)
+    index = np.full(rays.shape[:2], -1, dtype=np.int64)
+    faces = np.full(rays.shape[:2], -1, dtype=np.int64)
     hitters = {Quad: _hit_quad, Box: _hit_box, Cylinder: _hit_cylinder}
-    for primitive in scene.primitives:
+    for k, primitive in enumerate(scene.primitives):
         t, face = hitters[type(primitive)](primitive, origin, rays)
         closer = t < depth
         depth = np.where(closer, t, depth)
-        codes = np.where(closer, _codes(scene, primitive)[face], codes)
+        index = np.where(closer, k, index)
+        faces = np.where(closer, face, faces)
+    return depth, index, faces
+
+
+def raycast(scene: Scene, intrinsics: Intrinsics):
+    """Noise-free depth (optical z, inf = no hit) and per-pixel surface codes."""
+    depth, index, faces = raycast_faces(scene, intrinsics)
+    codes = np.full(depth.shape, NON_PLANAR, dtype=np.int64)
+    for k, primitive in enumerate(scene.primitives):
+        hit = index == k
+        codes[hit] = _codes(scene, primitive)[faces[hit]]
     return depth, codes
 
 
@@ -598,15 +614,29 @@ def table(tag, center, size=(1.2, 0.7), height=0.72, yaw_deg=0.0) -> list:
     return parts
 
 
-def shelf(prefix, front_x, center_y, boards, width=0.8, depth=0.35, height=1.8):
-    """Open shelf facing the robot (-x). Returns (primitives, surfaces)."""
+def shelf(
+    prefix, front_x, center_y, boards, width=0.8, depth=0.35, height=1.8, board_t=0.02
+):
+    """Open shelf facing the robot (-x). Returns (primitives, surfaces).
+
+    Boards (``board_t`` thick) are named ``<prefix>_board<i>`` (top face, class
+    shelf); their other faces and the side panels are don't care, the back panel
+    front is ``<prefix>_back`` (class other).
+    """
     t = 0.02
     cx = front_x + depth / 2
     parts, surfaces = [], {}
     for i, h in enumerate(boards):
         name = f"{prefix}_board{i}"
         surfaces[name] = "shelf"
-        parts.append(Box((cx, center_y, h - t / 2), (depth, width, t), 0, {"+z": name}))
+        parts.append(
+            Box(
+                (cx, center_y, h - board_t / 2),
+                (depth, width, board_t),
+                0,
+                {"+z": name},
+            )
+        )
     for sy in (-1, 1):
         side_y = center_y + sy * (width / 2 + t / 2)
         parts.append(Box((cx, side_y, height / 2), (depth, t, height)))
@@ -804,6 +834,86 @@ def scene_set() -> list[Scene]:
         )
     )
     return scenes
+
+
+# Board heights (m) by spacing; the top boards of 0.25 / 0.40 are above the camera.
+SHELF_BOARDS = {
+    0.25: (0.30, 0.55, 0.80, 1.05, 1.30, 1.55),
+    0.35: (0.30, 0.65, 1.00, 1.35),
+    0.40: (0.40, 0.80, 1.20, 1.60),
+}
+SHELF_DEPTH = 0.35
+
+
+def _shelf_study_scene(
+    name,
+    front_x,
+    spacing,
+    tilt,
+    pan=0.0,
+    objects=True,
+    board_t=0.02,
+    table_height=None,
+) -> Scene:
+    """Shelf straight ahead of the panned camera, ``front_x`` m in front of it.
+
+    Tags carry ``distance=<front_x>`` and ``spacing=<spacing>`` for the report.
+    With ``table_height`` a table stands to the left of the shelf.
+    """
+    boards = SHELF_BOARDS[spacing]
+    center_y = (front_x + SHELF_DEPTH / 2) * np.tan(np.radians(pan))
+    if table_height is not None:
+        center_y -= 0.45
+    parts, surfaces = shelf(
+        "shelf",
+        front_x,
+        center_y,
+        boards,
+        depth=SHELF_DEPTH,
+        height=boards[-1] + 0.2,
+        board_t=board_t,
+    )
+    prims = [floor(), *parts]
+    surfaces = {"floor": "floor", **surfaces}
+    if objects:
+        prims += _shelf_objects(front_x, center_y, boards, SHELF_DEPTH)
+    tags = ["shelf", f"distance={front_x:g}", f"spacing={spacing:g}"]
+    tags.append("objects" if objects else "empty")
+    if table_height is not None:
+        center = (front_x + 0.3, center_y + 1.0)
+        prims += table("table", center, size=(0.8, 0.6), height=table_height)
+        prims += _table_objects(center, table_height)[1:3]
+        surfaces["table"] = "table"
+        tags.append("table")
+    return Scene(
+        name,
+        tuple(tags),
+        CameraPose(pan_deg=pan, tilt_deg=tilt),
+        surfaces,
+        prims,
+    )
+
+
+def shelf_scene_set() -> list[Scene]:
+    """Shelf scenes for the place study (run_shelf.py); not part of ``scene_set``."""
+    return [
+        _shelf_study_scene("shelf_s25_d0.7", 0.7, 0.25, tilt=40),
+        _shelf_study_scene("shelf_s25_d1.0", 1.0, 0.25, tilt=30),
+        _shelf_study_scene("shelf_s25_d1.5", 1.5, 0.25, tilt=20),
+        _shelf_study_scene("shelf_s25_d1.0_empty", 1.0, 0.25, tilt=30, objects=False),
+        _shelf_study_scene("shelf_s25_d1.0_pan20", 1.0, 0.25, tilt=30, pan=20),
+        _shelf_study_scene("shelf_s40_d0.7", 0.7, 0.40, tilt=35),
+        _shelf_study_scene("shelf_s40_d1.0", 1.0, 0.40, tilt=25),
+        _shelf_study_scene("shelf_s40_d1.5", 1.5, 0.40, tilt=15),
+        _shelf_study_scene(
+            "shelf_s40_d1.0_pan-20_thick", 1.0, 0.40, tilt=25, pan=-20, board_t=0.04
+        ),
+        _shelf_study_scene("shelf_s35_d1.0_empty", 1.0, 0.35, tilt=30, objects=False),
+        _shelf_study_scene("shelf_s35_d1.0", 1.0, 0.35, tilt=30),
+        _shelf_study_scene(
+            "shelf_s40_d1.0_table", 1.0, 0.40, tilt=30, table_height=0.75
+        ),
+    ]
 
 
 NOISE_LEVELS = (0.5, 1.0, 2.0)

@@ -4,7 +4,8 @@
 Subscribes the depth image registered to color (32FC1 m, or 16UC1 mm) and its
 CameraInfo, back-projects it to an organized cloud, transforms it to
 target_frame (origin on the floor, z up; base_footprint) with the TF at the
-image stamp and runs aha_perception.planes.detect_planes. Only horizontal
+image stamp and runs aha_perception.planes.detect_planes (params merge and
+DepthNoiseModel subpixel from the ROS parameters). Only horizontal
 planes and walls are published (aha_perception.planes.select_output_planes);
 oblique planes and small vertical planes are dropped.
 
@@ -22,6 +23,7 @@ Outputs, stamped with the depth image stamp, in target_frame:
 The TF buffer is cleared when a /tf stamp goes back (sim restart or reset).
 """
 
+import dataclasses
 import sys
 import threading
 import time
@@ -170,6 +172,25 @@ class PlaneDetection(Node):
         self.stride = int(self.declare_parameter("stride", 1).value)
         if self.stride < 1:
             raise ValueError(f"stride must be >= 1, got {self.stride}")
+        # Tuned on calibrated D435i noise, see
+        # tools/perception/plane_bench/results/tuning.md.
+        merge = bool(self.declare_parameter("merge", True).value)
+        self.noise_subpixel = float(
+            self.declare_parameter("noise_subpixel", 0.12).value
+        )
+        if not self.noise_subpixel > 0.0:
+            raise ValueError(f"noise_subpixel must be > 0, got {self.noise_subpixel}")
+        params_type = DETECTORS[self.method].params_type
+        if "merge" in {f.name for f in dataclasses.fields(params_type)}:
+            self.params = params_type(merge=merge)
+            merge_text = "on" if merge else "off"
+        else:
+            self.params = params_type()
+            merge_text = "unsupported"
+            if merge:
+                self.get_logger().warn(
+                    f"{self.method} has no merge param, merge ignored"
+                )
 
         self.tf_buffer = Buffer()
         self.tf_listener = JumpDetectingTransformListener(
@@ -214,7 +235,8 @@ class PlaneDetection(Node):
         rate = f"{max_rate:g} Hz" if max_rate > 0.0 else "unlimited rate"
         self.get_logger().info(
             f"{self.method} on {depth_topic} -> {self.target_frame}, {rate}, "
-            f"walls {'on' if self.detect_vertical else 'off'}, stride {self.stride}"
+            f"walls {'on' if self.detect_vertical else 'off'}, stride {self.stride}, "
+            f"merge {merge_text}, noise subpixel {self.noise_subpixel:g}"
         )
 
     def clear_markers(self):
@@ -332,9 +354,9 @@ class PlaneDetection(Node):
             max_depth=self.max_depth,
             detect_vertical=self.detect_vertical,
             # The noise model scales with the focal length of this camera.
-            noise=DepthNoiseModel(focal=fx),
+            noise=DepthNoiseModel(focal=fx, subpixel=self.noise_subpixel),
         )
-        detected_planes = detect_planes(cloud, self.method, options)
+        detected_planes = detect_planes(cloud, self.method, options, self.params)
         planes = select_output_planes(detected_planes, options)
         detected = time.perf_counter()
 

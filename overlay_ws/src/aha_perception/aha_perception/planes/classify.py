@@ -94,11 +94,18 @@ def select_output_planes(planes: list[Plane], options: DetectionOptions) -> list
     """Horizontal planes and walls, in order; needs labels from ``classify_planes``.
 
     Oblique planes and vertical planes below the wall size are dropped. Walls are
-    kept only with ``options.detect_vertical``.
+    kept only with ``options.detect_vertical``. With
+    ``options.classify.drop_downward`` horizontal planes whose normal (facing the
+    camera) points down are dropped: undersides of boards, tables or a ceiling
+    above the camera, which cannot be placed on.
     """
-    return [
-        plane
-        for plane in planes
-        if is_horizontal(plane.normal, options)
-        or (options.detect_vertical and plane.label == PlaneLabel.WALL)
-    ]
+    up = options.unit_up()
+
+    def keep(plane):
+        if is_horizontal(plane.normal, options):
+            return not (
+                options.classify.drop_downward and float(plane.normal @ up) < 0.0
+            )
+        return options.detect_vertical and plane.label == PlaneLabel.WALL
+
+    return [plane for plane in planes if keep(plane)]

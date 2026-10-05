@@ -38,6 +38,8 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | `labels_<scene>_a.png` / `_b.png` | GTと各候補のラベル画像（a: 初期4候補、b: 追加4候補）。対応したGTと同色、誤検出はマゼンタ |
 | `comparison.md` | 手で整理した比較のまとめ（実行では更新しない） |
 | `tuning.md` / `tuning_*.png` | 手で整理した検出器の設定の比較と、`make_tuning_figures.py` の画像 |
+| `shelf.md` | 手で整理した棚の置き場所の評価（[棚の評価](#棚の評価)） |
+| `shelf_report.md` / `shelf_report.csv` / `shelf_report_planes.csv` / `shelf_s*.png` | `run_shelf.py` の出力 |
 
 実行時間は 640x480 入力1フレームあたり、前処理を含む。`cpu` はプロセスCPU時間、
 `wall` は経過時間で、内部でマルチスレッド化する Open3D では `wall` が小さくなる。
@@ -86,6 +88,7 @@ GTラベルは平面ごとの画像上の連結成分（400画素以上かつ0.0
 `surfaces` は面の名前からクラス（floor / table / shelf / wall / other）への対応、
 `primitives` の `Quad.tag`・`Box.faces`・`Cylinder.top` にその名前を指定した面がGT平面になる。
 `tags` はレポートのグループ（table / shelf / coplanar / walls / far / floor / clutter）に使う。
+棚の評価用のシーンは `scene_set()` とは別の `shelf_scene_set()` にあり、ベンチと系列評価の既定には含まれない。
 
 ## 実機フレーム
 
@@ -253,3 +256,36 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 
 - `--configs`：1行ずつの設定。`sub=` が subpixel、ほかは params の `KEY=VALUE` をカンマで並べる。`--labels` で行の名前を付ける。
 - `--method`（既定 `ransac_gravity_refined`）・`--max-depth`（既定3.0）・`--min-depth`（既定0.3）・`--prefix`（既定 `tuning`）。
+
+## 棚の評価
+
+`shelf_scene_set()` の棚のシーン（棚の手前までの距離・棚板の間隔・tilt / pan・物体の有無・板厚・横の机）を系列で検出し、
+ノードの出力（`select_output_planes` 後の水平面）を棚板ごとの置き場所として評価する。結果のまとめは [results/shelf.md](results/shelf.md)。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with matplotlib \
+  python tools/perception/plane_bench/run_shelf.py --keep-downward --jobs 12
+```
+
+- `--configs`（既定 `sub=0.08 sub=0.12,merge=on`、名前 `current` / `node`）・`--labels` は `make_tuning_figures.py` と同じ形式。
+- `--presets`（既定 `d435i_filtered d435i_raw default`）・`--methods`（既定 `ransac_gravity_refined`）・`--frames`（既定10）・`--max-depth`（既定3.0）・`--scenes`・`--jobs`。
+  シーケンスの生成は `run_sequence.py` と同じ（シードはシーン名とプリセット）。
+- `--keep-downward`：各設定の検出に `ClassifyOptions(drop_downward=False)`（下向きの水平面を残す）の選択も適用し、` +keep` を付けた設定として並べる。
+- `--out`（既定 `results/shelf_report.md`）に表を、同名の `.csv` に棚板 × フレーム、`_planes.csv` に出力の水平面を書く。
+- `--figures`（既定3シーン）：最初のプリセットで `results/<scene>.png` を書く（深度誤差、GT、最初の設定の1フレーム目、最後の設定の1・6フレーム目）。
+
+棚板は面の名前（`shelf_board<i>`）で識別し、物体や遮蔽で画像上に分かれたGTの断片も1つの棚板として扱う。
+出力平面の画素は、ノイズなしのレイキャストで当たった面（棚板の上面・縁・裏面、床、机、物体の上面、その他）で分類し、
+同じ板の上面と縁はその板として数える。
+
+| 指標 | 定義 |
+| --- | --- |
+| status | target：その板のGT画素がある。sliver：上面が見えるがGTの大きさ未満。hidden：深度範囲内に上面の画素がない（カメラより高い、視野外） |
+| detected | target のうち、インライアの50%以上がその板で、板のGTの30%以上を覆う出力平面がある割合 |
+| abs dh / max dh / dh std | 検出した平面の、板のGT重心のxyでの高さと板の高さの差（絶対値の平均・最大）、板ごとのフレーム間の標準偏差の平均 |
+| coverage / split | 検出した平面が覆う板のGTの割合、板の5%以上を覆う平面が2つ以上ある target の割合 |
+| shelf / table / other | 検出した平面のラベルの割合 |
+| merge b-b / b-s | インライアの10%以上かつ100画素以上が2つの棚板（b-b）、棚板と床・机（b-s）にある平面の数（フレームあたり） |
+| board+obj | 棚板と物体の上面をそれぞれ10%以上含む平面の数（フレームあたり） |
+| false / underside | 棚板・床・机の画素が半分未満の水平面（偽の置き場所）と、そのうち裏面が主のものの数（フレームあたり） |
+| hidden det | hidden の板の面（裏面・縁）をインライアの30%以上含む平面がある（シーン, フレーム, 板）の数 |

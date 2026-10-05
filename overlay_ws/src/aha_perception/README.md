@@ -168,6 +168,8 @@ planes = detect_planes(cloud, "ransac_gravity", options)
 `select_output_planes(planes, options)` はラベル付け済みの結果から水平面と壁（`wall_min_area` 0.3 m² 以上・
 高さ方向の広がり `wall_min_extent` 0.3 m 以上の垂直面）だけを順序を保って残し、斜めの面と小さい垂直面を捨てる。
 `detect_planes` 自体の出力は変えない。
+法線（カメラ側）が下を向く水平面（カメラより上の棚板・机の裏面、天井）も捨てる（`ClassifyOptions.drop_downward`、既定 `True`）
+（棚での比較は [shelf.md](../../../tools/perception/plane_bench/results/shelf.md)）。
 
 | 名前 | 方式 |
 | --- | --- |
@@ -207,8 +209,12 @@ planes = detect_planes(cloud, "ransac_gravity_refined", options, params)
 `plane_detection_node.py` はDepth（32FC1のm、または16UC1のmm）とCameraInfoから
 organized point cloudを作り、画像時刻のTFで `target_frame` へ変換して `detect_planes` を実行する。
 出力は `select_output_planes` で選んだ水平面と壁だけで、斜めの面と小さい垂直面は出さない。
+起動時のログに手法・`merge`・`noise_subpixel` を出す。
 ログの要約は `3 planes (floor 1, table 1, wall 1) of 14 detected` のように出力数と検出数を示す。
-`DepthNoiseModel` の f にはCameraInfoの fx を使い、baseline・subpixelは既定値。
+`DepthNoiseModel` の f にはCameraInfoの fx、subpixelにはパラメータ `noise_subpixel` を使い、baselineは既定値。
+params はパラメータ `merge` 以外を既定値にする（`merge` のない手法では無視してwarningを出す）。
+ノードの既定（`merge` true・`noise_subpixel` 0.12）は較正したD435iのノイズで選んだ値で、
+ライブラリの既定（`merge=False`・subpixel 0.08）とは異なる（[比較](../../../tools/perception/plane_bench/results/tuning.md)）。
 画像時刻のTFが0.2 sで得られない場合は最新のTFを使いwarningを出す。
 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。
 `/tf` の時刻が戻るとTFバッファを消す（`head_look_at.py` と共通の `aha_perception.tf_jump`）。
@@ -230,6 +236,8 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `min_depth` / `max_depth` | `0.3` / `3.0` | 使う深度の範囲（m） |
 | `max_points_per_plane` | `5000` | 出力点群の平面あたりの最大点数（0で全点） |
 | `stride` | `1` | Depthの間引き（行・列） |
+| `merge` | `true` | 同一平面の断片の統合（params の `merge`）。較正ノイズでの断片化を抑える（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
+| `noise_subpixel` | `0.12` | 検出器の `DepthNoiseModel` の subpixel（0より大きい値）。較正ノイズでの利得と既定ノイズでの低下の釣り合い（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
 
 出力は `target_frame`、Depthの時刻で配信する（topic・型は [ROSインターフェース](../../../docs/interfaces.md#平面検出)）。
 `/aha/perception/planes/cloud` は平面のインライア点を平面ごとに色分けする。
