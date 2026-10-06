@@ -15,7 +15,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_msgs` | msg / srv / action定義 |
 | `aha_navigation` | シミュレーションのSLAM（slam_toolbox）。[README](src/aha_navigation/README.md)を参照 |
 | `aha_manipulation` | manipulation用パッケージ。launchはスタブ |
-| `aha_perception` | 頭部カメラの点群・RViz表示・頭部の操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
+| `aha_perception` | 頭部・手首カメラのbridge、頭部の点群・RViz表示・操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
 | `aha_servo` | STSサーボのJointTrajectoryブリッジとキャリブレーション。[README](src/aha_servo/README.md)を参照 |
 
 ## ビルド・起動
@@ -54,7 +54,8 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 
 - 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
 - 昇降は左右2軸として記述しているが、実機は共通軸。
-- Gazeboのセンサは頭部カメラとシミュレーション専用の2D LiDAR。実機のURDFにLiDARはない。
+- Gazeboのセンサは頭部RGB-Dカメラ、左右の手首RGBカメラ、シミュレーション専用の2D LiDAR。
+  手首カメラは仮想取付位置で、実機のURDFには手首カメラとLiDARはない。
 - Nav2、MoveItの統合は未実装。SLAMはシミュレーションのみ。
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。
   実機の頭部は `aha_servo` のブリッジで動かす。

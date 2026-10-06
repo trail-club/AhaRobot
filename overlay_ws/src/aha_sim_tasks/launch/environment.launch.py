@@ -8,12 +8,14 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
 from launch.event_handlers import OnShutdown
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     EnvironmentVariable,
@@ -27,6 +29,11 @@ from aha_sim_tasks.scene import expand_world, load_scene
 
 
 def _launch_scene(context):
+    if (
+        LaunchConfiguration("camera_view").perform(context).lower() == "true"
+        and LaunchConfiguration("cameras").perform(context).lower() != "true"
+    ):
+        raise ValueError("camera_view:=true requires cameras:=true")
     share = Path(get_package_share_directory("aha_sim_tasks"))
     configuration = share / "config/scene.json"
     scene = load_scene(configuration)
@@ -34,7 +41,12 @@ def _launch_scene(context):
     world = Path(temporary.name) / "task_tables.sdf"
     try:
         world.write_text(
-            expand_world(share / "worlds/task_tables.sdf.xacro", configuration)
+            expand_world(
+                share / "worlds/task_tables.sdf.xacro",
+                configuration,
+                cameras=LaunchConfiguration("cameras").perform(context).lower()
+                == "true",
+            )
         )
     except Exception:
         temporary.cleanup()
@@ -57,6 +69,7 @@ def _launch_scene(context):
             launch_arguments={
                 "world_path": str(world),
                 "headless": LaunchConfiguration("headless"),
+                "cameras": LaunchConfiguration("cameras"),
                 "bridge_clock": "false",
                 "activate_controllers_as_group": "true",
                 "robot_name": scene["entities"]["robot_model"],
@@ -73,6 +86,24 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("headless", default_value="true"),
+            DeclareLaunchArgument(
+                "cameras", default_value="true", choices=["true", "false"]
+            ),
+            DeclareLaunchArgument(
+                "camera_view", default_value="false", choices=["true", "false"]
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("aha_perception"),
+                            "launch",
+                            "camera_bridge.launch.py",
+                        ]
+                    )
+                ),
+                condition=IfCondition(LaunchConfiguration("cameras")),
+            ),
             SetEnvironmentVariable(
                 "GZ_SIM_SYSTEM_PLUGIN_PATH",
                 [
@@ -82,6 +113,22 @@ def generate_launch_description():
                 ],
             ),
             OpaqueFunction(function=_launch_scene),
+            ExecuteProcess(
+                cmd=[
+                    "gz",
+                    "gui",
+                    "-c",
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("aha_sim_tasks"),
+                            "config",
+                            "camera_view.config",
+                        ]
+                    ),
+                ],
+                condition=IfCondition(LaunchConfiguration("camera_view")),
+                output="screen",
+            ),
             Node(
                 package="ros_gz_bridge",
                 executable="parameter_bridge",

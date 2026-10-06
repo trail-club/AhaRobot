@@ -1,10 +1,12 @@
 """Episode cleanup must include detached processes, without touching other runs."""
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -92,3 +94,171 @@ def test_cleanup_stops_detached_worker_even_after_parent_exits(
     finally:
         stop_group(parent, partition, other_partitions=extra_partitions)
         stop_group(other, other_partition)
+
+
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("camera_state", ["missing_tf", "recovered_tf", "disabled"])
+def test_episode_bounds_unusable_camera_bundles(
+    monkeypatch, tmp_path, pending, camera_state
+):
+    rclpy = pytest.importorskip("rclpy")
+    from aha_sim_tasks import ros_environment, runner
+    from aha_sim_tasks.evaluation import Task, WorldState
+
+    wall_time = 0.0
+    stopped = []
+    actions = []
+    adapter = ros_environment.RosEnvironment
+    node = SimpleNamespace(
+        camera_timeout=2,
+        required={
+            "joints",
+            "odom",
+            "state",
+            "camera:head",
+            "camera:left_wrist",
+            "camera:right_wrist",
+        },
+        received={},
+        world=WorldState(0, (0, 0, 0), (0, 0, 0), 0, 0),
+        ready=lambda: True,
+        get_clock=lambda: SimpleNamespace(
+            now=lambda: SimpleNamespace(nanoseconds=round(wall_time * 1e9))
+        ),
+        observation=lambda: object(),
+        stop=lambda: stopped.append("node"),
+        destroy_node=lambda: stopped.append("destroy"),
+    )
+    node.stale_sources = lambda: adapter.stale_sources(node)
+    node.fresh = lambda: adapter.fresh(node)
+    node.observation_ready = lambda: (
+        camera_state == "disabled"
+        or wall_time < 1
+        or (camera_state == "recovered_tf" and 2 <= wall_time < 3)
+    )
+
+    def spin_once(environment, timeout_sec):
+        nonlocal wall_time
+        if stopped:
+            return
+        wall_time += 0.25
+        environment.world = WorldState(wall_time, (0, 0, 0), (0, 0, 0), 0, 0)
+        # Images and other streams keep arriving even while TF is unusable.
+        environment.received = {source: wall_time for source in environment.required}
+
+    policy = SimpleNamespace(
+        ready=True,
+        pending=object() if pending else None,
+        poll=lambda: None,
+        act=actions.append,
+        close=lambda: stopped.append("policy"),
+    )
+    simulator = SimpleNamespace(
+        poll=lambda: None,
+        send_signal=lambda sig: stopped.append("simulator"),
+        wait=lambda timeout: None,
+    )
+    clock = SimpleNamespace(monotonic=lambda: wall_time, sleep=lambda seconds: None)
+    monkeypatch.setattr(runner, "time", clock)
+    monkeypatch.setattr(ros_environment, "time", clock)
+    monkeypatch.setattr(ros_environment, "RosEnvironment", lambda *args, **kwargs: node)
+    monkeypatch.setattr(runner, "PolicyProcess", lambda *args, **kwargs: policy)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: simulator)
+    monkeypatch.setattr(rclpy, "init", lambda: None)
+    monkeypatch.setattr(rclpy, "ok", lambda: True)
+    monkeypatch.setattr(rclpy, "shutdown", lambda: None)
+    monkeypatch.setattr(rclpy, "spin_once", spin_once)
+    monkeypatch.setenv("GZ_PARTITION", "camera-deadline-test")
+    args = SimpleNamespace(
+        policy="noop",
+        policy_ros_domain_id=88,
+        policy_startup_timeout=120,
+        policy_timeout=30,
+        headless=True,
+        cameras=camera_state != "disabled",
+        camera_view=False,
+        camera_timeout=2,
+        head_image_topic="",
+        wall_timeout=20,
+        output=tmp_path / "result.json",
+    )
+    task = Task("pick", "Pick an apple", "pick", 6, 1, {"min_height": 0.24})
+    assert runner.run_episode(args, task) == 1
+    result = json.loads(args.output.read_text())
+    if camera_state == "disabled":
+        assert result["status"] == "timeout"
+        assert "reason" not in result
+    else:
+        assert result["status"] == "error"
+        assert "Camera bundle" in result["reason"]
+        assert "timestamped transforms" in result["reason"]
+        expected = 2.75 if camera_state == "missing_tf" else 4.75
+        assert result["wall_seconds"] == expected
+    assert {"node", "destroy", "policy", "simulator"} <= set(stopped)
+    assert bool(actions) is not pending
+
+
+@pytest.mark.parametrize(
+    ("flags", "cameras"),
+    [
+        ([], True),
+        (["--no-cameras"], False),
+        (["--head-image-topic", "/head"], False),
+        (["--no-cameras", "--head-image-topic", "/head"], False),
+    ],
+)
+def test_cameras_default_follows_head_image_topic(
+    monkeypatch, tmp_path, flags, cameras
+):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    seen = []
+    monkeypatch.setattr(
+        runner, "run_episode", lambda args, task: seen.append(args) or 0
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--episode",
+            "--task",
+            "place_apple",
+            "--output",
+            str(tmp_path / "result.json"),
+            *flags,
+        ],
+    )
+    assert runner.main() == 0
+    assert seen[0].cameras is cameras
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--cameras", "--head-image-topic", "/head"],
+        ["--no-cameras", "--camera-view"],
+        ["--head-image-topic", "/head", "--camera-view"],
+    ],
+)
+def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--episode",
+            "--task",
+            "place_apple",
+            "--output",
+            str(tmp_path / "result.json"),
+            *flags,
+        ],
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        runner.main()
+    assert exit_info.value.code == 2

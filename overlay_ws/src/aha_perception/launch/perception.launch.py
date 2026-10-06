@@ -4,7 +4,7 @@
 
 sim.launch.py passes no arguments; the ones below are read from the command
 line. Starts:
-  - ros_gz_bridge for the Gazebo head camera (config/sim_camera_bridge.yaml):
+  - camera_bridge.launch.py for Gazebo head and wrist cameras:
     /camera/color/image_raw, /camera/color/camera_info,
     /camera/depth_registered/image_rect (frame camera_color_optical_frame)
   - pointcloud.launch.py: /camera/depth/points
@@ -20,8 +20,6 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -29,19 +27,11 @@ def generate_launch_description():
     share = FindPackageShare("aha_perception")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    camera_bridge = Node(
-        package="ros_gz_bridge",
-        executable="parameter_bridge",
-        name="head_camera_bridge",
-        parameters=[
-            {
-                "config_file": PathJoinSubstitution(
-                    [share, "config", "sim_camera_bridge.yaml"]
-                ),
-                "use_sim_time": ParameterValue(use_sim_time, value_type=bool),
-            }
-        ],
-        output="screen",
+    camera_bridge = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([share, "launch", "camera_bridge.launch.py"])
+        ),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
     )
 
     pointcloud = IncludeLaunchDescription(

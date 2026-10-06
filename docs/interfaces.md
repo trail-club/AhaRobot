@@ -61,7 +61,10 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 重複・逆順のstateは速度履歴とfreshnessも更新しない。
 pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
 この観測系は物体の運動を変更しない。policyには `/joint_states`、車輪odom、シミュレーション時刻、
-タスクID・言語指示を渡す。画像topicは指定時のみ `sensor_msgs/msg/Image` としてsensor-data QoSで購読する。
+タスクID・言語指示を渡す。既定では頭部RGB-D・左右の手首RGBカメラを描画し、画像・校正・画像時刻のbase_linkからのTFを
+policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは
+`--head-image-topic` の指定時のみsensor-data QoSで購読する。このとき内蔵カメラは無効になり、
+`--cameras` との併用はエラーになる。
 world poseの座標はworld、policyのodom座標は `odom`。
 評価はcontrollerの速度・関節位置指令を発行する。
 評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。
@@ -104,6 +107,27 @@ RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
 TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
 取付位置は [頭部ブラケット](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)の設計値。
+
+## 手首カメラ（シミュレーション）
+
+| Topic | 型 | frame |
+| --- | --- | --- |
+| `/camera/left_wrist/image_raw` | `sensor_msgs/msg/Image`（rgb8） | `left_wrist_camera_optical_frame` |
+| `/camera/left_wrist/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
+| `/camera/right_wrist/image_raw` | `sensor_msgs/msg/Image`（rgb8） | `right_wrist_camera_optical_frame` |
+| `/camera/right_wrist/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
+
+両カメラは640×480、15 Hz。画像とCameraInfoは同じ時刻・optical frameを持つ。
+TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
+`{left,right}_wrist_camera_optical_frame`（固定joint）で、robot_state_publisherが配信する。
+仮想取付位置・光学特性・表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
+実機のURDFには手首カメラはない。
+
+`sim.launch.py use_perception:=true` またはタスク評価の既定設定で
+`camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
+シミュレーションの頭部3topicはRELIABLE / VOLATILE / KEEP_LAST(10)、
+手首の画像・CameraInfoはsensor-data QoS（BEST_EFFORT / VOLATILE / KEEP_LAST(5)）。
+`sim.launch.py cameras:=false` / 評価の `--no-cameras` は全カメラセンサを除く。
 
 ## 頭部の注視
 
