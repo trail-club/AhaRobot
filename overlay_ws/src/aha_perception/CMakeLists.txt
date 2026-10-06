@@ -6,6 +6,7 @@ find_package(ament_cmake_python REQUIRED)
 
 # aha_perception.head_config: head.yaml loader shared by the scripts below
 # aha_perception.planes: plane detection candidates
+# aha_perception.place: place candidates on the detected support planes
 # aha_perception.plane_detection_io: ROS message conversions for the depth nodes
 # aha_perception.depth_noise: D435i depth noise model for sim_depth_noise.py
 # aha_perception.tf_jump: TF listener that detects sim restarts
@@ -34,6 +35,7 @@ if(BUILD_TESTING)
   endforeach()
   ament_add_pytest_test(test_plane_detection_io test/test_plane_detection_io.py TIMEOUT 120)
   ament_add_pytest_test(test_depth_noise test/test_depth_noise.py TIMEOUT 120)
+  ament_add_pytest_test(test_place test/test_place.py TIMEOUT 120)
 endif()
 
 ament_package()

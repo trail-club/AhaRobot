@@ -1,6 +1,6 @@
 # aha_perception
 
-頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出、
+頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出と置き場所の候補、
 シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
 topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
@@ -31,7 +31,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
-| `plane_detection_node.py` | 頭部のDepthから床・机・棚・壁の平面を検出し、点群とMarkerArrayで出力する（[平面検出](#平面検出のノード)） |
+| `plane_detection_node.py` | 頭部のDepthから床・机・棚・壁の平面を検出して出力し、置き場所の候補をserviceで返す（[平面検出](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
@@ -268,13 +268,70 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `stride` | `1` | Depthの間引き（行・列） |
 | `merge` | `true` | 同一平面の断片の統合（params の `merge`）。較正ノイズでの断片化を抑える（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
 | `noise_subpixel` | `0.12` | 検出器の `DepthNoiseModel` の subpixel（0より大きい値）。較正ノイズでの利得と既定ノイズでの低下の釣り合い（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
+| `max_detection_age` | `3.0` | 置き場所のserviceが使う検出の古さの上限（s、wall clock）。0以下で無制限 |
 
 出力は `target_frame`、Depthの時刻で配信する（topic・型は [ROSインターフェース](../../../docs/interfaces.md#平面検出)）。
+`/aha/perception/planes` は出力する平面（`aha_msgs/PlaneArray`、`id` は配列の番号）。
 `/aha/perception/planes/cloud` は平面のインライア点を平面ごとに色分けする。
 `/aha/perception/planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`）を出す。
 文字は水平面が `table 0.72 m` のように床からの高さ、垂直面が `wall 2.3 m2` のように面積。
 ラベルの色は床が灰、机が緑、棚が橙、壁が青、その他が紫。
-`rviz/sim_view.rviz` の `Planes` グループに両topicの表示がある。
+`rviz/sim_view.rviz` の `Planes` グループに両topicと置き場所の候補（`Place candidates`）の表示がある。
+
+ノードは最新の検出（平面・点群・ノイズモデル・時刻）を保持し、service `/aha/perception/get_place_candidates`
+（`aha_msgs/GetPlaceCandidates`）で [置き場所の候補](#置き場所の候補) を返す。
+検出がない場合と `max_detection_age` より古い場合は `success` false。`near` は最新のTFで `target_frame` へ変換する。
+呼び出しごとに `/aha/perception/place/markers` へDELETEALLの後、候補ごとに clearance を半径とする半透明の円盤（ns `clearance`）、
+中心の球（ns `center`、1位は緑）、順位の文字（ns `rank`）を出す。
+
+```bash
+ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
+  "{object_size: {x: 0.08, y: 0.08, z: 0.15}}"
+ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
+  "{object_size: {x: 0.08, y: 0.08, z: 0.15}, surface_labels: [table], max_candidates: 3,
+    near: {header: {frame_id: base_link}, point: {x: 1.0, y: 0.2, z: 0.75}}}"
+```
+
+### 置き場所の候補
+
+`aha_perception.place.find_place_candidates` は検出した平面と点群から、底面 x × y・高さ z の物体を置ける面上の点を返す（ROS非依存、numpy / scipy のみ）。
+
+```python
+from aha_perception.place import base_cloud, find_place_candidates
+
+points, depth = base_cloud(cloud, T_base_camera)  # 検出に渡した点群（カメラ座標系）
+result = find_place_candidates(planes, points, depth, (0.08, 0.08, 0.15), options.noise)
+for c in result.candidates:  # position, clearance, label, plane_index, score
+    ...
+```
+
+- 支持面は上を向く水平面のうちラベルが `labels`（既定 table / shelf、floor / other も指定可）のもの。
+  平面ごとに `plane.axes`・`plane.centroid` の平面座標で格子（`resolution` 1 cm、凸包の外接矩形 + 5 cm）を作る。
+- 支持：平面のインライアの画素がある格子（closing 2セル）と凸包の積。インライアのない格子（物体の陰など見えていない所）は置けない。
+- 障害物：有効な点のうち、平面からの高さが max(`obstacle_min_height`, `obstacle_k`·σ(Z)) 以上、物体の高さ + `height_margin` 以下の点が
+  `obstacle_min_points` 個以上ある格子。`speckle_cells` 未満の連結成分は除く。σ(Z) は検出器の `DepthNoiseModel`。
+- 上の面：ほかの水平面（物体の上面・上の棚板も含む）の重心が `overhead_min_gap` 以上、物体の高さ + `height_margin` 以下だけ上にあれば、
+  その凸包の範囲は障害物として扱う。
+- 置ける中心：支持の縁（見えていない所を含む）から r + `edge_margin`、障害物から r + `obstacle_margin` 以上離れた格子。
+  r は底面の外接円の半径（向きによらない）。clearance は中心から最も近い縁・障害物までの距離。
+- 候補：既定は clearance の局所最大を大きい順（同じ clearance は支持面の中心、平面間では `target_frame` の原点に近い順）。
+  `near` を渡すと置ける格子を `near` に近い順に並べる（clearance は必要最小限のことがある）。
+  平面ごとに max(r, `min_spacing`) 以上離して、合計 `max_candidates` 個まで返す。`score` は clearance、`near` ありでは −距離。
+- `result.grids` に平面ごとの格子（support / observed / obstacle / overhead / placeable / clearance）を返す。
+- 640×480の1フレームで平均34 ms・最大59 ms（支持面1枚で21 ms、5枚で47 ms。1スレッド、合成シーン）。
+
+`PlaceOptions` の既定（合成シーンで調整、[place.md](../../../tools/perception/plane_bench/results/place.md)）：
+
+| 項目 | 既定 | 内容 |
+| --- | --- | --- |
+| `resolution` / `grid_margin` | 0.01 / 0.05 m | 格子の大きさと凸包の外側の余白 |
+| `support_closing` | 2 | インライアの格子のclosingの半径（セル） |
+| `obstacle_min_height` / `obstacle_k` | 0.02 m / 1.5 | 障害物とみなす高さの下限 max(下限, k·σ(Z))。k 3 では遠くの低い物体（1.5 m先の高さ5–6 cmの箱）を見落とす |
+| `height_margin` | 0.03 m | 障害物の高さの上限 = 物体の高さ + これ |
+| `obstacle_min_points` / `speckle_cells` | 2 / 3 | 障害物の格子の点数の下限、除く連結成分の大きさ |
+| `edge_margin` / `obstacle_margin` | 0.02 / 0.02 m | 縁・障害物までの余裕（r に加える） |
+| `overhead_min_gap` | 0.03 m | 上の面とみなす高さの差の下限 |
+| `min_spacing` / `max_candidates` | 0.05 m / 10 | 候補の間隔の下限、候補数 |
 
 単体テストは `colcon test --packages-select aha_perception` で実行する。
 ホストでは numpy / scipy / pytest のある Python 3.12 で次を実行する。
@@ -283,5 +340,5 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
   --with pytest python -m pytest test/test_planes_*.py test/test_plane_detection_io.py \
-  test/test_depth_noise.py
+  test/test_depth_noise.py test/test_place.py
 ```

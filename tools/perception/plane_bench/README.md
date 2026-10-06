@@ -40,6 +40,8 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | `tuning.md` / `tuning_*.png` | 手で整理した検出器の設定の比較と、`make_tuning_figures.py` の画像 |
 | `shelf.md` | 手で整理した棚の置き場所の評価（[棚の評価](#棚の評価)） |
 | `shelf_report.md` / `shelf_report.csv` / `shelf_report_planes.csv` / `shelf_s*.png` | `run_shelf.py` の出力 |
+| `place.md` | 手で整理した置き場所の候補の評価（[置き場所の評価](#置き場所の評価)） |
+| `place_report.md` / `place_report.csv` / `place_report_invalid.csv` / `place_*.png` | `run_place.py` の出力 |
 
 実行時間は 640x480 入力1フレームあたり、前処理を含む。`cpu` はプロセスCPU時間、
 `wall` は経過時間で、内部でマルチスレッド化する Open3D では `wall` が小さくなる。
@@ -92,7 +94,8 @@ GTラベルは平面ごとの画像上の連結成分（400画素以上かつ0.0
 `surfaces` は面の名前からクラス（floor / table / shelf / wall / other）への対応、
 `primitives` の `Quad.tag`・`Box.faces`・`Cylinder.top` にその名前を指定した面がGT平面になる。
 `tags` はレポートのグループ（table / shelf / coplanar / walls / far / floor / clutter）に使う。
-棚の評価用のシーンは `scene_set()` とは別の `shelf_scene_set()` にあり、ベンチと系列評価の既定には含まれない。
+棚の評価用のシーンは `scene_set()` とは別の `shelf_scene_set()`、置き場所の評価用の追加シーンは `place_scene_set()` にあり、
+ベンチと系列評価の既定には含まれない。
 
 ## 実機フレーム
 
@@ -293,3 +296,43 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --wi
 | board+obj | 棚板と物体の上面をそれぞれ10%以上含む平面の数（フレームあたり） |
 | false / underside | 棚板・床・机の画素が半分未満の水平面（偽の置き場所）と、そのうち裏面が主のものの数（フレームあたり） |
 | hidden det | hidden の板の面（裏面・縁）をインライアの30%以上含む平面がある（シーン, フレーム, 板）の数 |
+
+## 置き場所の評価
+
+机・棚のシーン（`scene_set()` の机・棚を含むシーン、`shelf_scene_set()`、`place_scene_set()`）を系列で検出し、
+ノードの出力（`ransac_gravity_refined`、`sub=0.12,merge=on`、`select_output_planes`）に
+[`find_place_candidates`](../../../overlay_ws/src/aha_perception/README.md#置き場所の候補) をかけて、物体の大きさごとに評価する。
+結果のまとめは [results/place.md](results/place.md)。
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with matplotlib \
+  python tools/perception/plane_bench/run_place.py --jobs 12
+```
+
+- `--sizes`（既定 `0.06x0.06x0.12 0.10x0.10x0.20 0.20x0.15x0.10`、x × y × 高さ m）・`--presets`（既定 `d435i_filtered d435i_raw default`）・
+  `--frames`（既定10）・`--max-depth`（既定3.0）・`--groups`（既定 `bench shelf place`）・`--scenes`・`--jobs`。シーケンスの生成は `run_sequence.py` と同じ。
+- `--variants`：`PlaceOptions` の上書き（例 `default obstacle_k=3 edge_margin=0.03,obstacle_margin=0.03`）。検出は共通で、variantごとに置き場所だけを計算する。`--labels` で名前を付ける。
+- 1回の呼び出しで最大50候補を返させ、全候補を評価する（ノードの既定は10）。
+- `--out`（既定 `results/place_report.md`）に表を、同名の `.csv` にシーン × プリセット × 大きさ × variant ごとの指標、`_invalid.csv` に無効な候補を書く。
+- `--figures`（既定3シーン）：`<scene>[:<--sizes の番号>]` ごとに、最初のプリセット・variantで `results/place_<scene>.png`（名前が `place_` で始まればそのまま）を書く
+  （1フレーム目の深度誤差、画像に投影した候補の円、支持面ごとの上面図）。
+
+GTは解析形状から作る。支持面は机の天板・棚板（`Box` の `+z` が table / shelf の面）の矩形。
+障害物は、支持面の高さから物体の高さまでの帯に入る全ての形状（箱・円柱・壁などの矩形、上の棚板や側板を含む）の足跡（xy）。
+GTの置ける中心は、矩形の縁と障害物の足跡から半径 r（底面の外接円、`hypot(x, y)/2`）以上離れた点（余裕なし、5 mm格子）。
+「見える」は、ノイズなしのレイキャストでその支持面の上面に当たり、深度範囲内の点。
+物体の箱の上面（高さ5 cm以上・辺5 cm以上）も候補の判定だけに使う面として持つ。
+
+| 指標 | 定義 |
+| --- | --- |
+| validity | 候補のうち、半径 r の円が GT の支持面の矩形内にあり障害物の足跡と重ならない割合。候補は高さの差が4 cm未満の面のうち縁からの距離が最大の面に割り当てる |
+| top1 valid | 1位の候補の validity |
+| off surf / on obj | 高さの合う面がない候補、物体の箱の上面に割り当てた候補の割合 |
+| viol cm / max viol cm | 無効な候補の、はみ出し（r − 縁までの距離）と食い込み（r − 障害物までの距離）の大きい方の平均・最大 |
+| avail n / availability | 円の全体が見えて、縁・障害物から r + 4 cm 以上離れた中心がある支持面 × フレームの数と、そのうち有効な候補がある割合 |
+| no place | avail n のうち、その支持面に候補が1つもない割合 |
+| IoU / pred/GT | 支持面ごとの予測の置ける中心（`PlaceGrid.placeable`、高さの合う平面）と、GTの置ける中心のうち円の全体が見える領域のIoU（平均）と面積比 |
+| false area | 予測の置ける中心のうち GT で置けない面積の割合 |
+| clear err cm | 有効な候補の clearance − GTの縁・障害物までの距離（負は保守的） |
+| top jitter cm / top same | 1位の候補の連続フレーム間の移動距離の平均、2 cm未満の割合 |
+| ms / max ms | `find_place_candidates` の経過時間（平均・最大、並列実行時は競合を含む） |

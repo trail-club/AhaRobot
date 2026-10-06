@@ -1,0 +1,13 @@
+# Where an object of the given size can be put, on the latest plane detection.
+# Owner: perception squad. Consumers: manipulation.
+
+geometry_msgs/Vector3      object_size     # x, y footprint and z height (m), all > 0
+string[]                   surface_labels  # empty = table and shelf; also "floor", "other"
+geometry_msgs/PointStamped near            # empty frame_id = none; else sort by distance to it
+uint32                     max_candidates  # 0 = default (10)
+---
+bool                       success
+string                     message
+builtin_interfaces/Time    stamp           # depth image stamp of the detection used
+PlaceCandidate[]           candidates      # best first
+PlaneArray                 planes          # support planes considered

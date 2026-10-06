@@ -14,6 +14,8 @@ from aha_perception.plane_detection_io import (
     plane_palette,
     plane_points,
     plane_text,
+    quaternion_from_z_axis,
+    transform_point,
     transform_to_matrix,
     xyzrgb_records,
 )
@@ -104,6 +106,27 @@ def test_transform_to_matrix():
     )
     with pytest.raises(ValueError):
         transform_to_matrix((0, 0, 0), (0, 0, 0, 0))
+
+
+def test_transform_point():
+    s = np.sqrt(0.5)
+    matrix = transform_to_matrix((1, 0, 0), (0, 0, s, s))
+    np.testing.assert_allclose(
+        transform_point(matrix, (1, 0, 0)), [1, 1, 0], atol=1e-12
+    )
+
+
+@pytest.mark.parametrize(
+    "direction", [(0, 0, 1), (0, 0, -1), (0.1, -0.05, 1.0), (1, 0, 0), (0, 1, 0.2)]
+)
+def test_quaternion_from_z_axis(direction):
+    q = quaternion_from_z_axis(direction)
+    assert np.isclose(np.linalg.norm(q), 1.0)
+    rotated = transform_to_matrix((0, 0, 0), q)[:3, :3] @ [0, 0, 1]
+    expected = np.asarray(direction, float) / np.linalg.norm(direction)
+    np.testing.assert_allclose(rotated, expected, atol=1e-9)
+    # No rotation about z for an upright direction.
+    assert quaternion_from_z_axis((0, 0, 2)) == (0.0, 0.0, 0.0, 1.0)
 
 
 def test_colors():

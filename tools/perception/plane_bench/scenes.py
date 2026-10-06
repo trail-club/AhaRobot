@@ -493,14 +493,9 @@ def can_object(x, y, base, radius, height) -> Cylinder:
     return Cylinder((x, y), radius, base, base + height)
 
 
-def _table_objects(center, top, yaw_deg=0.0) -> list:
-    layout = [
-        ("box", (-0.35, -0.15), (0.12, 0.08, 0.20), 15),
-        ("box", (0.10, 0.18), (0.18, 0.12, 0.06), -10),
-        ("box", (0.35, -0.05), (0.10, 0.10, 0.10), 30),
-        ("can", (-0.05, 0.02), (0.035, 0.12)),
-        ("can", (0.22, -0.20), (0.040, 0.22)),
-    ]
+def _objects_on(center, top, layout, yaw_deg=0.0) -> list:
+    """Boxes ("box", (dx, dy), (sx, sy, sz), yaw) and cans ("can", (dx, dy),
+    (radius, height)) at offsets from ``center`` resting on height ``top``."""
     out = []
     for item in layout:
         x, y = _place(center, item[1], yaw_deg)
@@ -509,6 +504,17 @@ def _table_objects(center, top, yaw_deg=0.0) -> list:
         else:
             out.append(can_object(x, y, top, *item[2]))
     return out
+
+
+def _table_objects(center, top, yaw_deg=0.0) -> list:
+    layout = [
+        ("box", (-0.35, -0.15), (0.12, 0.08, 0.20), 15),
+        ("box", (0.10, 0.18), (0.18, 0.12, 0.06), -10),
+        ("box", (0.35, -0.05), (0.10, 0.10, 0.10), 30),
+        ("can", (-0.05, 0.02), (0.035, 0.12)),
+        ("can", (0.22, -0.20), (0.040, 0.22)),
+    ]
+    return _objects_on(center, top, layout, yaw_deg)
 
 
 def _shelf_objects(front_x, center_y, boards, depth=0.35) -> list:
@@ -746,6 +752,82 @@ def shelf_scene_set() -> list[Scene]:
             "shelf_s40_d1.0_table", 1.0, 0.40, tilt=30, table_height=0.75
         ),
     ]
+
+
+def _place_table_scene(name, front_x, size, height, tilt, layout, pan=0.0) -> Scene:
+    center = (front_x + size[0] / 2, 0.0)
+    prims = [floor(), *table("table", center, size=size, height=height)]
+    prims += _objects_on(center, height, layout)
+    return Scene(
+        name,
+        ("place", "table"),
+        CameraPose(pan_deg=pan, tilt_deg=tilt),
+        {"floor": "floor", "table": "table"},
+        prims,
+    )
+
+
+def place_scene_set() -> list[Scene]:
+    """Extra table and shelf scenes for the place study (run_place.py)."""
+    mixed = [
+        ("box", (-0.30, -0.15), (0.10, 0.07, 0.18), 20),
+        ("can", (-0.05, 0.12), (0.04, 0.12)),
+        ("box", (0.20, -0.12), (0.15, 0.10, 0.05), -15),
+        ("can", (0.32, 0.15), (0.03, 0.20)),
+        ("box", (0.02, -0.17), (0.06, 0.06, 0.06), 0),
+    ]
+    crowded = [
+        ("box", (dx, dy), (0.11, 0.11, h), 0)
+        for (dx, dy), h in zip(
+            [
+                (-0.24, -0.19),
+                (-0.24, 0.0),
+                (-0.24, 0.19),
+                (0.04, -0.21),
+                (0.04, 0.21),
+                (0.27, -0.19),
+                (0.27, 0.0),
+                (0.27, 0.19),
+            ],
+            (0.08, 0.06, 0.10, 0.15, 0.12, 0.25, 0.20, 0.18),
+        )
+    ]
+    sparse = [
+        ("box", (-0.35, 0.20), (0.12, 0.08, 0.20), 30),
+        ("can", (0.10, -0.15), (0.035, 0.12)),
+        ("box", (0.40, 0.10), (0.10, 0.10, 0.10), 0),
+    ]
+    scenes = [
+        _place_table_scene("place_table_d1.0", 1.0, (1.0, 0.6), 0.75, 40, mixed),
+        _place_table_scene("place_crowded_d1.0", 1.0, (0.8, 0.65), 0.75, 40, crowded),
+        _place_table_scene("place_table_d2.0", 2.0, (1.2, 0.7), 0.75, 20, sparse),
+        _place_table_scene("place_low_table_d0.8", 0.8, (0.9, 0.5), 0.45, 45, mixed),
+    ]
+
+    # Low shelf: boards 0.20 m apart (0.18 m gap under the next board).
+    boards = (0.30, 0.50, 0.70, 0.90, 1.10)
+    parts, surfaces = shelf("shelf", 1.0, 0.0, boards, depth=0.35, height=1.3)
+    prims = [floor(), *parts]
+    for i, h in enumerate(boards):
+        x = 1.0 + 0.35 * 0.45
+        prims += _objects_on(
+            (x, 0.0),
+            h,
+            [
+                ("box", (0.0, -0.25 + 0.04 * i), (0.10, 0.07, 0.12), 10),
+                ("can", (-0.03, 0.08), (0.035, 0.10)),
+            ],
+        )
+    scenes.append(
+        Scene(
+            "place_shelf_low_d1.0",
+            ("place", "shelf"),
+            CameraPose(tilt_deg=30),
+            {"floor": "floor", **surfaces},
+            prims,
+        )
+    )
+    return scenes
 
 
 NOISE_LEVELS = (0.5, 1.0, 2.0)

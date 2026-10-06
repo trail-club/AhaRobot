@@ -6,8 +6,11 @@
 Included by perception.launch.py and real_head_camera.launch.py with
 planes:=true. Starts plane_detection_node.py:
   in   /camera/depth_registered/image_rect, /camera/color/camera_info, TF
-  out  /aha/perception/planes/cloud (PointCloud2),
+  out  /aha/perception/planes (aha_msgs/PlaneArray),
+       /aha/perception/planes/cloud (PointCloud2),
        /aha/perception/planes/markers (MarkerArray), in target_frame
+  srv  /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates),
+       candidates shown on /aha/perception/place/markers (MarkerArray)
 
 The node gets aha_perception's Python dir prepended to PYTHONPATH, so it also
 starts from a shell sourced before that module existed.

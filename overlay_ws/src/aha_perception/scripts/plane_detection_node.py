@@ -14,11 +14,20 @@ max_rate times per second (wall clock), so frames arriving while it is busy
 are dropped and the subscriptions are never blocked.
 
 Outputs, stamped with the depth image stamp, in target_frame:
+  /aha/perception/planes          aha_msgs/PlaneArray: the output planes
   /aha/perception/planes/cloud    sensor_msgs/PointCloud2 (x, y, z, rgb):
                                   inlier points, one color per plane
   /aha/perception/planes/markers  visualization_msgs/MarkerArray: DELETEALL,
                                   then per plane the convex hull (ns "hull")
                                   and a text (ns "label") colored by label
+
+The latest detection is kept for the service
+/aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates), which
+runs aha_perception.place.find_place_candidates on it and publishes the
+candidates on /aha/perception/place/markers (MarkerArray: DELETEALL, then
+per candidate a disc of the clearance radius (ns "clearance"), the center
+(ns "center") and the rank (ns "rank")). Detections older than
+max_detection_age seconds (wall clock) are not used.
 
 The TF buffer is cleared when a /tf stamp goes back (sim restart or reset).
 """
@@ -32,7 +41,11 @@ from collections import Counter
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Point
+from aha_msgs.msg import PlaceCandidate as PlaceCandidateMsg
+from aha_msgs.msg import Plane as PlaneMsg
+from aha_msgs.msg import PlaneArray
+from aha_msgs.srv import GetPlaceCandidates
+from geometry_msgs.msg import Point, Point32, Polygon, PoseStamped, Quaternion, Vector3
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -48,6 +61,7 @@ from std_msgs.msg import ColorRGBA, Header
 from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
+from aha_perception.place import base_cloud, find_place_candidates
 from aha_perception.plane_detection_io import (
     POINT_DTYPE,
     depth_from_buffer,
@@ -56,6 +70,8 @@ from aha_perception.plane_detection_io import (
     plane_palette,
     plane_points,
     plane_text,
+    quaternion_from_z_axis,
+    transform_point,
     transform_to_matrix,
     xyzrgb_records,
 )
@@ -72,13 +88,20 @@ from aha_perception.tf_jump import (
 )
 
 NODE_NAME = "aha_perception_plane_detection"
+PLANES_TOPIC = "/aha/perception/planes"
 CLOUD_TOPIC = "/aha/perception/planes/cloud"
 MARKER_TOPIC = "/aha/perception/planes/markers"
+PLACE_SERVICE = "/aha/perception/get_place_candidates"
+PLACE_MARKER_TOPIC = "/aha/perception/place/markers"
 
 TF_TIMEOUT = Duration(seconds=0.2)
 HULL_WIDTH = 0.015
 TEXT_HEIGHT = 0.08
 TEXT_OFFSET = 0.1
+PLACE_DISC_HEIGHT = 0.004
+PLACE_CENTER_SIZE = 0.03
+PLACE_TEXT_HEIGHT = 0.05
+PLACE_TEXT_OFFSET = 0.06
 WARN_PERIOD_S = 5.0
 SUMMARY_PERIOD_S = 10.0
 WORKER_JOIN_S = 3.0
@@ -142,6 +165,104 @@ def make_markers(header, planes):
     return MarkerArray(markers=markers)
 
 
+def to_vector(v):
+    return Vector3(x=float(v[0]), y=float(v[1]), z=float(v[2]))
+
+
+def make_plane_msg(header, plane_id, plane):
+    hull = Polygon(
+        points=[
+            Point32(x=float(p[0]), y=float(p[1]), z=float(p[2]))
+            for p in plane.hull_points()
+        ]
+    )
+    return PlaneMsg(
+        header=header,
+        id=plane_id,
+        label=plane.label.value,
+        normal=to_vector(plane.normal),
+        offset=float(plane.offset),
+        centroid=to_point(plane.centroid),
+        area=float(plane.area),
+        hull=hull,
+        height=float(plane.centroid[2]),
+    )
+
+
+def make_plane_array(header, planes, ids=None):
+    ids = range(len(planes)) if ids is None else ids
+    return PlaneArray(
+        header=header,
+        planes=[make_plane_msg(header, i, planes[i]) for i in ids],
+    )
+
+
+def make_candidate_msg(header, candidate):
+    pose = PoseStamped(header=header)
+    pose.pose.position = to_point(candidate.position)
+    x, y, z, w = quaternion_from_z_axis(candidate.normal)
+    pose.pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
+    return PlaceCandidateMsg(
+        pose=pose,
+        clearance=float(candidate.clearance),
+        plane_id=candidate.plane_index,
+        surface_label=candidate.label,
+        surface_height=float(candidate.surface_height),
+        score=float(candidate.score),
+    )
+
+
+def make_place_markers(header, candidates):
+    markers = [Marker(action=Marker.DELETEALL)]
+    for rank, candidate in enumerate(candidates):
+        x, y, z, w = quaternion_from_z_axis(candidate.normal)
+        orientation = Quaternion(x=x, y=y, z=z, w=w)
+        center = np.asarray(candidate.position)
+        normal = np.asarray(candidate.normal)
+
+        disc = Marker(header=header, ns="clearance", id=rank, type=Marker.CYLINDER)
+        disc.action = Marker.ADD
+        disc.pose.position = to_point(center + 0.5 * PLACE_DISC_HEIGHT * normal)
+        disc.pose.orientation = orientation
+        disc.scale.x = disc.scale.y = 2.0 * float(candidate.clearance)
+        disc.scale.z = PLACE_DISC_HEIGHT
+        disc.color = ColorRGBA(r=0.1, g=0.6, b=1.0, a=0.25)
+        markers.append(disc)
+
+        dot = Marker(header=header, ns="center", id=rank, type=Marker.SPHERE)
+        dot.action = Marker.ADD
+        dot.pose.position = to_point(center)
+        dot.pose.orientation.w = 1.0
+        dot.scale.x = dot.scale.y = dot.scale.z = PLACE_CENTER_SIZE
+        if rank == 0:
+            dot.color = ColorRGBA(r=0.1, g=0.9, b=0.2, a=1.0)
+        else:
+            dot.color = ColorRGBA(r=0.1, g=0.6, b=1.0, a=0.9)
+        markers.append(dot)
+
+        text = Marker(header=header, ns="rank", id=rank, type=Marker.TEXT_VIEW_FACING)
+        text.action = Marker.ADD
+        text.pose.position = to_point(center + PLACE_TEXT_OFFSET * normal)
+        text.pose.orientation.w = 1.0
+        text.scale.z = PLACE_TEXT_HEIGHT
+        text.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
+        text.text = str(rank + 1)
+        markers.append(text)
+    return MarkerArray(markers=markers)
+
+
+@dataclasses.dataclass
+class Detection:
+    """Latest detection kept for the place service."""
+
+    stamp: object
+    planes: list
+    cloud: np.ndarray  # organized camera-frame cloud the planes index into
+    camera_to_base: np.ndarray
+    noise: DepthNoiseModel
+    wall_time: float  # time.monotonic() when the detection finished
+
+
 class PlaneDetection(Node):
     def __init__(self):
         super().__init__(NODE_NAME)
@@ -180,6 +301,9 @@ class PlaneDetection(Node):
         )
         if not self.noise_subpixel > 0.0:
             raise ValueError(f"noise_subpixel must be > 0, got {self.noise_subpixel}")
+        self.max_detection_age = float(
+            self.declare_parameter("max_detection_age", 3.0).value
+        )
         params_type = DETECTORS[self.method].params_type
         if "merge" in {f.name for f in dataclasses.fields(params_type)}:
             self.params = params_type(merge=merge)
@@ -202,6 +326,8 @@ class PlaneDetection(Node):
         self.cond = threading.Condition()
         self.pending = None
         self.stopping = False
+        self.latest_lock = threading.Lock()
+        self.latest = None
 
         self.create_subscription(
             CameraInfo, info_topic, self.on_camera_info, qos_profile_sensor_data
@@ -218,14 +344,18 @@ class PlaneDetection(Node):
                 durability=DurabilityPolicy.VOLATILE,
             ),
         )
-        self.marker_pub = self.create_publisher(
-            MarkerArray,
-            MARKER_TOPIC,
-            QoSProfile(
-                depth=10,
-                reliability=ReliabilityPolicy.RELIABLE,
-                durability=DurabilityPolicy.VOLATILE,
-            ),
+        reliable = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self.marker_pub = self.create_publisher(MarkerArray, MARKER_TOPIC, reliable)
+        self.plane_pub = self.create_publisher(PlaneArray, PLANES_TOPIC, reliable)
+        self.place_marker_pub = self.create_publisher(
+            MarkerArray, PLACE_MARKER_TOPIC, reliable
+        )
+        self.create_service(
+            GetPlaceCandidates, PLACE_SERVICE, self.on_get_place_candidates
         )
         # Clear markers left in RViz by a previous run.
         self.clear_markers()
@@ -240,7 +370,9 @@ class PlaneDetection(Node):
         )
 
     def clear_markers(self):
-        self.marker_pub.publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
+        clear = MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
+        self.marker_pub.publish(clear)
+        self.place_marker_pub.publish(clear)
 
     def on_tf_jump(self):
         if time.monotonic() - self.last_tf_reset < TF_RESET_MIN_INTERVAL_S:
@@ -250,6 +382,8 @@ class PlaneDetection(Node):
         self.last_tf_reset = time.monotonic()
         with self.cond:
             self.pending = None
+        with self.latest_lock:
+            self.latest = None
         self.clear_markers()
         self.get_logger().info(
             "/tf time went back (sim restart or reset): cleared the TF buffer"
@@ -365,6 +499,16 @@ class PlaneDetection(Node):
         header = Header(stamp=msg.header.stamp, frame_id=self.target_frame)
         if self.stopping:
             return
+        with self.latest_lock:
+            self.latest = Detection(
+                stamp=msg.header.stamp,
+                planes=planes,
+                cloud=cloud,
+                camera_to_base=camera_to_base,
+                noise=options.noise,
+                wall_time=time.monotonic(),
+            )
+        self.plane_pub.publish(make_plane_array(header, planes))
         self.cloud_pub.publish(make_cloud(header, xyz, rgb))
         self.marker_pub.publish(make_markers(header, planes))
 
@@ -379,6 +523,81 @@ class PlaneDetection(Node):
         )
         self.get_logger().debug(text)
         self.get_logger().info(text, throttle_duration_sec=SUMMARY_PERIOD_S)
+
+    def near_in_target(self, near):
+        """``near`` (PointStamped) in target_frame with the latest TF, or None."""
+        p = (near.point.x, near.point.y, near.point.z)
+        if near.header.frame_id == self.target_frame:
+            return np.asarray(p, dtype=np.float64)
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                self.target_frame, near.header.frame_id, Time()
+            )
+        except TransformException as e:
+            self.get_logger().warn(f"near point not transformed: {e}")
+            return None
+        t, q = tf.transform.translation, tf.transform.rotation
+        matrix = transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
+        return transform_point(matrix, p)
+
+    def on_get_place_candidates(self, request, response):
+        def fail(message):
+            response.success = False
+            response.message = message
+            self.get_logger().warn(f"place candidates: {message}")
+            return response
+
+        with self.latest_lock:
+            detection = self.latest
+        if detection is None:
+            return fail("no plane detection yet")
+        age = time.monotonic() - detection.wall_time
+        if self.max_detection_age > 0.0 and age > self.max_detection_age:
+            return fail(
+                f"latest detection is {age:.1f} s old "
+                f"(max_detection_age {self.max_detection_age:g} s)"
+            )
+        size = (request.object_size.x, request.object_size.y, request.object_size.z)
+        near = None
+        if request.near.header.frame_id:
+            near = self.near_in_target(request.near)
+            if near is None:
+                return fail(
+                    f"no TF {self.target_frame} <- {request.near.header.frame_id}"
+                )
+
+        start = time.perf_counter()
+        points, depth = base_cloud(detection.cloud, detection.camera_to_base)
+        try:
+            result = find_place_candidates(
+                detection.planes,
+                points,
+                depth,
+                size,
+                detection.noise,
+                labels=list(request.surface_labels) or None,
+                near=near,
+                max_candidates=int(request.max_candidates) or None,
+            )
+        except ValueError as e:
+            return fail(str(e))
+        elapsed_ms = (time.perf_counter() - start) * 1e3
+
+        header = Header(stamp=detection.stamp, frame_id=self.target_frame)
+        response.success = True
+        response.stamp = detection.stamp
+        response.candidates = [make_candidate_msg(header, c) for c in result.candidates]
+        response.planes = make_plane_array(header, detection.planes, result.supports)
+        response.message = (
+            f"{len(result.candidates)} candidates on {len(result.supports)} support "
+            f"planes, detection {age:.1f} s old"
+        )
+        self.place_marker_pub.publish(make_place_markers(header, result.candidates))
+        self.get_logger().info(
+            f"place {size[0]:g} x {size[1]:g} x {size[2]:g} m: {response.message}, "
+            f"{elapsed_ms:.0f} ms"
+        )
+        return response
 
 
 def main():

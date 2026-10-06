@@ -122,6 +122,26 @@ def transform_to_matrix(
     return matrix
 
 
+def quaternion_from_z_axis(
+    direction: Sequence[float],
+) -> tuple[float, float, float, float]:
+    """(x, y, z, w) of the shortest rotation taking +z to ``direction`` (no yaw)."""
+    d = np.asarray(direction, dtype=np.float64)
+    d = d / np.linalg.norm(d)
+    w = 1.0 + float(d[2])
+    if w < 1e-9:
+        return (1.0, 0.0, 0.0, 0.0)
+    q = np.array([-d[1], d[0], 0.0, w])
+    q /= np.linalg.norm(q)
+    return tuple(float(v) for v in q)
+
+
+def transform_point(matrix: np.ndarray, point: Sequence[float]) -> np.ndarray:
+    """Apply a 4x4 homogeneous transform to one 3D point."""
+    matrix = np.asarray(matrix, dtype=np.float64)
+    return matrix[:3, :3] @ np.asarray(point, dtype=np.float64) + matrix[:3, 3]
+
+
 def label_color(label: PlaneLabel | str) -> tuple[float, float, float, float]:
     """RGBA in [0, 1] for a plane label."""
     return LABEL_COLORS[PlaneLabel(label)]
