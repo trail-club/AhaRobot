@@ -125,8 +125,8 @@ ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true depth_no
   （`d435i_filtered` / `d435i_raw`、[較正](../../../tools/perception/plane_bench/README.md#ノイズの較正)）。
 - 静的な誤差場と穴は最初のフレームで引き、画像座標に固定する（画像サイズが変わると引き直す）。
   時間方向のノイズ、無効画素の周りのフリッカー、孤立した欠損、flying pixel、遮蔽帯（前景の左側）はフレームごとに計算する。
-- f はCameraInfoの fx。プリセットは画素単位で較正した値（実機 fx ≈ 603）のため、シミュレーション（fx ≈ 465）での
-  m単位の σ(Z) は実機の約1.3倍になる（平面検出の `DepthNoiseModel(focal=fx)` との比は同じ）。
+- f はCameraInfoの fx。シミュレーションのカメラは実機のカラーと同じ fx（約603、水平画角55.9°）にしてあり、
+  m単位の σ(Z) も実機に合う。
 - 6 mより遠い画素は無効になる。入力の無効画素（NaN・inf・0以下）は無効のまま。
 - Gazebo自体のDepthノイズ（ガウシアン σ 5 mm、`aha_description/urdf/sensors.xacro`）は残り、その上に加わる。
 - 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。10 sごとに処理時間と捨てた数をログに出す。
