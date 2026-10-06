@@ -56,15 +56,15 @@ max_misses and max_unseen_s.
 
 The latest detection is kept for the service
 /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates), which
-runs aha_perception.place.find_place_candidates on it and publishes the
-candidates on /aha/perception/place/markers (MarkerArray: DELETEALL, then
-per candidate a disc of the clearance radius (ns "clearance"), the center
-(ns "center") and the rank (ns "rank")). Detections older than
-max_detection_age seconds (wall clock) are not used. With surface_ids only
-the planes of the latest detection assigned to those surfaces are supports
-(STATUS_NO_SURFACE if none is); status is STATUS_NO_SURFACE without
-supports, STATUS_NO_SPACE without candidates and STATUS_ERROR (success
-false) on errors.
+runs aha_perception.place.find_place_candidates and find_place_obstacles on
+it and publishes the result on /aha/perception/place/markers (MarkerArray:
+DELETEALL, then per candidate a disc of the clearance radius (ns
+"clearance"), the center (ns "center") and the rank (ns "rank"), and per
+obstacle a box (ns "obstacle")). Detections older than max_detection_age
+seconds (wall clock) are not used. With surface_ids only the planes of the
+latest detection assigned to those surfaces are supports (STATUS_NO_SURFACE
+if none is); status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE
+without candidates and STATUS_ERROR (success false) on errors.
 
 The TF buffer and the surfaces are cleared when a /tf stamp goes back (sim
 restart or reset).
@@ -80,13 +80,22 @@ from collections import Counter
 import numpy as np
 import rclpy
 from aha_msgs.msg import PlaceCandidate as PlaceCandidateMsg
+from aha_msgs.msg import PlaceObstacle as PlaceObstacleMsg
 from aha_msgs.msg import Plane as PlaneMsg
 from aha_msgs.msg import PlaneArray
 from aha_msgs.msg import Surface as SurfaceMsg
 from aha_msgs.msg import SurfaceArray
 from aha_msgs.srv import GetPlaceCandidates
 from builtin_interfaces.msg import Time as TimeMsg
-from geometry_msgs.msg import Point, Point32, Polygon, PoseStamped, Quaternion, Vector3
+from geometry_msgs.msg import (
+    Point,
+    Point32,
+    Polygon,
+    Pose,
+    PoseStamped,
+    Quaternion,
+    Vector3,
+)
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -102,7 +111,13 @@ from std_msgs.msg import ColorRGBA, Header
 from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
-from aha_perception.place import PlaceOptions, base_cloud, find_place_candidates
+from aha_perception.place import (
+    PlaceOptions,
+    PlaceStatus,
+    base_cloud,
+    find_place_candidates,
+    find_place_obstacles,
+)
 from aha_perception.plane_detection_io import (
     POINT_DTYPE,
     depth_from_buffer,
@@ -111,6 +126,7 @@ from aha_perception.plane_detection_io import (
     plane_palette,
     plane_points,
     plane_text,
+    quaternion_from_matrix,
     quaternion_from_z_axis,
     seconds_to_stamp,
     stamp_to_seconds,
@@ -316,8 +332,29 @@ def surfaces_missing(ids, surfaces, stamp):
     return "surface not in the latest detection: " + ", ".join(parts)
 
 
-def make_place_markers(header, candidates):
+def obstacle_pose(obstacle):
+    x, y, z, w = quaternion_from_matrix(obstacle.rotation)
+    orientation = Quaternion(x=x, y=y, z=z, w=w)
+    return Pose(position=to_point(obstacle.center), orientation=orientation)
+
+
+def make_obstacle_msg(obstacle):
+    return PlaceObstacleMsg(
+        pose=obstacle_pose(obstacle),
+        size=to_vector(obstacle.size),
+        plane_id=obstacle.plane_index,
+    )
+
+
+def make_place_markers(header, candidates, obstacles=()):
     markers = [Marker(action=Marker.DELETEALL)]
+    for k, obstacle in enumerate(obstacles):
+        box = Marker(header=header, ns="obstacle", id=k, type=Marker.CUBE)
+        box.action = Marker.ADD
+        box.pose = obstacle_pose(obstacle)
+        box.scale = to_vector(obstacle.size)
+        box.color = ColorRGBA(r=1.0, g=0.3, b=0.2, a=0.4)
+        markers.append(box)
     for rank, candidate in enumerate(candidates):
         x, y, z, w = quaternion_from_z_axis(candidate.normal)
         orientation = Quaternion(x=x, y=y, z=z, w=w)
@@ -792,6 +829,10 @@ class PlaneDetection(Node):
                 self.get_logger().warn(f"place candidates: {response.message}")
                 return response
 
+        surface_height = None
+        if request.restrict_height:
+            surface_height = float(request.surface_height)
+
         start = time.perf_counter()
         points, depth = base_cloud(detection.cloud, detection.camera_to_base)
         try:
@@ -805,31 +846,37 @@ class PlaneDetection(Node):
                 labels=list(request.surface_labels) or None,
                 near=near,
                 max_candidates=int(request.max_candidates) or None,
+                surface_height=surface_height,
+                height_tolerance=float(request.height_tolerance),
                 plane_indices=plane_indices,
             )
         except ValueError as e:
             return fail(str(e))
+        obstacles = find_place_obstacles(
+            detection.planes, points, depth, detection.noise, self.place_options
+        )
         elapsed_ms = (time.perf_counter() - start) * 1e3
 
         response.success = True
-        if not result.supports:
-            response.status = GetPlaceCandidates.Response.STATUS_NO_SURFACE
-        elif not result.candidates:
-            response.status = GetPlaceCandidates.Response.STATUS_NO_SPACE
-        else:
-            response.status = GetPlaceCandidates.Response.STATUS_OK
+        response.status = int(result.status)
         response.stamp = detection.stamp
         response.candidates = [
             make_candidate_msg(header, c, detection.surface_ids)
             for c in result.candidates
         ]
         response.planes = make_plane_array(header, detection.planes, result.supports)
+        response.obstacles = [make_obstacle_msg(o) for o in obstacles]
         support_ids = sorted({detection.surface_ids[i] for i in result.supports} - {0})
+        restriction = "" if surface_height is None else f" at {surface_height:.2f} m"
         response.message = (
-            f"{len(result.candidates)} candidates on {len(result.supports)} support "
-            f"planes (surfaces {support_ids}), detection {age:.1f} s old"
+            f"{PlaceStatus(result.status).name}: {len(result.candidates)} candidates "
+            f"on {len(result.supports)} support planes{restriction} "
+            f"(surfaces {support_ids}), {len(obstacles)} obstacles, "
+            f"detection {age:.1f} s old"
         )
-        self.place_marker_pub.publish(make_place_markers(header, result.candidates))
+        self.place_marker_pub.publish(
+            make_place_markers(header, result.candidates, obstacles)
+        )
         self.get_logger().info(
             f"place {size[0]:g} x {size[1]:g} x {size[2]:g} m: {response.message}, "
             f"{elapsed_ms:.0f} ms"

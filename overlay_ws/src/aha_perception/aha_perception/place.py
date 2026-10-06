@@ -1,4 +1,4 @@
-"""Place candidates for an object on detected support planes.
+"""Place candidates and obstacle boxes on detected support planes.
 
 For every horizontal support plane a 2D grid is built in the plane's in-plane
 basis (``axes``, ``centroid``) over the hull bounding box plus ``grid_margin``.
@@ -23,6 +23,12 @@ are spaced max(r, ``min_spacing``) apart per plane, ``max_candidates`` in
 total. ``score`` is the clearance, or minus the distance with ``near``.
 ``PlaceResult.grids`` holds the rasters of every support.
 
+``find_place_obstacles`` turns what stands on each horizontal plane into boxes
+for collision checking: connected components of the cells with points in a
+planning band above the plane, each as the minimum-area rectangle of its
+points and a high percentile of their heights. Unobserved cells are not
+obstacles.
+
 ROS free (numpy / scipy only); the inputs are the planes of
 ``aha_perception.planes`` and the organized cloud they were detected in.
 """
@@ -33,6 +39,7 @@ import dataclasses
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from enum import IntEnum
 
 import numpy as np
 from scipy.ndimage import (
@@ -49,15 +56,34 @@ DEFAULT_SUPPORT_LABELS = (PlaneLabel.TABLE.value, PlaneLabel.SHELF.value)
 SUPPORT_LABELS = tuple(
     label.value for label in PlaneLabel if label is not PlaneLabel.WALL
 )
+# Inliers of these planes are structure, never part of an obstacle box.
+STRUCTURE_LABELS = (
+    PlaneLabel.FLOOR.value,
+    PlaneLabel.TABLE.value,
+    PlaneLabel.SHELF.value,
+    PlaneLabel.WALL.value,
+)
+DEFAULT_HEIGHT_TOLERANCE = 0.03
 _EIGHT = np.ones((3, 3), dtype=bool)
+
+
+class PlaceStatus(IntEnum):
+    """Same values as the STATUS_* constants of aha_msgs/srv/GetPlaceCandidates."""
+
+    OK = 0
+    NO_SURFACE = 1  # no support plane matches the labels (height, plane indices)
+    NO_SPACE = 2  # supports, but no placeable spot for the size
+    ERROR = 3
 
 
 @dataclass(frozen=True)
 class PlaceOptions:
-    """Grid and margins of ``find_place_candidates`` (lengths in m).
+    """Grid and margins of ``find_place_candidates`` and ``find_place_obstacles``
+    (lengths in m).
 
-    Defaults were chosen on the synthetic place study
-    (tools/perception/plane_bench/results/place.md).
+    Candidate defaults were chosen on the synthetic place study
+    (tools/perception/plane_bench/results/place.md); the box_* / cap_* /
+    wall_k defaults were not part of it.
     """
 
     # Grid cell size and the extent added around the plane hull.
@@ -87,20 +113,52 @@ class PlaceOptions:
     # Candidate spacing is max(footprint radius, min_spacing).
     min_spacing: float = 0.05
     max_candidates: int = 10
+    # Obstacle boxes: planes with these labels get boxes (not the floor: the
+    # robot base and furniture legs would become boxes). The band starts as
+    # the obstacle band and ends at box_max_height, or cap_margin below a
+    # horizontal plane above that covers at least cap_min_overlap of the
+    # support hull (the board above, with its front edge).
+    box_labels: tuple[str, ...] = (
+        PlaneLabel.TABLE.value,
+        PlaneLabel.SHELF.value,
+        PlaneLabel.OTHER.value,
+    )
+    box_max_height: float = 0.6
+    cap_margin: float = 0.05
+    cap_min_overlap: float = 0.3
+    # Components with fewer cells or points are noise; the box height is this
+    # percentile of the point heights above the plane.
+    box_min_cells: int = 4
+    box_min_points: int = 10
+    box_height_percentile: float = 97.0
+    # A component filling less than box_min_fill of its rectangle (L / U
+    # shapes: shelf panels, objects touching them) is split into tiles of
+    # box_split_size along the rectangle, one box per tile.
+    box_min_fill: float = 0.5
+    box_split_size: float = 0.1
+    # Points within max(obstacle_min_height, wall_k * sigma(Z)) of a wall
+    # (inside its hull) are wall noise, not boxes.
+    wall_k: float = 3.0
 
     def for_input_stride(self, stride: int) -> PlaceOptions:
         """Options for a cloud of every ``stride``-th row and column of the image.
 
-        ``obstacle_min_points`` follows the point density (divided by
-        stride², at least 1) and ``support_closing`` grows by stride - 1 cells
-        for the wider gaps between pixel footprints (scaling it by stride also
-        bridged object shadows in the synthetic place study, run_place.py).
+        ``obstacle_min_points`` and ``box_min_points`` follow the point
+        density (divided by stride², at least 1) and ``support_closing`` grows
+        by stride - 1 cells for the wider gaps between pixel footprints
+        (scaling it by stride also bridged object shadows in the synthetic
+        place study, run_place.py).
         """
         if stride <= 1:
             return self
+
+        def per_point(count: int) -> int:
+            return max(1, math.ceil(count / stride**2))
+
         return dataclasses.replace(
             self,
-            obstacle_min_points=max(1, math.ceil(self.obstacle_min_points / stride**2)),
+            obstacle_min_points=per_point(self.obstacle_min_points),
+            box_min_points=per_point(self.box_min_points),
             support_closing=self.support_closing + stride - 1,
         )
 
@@ -166,6 +224,23 @@ class PlaceResult:
     grids: list[PlaceGrid]
     radius: float  # circumscribed footprint radius (m)
     supports: list[int] = field(default_factory=list)  # plane indices considered
+    status: PlaceStatus = PlaceStatus.OK
+
+
+@dataclass
+class PlaceObstacle:
+    """Box standing on a support plane, in the output frame."""
+
+    center: np.ndarray  # box center, half the height above the surface
+    rotation: np.ndarray  # 3x3, columns: length axis, width axis, up
+    size: np.ndarray  # length, width, height (m)
+    plane_index: int
+    points: int  # cloud points in the component
+
+    @property
+    def yaw(self) -> float:
+        """Angle of the length axis about +z (output frame with z up)."""
+        return math.atan2(float(self.rotation[1, 0]), float(self.rotation[0, 0]))
 
 
 def base_cloud(cloud: np.ndarray, camera_to_base: np.ndarray):
@@ -181,26 +256,63 @@ def footprint_radius(object_size: Sequence[float]) -> float:
     return 0.5 * float(np.hypot(object_size[0], object_size[1]))
 
 
+def min_area_rectangle(
+    points: np.ndarray,
+) -> tuple[np.ndarray, float, tuple[float, float]]:
+    """Minimum-area rectangle of (N, 2) points.
+
+    Returns (center, angle of the first side, (length along it, width)).
+    """
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    if len(pts) == 0:
+        raise ValueError("no points")
+    hull, _ = convex_hull_2d(pts)
+    if len(hull) < 3:
+        hull = pts  # collinear: any edge lies on the line
+    edges = np.roll(hull, -1, axis=0) - hull
+    lengths = np.hypot(edges[:, 0], edges[:, 1])
+    edges, lengths = edges[lengths > 1e-12], lengths[lengths > 1e-12]
+    if len(edges) == 0:
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        return (lo + hi) / 2, 0.0, (float(hi[0] - lo[0]), float(hi[1] - lo[1]))
+    along = edges / lengths[:, None]
+    across = np.column_stack([-along[:, 1], along[:, 0]])
+    u, v = along @ hull.T, across @ hull.T  # (edges, hull points)
+    lo = np.column_stack([u.min(axis=1), v.min(axis=1)])
+    hi = np.column_stack([u.max(axis=1), v.max(axis=1)])
+    k = int(np.argmin(np.prod(hi - lo, axis=1)))
+    mid = (lo[k] + hi[k]) / 2
+    center = mid[0] * along[k] + mid[1] * across[k]
+    angle = math.atan2(along[k, 1], along[k, 0])
+    return center, angle, (float(hi[k, 0] - lo[k, 0]), float(hi[k, 1] - lo[k, 1]))
+
+
 def _disk(radius: int) -> np.ndarray:
     r = max(int(radius), 0)
     y, x = np.mgrid[-r : r + 1, -r : r + 1]
     return x * x + y * y <= r * r + r
 
 
-def convex_mask(polygon: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
-    """(len(u), len(v)) mask of cell centers inside a convex 2D polygon."""
-    inside = np.ones((len(u), len(v)), dtype=bool)
+def _inside_convex(polygon, x, y, margin: float = 0.0) -> np.ndarray:
+    """Whether points (broadcast ``x``, ``y``) are inside a convex 2D polygon
+    grown by ``margin``."""
     polygon = np.asarray(polygon, dtype=np.float64)
+    inside = np.ones(np.broadcast(x, y).shape, dtype=bool)
     if len(polygon) < 3:
         return np.zeros_like(inside)
-    x, y = polygon[:, 0], polygon[:, 1]
-    area2 = float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+    px, py = polygon[:, 0], polygon[:, 1]
+    area2 = float(np.dot(px, np.roll(py, -1)) - np.dot(py, np.roll(px, -1)))
     sign = 1.0 if area2 >= 0 else -1.0
-    uu, vv = u[:, None], v[None, :]
     for a, b in zip(polygon, np.roll(polygon, -1, axis=0)):
-        cross = (b[0] - a[0]) * (vv - a[1]) - (b[1] - a[1]) * (uu - a[0])
-        inside &= sign * cross >= -1e-12
+        length = float(np.hypot(b[0] - a[0], b[1] - a[1]))
+        cross = (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])
+        inside &= sign * cross >= -1e-12 - margin * length
     return inside
+
+
+def convex_mask(polygon: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """(len(u), len(v)) mask of cell centers inside a convex 2D polygon."""
+    return _inside_convex(polygon, u[:, None], v[None, :])
 
 
 def _up_plane(plane: Plane, up: np.ndarray):
@@ -209,6 +321,18 @@ def _up_plane(plane: Plane, up: np.ndarray):
     if float(normal @ up) < 0.0:
         return -normal, -float(plane.offset)
     return normal, float(plane.offset)
+
+
+def _horizontal(planes, up, options) -> list[tuple[int, Plane]]:
+    min_cos = np.cos(np.radians(options.horizontal_tol_deg))
+    return [
+        (i, p) for i, p in enumerate(planes) if abs(float(p.normal @ up)) >= min_cos
+    ]
+
+
+def _unit(up) -> np.ndarray:
+    up = np.asarray(up, dtype=np.float64)
+    return up / np.linalg.norm(up)
 
 
 def _sorted_pick(points, order, spacing, limit) -> list[int]:
@@ -230,47 +354,86 @@ class _Cloud:
         flat = np.asarray(points, dtype=np.float64).reshape(-1, 3)
         self.flat = flat
         finite = np.isfinite(flat[:, 2])
+        self.index = np.flatnonzero(finite)  # flat index of each point
         z = np.asarray(depth, dtype=np.float64).reshape(-1)[finite]
         self.points = flat[finite]
-        sigma = noise.sigma(np.where(np.isfinite(z), z, 0.0))
+        self.sigma = noise.sigma(np.where(np.isfinite(z), z, 0.0))
         self.band_low = np.maximum(
-            options.obstacle_min_height, options.obstacle_k * sigma
+            options.obstacle_min_height, options.obstacle_k * self.sigma
         )
+
+
+@dataclass
+class _PlaneFrame:
+    """Grid of one plane: cell (i, j) is at ``origin + (lower + (i, j) * res) @ axes``."""
+
+    origin: np.ndarray
+    axes: np.ndarray
+    normal: np.ndarray  # facing up
+    offset: float
+    lower: np.ndarray
+    shape: tuple[int, int]
+    resolution: float
+
+    @classmethod
+    def of(cls, plane: Plane, up: np.ndarray, options: PlaceOptions):
+        res = options.resolution
+        normal, offset = _up_plane(plane, up)
+        lower = plane.hull.min(axis=0) - options.grid_margin
+        upper = plane.hull.max(axis=0) + options.grid_margin
+        shape = tuple(int(n) for n in np.ceil((upper - lower) / res).astype(int) + 1)
+        return cls(
+            origin=np.asarray(plane.centroid, dtype=np.float64),
+            axes=np.asarray(plane.axes, dtype=np.float64),
+            normal=normal,
+            offset=offset,
+            lower=lower,
+            shape=shape,
+            resolution=res,
+        )
+
+    @property
+    def u(self) -> np.ndarray:
+        return self.lower[0] + self.resolution * np.arange(self.shape[0])
+
+    @property
+    def v(self) -> np.ndarray:
+        return self.lower[1] + self.resolution * np.arange(self.shape[1])
+
+    def uv(self, points: np.ndarray) -> np.ndarray:
+        return (points - self.origin) @ self.axes.T
+
+    def flat_cells(self, points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Flat cell index of each point and the in-grid mask."""
+        ij = np.rint((self.uv(points) - self.lower) / self.resolution)
+        ij = ij.astype(np.int64)
+        inside = (ij >= 0).all(axis=1) & (ij < self.shape).all(axis=1)
+        return ij[:, 0] * self.shape[1] + ij[:, 1], inside
+
+    def counts(self, points: np.ndarray) -> np.ndarray:
+        flat, inside = self.flat_cells(points)
+        size = self.shape[0] * self.shape[1]
+        return np.bincount(flat[inside], minlength=size).reshape(self.shape)
 
 
 def _support_grid(plane, index, cloud, horizontal, size, radius, options, up):
     res = options.resolution
-    normal, offset = _up_plane(plane, up)
     inlier_points = cloud.flat[np.asarray(plane.inliers, dtype=np.int64)]
     inlier_points = inlier_points[np.isfinite(inlier_points[:, 2])]
     if len(inlier_points) < 3 or len(plane.hull) < 3:
         return None
-    origin = np.asarray(plane.centroid, dtype=np.float64)
-    axes = np.asarray(plane.axes, dtype=np.float64)
-    lower = plane.hull.min(axis=0) - options.grid_margin
-    upper = plane.hull.max(axis=0) + options.grid_margin
-    shape = tuple(int(n) for n in np.ceil((upper - lower) / res).astype(int) + 1)
-    u = lower[0] + res * np.arange(shape[0])
-    v = lower[1] + res * np.arange(shape[1])
-    shift = origin @ axes.T + lower
+    frame = _PlaneFrame.of(plane, up, options)
+    shape, u, v = frame.shape, frame.u, frame.v
 
-    def cell_counts(points):
-        uv = (points @ axes.T - shift) / res
-        i = np.rint(uv[:, 0]).astype(np.int64)
-        j = np.rint(uv[:, 1]).astype(np.int64)
-        inside = (i >= 0) & (i < shape[0]) & (j >= 0) & (j < shape[1])
-        flat = i[inside] * shape[1] + j[inside]
-        return np.bincount(flat, minlength=shape[0] * shape[1]).reshape(shape)
-
-    observed = cell_counts(inlier_points) > 0
+    observed = frame.counts(inlier_points) > 0
     hull_mask = convex_mask(plane.hull, u, v)
     closed = binary_closing(observed, _disk(options.support_closing))
     support = closed & hull_mask
 
     top = size[2] + options.height_margin
-    height = cloud.points @ normal + offset
+    height = cloud.points @ frame.normal + frame.offset
     band = (height >= cloud.band_low) & (height <= top)
-    obstacle = cell_counts(cloud.points[band]) >= options.obstacle_min_points
+    obstacle = frame.counts(cloud.points[band]) >= options.obstacle_min_points
     if options.speckle_cells > 1 and obstacle.any():
         components, _ = label(obstacle, structure=_EIGHT)
         sizes = np.bincount(components.ravel())
@@ -279,14 +442,14 @@ def _support_grid(plane, index, cloud, horizontal, size, radius, options, up):
         obstacle = keep[components]
 
     overhead = np.zeros(shape, dtype=bool)
-    own_height = float(origin @ up)
+    own_height = float(frame.origin @ up)
     for j, other in horizontal:
         if j == index:
             continue
         gap = float(np.asarray(other.centroid) @ up) - own_height
         if not options.overhead_min_gap <= gap <= top:
             continue
-        polygon, area = convex_hull_2d((other.hull_points() - origin) @ axes.T)
+        polygon, area = convex_hull_2d(frame.uv(other.hull_points()))
         if area > 0.0:
             overhead |= convex_mask(polygon, u, v)
 
@@ -305,10 +468,10 @@ def _support_grid(plane, index, cloud, horizontal, size, radius, options, up):
     return PlaceGrid(
         plane_index=index,
         label=PlaneLabel(plane.label).value,
-        origin=origin,
-        axes=axes,
-        normal=normal,
-        lower=lower,
+        origin=frame.origin,
+        axes=frame.axes,
+        normal=frame.normal,
+        lower=frame.lower,
         resolution=res,
         support=support,
         observed=observed,
@@ -370,6 +533,8 @@ def find_place_candidates(
     near: Sequence[float] | None = None,
     max_candidates: int | None = None,
     up: Sequence[float] = (0.0, 0.0, 1.0),
+    surface_height: float | None = None,
+    height_tolerance: float | None = None,
     plane_indices: Iterable[int] | None = None,
 ) -> PlaceResult:
     """Where an object of ``object_size`` (x, y footprint, z height; m) fits.
@@ -377,14 +542,18 @@ def find_place_candidates(
     ``planes`` are labeled planes in the output frame (the node's
     ``select_output_planes``); horizontal planes facing up with a label in
     ``labels`` (default table and shelf) are supports, every horizontal plane
-    can be overhead. ``points`` is the organized (H, W, 3) cloud the planes
-    were detected in, transformed to the output frame (NaN = invalid), and
-    ``depth`` its (H, W) optical depth for ``noise`` (the detector's model).
+    can be overhead. With ``surface_height`` only those supports whose
+    centroid height (along ``up``) is within ``height_tolerance`` (None or
+    <= 0: DEFAULT_HEIGHT_TOLERANCE) of it remain. ``points`` is the organized
+    (H, W, 3) cloud the planes were detected in, transformed to the output
+    frame (NaN = invalid), and ``depth`` its (H, W) optical depth for
+    ``noise`` (the detector's model).
 
     Candidates are ordered by clearance (largest first) or, with ``near``
     (output frame), by distance to it among all placeable cells. At most
     ``max_candidates`` (default ``options.max_candidates``) are returned, at
-    least max(radius, min_spacing) apart on each plane.
+    least max(radius, min_spacing) apart on each plane. ``status`` is
+    NO_SURFACE without a support, NO_SPACE with supports but no candidate.
 
     ``plane_indices`` restricts the supports to these indices of ``planes``
     (e.g. the planes of tracked surfaces); ``labels`` then defaults to every
@@ -401,16 +570,19 @@ def find_place_candidates(
     unknown = [name for name in wanted if name not in SUPPORT_LABELS]
     if unknown:
         raise ValueError(f"unknown support labels {unknown}, use {SUPPORT_LABELS}")
+    if surface_height is not None and not np.isfinite(surface_height):
+        raise ValueError(f"surface height must be finite, got {surface_height}")
+    tolerance = (
+        float(height_tolerance)
+        if height_tolerance is not None and height_tolerance > 0.0
+        else DEFAULT_HEIGHT_TOLERANCE
+    )
     limit = options.max_candidates if not max_candidates else int(max_candidates)
-    up = np.asarray(up, dtype=np.float64)
-    up = up / np.linalg.norm(up)
+    up = _unit(up)
     near = None if near is None else np.asarray(near, dtype=np.float64)
     radius = footprint_radius(size)
 
-    min_cos = np.cos(np.radians(options.horizontal_tol_deg))
-    horizontal = [
-        (i, p) for i, p in enumerate(planes) if abs(float(p.normal @ up)) >= min_cos
-    ]
+    horizontal = _horizontal(planes, up, options)
     supports = [
         i
         for i, p in horizontal
@@ -418,6 +590,13 @@ def find_place_candidates(
         and PlaneLabel(p.label).value in wanted
         and (allowed is None or i in allowed)
     ]
+    if surface_height is not None:
+        supports = [
+            i
+            for i in supports
+            if abs(float(np.asarray(planes[i].centroid) @ up) - surface_height)
+            <= tolerance
+        ]
     cloud = _Cloud(points, depth, noise, options)
     grids, ranked = [], []
     for i in supports:
@@ -438,4 +617,153 @@ def find_place_candidates(
             ranked.append((key, c))
     ranked.sort(key=lambda item: item[0])
     candidates = [c for _, c in ranked[:limit]]
-    return PlaceResult(candidates, grids, radius, supports)
+    if not grids:
+        status = PlaceStatus.NO_SURFACE
+    elif not candidates:
+        status = PlaceStatus.NO_SPACE
+    else:
+        status = PlaceStatus.OK
+    return PlaceResult(candidates, grids, radius, supports, status)
+
+
+def _band_top(index, frame, hull_mask, horizontal, options, up) -> float:
+    """Top of the planning band: box_max_height, or cap_margin below a plane
+    above that covers at least cap_min_overlap of this plane's hull cells."""
+    top = options.box_max_height
+    own_height = float(frame.origin @ up)
+    hull_cells = int(hull_mask.sum())
+    for j, other in horizontal:
+        if j == index:
+            continue
+        gap = float(np.asarray(other.centroid) @ up) - own_height
+        if gap < options.overhead_min_gap or gap - options.cap_margin >= top:
+            continue
+        polygon, area = convex_hull_2d(frame.uv(other.hull_points()))
+        if area <= 0.0:
+            continue
+        overlap = int((convex_mask(polygon, frame.u, frame.v) & hull_mask).sum())
+        if overlap >= options.cap_min_overlap * hull_cells:
+            top = gap - options.cap_margin
+    return top
+
+
+def _plane_obstacles(plane, index, cloud, keep, horizontal, options, up):
+    if len(plane.hull) < 3:
+        return []
+    frame = _PlaneFrame.of(plane, up, options)
+    hull_mask = convex_mask(plane.hull, frame.u, frame.v)
+    top = _band_top(index, frame, hull_mask, horizontal, options, up)
+    height = cloud.points @ frame.normal + frame.offset
+    band = keep & (height >= cloud.band_low) & (height <= top)
+    if not band.any():
+        return []
+    points, heights = cloud.points[band], height[band]
+    flat, inside = frame.flat_cells(points)
+    points, heights, flat = points[inside], heights[inside], flat[inside]
+    size = frame.shape[0] * frame.shape[1]
+    counts = np.bincount(flat, minlength=size).reshape(frame.shape)
+    components, n = label(counts >= options.obstacle_min_points, structure=_EIGHT)
+    if n == 0:
+        return []
+    cells = np.bincount(components.ravel(), minlength=n + 1)
+    # Objects stand on the plane: components outside its hull (the robot's
+    # hand in front of a table, things beside it) are not boxes of this plane.
+    on_hull = np.bincount(components[hull_mask], minlength=n + 1) > 0
+    component = components.ravel()[flat]
+    order = np.argsort(component, kind="stable")
+    bounds = np.searchsorted(component[order], np.arange(n + 2))
+    out = []
+    cell_area = frame.resolution**2
+    for k in range(1, n + 1):
+        members = order[bounds[k] : bounds[k + 1]]
+        if (
+            cells[k] < options.box_min_cells
+            or not on_hull[k]
+            or len(members) < options.box_min_points
+        ):
+            continue
+        uv, h = frame.uv(points[members]), heights[members]
+        center, angle, (length, width) = min_area_rectangle(uv)
+        fill = cells[k] * cell_area / max(length * width, cell_area)
+        if fill >= options.box_min_fill or max(length, width) <= options.box_split_size:
+            out.append(_box(uv, h, frame, index, options, up))
+            continue
+        c, s = math.cos(angle), math.sin(angle)
+        local = (uv - center) @ np.array([[c, -s], [s, c]])
+        tiles = np.floor((local - local.min(axis=0)) / options.box_split_size)
+        tiles = tiles.astype(np.int64)
+        key = tiles[:, 0] * (int(tiles[:, 1].max()) + 1) + tiles[:, 1]
+        for tile in np.unique(key):
+            part = key == tile
+            if part.sum() >= options.box_min_points:
+                out.append(_box(uv[part], h[part], frame, index, options, up))
+    return out
+
+
+def _box(uv, heights, frame, index, options, up) -> PlaceObstacle:
+    """Box over points (plane coordinates ``uv``, ``heights`` above the plane)."""
+    center_uv, angle, (length, width) = min_area_rectangle(uv)
+    box_height = float(np.percentile(heights, options.box_height_percentile))
+    axis = math.cos(angle) * frame.axes[0] + math.sin(angle) * frame.axes[1]
+    axis = axis - (axis @ up) * up
+    axis /= np.linalg.norm(axis)
+    rotation = np.column_stack([axis, np.cross(up, axis), up])
+    base = frame.origin + center_uv @ frame.axes
+    return PlaceObstacle(
+        center=base + up * box_height / 2,
+        rotation=rotation,
+        size=np.array([length, width, box_height]),
+        plane_index=index,
+        points=int(len(uv)),
+    )
+
+
+def find_place_obstacles(
+    planes: Sequence[Plane],
+    points: np.ndarray,
+    depth: np.ndarray,
+    noise: DepthNoiseModel | None = None,
+    options: PlaceOptions | None = None,
+    up: Sequence[float] = (0.0, 0.0, 1.0),
+) -> list[PlaceObstacle]:
+    """Boxes of what stands on the horizontal planes facing up whose label is
+    in ``options.box_labels`` (inputs as ``find_place_candidates``).
+
+    Per plane, points of the cloud whose height above it is in the band from
+    max(obstacle_min_height, obstacle_k * sigma(Z)) to the band top
+    (``box_max_height``, lowered to ``cap_margin`` under a covering plane
+    above) are rasterized on the plane grid; inliers of structure planes
+    (floor, table, shelf, wall) and points near walls are left out. Each
+    8-connected component of cells with ``obstacle_min_points`` points that
+    touches the plane hull becomes a box: the minimum-area rectangle of its
+    points on the plane and the ``box_height_percentile`` of their heights;
+    components filling less than ``box_min_fill`` of the rectangle are split
+    into tiles.
+    """
+    options = options or PlaceOptions()
+    noise = noise or DepthNoiseModel()
+    up = _unit(up)
+    horizontal = _horizontal(planes, up, options)
+    cloud = _Cloud(points, depth, noise, options)
+    structure = np.zeros(len(cloud.flat), dtype=bool)
+    for plane in planes:
+        if PlaneLabel(plane.label).value in STRUCTURE_LABELS:
+            structure[np.asarray(plane.inliers, dtype=np.int64)] = True
+    keep = ~structure[cloud.index]
+    for plane in planes:
+        if PlaneLabel(plane.label) is not PlaneLabel.WALL or len(plane.hull) < 3:
+            continue
+        distance = np.abs(cloud.points @ plane.normal + plane.offset)
+        margin = np.maximum(options.obstacle_min_height, options.wall_k * cloud.sigma)
+        near = np.flatnonzero(keep & (distance <= margin))
+        uv = (cloud.points[near] - plane.centroid) @ np.asarray(plane.axes).T
+        inside = _inside_convex(plane.hull, uv[:, 0], uv[:, 1], margin[near])
+        keep[near[inside]] = False
+    out = []
+    for i, plane in horizontal:
+        if float(plane.normal @ up) <= 0.0:
+            continue
+        if PlaneLabel(plane.label).value not in options.box_labels:
+            continue
+        out += _plane_obstacles(plane, i, cloud, keep, horizontal, options, up)
+    return out

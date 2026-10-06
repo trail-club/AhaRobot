@@ -238,14 +238,18 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 ### 置き場所の候補
 
 `object_size`（底面 x × y、高さ z、m）の物体を置ける机・棚板上の点を、余裕（clearance）の大きい順か `near` に近い順で返す。
+応答の `obstacles` は検出のすべての支持面（床を除く）の上の物体を衝突判定用の箱にしたもの。
 
 ```bash
 ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
   "{object_size: {x: 0.08, y: 0.08, z: 0.15}, surface_labels: [table], max_candidates: 3,
     near: {header: {frame_id: base_link}, point: {x: 1.0, y: 0.2, z: 0.75}}}"
+ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
+  "{object_size: {x: 0.06, y: 0.06, z: 0.12}, restrict_height: true, surface_height: 0.61}"
 ```
 
-`surface_labels`・`max_candidates`・`near` は省略できる。候補は `/aha/perception/place/markers` に表示する。
+`surface_labels`・`max_candidates`・`near` は省略できる。候補と障害物の箱は `/aha/perception/place/markers` に表示する。
+`restrict_height: true` では重心の高さが `surface_height` から `height_tolerance`（既定0.03 m）以内の支持面だけを使う。
 `surface_ids: [7]` を渡すと、最新の検出でその面に対応した平面だけを支持面にする（`surface_labels` を省くとラベルで絞らない）。
 最新の検出にない場合は `status` が `STATUS_NO_SURFACE` になる。候補の `surface_id` は支持面の面のID。
 
@@ -254,7 +258,7 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
 ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md) が使う。
 
 - [`aha_perception.planes`](aha_perception/planes/__init__.py)：organized point cloudから平面を検出する。`detect_planes(cloud, method, options, params)`、手法は `DETECTORS`（8種）、ノードの出力の選択は `select_output_planes`。
-- [`aha_perception.place`](aha_perception/place.py)：`find_place_candidates` が検出した平面と点群から置き場所の候補を返す。格子・余裕の既定は `PlaceOptions`。
+- [`aha_perception.place`](aha_perception/place.py)：`find_place_candidates` が検出した平面と点群から置き場所の候補を、`find_place_obstacles` が支持面の上の物体の箱を返す。格子・余裕・箱の既定は `PlaceOptions`。
 - [`aha_perception.surfaces`](aha_perception/surfaces.py)：`SurfaceTracker.update` が検出ごとの平面を追跡し、面のIDを返す。閾値の既定は `TrackerOptions`。
 - [`aha_perception.depth_noise`](aha_perception/depth_noise.py)：D435i相当のDepthノイズ（`NOISE_PRESETS`）。`sim_depth_noise.py` とベンチマークで共通。
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
@@ -264,6 +268,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - `target_frame` の原点が床でz軸が上、台車が水平であることを仮定する（高さ・ラベル・IMUのtilt）。
 - 出力は水平面と壁だけ。斜めの面、小さい垂直面、下を向く水平面（カメラより上の棚板の裏など）は出さない。
 - 置き場所は見えている支持面の上だけで、物体の陰など見えていない所は候補にしない。物体の向きは考慮せず、底面の外接円で判定する。`near` を渡すと候補の余裕は必要最小限のことがある。
+- 障害物の箱は見えている点だけから作る。接した物体は1個の箱になり、奥側が隠れた物体は見えている範囲だけになる。Depthの縁のにじみで底面は視線方向に長くなりやすい。箱の既定値は合成シーンの調整の対象外。
 - 面の追跡は `tracking_frame` の位置の誤差（odomのずれ）をそのまま受ける。戻ってきた面が前の凸包と重ならないほどずれると別のIDになる。
 - 既定値は合成シーンと較正したノイズで選んだ（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)、[place.md](../../../tools/perception/plane_bench/results/place.md)）。実機ではGTを使った評価をしていない。
 

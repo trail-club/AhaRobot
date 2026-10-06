@@ -136,6 +136,25 @@ def quaternion_from_z_axis(
     return tuple(float(v) for v in q)
 
 
+def quaternion_from_matrix(rotation: np.ndarray) -> tuple[float, float, float, float]:
+    """(x, y, z, w) of a 3x3 rotation matrix."""
+    m = np.asarray(rotation, dtype=np.float64)[:3, :3]
+    trace = float(np.trace(m))
+    if trace > 0.0:
+        s = 2.0 * np.sqrt(trace + 1.0)
+        q = [m[2, 1] - m[1, 2], m[0, 2] - m[2, 0], m[1, 0] - m[0, 1], 0.25 * s * s]
+    else:
+        i = int(np.argmax(np.diag(m)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = 2.0 * np.sqrt(1.0 + m[i, i] - m[j, j] - m[k, k])
+        q = [0.0, 0.0, 0.0, m[k, j] - m[j, k]]
+        q[i] = 0.25 * s * s
+        q[j] = m[j, i] + m[i, j]
+        q[k] = m[k, i] + m[i, k]
+    q = np.asarray(q) / np.linalg.norm(q)
+    return tuple(float(v) for v in q)
+
+
 def stamp_to_seconds(stamp) -> float:
     """Seconds of a builtin_interfaces/Time-like object (sec, nanosec)."""
     return stamp.sec + stamp.nanosec * 1e-9

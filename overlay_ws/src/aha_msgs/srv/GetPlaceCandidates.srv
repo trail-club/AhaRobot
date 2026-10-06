@@ -1,20 +1,26 @@
 # Where an object of the given size can be put, on the latest plane detection.
 # Owner: perception squad. Consumers: manipulation.
 
-geometry_msgs/Vector3      object_size     # x, y footprint and z height (m), all > 0
-string[]                   surface_labels  # empty = table and shelf (any label with surface_ids); also "floor", "other"
-geometry_msgs/PointStamped near            # empty frame_id = none; else sort by distance to it
-uint32                     max_candidates  # 0 = default (10)
-uint32[]                   surface_ids     # empty = any; else only these Surface.id observed in the latest detection
+geometry_msgs/Vector3      object_size      # x, y footprint and z height (m), all > 0
+string[]                   surface_labels   # empty = table and shelf (any label with surface_ids); also "floor", "other"
+geometry_msgs/PointStamped near             # empty frame_id = none; else sort by distance to it
+uint32                     max_candidates   # 0 = default (10)
+# true: only supports (of surface_labels) whose height is within
+# height_tolerance of surface_height (m, z in base_footprint)
+bool                       restrict_height
+float32                    surface_height
+float32                    height_tolerance # m, <= 0 = default (0.03)
+uint32[]                   surface_ids      # empty = any; else only these Surface.id observed in the latest detection
 ---
 uint8 STATUS_OK=0          # candidates found
-uint8 STATUS_NO_SURFACE=1  # no support matching the labels (and surface ids) in the detection
+uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids) in the detection
 uint8 STATUS_NO_SPACE=2    # supports seen, but no free spot for the size
 uint8 STATUS_ERROR=3       # no or old detection, bad arguments, no TF (success false)
 
 bool                       success
 uint8                      status
 string                     message
-builtin_interfaces/Time    stamp           # depth image stamp of the detection used
-PlaceCandidate[]           candidates      # best first
-PlaneArray                 planes          # support planes considered
+builtin_interfaces/Time    stamp            # depth image stamp of the detection used
+PlaceCandidate[]           candidates       # best first
+PlaneArray                 planes           # support planes considered (after the label, height and surface id filters)
+PlaceObstacle[]            obstacles        # objects on every horizontal support of the detection
