@@ -10,6 +10,7 @@ import sys
 import time
 
 import rclpy
+import rclpy.node
 import rclpy.qos
 import sensor_msgs.msg
 import std_msgs.msg
