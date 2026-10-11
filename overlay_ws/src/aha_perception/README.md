@@ -34,7 +34,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 | `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
-| `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
+| `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定する（`aha_perception.head_config`）。
@@ -215,8 +215,25 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `noise_subpixel` | `0.12` | 検出器のノイズモデル σ(Z) の subpixel（0より大きい値） |
 | `max_points_per_plane` | `5000` | 出力点群の平面あたりの最大点数（0で全点） |
 | `max_detection_age` | `3.0` | 置き場所のserviceが使う検出の古さの上限（s、wall clock）。0以下で無制限 |
+| `tracking_frame` | `odom` | 面（[面の追跡](#面の追跡)）を追跡するframe。z軸が上で、台車が動いても面が動かないframeにする |
+| `surface_confirm_hits` / `surface_max_misses` / `surface_max_unseen` | `2` / `5` / `120.0` | 面にIDを付けるまでの観測回数 / 視野内なのに観測されない検出が続くと消す回数 / 観測されないまま消すまでの時間（s、画像時刻） |
 
 `merge`・`noise_subpixel` の既定は較正したD435iのノイズで選んだ値で、ライブラリの既定（`merge=False`・0.08）とは異なる（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)）。
+
+### 面の追跡
+
+`/aha/perception/planes` の `Plane.id` は検出ごとの番号で、検出をまたいで同じ面を指さない。
+同じ面を後で指定するには、検出のたびに `tracking_frame` で平面を対応付けた面（`/aha/perception/surfaces` の `Surface`、
+[ROSインターフェース](../../../docs/interfaces.md#平面検出)）の `id` を使う。面のIDはマーカーの文字（`S7 table 0.72 m`）にも出る。
+
+- 同じ高さの机でも、凸包が5 cm以上離れていれば別の面になる。床の高さの水平面は1つの面にまとめる。
+- 同じ面の一部だけが見えてもIDは変わらない。凸包は見えていない部分（視野外・遮蔽）を前の値のまま残す。
+- `surface_confirm_hits` 回観測するとIDが付く（既定で2回目の検出）。視野内なのに `surface_max_misses` 回続けて観測されないか、
+  `surface_max_unseen` 秒観測されない面は消す。
+- `level` は同じ所に重なった水平面（棚板など）の下からの順番（1から、重ならなければ0）。
+- `tracking_frame` のTFがない間は `target_frame` で追跡する（台車が動くと面も動く）。TFが来た時点と、シミュレーションの再起動で面を消す。
+
+対応付けの方法は [surfaces.py](aha_perception/surfaces.py)、合成シーンでの評価は [tracking.md](../../../tools/perception/plane_bench/results/tracking.md) を参照。
 
 ### 置き場所の候補
 
@@ -229,6 +246,8 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
 ```
 
 `surface_labels`・`max_candidates`・`near` は省略できる。候補は `/aha/perception/place/markers` に表示する。
+`surface_ids: [7]` を渡すと、最新の検出でその面に対応した平面だけを支持面にする（`surface_labels` を省くとラベルで絞らない）。
+最新の検出にない場合は `status` が `STATUS_NO_SURFACE` になる。候補の `surface_id` は支持面の面のID。
 
 ### ライブラリ
 
@@ -236,6 +255,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 - [`aha_perception.planes`](aha_perception/planes/__init__.py)：organized point cloudから平面を検出する。`detect_planes(cloud, method, options, params)`、手法は `DETECTORS`（8種）、ノードの出力の選択は `select_output_planes`。
 - [`aha_perception.place`](aha_perception/place.py)：`find_place_candidates` が検出した平面と点群から置き場所の候補を返す。格子・余裕の既定は `PlaceOptions`。
+- [`aha_perception.surfaces`](aha_perception/surfaces.py)：`SurfaceTracker.update` が検出ごとの平面を追跡し、面のIDを返す。閾値の既定は `TrackerOptions`。
 - [`aha_perception.depth_noise`](aha_perception/depth_noise.py)：D435i相当のDepthノイズ（`NOISE_PRESETS`）。`sim_depth_noise.py` とベンチマークで共通。
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
 
@@ -244,6 +264,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - `target_frame` の原点が床でz軸が上、台車が水平であることを仮定する（高さ・ラベル・IMUのtilt）。
 - 出力は水平面と壁だけ。斜めの面、小さい垂直面、下を向く水平面（カメラより上の棚板の裏など）は出さない。
 - 置き場所は見えている支持面の上だけで、物体の陰など見えていない所は候補にしない。物体の向きは考慮せず、底面の外接円で判定する。`near` を渡すと候補の余裕は必要最小限のことがある。
+- 面の追跡は `tracking_frame` の位置の誤差（odomのずれ）をそのまま受ける。戻ってきた面が前の凸包と重ならないほどずれると別のIDになる。
 - 既定値は合成シーンと較正したノイズで選んだ（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)、[place.md](../../../tools/perception/plane_bench/results/place.md)）。実機ではGTを使った評価をしていない。
 
 ## テスト
@@ -253,5 +274,6 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 ```bash
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pytest \
-  python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py test/test_imu_tilt.py
+  python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
+  test/test_surfaces.py test/test_imu_tilt.py
 ```

@@ -11,6 +11,8 @@ relabels flying pixels and outliers as non-planar and dropouts as invalid.
 Seeds follow from the scene name and the noise scale or preset, so runs repeat.
 ``generate_sequence`` returns static-camera frames that share the shadows,
 holes and static noise field; the other noise is drawn per frame.
+``generate_motion_sequence`` moves the base (scene coordinates = odom) and
+the head per frame (``MotionPose``) with sensor-fixed frozen noise.
 Coordinates are in the robot base frame (x forward, y left, z up, floor z=0).
 
 Ground truth planes are the image-connected components of each surface with
@@ -24,8 +26,9 @@ primitives)`` to ``scene_set()``: ``surfaces`` maps a surface name to its
 class (floor / table / shelf / wall / other), and ``Quad.tag``, ``Box.faces``
 or ``Cylinder.top`` naming that surface make it a GT plane. ``tags`` group the
 report (table / shelf / coplanar / walls / far / floor / clutter).
-``shelf_scene_set()`` and ``place_scene_set()`` hold the shelf and place
-study scenes; they are not part of the bench and sequence defaults.
+``shelf_scene_set()``, ``place_scene_set()`` and ``tracking_scene_set()``
+hold the shelf, place and tracking study scenes; the first two are not part
+of the bench and sequence defaults.
 """
 
 from __future__ import annotations
@@ -238,13 +241,15 @@ def _codes(scene: Scene, primitive) -> np.ndarray:
     return np.array([NON_PLANAR, code(primitive.top)])
 
 
-def raycast_faces(scene: Scene, intrinsics: Intrinsics):
+def raycast_faces(scene: Scene, intrinsics: Intrinsics, transform=None):
     """Noise-free depth and, per pixel, the hit primitive index and face (-1 = none).
 
     Faces index ``_FACES`` for a ``Box``, 0 for a ``Quad``, and 0 (side) / 1 (top)
-    for a ``Cylinder``.
+    for a ``Cylinder``. ``transform`` (camera to scene frame) defaults to the
+    scene's camera pose.
     """
-    transform = scene.pose.camera_to_base()
+    if transform is None:
+        transform = scene.pose.camera_to_base()
     rays = intrinsics.rays() @ transform[:3, :3].T
     origin = transform[:3, 3]
     depth = np.full(rays.shape[:2], np.inf)
@@ -260,9 +265,9 @@ def raycast_faces(scene: Scene, intrinsics: Intrinsics):
     return depth, index, faces
 
 
-def raycast(scene: Scene, intrinsics: Intrinsics):
+def raycast(scene: Scene, intrinsics: Intrinsics, transform=None):
     """Noise-free depth (optical z, inf = no hit) and per-pixel surface codes."""
-    depth, index, faces = raycast_faces(scene, intrinsics)
+    depth, index, faces = raycast_faces(scene, intrinsics, transform)
     codes = np.full(depth.shape, NON_PLANAR, dtype=np.int64)
     for k, primitive in enumerate(scene.primitives):
         hit = index == k
@@ -419,6 +424,99 @@ def generate_sequence(
                 planes=planes,
                 camera_to_base=transform,
                 intrinsics=intrinsics,
+            )
+        )
+    return frames
+
+
+@dataclass(frozen=True)
+class MotionPose:
+    """Base pose in the scene frame (odom) and head angles for one frame."""
+
+    x: float = 0.0
+    y: float = 0.0
+    yaw_deg: float = 0.0
+    pan_deg: float = 0.0
+    tilt_deg: float = 30.0
+
+    def base_to_odom(self) -> np.ndarray:
+        yaw = np.radians(self.yaw_deg)
+        transform = np.eye(4)
+        transform[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+        transform[:2, 3] = (self.x, self.y)
+        return transform
+
+
+@dataclass
+class MotionFrame(SceneFrame):
+    """A frame of a moving camera; ``camera_to_base`` and the GT planes are in
+    the base frame, ``base_to_odom`` places the base in the scene frame.
+    ``surface_codes`` holds per pixel the index into ``surface_names`` of the
+    surface hit (negative: don't care, non-planar or invalid as in ``labels``).
+    """
+
+    base_to_odom: np.ndarray
+    surface_codes: np.ndarray
+    surface_names: tuple
+
+
+def generate_motion_sequence(
+    scene: Scene,
+    poses: list[MotionPose],
+    noise: NoiseParams | None = None,
+    seed: int = 0,
+    intrinsics: Intrinsics | None = None,
+    eval_range: tuple[float, float] = (0.3, 4.0),
+    min_pixels: int = 400,
+    min_area: float = 0.02,
+) -> list[MotionFrame]:
+    """Frames of a moving base and head; the scene coordinates are odom.
+
+    The camera stands ``scene.pose`` (height, x, y) on the base with each
+    pose's pan / tilt. Frozen noise components stay fixed in image
+    coordinates (sensor-fixed) across frames, the rest is drawn per frame.
+    GT planes are built per frame as in ``generate_sequence``.
+    """
+    intrinsics = intrinsics or Intrinsics()
+    noise = noise or NoiseParams(focal=intrinsics.fx)
+    rng = np.random.default_rng(seed)
+    rays_cam = intrinsics.rays()
+    frames, frozen = [], None
+    for pose in poses:
+        head = replace(scene.pose, pan_deg=pose.pan_deg, tilt_deg=pose.tilt_deg)
+        camera_to_base = head.camera_to_base()
+        base_to_odom = pose.base_to_odom()
+        depth_true, codes = raycast(scene, intrinsics, base_to_odom @ camera_to_base)
+        in_range = (depth_true >= eval_range[0]) & (depth_true <= eval_range[1])
+        codes = np.where(in_range, codes, INVALID)
+        depth, noisy_codes, frozen = corrupt_frame(
+            depth_true, codes, noise, rng, frozen
+        )
+        clean = np.where(noisy_codes == codes, codes, INVALID)
+        labels, planes = _instances(
+            clean,
+            depth_true,
+            rays_cam,
+            camera_to_base,
+            intrinsics,
+            scene,
+            min_pixels,
+            min_area,
+        )
+        labels = np.where(noisy_codes == NON_PLANAR, NON_PLANAR, labels)
+        frames.append(
+            MotionFrame(
+                name=scene.name,
+                tags=scene.tags,
+                noise_scale=noise.scale,
+                cloud=(rays_cam * depth[..., None]).astype(np.float32),
+                labels=labels.astype(np.int32),
+                planes=planes,
+                camera_to_base=camera_to_base,
+                intrinsics=intrinsics,
+                base_to_odom=base_to_odom,
+                surface_codes=clean.astype(np.int32),
+                surface_names=tuple(scene.surfaces),
             )
         )
     return frames
@@ -850,6 +948,25 @@ def place_scene_set() -> list[Scene]:
         )
     )
     return scenes
+
+
+def tracking_scene_set() -> list[Scene]:
+    """Scenes of the surface tracking study (run_tracking.py): a table, two
+    tables of the same height 0.2 m apart, a 4-board shelf and the clutter room.
+    """
+    bench = {scene.name: scene for scene in scene_set()}
+    prims = [floor()]
+    for side, y in (("left", 0.4), ("right", -0.4)):
+        prims += table(f"table_{side}", (1.6, y), size=(1.0, 0.6))
+        prims += _table_objects((1.6, y), 0.72)[1:3]
+    close = Scene(
+        "two_tables_close",
+        ("coplanar",),
+        CameraPose(tilt_deg=35),
+        {"floor": "floor", "table_left": "table", "table_right": "table"},
+        prims,
+    )
+    return [bench["table_1.5m"], close, bench["shelf_4board"], bench["clutter_room"]]
 
 
 NOISE_LEVELS = (0.5, 1.0, 2.0)

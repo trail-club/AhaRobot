@@ -370,6 +370,7 @@ def find_place_candidates(
     near: Sequence[float] | None = None,
     max_candidates: int | None = None,
     up: Sequence[float] = (0.0, 0.0, 1.0),
+    plane_indices: Iterable[int] | None = None,
 ) -> PlaceResult:
     """Where an object of ``object_size`` (x, y footprint, z height; m) fits.
 
@@ -384,14 +385,19 @@ def find_place_candidates(
     (output frame), by distance to it among all placeable cells. At most
     ``max_candidates`` (default ``options.max_candidates``) are returned, at
     least max(radius, min_spacing) apart on each plane.
+
+    ``plane_indices`` restricts the supports to these indices of ``planes``
+    (e.g. the planes of tracked surfaces); ``labels`` then defaults to every
+    support label.
     """
     options = options or PlaceOptions()
     noise = noise or DepthNoiseModel()
     size = tuple(float(s) for s in object_size)
     if len(size) != 3 or not all(np.isfinite(size)) or min(size) <= 0.0:
         raise ValueError(f"object size must be 3 positive values, got {object_size}")
-    wanted = DEFAULT_SUPPORT_LABELS if labels is None else tuple(labels)
-    wanted = wanted or DEFAULT_SUPPORT_LABELS
+    allowed = None if plane_indices is None else {int(i) for i in plane_indices}
+    default = DEFAULT_SUPPORT_LABELS if allowed is None else SUPPORT_LABELS
+    wanted = tuple(labels or ()) or default
     unknown = [name for name in wanted if name not in SUPPORT_LABELS]
     if unknown:
         raise ValueError(f"unknown support labels {unknown}, use {SUPPORT_LABELS}")
@@ -408,7 +414,9 @@ def find_place_candidates(
     supports = [
         i
         for i, p in horizontal
-        if float(p.normal @ up) > 0.0 and PlaneLabel(p.label).value in wanted
+        if float(p.normal @ up) > 0.0
+        and PlaneLabel(p.label).value in wanted
+        and (allowed is None or i in allowed)
     ]
     cloud = _Cloud(points, depth, noise, options)
     grids, ranked = [], []

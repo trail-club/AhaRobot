@@ -136,6 +136,17 @@ def quaternion_from_z_axis(
     return tuple(float(v) for v in q)
 
 
+def stamp_to_seconds(stamp) -> float:
+    """Seconds of a builtin_interfaces/Time-like object (sec, nanosec)."""
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def seconds_to_stamp(seconds: float) -> tuple[int, int]:
+    """(sec, nanosec) of a time in seconds, rounded to the nanosecond."""
+    total = round(float(seconds) * 1e9)
+    return total // 1_000_000_000, total % 1_000_000_000
+
+
 def transform_point(matrix: np.ndarray, point: Sequence[float]) -> np.ndarray:
     """Apply a 4x4 homogeneous transform to one 3D point."""
     matrix = np.asarray(matrix, dtype=np.float64)

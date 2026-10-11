@@ -1,7 +1,8 @@
 # 平面検出ベンチマーク
 
 [`aha_perception.planes`](../../../overlay_ws/src/aha_perception/aha_perception/planes/__init__.py) の検出器と
-[`aha_perception.place`](../../../overlay_ws/src/aha_perception/aha_perception/place.py) の置き場所の候補を、
+[`aha_perception.place`](../../../overlay_ws/src/aha_perception/aha_perception/place.py) の置き場所の候補、
+[`aha_perception.surfaces`](../../../overlay_ws/src/aha_perception/aha_perception/surfaces.py) の面の追跡を、
 合成シーンと実機で取得したDepthで評価する。ROSは不要で、ホストの uv で実行する（[取得](#取得)だけ開発コンテナ）。
 結果のまとめは `results/` の手で整理した資料を参照する。
 
@@ -12,6 +13,7 @@
 | [noise_calibration.md](results/noise_calibration.md) | Depthノイズのプリセットの較正 |
 | [real.md](results/real.md) | 実機フレームでの検出 |
 | [shelf.md](results/shelf.md) / [place.md](results/place.md) | 棚・置き場所の候補の評価 |
+| [tracking.md](results/tracking.md) | 動くカメラでの面の追跡（IDの安定性）の評価 |
 
 ## スクリプト
 
@@ -31,6 +33,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --wi
 | `calibrate_noise.py` | 実機の静止フレームに合わせてノイズのプリセットを求める | `results/noise_calibration.md` |
 | `run_shelf.py` | 棚板ごとの置き場所としてノードの出力を評価 | `results/shelf_report.md` |
 | `run_place.py` | 置き場所の候補を物体の大きさごとに評価 | `results/place_report.md` |
+| `run_tracking.py` | 動くカメラの系列と実機フレームで面の追跡を評価（[追跡の評価](#追跡の評価)） | `results/tracking_report.md` |
 | `make_tuning_figures.py` | 設定ごとのラベル画像 | `results/tuning_*.png` |
 
 BLASは1スレッドに固定する。`--jobs N` のあるスクリプトはN個のプロセスで並列に実行する（時間の指標は競合で増える）。
@@ -40,7 +43,8 @@ BLASは1スレッドに固定する。`--jobs N` のあるスクリプトはN個
 
 [`scenes.py`](scenes.py) が解析形状を頭部カメラからレイキャストし、
 シミュレーションと共通の [`aha_perception.depth_noise`](../../../overlay_ws/src/aha_perception/aha_perception/depth_noise.py) でノイズを加える。
-`scene_set()` がベンチと系列評価、`shelf_scene_set()` が棚の評価、`place_scene_set()` が置き場所の評価の追加シーン。
+`scene_set()` がベンチと系列評価、`shelf_scene_set()` が棚の評価、`place_scene_set()` が置き場所の評価の追加シーン、
+`tracking_scene_set()` が追跡の評価のシーン（`generate_motion_sequence` で台車と頭を動かす）。
 GTラベルの作り方とシーンの追加方法は `scenes.py` のdocstringを参照。乱数のシードはシーン名とノイズから決まる。
 
 ## 実行
@@ -63,6 +67,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | `sequence.md` / `.csv`、`real.md`、`real_<scene>_<method>[_<設定>].png` | `run_sequence.py`・`run_real.py` |
 | `shelf_report.md` / `.csv` / `_planes.csv`、`shelf_*.png` | `run_shelf.py`：表、棚板 × フレーム、出力の水平面 |
 | `place_report.md` / `.csv` / `_invalid.csv`、`place_*.png` | `run_place.py`：表、シーン × プリセット × 大きさ × variant、無効な候補 |
+| `tracking_report.md` / `.csv` | `run_tracking.py`：表と実機フレーム、GTの面ごとの値 |
 | `comparison.md`・`tuning.md`・`shelf.md`・`place.md` など | 手で整理したまとめ（実行では更新しない） |
 
 時間は640×480の1フレームあたり。`cpu` はプロセスCPU時間、`wall` は経過時間。
@@ -234,3 +239,29 @@ GTの作り方は [`run_place.py`](run_place.py) のdocstringを参照。
 | clear err cm | 有効な候補の clearance − GTの縁・障害物までの距離（負は保守的） |
 | top jitter cm / top same | 1位の候補の連続フレーム間の移動距離の平均 / 2 cm未満の割合 |
 | ms / max ms | `find_place_candidates` の経過時間（平均・最大） |
+
+## 追跡の評価
+
+```bash
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
+  python tools/perception/plane_bench/run_tracking.py --jobs 8
+```
+
+`tracking_scene_set()` の各シーンで、台車と頭を `run_tracking.trajectory` のとおりに動かした47フレームの系列
+（静止、頭のpan ±40°、台車が180°回って `--away` 秒（既定60）後に戻る、前進とtilt）を作り、
+ノードと同じ設定（`ransac_gravity_refined`、`sub=0.12,merge=on,node_stride=2`、`select_output_planes`）で検出して
+`SurfaceTracker` に正しいodomとカメラの視野を渡す。出力平面をGT平面に [指標](#指標) と同じ方法で対応させ、
+GTの面（名前、クラス floor / table / shelf / wall）ごとに付いた面のIDを数える。実機フレーム（`real_frames/`）も同じ設定で追跡する。
+
+- `--scenes`・`--presets`（既定 `d435i_filtered d435i_raw`）・`--away`・`--real <dir> ...`（`--real` だけで実機を省く）・`--jobs`。
+
+| 指標 | 定義 |
+| --- | --- |
+| with ID / coverage / latency | IDが付いたGTの面の数 / GTの面がある（GT平面になる）フレームのうちIDが付いた割合 / 最初に見えてからIDが付くまでのフレーム数 |
+| switches / IDs/surface | GTの面のIDが変わった回数 / GTの面に付いたIDの数（理想は1） |
+| shared IDs | 2つ以上のGTの面にそれぞれ2フレーム以上付いたIDの数（別の面の取り違え） |
+| tracks / false / don't care | IDの数 / GTに対応しないフレームが半分を超えるID / 平面の大半がdon't care（物体の上面など）のID |
+| returns kept / max away s | 2フレーム以上見えなくなって戻ったときに同じIDだった回数 / そのうち見えなかった最長の時間 |
+| level acc | 棚板で、IDの `level` がそれまでに見えた棚板の中の下からの順番と一致した割合 |
+| track ms | `SurfaceTracker.update` の経過時間 |
+| 実機：planes with ID / late IDs / visible | 2フレーム目以降の出力平面のうちIDが付いた割合 / 3フレーム目以降に初めて付いたID / 最初に付いてからそのIDの平面があったフレームの割合 |

@@ -15,6 +15,8 @@ from aha_perception.plane_detection_io import (
     plane_points,
     plane_text,
     quaternion_from_z_axis,
+    seconds_to_stamp,
+    stamp_to_seconds,
     transform_point,
     transform_to_matrix,
     xyzrgb_records,
@@ -127,6 +129,18 @@ def test_quaternion_from_z_axis(direction):
     np.testing.assert_allclose(rotated, expected, atol=1e-9)
     # No rotation about z for an upright direction.
     assert quaternion_from_z_axis((0, 0, 2)) == (0.0, 0.0, 0.0, 1.0)
+
+
+def test_stamp_seconds_round_trip():
+    class Stamp:
+        sec, nanosec = 1791105388, 607856500
+
+    seconds = stamp_to_seconds(Stamp)
+    assert seconds == pytest.approx(1791105388.6078565)
+    sec, nanosec = seconds_to_stamp(seconds)
+    assert sec == Stamp.sec
+    assert abs(nanosec - Stamp.nanosec) < 1000
+    assert seconds_to_stamp(2.9999999999) == (3, 0)
 
 
 def test_colors():

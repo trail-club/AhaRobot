@@ -16,6 +16,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/Plane.msg
   msg/PlaneArray.msg
   msg/PlaceCandidate.msg
+  msg/Surface.msg
+  msg/SurfaceArray.msg
   srv/GetPlaceCandidates.srv
   srv/SetNavGoal.srv
   srv/TaskCommand.srv

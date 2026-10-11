@@ -36,9 +36,23 @@ Outputs, stamped with the depth image stamp, in target_frame:
   /aha/perception/planes/markers  visualization_msgs/MarkerArray: DELETEALL,
                                   then per plane the convex hull (ns "hull")
                                   and a text (ns "label") colored by label:
-                                  height above the floor ("table 0.72 m")
-                                  for horizontal planes, area ("wall 2.3 m2")
+                                  the surface id once tracked, then height
+                                  above the floor ("S7 table 0.72 m") for
+                                  horizontal planes, area ("wall 2.3 m2")
                                   for vertical ones
+  /aha/perception/surfaces        aha_msgs/SurfaceArray in tracking_frame:
+                                  every tracked surface after this detection
+
+Surfaces: aha_perception.surfaces.SurfaceTracker is updated with the output
+planes of every detection, the TF target_frame -> tracking_frame at the
+image stamp (the latest TF if that is not available) and the camera view
+(intrinsics, depth range, the decimated depth for the occlusion tests). If
+tracking_frame has no TF yet, surfaces are tracked in target_frame (they
+move with the robot) with a warning, and the tracker is reset when the TF
+appears. Once tracking in tracking_frame, a detection without that TF does
+not update the surfaces. The lifecycle parameters surface_confirm_hits,
+surface_max_misses and surface_max_unseen are TrackerOptions confirm_hits,
+max_misses and max_unseen_s.
 
 The latest detection is kept for the service
 /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates), which
@@ -46,9 +60,14 @@ runs aha_perception.place.find_place_candidates on it and publishes the
 candidates on /aha/perception/place/markers (MarkerArray: DELETEALL, then
 per candidate a disc of the clearance radius (ns "clearance"), the center
 (ns "center") and the rank (ns "rank")). Detections older than
-max_detection_age seconds (wall clock) are not used.
+max_detection_age seconds (wall clock) are not used. With surface_ids only
+the planes of the latest detection assigned to those surfaces are supports
+(STATUS_NO_SURFACE if none is); status is STATUS_NO_SURFACE without
+supports, STATUS_NO_SPACE without candidates and STATUS_ERROR (success
+false) on errors.
 
-The TF buffer is cleared when a /tf stamp goes back (sim restart or reset).
+The TF buffer and the surfaces are cleared when a /tf stamp goes back (sim
+restart or reset).
 """
 
 import dataclasses
@@ -63,7 +82,10 @@ import rclpy
 from aha_msgs.msg import PlaceCandidate as PlaceCandidateMsg
 from aha_msgs.msg import Plane as PlaneMsg
 from aha_msgs.msg import PlaneArray
+from aha_msgs.msg import Surface as SurfaceMsg
+from aha_msgs.msg import SurfaceArray
 from aha_msgs.srv import GetPlaceCandidates
+from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import Point, Point32, Polygon, PoseStamped, Quaternion, Vector3
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
@@ -90,6 +112,8 @@ from aha_perception.plane_detection_io import (
     plane_points,
     plane_text,
     quaternion_from_z_axis,
+    seconds_to_stamp,
+    stamp_to_seconds,
     transform_point,
     transform_to_matrix,
     xyzrgb_records,
@@ -102,6 +126,7 @@ from aha_perception.planes import (
     params_for_input_stride,
     select_output_planes,
 )
+from aha_perception.surfaces import CameraView, SurfaceTracker, TrackerOptions
 from aha_perception.tf_jump import (
     TF_RESET_MIN_INTERVAL_S,
     JumpDetectingTransformListener,
@@ -111,6 +136,7 @@ NODE_NAME = "aha_perception_plane_detection"
 PLANES_TOPIC = "/aha/perception/planes"
 CLOUD_TOPIC = "/aha/perception/planes/cloud"
 MARKER_TOPIC = "/aha/perception/planes/markers"
+SURFACES_TOPIC = "/aha/perception/surfaces"
 PLACE_SERVICE = "/aha/perception/get_place_candidates"
 PLACE_MARKER_TOPIC = "/aha/perception/place/markers"
 
@@ -156,10 +182,10 @@ def to_point(p):
     return Point(x=float(p[0]), y=float(p[1]), z=float(p[2]))
 
 
-def make_markers(header, planes):
+def make_markers(header, planes, surface_ids):
     markers = [Marker(action=Marker.DELETEALL)]
     up = np.array([0.0, 0.0, 1.0])
-    for i, plane in enumerate(planes):
+    for i, (plane, surface_id) in enumerate(zip(planes, surface_ids)):
         r, g, b, a = label_color(plane.label)
         color = ColorRGBA(r=r, g=g, b=b, a=a)
 
@@ -181,6 +207,8 @@ def make_markers(header, planes):
         text.scale.z = TEXT_HEIGHT
         text.color = color
         text.text = plane_text(plane, up)
+        if surface_id:
+            text.text = f"S{surface_id} {text.text}"
         markers.append(text)
     return MarkerArray(markers=markers)
 
@@ -217,7 +245,46 @@ def make_plane_array(header, planes, ids=None):
     )
 
 
-def make_candidate_msg(header, candidate):
+def to_time(seconds):
+    sec, nanosec = seconds_to_stamp(seconds)
+    return TimeMsg(sec=sec, nanosec=nanosec)
+
+
+def make_surface_array(header, surfaces):
+    """SurfaceArray of aha_perception.surfaces.Surface in header.frame_id."""
+    msgs = []
+    for s in surfaces:
+        plane = PlaneMsg(
+            header=header,
+            id=s.id,
+            label=s.label,
+            normal=to_vector(s.normal),
+            offset=float(s.offset),
+            centroid=to_point(s.centroid),
+            area=float(s.area),
+            hull=Polygon(
+                points=[
+                    Point32(x=float(p[0]), y=float(p[1]), z=float(p[2])) for p in s.hull
+                ]
+            ),
+            height=s.height,
+        )
+        msgs.append(
+            SurfaceMsg(
+                id=s.id,
+                label=s.label,
+                level=s.level,
+                plane=plane,
+                object_categories=[],
+                last_seen=to_time(s.last_seen),
+                observations=s.observations,
+                visible=s.visible,
+            )
+        )
+    return SurfaceArray(header=header, surfaces=msgs)
+
+
+def make_candidate_msg(header, candidate, surface_ids):
     pose = PoseStamped(header=header)
     pose.pose.position = to_point(candidate.position)
     x, y, z, w = quaternion_from_z_axis(candidate.normal)
@@ -226,10 +293,27 @@ def make_candidate_msg(header, candidate):
         pose=pose,
         clearance=float(candidate.clearance),
         plane_id=candidate.plane_index,
+        surface_id=surface_ids[candidate.plane_index],
         surface_label=candidate.label,
         surface_height=float(candidate.surface_height),
         score=float(candidate.score),
     )
+
+
+def surfaces_missing(ids, surfaces, stamp):
+    """Message for requested surface ids none of which is in the detection."""
+    known = {s.id: s for s in surfaces}
+    now = stamp_to_seconds(stamp)
+    parts = []
+    for surface_id in ids:
+        s = known.get(surface_id)
+        if s is None:
+            parts.append(f"S{surface_id} is not tracked")
+        else:
+            parts.append(
+                f"S{surface_id} ({s.label}) last seen {now - s.last_seen:.1f} s before"
+            )
+    return "surface not in the latest detection: " + ", ".join(parts)
 
 
 def make_place_markers(header, candidates):
@@ -281,6 +365,8 @@ class Detection:
     camera_to_base: np.ndarray
     noise: DepthNoiseModel
     wall_time: float  # time.monotonic() when the detection finished
+    surface_ids: list  # Surface.id per plane, 0 = not tracked
+    surfaces: list  # aha_perception.surfaces.Surface after this detection
 
 
 class PlaneDetection(Node):
@@ -339,6 +425,17 @@ class PlaneDetection(Node):
                     f"{self.method} has no merge param, merge ignored"
                 )
         self.params = params_for_input_stride(self.params, self.stride)
+        self.tracking_frame = self.declare_parameter("tracking_frame", "odom").value
+        tracker_options = TrackerOptions(
+            confirm_hits=int(self.declare_parameter("surface_confirm_hits", 2).value),
+            max_misses=int(self.declare_parameter("surface_max_misses", 5).value),
+            max_unseen_s=float(
+                self.declare_parameter("surface_max_unseen", 120.0).value
+            ),
+        )
+        self.tracker = SurfaceTracker(tracker_options)
+        self.tracker_lock = threading.Lock()
+        self.tracker_frame = None  # frame the tracker currently works in
 
         self.tf_buffer = Buffer()
         self.tf_listener = JumpDetectingTransformListener(
@@ -375,6 +472,7 @@ class PlaneDetection(Node):
         )
         self.marker_pub = self.create_publisher(MarkerArray, MARKER_TOPIC, reliable)
         self.plane_pub = self.create_publisher(PlaneArray, PLANES_TOPIC, reliable)
+        self.surface_pub = self.create_publisher(SurfaceArray, SURFACES_TOPIC, reliable)
         self.place_marker_pub = self.create_publisher(
             MarkerArray, PLACE_MARKER_TOPIC, reliable
         )
@@ -390,7 +488,8 @@ class PlaneDetection(Node):
         self.get_logger().info(
             f"{self.method} on {depth_topic} -> {self.target_frame}, {rate}, "
             f"walls {'on' if self.detect_vertical else 'off'}, stride {self.stride}, "
-            f"merge {merge_text}, noise subpixel {self.noise_subpixel:g}"
+            f"merge {merge_text}, noise subpixel {self.noise_subpixel:g}, "
+            f"surfaces in {self.tracking_frame}"
         )
 
     def clear_markers(self):
@@ -408,9 +507,13 @@ class PlaneDetection(Node):
             self.pending = None
         with self.latest_lock:
             self.latest = None
+        with self.tracker_lock:
+            self.tracker.reset()
+            self.tracker_frame = None
         self.clear_markers()
         self.get_logger().info(
-            "/tf time went back (sim restart or reset): cleared the TF buffer"
+            "/tf time went back (sim restart or reset): cleared the TF buffer "
+            "and the surfaces"
         )
         return True
 
@@ -474,6 +577,78 @@ class PlaneDetection(Node):
         )
         return transform
 
+    def lookup_base_to_tracking(self, stamp):
+        """(frame, target_frame -> frame matrix) for the tracker, or None to skip.
+
+        The TF at the image stamp, else the latest. Without any while the
+        tracker is not yet in tracking_frame, target_frame with identity.
+        """
+        if self.tracking_frame == self.target_frame:
+            return self.target_frame, np.eye(4)
+        known = self.tracker_frame == self.tracking_frame
+        error = None
+        for when, timeout in (
+            (Time.from_msg(stamp), TF_TIMEOUT if known else Duration()),
+            (Time(), Duration()),
+        ):
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    self.tracking_frame, self.target_frame, when, timeout=timeout
+                )
+            except TransformException as e:
+                error = e
+                continue
+            t, q = tf.transform.translation, tf.transform.rotation
+            matrix = transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
+            return self.tracking_frame, matrix
+        if known:
+            self.get_logger().warn(
+                f"TF {self.tracking_frame} <- {self.target_frame} unavailable, "
+                f"surfaces not updated: {error}",
+                throttle_duration_sec=WARN_PERIOD_S,
+            )
+            return None
+        self.get_logger().warn(
+            f"TF {self.tracking_frame} <- {self.target_frame} unavailable, "
+            f"tracking surfaces in {self.target_frame} until it is: {error}",
+            once=True,
+        )
+        return self.target_frame, np.eye(4)
+
+    def track_surfaces(self, stamp, planes, cloud, camera_to_base, info, noise):
+        """Update the tracker; (header, surface ids per plane, surfaces) or None."""
+        lookup = self.lookup_base_to_tracking(stamp)
+        if lookup is None:
+            return None
+        frame, base_to_tracking = lookup
+        view = CameraView(
+            camera_to_tracking=base_to_tracking @ camera_to_base,
+            fx=info.k[0],
+            fy=info.k[4],
+            cx=info.k[2],
+            cy=info.k[5],
+            width=info.width,
+            height=info.height,
+            min_depth=self.min_depth,
+            max_depth=self.max_depth,
+            depth=cloud[..., 2],
+            stride=self.stride,
+        )
+        with self.tracker_lock:
+            if frame != self.tracker_frame:
+                if self.tracker_frame is not None:
+                    self.get_logger().info(
+                        f"tracking surfaces in {frame} (was {self.tracker_frame}), "
+                        "surfaces reset"
+                    )
+                self.tracker.reset()
+                self.tracker_frame = frame
+            ids = self.tracker.update(
+                planes, base_to_tracking, stamp_to_seconds(stamp), view, noise
+            )
+            surfaces = self.tracker.surfaces()
+        return Header(stamp=stamp, frame_id=frame), ids, surfaces
+
     def process(self, msg):
         info = self.camera_info
         if info is None:
@@ -517,6 +692,10 @@ class PlaneDetection(Node):
         detected_planes = detect_planes(cloud, self.method, options, self.params)
         planes = select_output_planes(detected_planes, options)
         detected = time.perf_counter()
+        tracked = self.track_surfaces(
+            msg.header.stamp, planes, cloud, camera_to_base, info, options.noise
+        )
+        surface_ids = tracked[1] if tracked else [0] * len(planes)
 
         colors = [plane_palette(i) for i in range(len(planes))]
         xyz, rgb = plane_points(planes, cloud, camera_to_base, colors, self.max_points)
@@ -531,19 +710,24 @@ class PlaneDetection(Node):
                 camera_to_base=camera_to_base,
                 noise=options.noise,
                 wall_time=time.monotonic(),
+                surface_ids=surface_ids,
+                surfaces=tracked[2] if tracked else [],
             )
         self.plane_pub.publish(make_plane_array(header, planes))
+        if tracked:
+            self.surface_pub.publish(make_surface_array(tracked[0], tracked[2]))
         self.cloud_pub.publish(make_cloud(header, xyz, rgb))
-        self.marker_pub.publish(make_markers(header, planes))
+        self.marker_pub.publish(make_markers(header, planes, surface_ids))
 
         total_ms = (time.perf_counter() - start) * 1e3
         detect_ms = (detected - start) * 1e3
         counts = Counter(plane.label.value for plane in planes)
         summary = ", ".join(f"{label} {n}" for label, n in sorted(counts.items()))
+        tracked_text = f", {len(tracked[2])} surfaces" if tracked else ""
         text = (
             f"{len(planes)} planes ({summary or 'none'}) of {len(detected_planes)} "
             f"detected in {total_ms:.0f} ms "
-            f"(detect {detect_ms:.0f} ms)"
+            f"(detect {detect_ms:.0f} ms){tracked_text}"
         )
         self.get_logger().debug(text)
         self.get_logger().info(text, throttle_duration_sec=SUMMARY_PERIOD_S)
@@ -567,6 +751,7 @@ class PlaneDetection(Node):
     def on_get_place_candidates(self, request, response):
         def fail(message):
             response.success = False
+            response.status = GetPlaceCandidates.Response.STATUS_ERROR
             response.message = message
             self.get_logger().warn(f"place candidates: {message}")
             return response
@@ -589,6 +774,23 @@ class PlaneDetection(Node):
                 return fail(
                     f"no TF {self.target_frame} <- {request.near.header.frame_id}"
                 )
+        header = Header(stamp=detection.stamp, frame_id=self.target_frame)
+        plane_indices = None
+        if request.surface_ids:
+            wanted = set(request.surface_ids)
+            plane_indices = [
+                i for i, s in enumerate(detection.surface_ids) if s in wanted
+            ]
+            if not plane_indices:
+                response.success = True
+                response.status = GetPlaceCandidates.Response.STATUS_NO_SURFACE
+                response.stamp = detection.stamp
+                response.message = surfaces_missing(
+                    sorted(wanted), detection.surfaces, detection.stamp
+                )
+                self.place_marker_pub.publish(make_place_markers(header, []))
+                self.get_logger().warn(f"place candidates: {response.message}")
+                return response
 
         start = time.perf_counter()
         points, depth = base_cloud(detection.cloud, detection.camera_to_base)
@@ -603,19 +805,29 @@ class PlaneDetection(Node):
                 labels=list(request.surface_labels) or None,
                 near=near,
                 max_candidates=int(request.max_candidates) or None,
+                plane_indices=plane_indices,
             )
         except ValueError as e:
             return fail(str(e))
         elapsed_ms = (time.perf_counter() - start) * 1e3
 
-        header = Header(stamp=detection.stamp, frame_id=self.target_frame)
         response.success = True
+        if not result.supports:
+            response.status = GetPlaceCandidates.Response.STATUS_NO_SURFACE
+        elif not result.candidates:
+            response.status = GetPlaceCandidates.Response.STATUS_NO_SPACE
+        else:
+            response.status = GetPlaceCandidates.Response.STATUS_OK
         response.stamp = detection.stamp
-        response.candidates = [make_candidate_msg(header, c) for c in result.candidates]
+        response.candidates = [
+            make_candidate_msg(header, c, detection.surface_ids)
+            for c in result.candidates
+        ]
         response.planes = make_plane_array(header, detection.planes, result.supports)
+        support_ids = sorted({detection.surface_ids[i] for i in result.supports} - {0})
         response.message = (
             f"{len(result.candidates)} candidates on {len(result.supports)} support "
-            f"planes, detection {age:.1f} s old"
+            f"planes (surfaces {support_ids}), detection {age:.1f} s old"
         )
         self.place_marker_pub.publish(make_place_markers(header, result.candidates))
         self.get_logger().info(

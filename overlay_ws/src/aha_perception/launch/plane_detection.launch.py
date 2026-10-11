@@ -9,6 +9,7 @@ planes:=true. Starts plane_detection_node.py:
   out  /aha/perception/planes (aha_msgs/PlaneArray),
        /aha/perception/planes/cloud (PointCloud2),
        /aha/perception/planes/markers (MarkerArray), in target_frame
+       /aha/perception/surfaces (aha_msgs/SurfaceArray), in tracking_frame
   srv  /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates),
        candidates shown on /aha/perception/place/markers (MarkerArray)
 

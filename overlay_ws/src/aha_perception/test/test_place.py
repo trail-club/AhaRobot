@@ -169,6 +169,19 @@ def test_labels_select_supports():
         scene.run((0.1, 0.0, 0.1))
 
 
+def test_plane_indices_restrict_supports():
+    scene = table_scene()
+    scene.add(grid(2.5, 3.1, -0.3, 0.3, 0.75), PlaneLabel.OTHER)
+    size = (0.06, 0.06, 0.12)
+    assert {c.plane_index for c in scene.run(size).candidates} == {0}
+    # With plane indices every support label is allowed unless labels are given.
+    only_other = scene.run(size, plane_indices=[1])
+    assert only_other.supports == [1]
+    assert {c.plane_index for c in only_other.candidates} == {1}
+    assert scene.run(size, plane_indices=[1], labels=["table"]).supports == []
+    assert scene.run(size, plane_indices=[]).candidates == []
+
+
 def test_low_obstacle_points_are_ignored():
     scene = table_scene()
     scene.add(grid(1.3, 1.5, -0.1, 0.1, 0.76))  # 1 cm above the table

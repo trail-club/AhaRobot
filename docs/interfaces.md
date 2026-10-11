@@ -231,22 +231,31 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 | 平面（法線・オフセット・重心・凸包・ラベル） | `/aha/perception/planes` | `aha_msgs/msg/PlaneArray` |
 | 平面のインライア点（x, y, z, rgb） | `/aha/perception/planes/cloud` | `sensor_msgs/msg/PointCloud2` |
 | 平面の凸包とラベル | `/aha/perception/planes/markers` | `visualization_msgs/msg/MarkerArray` |
+| 追跡した面（ID・ラベル・段・平面） | `/aha/perception/surfaces` | `aha_msgs/msg/SurfaceArray` |
 | 置き場所の候補（service） | `/aha/perception/get_place_candidates` | `aha_msgs/srv/GetPlaceCandidates` |
 | 置き場所の候補の表示（service呼び出し時） | `/aha/perception/place/markers` | `visualization_msgs/msg/MarkerArray` |
 
 入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
 出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
+`surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。
+`Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
+視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
+`object_categories` は今は空。追跡の規則は [aha_perception](../overlay_ws/src/aha_perception/README.md#面の追跡)を参照。
 `planes/cloud` は平面ごとに色分けしたインライア点。
-`planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、水平面は床からの高さ、壁は面積）を出す。
+`planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
 `place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）、
 中心の球（ns `center`、1位は緑）、順位（ns `rank`）を出す。
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
 `object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
 `surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ最新のTFで `base_footprint` へ変換し、その点に近い順に並べる。
-候補の `pose` は `base_footprint`、`plane_id` は応答の `planes`（候補を探した支持面）の `Plane.id`、`stamp` は使った検出のDepthの時刻。
-検出がない・古い・引数やTFが不正な場合は `success` がfalse。置ける場所がない場合は `success` がtrueで候補が空。
+`surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
+候補の `pose` は `base_footprint`、`plane_id` は応答の `planes`（候補を探した支持面）の `Plane.id`、
+`surface_id` はその面の `Surface.id`（まだIDがなければ0）、`stamp` は使った検出のDepthの時刻。
+検出がない・古い・引数やTFが不正な場合は `success` がfalseで `status` が `STATUS_ERROR`。
+それ以外は `success` がtrueで、支持面がない（`surface_ids` の面が最新の検出にない場合を含む）と `STATUS_NO_SURFACE`、
+置ける場所がないと `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
 ## 実機の頭部
@@ -263,6 +272,6 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 ## 独自型
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
-`Plane` / `PlaneArray` / `PlaceCandidate`、`SetNavGoal`、`GetPlaceCandidates`、`PickObject`、`TaskCommand` の型定義がある。
-型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray` と `GetPlaceCandidates` は [平面検出](#平面検出) が使う）。
+`Plane` / `PlaneArray` / `PlaceCandidate`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、`PickObject`、`TaskCommand` の型定義がある。
+型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出) が使う）。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
