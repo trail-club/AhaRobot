@@ -1,9 +1,31 @@
 """Synthetic organized depth scenes with per-pixel ground-truth planes.
 
 Analytic boxes, cylinders and rectangles are ray-cast from a head camera pose
-into a D435i-like depth image, then corrupted with the stereo noise model of
-``aha_perception.depth_noise``.
+(``CameraPose``, 1.43 m high, pan / tilt) into a 640x480 depth image
+(``Intrinsics``, fx = fy = 465.7), then corrupted with the stereo noise model of
+``aha_perception.depth_noise`` (re-exported here). The ``default`` preset is
+sigma(Z) = Z^2 * 0.08 / (f * 0.05 m), half of it spatially correlated
+(Gaussian 1.5 px), plus stereo shadows left of foreground edges, flying
+pixels at depth edges, random dropouts and holes and outliers; ``corrupt_frame``
+relabels flying pixels and outliers as non-planar and dropouts as invalid.
+Seeds follow from the scene name and the noise scale or preset, so runs repeat.
+``generate_sequence`` returns static-camera frames that share the shadows,
+holes and static noise field; the other noise is drawn per frame.
 Coordinates are in the robot base frame (x forward, y left, z up, floor z=0).
+
+Ground truth planes are the image-connected components of each surface with
+at least 400 pixels and 0.02 m^2. Object faces, legs, shelf side panels and
+too small pieces are don't care; cylinder sides, flying pixels and outliers
+are non-planar; pixels outside the evaluation range (0.3-4.0 m) and dropouts
+are invalid.
+
+To add a scene, append ``Scene(name, tags, CameraPose(...), surfaces,
+primitives)`` to ``scene_set()``: ``surfaces`` maps a surface name to its
+class (floor / table / shelf / wall / other), and ``Quad.tag``, ``Box.faces``
+or ``Cylinder.top`` naming that surface make it a GT plane. ``tags`` group the
+report (table / shelf / coplanar / walls / far / floor / clutter).
+``shelf_scene_set()`` and ``place_scene_set()`` hold the shelf and place
+study scenes; they are not part of the bench and sequence defaults.
 """
 
 from __future__ import annotations

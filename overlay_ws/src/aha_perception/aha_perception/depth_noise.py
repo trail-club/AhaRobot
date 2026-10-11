@@ -34,6 +34,11 @@ class NoiseParams:
     frame with probability ``flicker_rate * exp(-(d - 1) / flicker_px)``.
     ``quantization`` rounds the depth (m, 0 = off). The defaults keep the
     original single-frame model of the plane benchmark.
+
+    ``subpixel`` and the correlation lengths are in pixels of the image they
+    are applied to (the presets were calibrated at fx = 603). With
+    ``focal = fx`` on another image, sigma(Z) in meters scales with fx while
+    its ratio to the detector's ``DepthNoiseModel(focal=fx)`` is kept.
     """
 
     baseline: float = 0.05

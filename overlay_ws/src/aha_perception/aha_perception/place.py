@@ -1,11 +1,27 @@
 """Place candidates for an object on detected support planes.
 
 For every horizontal support plane a 2D grid is built in the plane's in-plane
-basis. Cells observed as the plane (inliers, small gaps closed) are support;
-cells with points in a height band above the plane are obstacles; cells under
-another plane lower than the object are blocked. Object centers are placeable
-where the circumscribed circle of the footprint, enlarged by margins, stays on
-support and away from obstacles. Unobserved cells are never placeable.
+basis (``axes``, ``centroid``) over the hull bounding box plus ``grid_margin``.
+
+- Support: cells with inlier pixels (closed by ``support_closing``) inside the
+  plane hull. Unobserved cells (e.g. object shadows) are never placeable.
+- Obstacles: cells with at least ``obstacle_min_points`` valid points between
+  max(``obstacle_min_height``, ``obstacle_k`` * sigma(Z)) and the object
+  height + ``height_margin`` above the plane; components smaller than
+  ``speckle_cells`` are dropped. sigma(Z) is the detector's noise model.
+- Overhead: the hull of any other horizontal plane (object top, upper shelf
+  board) whose centroid is ``overhead_min_gap`` to object height +
+  ``height_margin`` above the support is blocked.
+- Placeable centers keep the circumscribed footprint radius r (valid for any
+  yaw) + ``edge_margin`` from the support edge and r + ``obstacle_margin``
+  from obstacles. ``clearance`` is the distance to the nearest blocking cell.
+
+Candidates are local clearance maxima, largest first (ties: closer to the
+support center; across planes: closer to the frame origin), or with ``near``
+all placeable cells by distance to it (clearance may then be minimal); they
+are spaced max(r, ``min_spacing``) apart per plane, ``max_candidates`` in
+total. ``score`` is the clearance, or minus the distance with ``near``.
+``PlaceResult.grids`` holds the rasters of every support.
 
 ROS free (numpy / scipy only); the inputs are the planes of
 ``aha_perception.planes`` and the organized cloud they were detected in.

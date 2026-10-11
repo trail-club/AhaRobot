@@ -2,7 +2,42 @@
 
 All detectors share the signature ``detect(cloud, options, params)`` where
 ``cloud`` is an organized (H, W, 3) array in the camera optical frame with NaN
-for invalid pixels, and return a list of ``Plane`` in the output frame.
+for invalid pixels, and return a list of labeled ``Plane`` in the output frame
+of ``DetectionOptions.camera_to_base`` (floor at 0 along ``up_axis``)::
+
+    params = DETECTORS["ransac_gravity_refined"].params_type(merge=True)
+    options = DetectionOptions(camera_to_base=T, noise=DepthNoiseModel(focal=fx))
+    planes = detect_planes(cloud, "ransac_gravity_refined", options, params)
+    output = select_output_planes(planes, options)  # what the ROS node publishes
+
+Detectors (``DETECTORS``; details in each module):
+
+- ``ransac_sequential``: repeated fixed-threshold RANSAC on a voxel cloud,
+  split into connected components.
+- ``ransac_gravity``: normals split points into horizontal / vertical
+  candidates; orientation-constrained RANSAC with a k * sigma(Z) threshold and
+  connected components. Normals from voxel kNN, or ``normals="organized"``.
+- ``ransac_gravity_refined``: ``ransac_gravity`` plus full-resolution pixel
+  re-assignment, small-piece removal, hole filling and refit (ROS node
+  default).
+- ``ransac_gravity_cape_hybrid``: ``ransac_gravity`` planes as seeds for cell
+  region growing and pixel boundary refinement.
+- ``organized_region_growing``: PCA planarity of image cells, region growing,
+  coplanar merging and pixel boundary refinement.
+- ``normal_clustering``: integral-image normals clustered on the sphere, split
+  by offset and image connectivity.
+- ``peac_ahc``: own implementation after PEAC (Feng et al., ICRA 2014),
+  agglomerative clustering of a node grid with T_MSE(Z).
+- ``cape``: reimplementation of the plane part of CAPE (Proenca and Gao,
+  IROS 2018).
+
+Shared stages: preprocessing (depth range, decimation, voxels, transform;
+``preprocess``), normals (``normals``), cell moments (``cells``), pixel
+assignment to planes (``refine``), label image to planes with refit,
+k * sigma(Z) pixel selection and size filters (``segmentation``), labeling
+(``classify``) and optional coplanar fragment merging for the RANSAC-gravity
+detectors (``merge``, ``params.merge``). Depth noise is ``DepthNoiseModel``
+(sigma(Z) = Z^2 * subpixel / (f * baseline)).
 """
 
 from __future__ import annotations

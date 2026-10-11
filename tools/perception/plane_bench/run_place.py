@@ -5,9 +5,14 @@ Scenes with table tops and shelf boards (``scene_set``, ``shelf_scene_set``,
 (``ransac_gravity_refined``, merge on, subpixel 0.12, ``select_output_planes``)
 and ``aha_perception.place.find_place_candidates`` runs on the output for
 several object sizes and ``PlaceOptions`` variants. Ground truth is analytic:
-support rectangles, footprints of the primitives that reach into the band of
-the object height above the surface, and the visibility of the surface from a
-noise-free ray cast. See README.md (place study).
+support rectangles (the +z faces of table / shelf boxes), footprints (xy) of
+every primitive that reaches into the band of the object height above the
+surface (including upper boards and side panels), and the visibility of the
+surface from a noise-free ray cast within the depth range. GT placeable
+centers keep the footprint radius r = hypot(x, y) / 2 from the rectangle edge
+and the footprints, without margins, on a GT_RES grid. Object box tops of at
+least OBJECT_MIN_TOP height and OBJECT_MIN_SIZE side are kept only to
+classify candidates. See README.md (place study) for the metrics.
 """
 
 import os

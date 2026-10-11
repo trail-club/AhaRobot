@@ -4,18 +4,24 @@
 Subscribes input_topic (the Gazebo depth from ros_gz_bridge, 32FC1 m or
 16UC1 mm) and publishes the corrupted image on output_topic with the same
 header and encoding (32FC1: NaN for invalid; 16UC1 / mono16 in, 16UC1 out:
-0 for invalid). Invalid input pixels stay invalid. The noise is aha_perception.depth_noise with the preset named by
-the parameter preset and f = fx of camera_info_topic.
+0 for invalid). Invalid input pixels stay invalid and pixels beyond
+NoiseParams.max_range (6 m) become invalid. The noise is
+aha_perception.depth_noise with the preset named by the parameter preset and
+f = fx of camera_info_topic. The simulated camera uses the fx of the real
+color camera (about 603, 55.9 deg horizontal FOV), so sigma(Z) in meters
+matches the real D435i. The Gazebo sensor itself has no depth noise
+(aha_description/urdf/sensors.xacro sets only the RGB noise).
 
 The frozen components (static error field, holes) are drawn with the first
 frame from seed and stay fixed in image coordinates like the systematic error
 of the real camera; they are redrawn when the image size changes. The
-temporal noise, flicker next to invalid pixels, dropouts and flying pixels
-are drawn per frame.
+temporal noise, flicker next to invalid pixels, dropouts, flying pixels and
+the stereo shadow (left of foreground edges) are computed per frame.
 
 Only the latest frame is kept and processed in a worker thread; frames
-arriving while it is busy are dropped. Runs on the wall clock: stamps are
-copied from the input.
+arriving while it is busy are dropped. The processing time and the number of
+dropped frames are logged every SUMMARY_PERIOD_S. Runs on the wall clock:
+stamps are copied from the input.
 """
 
 import sys

@@ -4,17 +4,22 @@
 mode "state" (real_head_camera.launch.py head:=imu, no servos):
   publishes /head_controller/joint_states with the tilt measured by the IMU
   and the pan of the commanded trajectories (as manual_head.py), so the TF of
-  a hand-tilted camera follows the real camera.
+  a hand-tilted camera follows the real camera. Nothing is published before
+  the first IMU sample.
 mode "check" (head:=servo imu_check:=true):
-  compares the servo tilt on /head_controller/joint_states with the IMU tilt
-  and warns when they differ by more than check_tolerance.
+  once per second, while the IMU is stationary and the servo tilt has held
+  its angle since the previous check, compares the servo tilt on
+  /head_controller/joint_states with the IMU tilt and warns when they differ
+  by more than check_tolerance.
 
-Both modes warn when |roll| exceeds roll_tolerance (the head has no roll
-joint). The IMU tilt assumes a level base. GravityFilter tracks the up
+Both modes warn every WARN_PERIOD when |roll| exceeds roll_tolerance (the
+head has no roll joint). The IMU tilt assumes a level base:
+joint_head_tilt = camera tilt + tilt_offset. GravityFilter tracks the up
 vector with the gyro and corrects its drift toward the accelerometer
 (time_constant) while |accel| is near gravity, so the tilt follows the head
-smoothly while it moves. The IMU callback only updates the filter; angles are
-computed in the timers.
+smoothly while it moves. The IMU arrives at 200 Hz, so its callback only
+updates the filter (angles are computed in the timers) and the node spins in
+the EventsExecutor.
 
   in   /camera/imu (sensor_msgs/Imu, accel + gyro, realsense.launch.py)
        /head_controller/joint_trajectory (state) or

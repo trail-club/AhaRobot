@@ -5,7 +5,26 @@ a static camera and returns the temporal noise level, its spatial correlation,
 the frame-frozen deviation from large planes and the invalid / flicker pixel
 statistics. Noise is normalized by Z^2 (disparity-like units), so the stereo
 model sigma(Z) = Z^2 * subpixel / (f * b) has a constant normalized level.
-See README.md for the definitions.
+
+- temporal subpixel: per-pixel temporal std of pixels valid in every frame
+  and at least EDGE_MARGIN px from depth edges and invalid pixels, as the
+  median of sigma / Z^2 * f * b per DEPTH_BIN (bias-corrected for N frames);
+  the median over the bins in FIT_RANGE.
+- correlated fraction / correlation px / aspect: c * exp(-d^2 / 4s^2) fitted
+  to the row and column autocorrelation (lags TEMPORAL_LAGS) of frame minus
+  temporal mean in CORR_RANGE; px is the vertical s, aspect horizontal / vertical.
+- static: residual of a plane fit on the temporal mean over large planes
+  found by ``ransac_gravity`` (PLANE_MIN_PIXELS, beyond 0.75 m), minus the
+  temporal contribution sigma^2 / N. Static level is its std in subpixel
+  units, static / temporal the ratio; its correlation length comes from the
+  autocorrelation with the temporal part removed.
+- invalid / never-valid / flicker: invalid fraction over all frames, pixels
+  invalid in every frame, pixels invalid in some frames (of pixels ever valid).
+- flicker rate / decay px: flicker per distance d to never-valid pixels as a
+  per-frame dropout probability, fitted by q(d) = rate * exp(-(d - 1) / decay);
+  pixels beyond 6 px count as isolated dropout.
+- gross outlier: fraction of samples farther than 8 MAD and 10 % of the depth
+  from the per-pixel median.
 """
 
 from __future__ import annotations

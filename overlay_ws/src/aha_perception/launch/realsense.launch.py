@@ -12,7 +12,7 @@ All images use camera_color_optical_frame; the IMU uses
 camera_imu_optical_frame (not in the URDF, read by imu_head.py only).
 publish_tf is off: robot_state_publisher owns the camera TF.
 
-Depth is post-processed like tools/perception/macos/stream_realsense.py
+Depth is post-processed like tools/perception/macos/pointcloud/stream_realsense.py
 (disparity -> spatial -> temporal -> depth, SDK defaults; filters:=false
 turns them off) before it is aligned to color. Infrared streams are off.
 

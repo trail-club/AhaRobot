@@ -10,11 +10,14 @@ At rest the accelerometer measures the specific force, i.e. the "up" vector
 (+9.81 m/s^2 against gravity). With the camera level the optical axis is
 horizontal and up = (0, -1, 0).
 
-Angles:
+Angles (from the up vector u, see ``tilt_roll``):
   tilt  rotation of the optical axis below the horizon (+ = down), the same
-        sign as joint_head_tilt.
+        sign as joint_head_tilt: atan2(-u_z, hypot(u_x, u_y)).
   roll  rotation about the optical axis (+ = image right side down); the
-        head has no roll joint.
+        head has no roll joint: atan2(-u_x, -u_y).
+
+``GravityFilter`` estimates u from accel and gyro (complementary filter), so
+the tilt stays continuous while the head moves.
 
 Joint mapping (aha_description: camera_link on link_head_tilt, optical axis
 horizontal at zero head joints, pan axis vertical): with the base level,

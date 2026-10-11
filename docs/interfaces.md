@@ -177,7 +177,7 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
 `stream_realsense.py` の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
 RealSenseドライバは位置合わせしたDepthのCameraInfoを `/camera/depth_registered/camera_info` にも出し、
-`/camera/depth/image_rect_raw` など位置合わせ前のtopicも出す（`publish_tf` は無効）。
+`/camera/depth/image_rect_raw` など位置合わせ前のtopicも出す（`publish_tf` は無効、赤外線は配信しない）。
 
 TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
@@ -237,13 +237,17 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
 出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
+`planes/cloud` は平面ごとに色分けしたインライア点。
+`planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、水平面は床からの高さ、壁は面積）を出す。
+`place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）、
+中心の球（ns `center`、1位は緑）、順位（ns `rank`）を出す。
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
 `object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
 `surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ最新のTFで `base_footprint` へ変換し、その点に近い順に並べる。
 候補の `pose` は `base_footprint`、`plane_id` は応答の `planes`（候補を探した支持面）の `Plane.id`、`stamp` は使った検出のDepthの時刻。
 検出がない・古い・引数やTFが不正な場合は `success` がfalse。置ける場所がない場合は `success` がtrueで候補が空。
-方式は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)を参照。
+呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
 ## 実機の頭部
 

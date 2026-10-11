@@ -9,6 +9,22 @@ DepthNoiseModel subpixel from the ROS parameters). Only horizontal
 planes and walls are published (aha_perception.planes.select_output_planes);
 oblique planes and small vertical planes are dropped.
 
+The noise model is DepthNoiseModel(focal=fx of CameraInfo,
+subpixel=noise_subpixel) with the default baseline; the detector params are
+the defaults except merge (warned and ignored for a method without it). The
+node defaults (merge on, subpixel 0.12) were tuned on calibrated D435i noise
+and differ from the library defaults. If the TF at the image stamp is not
+available within TF_TIMEOUT, the latest TF is used with a warning. The method,
+merge and subpixel are logged at startup, and each detection as
+"3 planes (floor 1, table 1, wall 1) of 14 detected".
+
+stride N passes every N-th row and column to the detector (pixel coordinates
+stay those of the full image). The detector's own RANSAC decimation follows
+(params_for_input_stride: params.stride / N, at least 1) and so do the place
+options (PlaceOptions.for_input_stride). Pixel-count thresholds such as
+min_inliers are not scaled: scaling them by 1 / N^2 fragmented the planes in
+the synthetic benchmark.
+
 Only the latest depth frame is kept. Detection runs in a worker thread at most
 max_rate times per second (wall clock), so frames arriving while it is busy
 are dropped and the subscriptions are never blocked.
@@ -19,7 +35,10 @@ Outputs, stamped with the depth image stamp, in target_frame:
                                   inlier points, one color per plane
   /aha/perception/planes/markers  visualization_msgs/MarkerArray: DELETEALL,
                                   then per plane the convex hull (ns "hull")
-                                  and a text (ns "label") colored by label
+                                  and a text (ns "label") colored by label:
+                                  height above the floor ("table 0.72 m")
+                                  for horizontal planes, area ("wall 2.3 m2")
+                                  for vertical ones
 
 The latest detection is kept for the service
 /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates), which
