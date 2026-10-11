@@ -7,6 +7,7 @@ log/
 __pycache__/
 *.pyc
 .venv/
+/.venv-perception-macos/
 .tool-versions
 
 # Editors
@@ -22,6 +23,9 @@ __pycache__/
 /overlay_ws/src/sobits_gazebo_worlds
 /overlay_ws/src/tmc_wrs_gz_worlds
 
+# Simulation evaluation outputs (aha_sim_tasks evaluate)
+overlay_ws/evaluation-results*
+
 # Session artifacts
 .claude/
 
@@ -30,3 +34,5 @@ docs/personal/
 
 tools/servo/*.csv
 temp/
+/artifacts/perception/
+/.cache-sam31/

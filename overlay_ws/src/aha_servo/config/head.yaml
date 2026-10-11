@@ -1,0 +1,43 @@
+# Head pan/tilt bus for servo_trajectory_bridge.py. Format: aha_servo/joint_map.py.
+#
+# Waveshare "Servo Driver with ESP32" in Serial Forwarding mode
+# (tools/firmware/README.md); the UART bridge firmware
+# (tools/firmware/right_arm/bridge) runs at 921600 instead.
+#
+# zero/sign: written by scripts/servo_calibrate.py (measurement record:
+# docs/context/motor.md). rad = sign * (steps - zero) / 4096 * 2 pi.
+# Upstream astra_controller head_controller.py uses zero 2048, sign -1.
+# ROS sign conventions (aha_perception/config/head.yaml):
+#   joint_head_pan  + = robot's right, joint_head_tilt + = down
+/**:
+  ros__parameters:
+    controller_name: head_controller
+    port: /dev/ttyUSB0
+    baud: 115200
+    rate_hz: 30.0
+    # rad/s, same as head.max_speed in aha_perception/config/head.yaml
+    max_speed: 1.0
+    acc: 30
+    torque_limit: 500
+    timeout: 0.05
+    goal_tolerance: 0.03
+    goal_timeout: 2.0
+    state_timeout: 0.3
+    zero_pose: "head facing straight ahead (robot front) and level"
+
+    joints: [joint_head_pan, joint_head_tilt]
+    # Limits mirror aha_perception/config/head.yaml.
+    joint_head_pan:
+      id: 12
+      zero: 1873
+      sign: -1
+      min: -1.570
+      max: 1.570
+      positive: "to the robot's RIGHT"
+    joint_head_tilt:
+      id: 13
+      zero: 1083
+      sign: -1
+      min: -0.524
+      max: 1.047
+      positive: "DOWN (look at the floor)"

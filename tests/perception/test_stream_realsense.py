@@ -9,7 +9,8 @@ import numpy as np
 
 
 SCRIPT = (
-    pathlib.Path(__file__).parents[2] / "tools/perception/macos/stream_realsense.py"
+    pathlib.Path(__file__).parents[2]
+    / "tools/perception/macos/pointcloud/stream_realsense.py"
 )
 SPEC = importlib.util.spec_from_file_location("stream_realsense", SCRIPT)
 stream_realsense = importlib.util.module_from_spec(SPEC)

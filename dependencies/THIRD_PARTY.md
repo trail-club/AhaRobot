@@ -2,10 +2,11 @@
 
 ## AhaRobot独自コード
 
-`overlay_ws/src/aha_*` の8パッケージは、それぞれの `package.xml` に `Apache-2.0` を宣言している。
+`overlay_ws/src/aha_*` の9パッケージは、それぞれの `package.xml` に `Apache-2.0` を宣言している。
 例: [aha_description/package.xml](../overlay_ws/src/aha_description/package.xml)、[aha_gazebo/package.xml](../overlay_ws/src/aha_gazebo/package.xml)。
 リポジトリ直下にはLICENSEファイルがなく、`tools/`・`docker/`などを含む全体のライセンスは未整備。
 上流から取り込んだコード・URDF・mesh・素材への適用範囲は、独自コードの宣言とは別に確認する。
+パッケージ内に置いたAstra由来の派生資源は[下記](#astra由来の派生資源)の条件で扱う。
 
 ## Astra由来のsubmodule
 
@@ -28,6 +29,13 @@
 `AstraFirmwares` 内の各コントローラも[入れ子のsubmodule](../upstream/AstraFirmwares/.gitmodules)。
 親リポジトリの宣言だけで各コントローラのライセンスを確定せず、個別の記載を確認する。
 
+### Astra由来の派生資源
+
+| 資源 | 由来 | 扱い |
+| --- | --- | --- |
+| [aha_perception/hardware/head_cam_mount_d435i](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md) | `Astra_Hardwares` の `HeadCamMount`（[HeadCamMount.STL](../upstream/Astra_Hardwares/Astra/STL/HeadCamMount.STL)）のホーン接続部を作り直したD435i用ブラケット（STL・STEP・f3d・画像） | 上流と同じGPL-3.0と非商用の追加制限。`aha_perception` の `Apache-2.0` 宣言とは別に扱う |
+| [aha_description/meshes/head_cam_mount_d435i.stl](../overlay_ws/src/aha_description/meshes/head_cam_mount_d435i.stl) | 上記ブラケットのURDF用mesh | 同上。`aha_description` の `Apache-2.0` 宣言とは別に扱う |
+
 ## SOBITS / TMCのシミュレーション資源
 
 TeamSOBITSのリポジトリを直接参照する。Japan Open worldの形状は変更せず、AhaRobotの初期位置と資源参照を設定している。
@@ -46,6 +54,17 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 公開画像・動画などでCC BY素材を使う場合は、素材の作者・出典・ライセンスへのリンク・変更の有無を記載する。
 条件の原文: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)。
 資源の再配布時は、各LICENSEの条件に従って著作権表示・ライセンス本文・免責事項などを保持する。
+
+## SAM 3.1
+
+[SAM対話検証ツール](../tools/perception/macos/sam31/README.md)が使う。ROSパッケージ・launchからは使わない。
+
+| 資源 / 使用commit | 確認した記載 | 参照元 |
+| --- | --- | --- |
+| [sam3](https://github.com/facebookresearch/sam3/tree/9f22cb976fb6e38dad5bb34940fad852dd897d0e)（コード） | SAM License（Last Updated: November 19, 2025）。再配布時は本文の添付、研究成果の公表時はSAMの使用の明記が必要 | [LICENSE](../upstream/sam3/LICENSE)、[README](../upstream/sam3/README.md#license) |
+| [facebook/sam3.1](https://huggingface.co/facebook/sam3.1)の `sam3.1_multiplex.pt`（重み） | Hugging Faceの表示は `License: other`、承認制のアクセス。重みに適用される条件の原文は未確認 | DGXの共有重み（`/srv/shared/models/sam3.1/`）のrevisionは未確認 |
+
+重みはリポジトリ・Dockerイメージに含めない。DGX上で構築するイメージには `upstream/sam3` のコードを含めるが、配布しない。
 
 ## その他の第三者資源
 

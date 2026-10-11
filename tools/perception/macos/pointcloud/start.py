@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import platform
 import shutil
@@ -17,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).resolve().parent
 VNC_URL = "http://localhost:8080/vnc.html"
 COMPOSE = [
@@ -194,10 +193,20 @@ def main() -> int:
     stream_script = HERE / ("stream_demo.py" if args.demo else "stream_realsense.py")
     elevated_camera = False
     if not args.demo:
-        if importlib.util.find_spec("pyrealsense2") is None:
+        if subprocess.run(
+            [sys.executable, "-c", "import pyrealsense2"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode:
             managed_venv = (
                 Path(sys.prefix).resolve()
-                == (ROOT / ".venv-perception-macos").resolve()
+                == Path(
+                    os.environ.get(
+                        "UV_PROJECT_ENVIRONMENT", ROOT / ".venv-perception-macos"
+                    )
+                ).resolve()
             )
             if not managed_venv:
                 print(
@@ -206,11 +215,11 @@ def main() -> int:
                 )
                 return 1
             print(
-                "[perception] RealSense Python binding is missing; preparing it locally...",
+                "[perception] RealSense Python binding cannot load; preparing it locally...",
                 flush=True,
             )
             if run(
-                [sys.executable, str(HERE / "bootstrap_realsense.py")],
+                [sys.executable, str(HERE.parent / "bootstrap_realsense.py")],
                 env=env,
                 check=False,
             ).returncode:
@@ -225,7 +234,7 @@ def main() -> int:
         [sys.executable, "-c", "import numpy, websocket"], env=env, check=False
     ).returncode:
         print(
-            "[perception] Install tools/perception/macos/requirements.txt first",
+            "[perception] Run bash tools/perception/macos/setup.sh first",
             file=sys.stderr,
         )
         return 1

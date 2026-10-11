@@ -223,7 +223,7 @@ class RosbridgePublisher:
         except ImportError as exc:  # pragma: no cover - exercised by setup
             raise StreamError(
                 "websocket-client is not installed; run "
-                "python -m pip install -r tools/perception/macos/requirements.txt"
+                "bash tools/perception/macos/setup.sh"
             ) from exc
 
         try:

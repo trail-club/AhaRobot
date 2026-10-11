@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 
-SCRIPT = Path(__file__).parents[2] / "tools/perception/macos/start.py"
+SCRIPT = Path(__file__).parents[2] / "tools/perception/macos/pointcloud/start.py"
 SPEC = importlib.util.spec_from_file_location("perception_start", SCRIPT)
 start = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

@@ -12,6 +12,7 @@
   <exec_depend>aha_msgs</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>robot_localization</exec_depend>
 
   <export>
