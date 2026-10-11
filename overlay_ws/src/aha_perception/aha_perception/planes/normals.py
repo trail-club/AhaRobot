@@ -116,6 +116,7 @@ def knn_normals(
     """PCA normals of an unorganized (N, 3) cloud from k nearest neighbours.
 
     Returns (normals, curvature) where curvature = l0 / (l0 + l1 + l2).
+    Without ``viewpoint`` the sign of a normal is arbitrary.
     """
     n = len(points)
     if n < 3:
@@ -124,12 +125,47 @@ def knn_normals(
     _, idx = cKDTree(points).query(points, k=k)
     neigh = points[idx]
     centered = neigh - neigh.mean(axis=1, keepdims=True)
-    cov = np.einsum("nki,nkj->nij", centered, centered) / k
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    normals = eigvecs[:, :, 0]
-    total = eigvals.sum(axis=1)
+    x, y, z = centered[..., 0], centered[..., 1], centered[..., 2]
+    cov = [
+        np.einsum("nk,nk->n", u, v) / k
+        for u, v in ((x, x), (x, y), (x, z), (y, y), (y, z), (z, z))
+    ]
+    smallest, normals, total = smallest_eigh3(*cov)
     with np.errstate(invalid="ignore", divide="ignore"):
-        curvature = np.where(total > 0, eigvals[:, 0] / total, 0.0)
+        curvature = np.where(total > 0, np.maximum(smallest, 0.0) / total, 0.0)
     if viewpoint is not None:
         normals = orient_towards(normals, points, viewpoint)
     return normals, curvature
+
+
+def smallest_eigh3(cxx, cxy, cxz, cyy, cyz, czz):
+    """Smallest eigenvalue, its unit eigenvector and the trace of symmetric
+    3x3 matrices given by their 6 components (arrays of shape (N,)).
+
+    Closed form (trigonometric solution of the characteristic cubic) instead
+    of a batched ``eigh``; the eigenvector is the longest cross product of
+    two rows of ``C - lambda I``, (0, 0, 1) if all vanish.
+    """
+    q = (cxx + cyy + czz) / 3.0
+    a, b, c = cxx - q, cyy - q, czz - q
+    off_diagonal = cxy * cxy + cxz * cxz + cyz * cyz
+    p = np.sqrt((a * a + b * b + c * c + 2.0 * off_diagonal) / 6.0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        inv = np.where(p > 0, 1.0 / p, 0.0)
+        ba, bb, bc = a * inv, b * inv, c * inv
+        bxy, bxz, byz = cxy * inv, cxz * inv, cyz * inv
+        det = ba * (bb * bc - byz * byz) - bxy * (bxy * bc - byz * bxz)
+        det += bxz * (bxy * byz - bb * bxz)
+        phi = np.arccos(np.clip(det / 2.0, -1.0, 1.0)) / 3.0
+    smallest = q + 2.0 * p * np.cos(phi + 2.0 * np.pi / 3.0)
+    r0 = np.stack([cxx - smallest, cxy, cxz], axis=-1)
+    r1 = np.stack([cxy, cyy - smallest, cyz], axis=-1)
+    r2 = np.stack([cxz, cyz, czz - smallest], axis=-1)
+    crosses = np.stack([np.cross(r0, r1), np.cross(r0, r2), np.cross(r1, r2)])
+    lengths = np.einsum("cni,cni->cn", crosses, crosses)
+    best = np.argmax(lengths, axis=0)
+    vec = np.take_along_axis(crosses, best[None, :, None], axis=0)[0]
+    length = np.sqrt(np.take_along_axis(lengths, best[None], axis=0)[0])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        vec = np.where(length[:, None] > 0, vec / length[:, None], [0.0, 0.0, 1.0])
+    return smallest, vec, 3.0 * q

@@ -7,6 +7,7 @@ for invalid pixels, and return a list of ``Plane`` in the output frame.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -87,6 +88,19 @@ def detect_planes(
     return detector.detect(cloud, options or DetectionOptions(), params)
 
 
+def params_for_input_stride(params: Any, stride: int) -> Any:
+    """``params`` for a cloud of every ``stride``-th row and column of the image.
+
+    A detector that decimates its input by ``params.stride`` itself (RANSAC
+    stage) then keeps its working resolution of the full image:
+    ``params.stride`` is divided by ``stride`` (at least 1). Other params and
+    the pixel counts of ``DetectionOptions`` stay as they are.
+    """
+    if stride <= 1 or not hasattr(params, "stride"):
+        return params
+    return dataclasses.replace(params, stride=max(1, params.stride // stride))
+
+
 __all__ = [
     "DETECTORS",
     "ClassifyOptions",
@@ -96,5 +110,6 @@ __all__ = [
     "Plane",
     "PlaneLabel",
     "detect_planes",
+    "params_for_input_stride",
     "select_output_planes",
 ]

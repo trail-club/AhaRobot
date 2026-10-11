@@ -242,6 +242,9 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 - `--detector-subpixel S ...`（既定0.08）：検出器の `DepthNoiseModel(focal=fx, subpixel=S)`。
 - `--merge off on`（既定 `off`）：params の `merge`（[断片の統合](../../../overlay_ws/src/aha_perception/README.md#平面検出-aha_perceptionplanes)）。
 - `--param KEY=VALUE ...`：全設定に共通の params の値（例 `merge_k=3 refine_k=4`）。全手法の params にない項目はエラー。
+- `--node-stride N ...`（既定1）：ノードのパラメータ `stride`。画像の N 行・N 列ごとの画素だけを検出器に渡し、
+  params はノードと同じく `params_for_input_stride` を通す（params の `stride` とは別）。
+  GTのラベル画像も同じ画素に間引き、指標は残した画素で数える。設定名に `node stride N` が付く。
 
 ```bash
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
@@ -312,6 +315,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --wi
 - `--sizes`（既定 `0.06x0.06x0.12 0.10x0.10x0.20 0.20x0.15x0.10`、x × y × 高さ m）・`--presets`（既定 `d435i_filtered d435i_raw default`）・
   `--frames`（既定10）・`--max-depth`（既定3.0）・`--groups`（既定 `bench shelf place`）・`--scenes`・`--jobs`。シーケンスの生成は `run_sequence.py` と同じ。
 - `--variants`：`PlaceOptions` の上書き（例 `default obstacle_k=3 edge_margin=0.03,obstacle_margin=0.03`）。検出は共通で、variantごとに置き場所だけを計算する。`--labels` で名前を付ける。
+- `--node-stride`（既定1）：ノードのパラメータ `stride`（[設定の比較](#設定の比較)の `--node-stride` と同じ間引き）。variantは `PlaceOptions.for_input_stride` を通す。
 - 1回の呼び出しで最大50候補を返させ、全候補を評価する（ノードの既定は10）。
 - `--out`（既定 `results/place_report.md`）に表を、同名の `.csv` にシーン × プリセット × 大きさ × variant ごとの指標、`_invalid.csv` に無効な候補を書く。
 - `--figures`（既定3シーン）：`<scene>[:<--sizes の番号>]` ごとに、最初のプリセット・variantで `results/place_<scene>.png`（名前が `place_` で始まればそのまま）を書く

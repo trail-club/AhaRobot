@@ -419,18 +419,26 @@ def node_options(frame, max_depth, config):
     )
 
 
+def node_config(node_stride: int):
+    return parse_config(
+        f"{NODE_CONFIG},node_stride={node_stride}", [METHOD], node_stride=True
+    )
+
+
 def detect(frame, max_depth, config):
     options = node_options(frame, max_depth, config)
-    planes = detect_planes(frame.cloud, METHOD, options, config.detector_params(METHOD))
-    points, depth = base_cloud(frame.cloud, frame.camera_to_base)
+    cloud = config.decimate(frame.cloud)
+    planes = detect_planes(cloud, METHOD, options, config.detector_params(METHOD))
+    points, depth = base_cloud(cloud, frame.camera_to_base)
     return select_output_planes(planes, options), points, depth, options.noise
 
 
 def run_job(job):
     """Frame, candidate and surface records of one (scene, preset) sequence."""
-    name, preset, max_depth, n_frames, sizes, variants, labels = job
+    name, preset, max_depth, n_frames, sizes, variants, labels, node_stride = job
     group, scene = find_scene(name)
-    config = parse_config(NODE_CONFIG, [METHOD])
+    config = node_config(node_stride)
+    variants = [v.for_input_stride(node_stride) for v in variants]
     frames = make_sequence(scene, preset, max_depth, n_frames)
     surfaces = scene_surfaces(scene, frames[0].intrinsics, max_depth)
     gts = {size: [surface_gt(s, scene, size) for s in surfaces] for size in sizes}
@@ -651,7 +659,8 @@ def build_report(args, frames, cands, surfs, elapsed):
         f"{platform.python_version()}, numpy {np.__version__}, scipy {scipy.__version__}",
         f"- {len(args.scene_names)} scenes, {args.frames} frames per sequence, depth "
         f"{MIN_DEPTH:g}-{args.max_depth:g} m, detector `{METHOD}` `{NODE_CONFIG}` "
-        "(node output), presets with focal = fx",
+        f"(node output, node stride {args.node_stride}; variants through "
+        "`PlaceOptions.for_input_stride`), presets with focal = fx",
         f"- Object sizes (x x y x z m): {', '.join(args.size_names)}; up to "
         f"{EVAL_MAX_CANDIDATES} candidates per call",
         f"- Variants: {variants}",
@@ -695,18 +704,24 @@ def _project(points, frame):
     )
 
 
-def make_figure(path, scene, preset, size, options, label, max_depth):
+def make_figure(path, scene, preset, size, options, label, max_depth, node_stride=1):
     """Depth error, candidates in the image and top views of the supports."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    config = parse_config(NODE_CONFIG, [METHOD])
+    config = node_config(node_stride)
     frame = make_sequence(scene, preset, max_depth, 1)[0]
     planes, points, depth, noise = detect(frame, max_depth, config)
     result = find_place_candidates(
-        planes, points, depth, size, noise, options, max_candidates=EVAL_MAX_CANDIDATES
+        planes,
+        points,
+        depth,
+        size,
+        noise,
+        options.for_input_stride(node_stride),
+        max_candidates=EVAL_MAX_CANDIDATES,
     )
     radius = result.radius
     surfaces = scene_surfaces(scene, frame.intrinsics, max_depth)
@@ -816,6 +831,12 @@ def main():
     parser.add_argument("--labels", nargs="*", default=None, help="variant labels")
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--max-depth", type=float, default=3.0)
+    parser.add_argument(
+        "--node-stride",
+        type=int,
+        default=1,
+        help="node parameter stride (every N-th row and column of the image)",
+    )
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument(
         "--figures",
@@ -831,6 +852,8 @@ def main():
     unknown = [p for p in args.presets if p not in NOISE_PRESETS]
     if unknown:
         parser.error(f"unknown presets {unknown}, choose from {sorted(NOISE_PRESETS)}")
+    if args.node_stride < 1:
+        parser.error("--node-stride must be >= 1")
     try:
         sizes = [parse_size(text) for text in args.sizes]
         options = [parse_variant(text) for text in args.variants]
@@ -852,7 +875,16 @@ def main():
         parser.error("no matching scenes")
     args.scene_names = [s.name for s in scenes]
     jobs = [
-        (scene.name, preset, args.max_depth, args.frames, sizes, options, args.labels)
+        (
+            scene.name,
+            preset,
+            args.max_depth,
+            args.frames,
+            sizes,
+            options,
+            args.labels,
+            args.node_stride,
+        )
         for scene in scenes
         for preset in args.presets
     ]
@@ -900,6 +932,7 @@ def main():
             options[0],
             args.labels[0],
             args.max_depth,
+            args.node_stride,
         )
         print(f"wrote {path}", flush=True)
 

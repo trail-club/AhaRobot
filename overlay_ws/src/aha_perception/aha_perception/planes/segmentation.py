@@ -13,7 +13,7 @@ from scipy.ndimage import maximum_filter
 from .classify import classify_planes, is_horizontal
 from .geometry import convex_hull_2d, face_viewpoint, fit_plane, plane_axes
 from .preprocess import Frame, upsample_labels
-from .types import DetectionOptions, Plane
+from .types import DetectionOptions, InlierMoments, Plane
 
 _HULL_MAX_POINTS = 8000
 
@@ -44,7 +44,11 @@ def _group_by_label(labels: np.ndarray, valid: np.ndarray) -> dict[int, np.ndarr
     selected = np.flatnonzero((labels >= 0) & valid)
     if selected.size == 0:
         return {}
-    selected = selected[np.argsort(labels[selected], kind="stable")]
+    keys = labels[selected]
+    if int(keys.max()) <= np.iinfo(np.int16).max:
+        # Stable argsort of 16-bit keys is a radix sort: same order, faster.
+        keys = keys.astype(np.int16)
+    selected = selected[np.argsort(keys, kind="stable")]
     bounds = np.flatnonzero(np.diff(labels[selected])) + 1
     return {int(labels[g[0]]): g for g in np.split(selected, bounds)}
 
@@ -80,8 +84,15 @@ def planes_from_labels(
     work_groups = _group_by_label(labels.reshape(-1), frame.valid.reshape(-1))
     if not work_groups:
         return []
-    full_labels = upsample_labels(labels, frame.stride, frame.full_shape).reshape(-1)
-    full_groups = _group_by_label(full_labels, frame.full_valid.reshape(-1))
+    # At stride 1 the working arrays are the input arrays: group and gather once.
+    same = frame.stride == 1
+    if same:
+        full_groups = work_groups
+    else:
+        full_labels = upsample_labels(labels, frame.stride, frame.full_shape)
+        full_groups = _group_by_label(
+            full_labels.reshape(-1), frame.full_valid.reshape(-1)
+        )
     work_points = frame.points.reshape(-1, 3)
     work_depth = frame.depth.reshape(-1)
     points = frame.full_points.reshape(-1, 3)
@@ -93,14 +104,20 @@ def planes_from_labels(
         idx = full_groups.get(label)
         if idx is None or len(idx) < options.min_inliers or len(work_idx) < 3:
             continue
-        normal, offset = _robust_fit(
-            work_points[work_idx], _threshold(work_depth[work_idx], options, refine_k)
-        )
         pts = points[idx]
-        keep = np.abs(pts @ normal + offset) < _threshold(depth[idx], options, refine_k)
+        limit = _threshold(depth[idx], options, refine_k)
+        if same:
+            normal, offset = _robust_fit(pts, limit)
+        else:
+            normal, offset = _robust_fit(
+                work_points[work_idx],
+                _threshold(work_depth[work_idx], options, refine_k),
+            )
+        keep = np.abs(pts @ normal + offset) < limit
         if keep.sum() < options.min_inliers:
             continue
-        plane = make_plane(pts[keep], idx[keep], frame.camera_origin, up)
+        kept = pts[keep]
+        plane = make_plane(kept, idx[keep], frame.camera_origin, up)
         if plane.area < options.min_area:
             continue
         # Planes through the camera are occlusion-boundary artifacts.
@@ -111,6 +128,12 @@ def planes_from_labels(
             continue
         if not options.detect_vertical and not is_horizontal(plane.normal, options):
             continue
+        plane.moments = InlierMoments(
+            count=float(len(kept)),
+            total=kept.sum(axis=0),
+            outer=kept.T @ kept,
+            depth_sum=float(depth[plane.inliers].sum()),
+        )
         planes.append(plane)
     planes.sort(key=lambda p: -len(p.inliers))
     classify_planes(planes, options)

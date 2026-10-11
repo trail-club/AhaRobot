@@ -176,6 +176,17 @@ def test_low_obstacle_points_are_ignored():
     assert not result.grids[0].obstacle.any()
 
 
+def test_options_for_input_stride():
+    options = PlaceOptions()
+    assert options.for_input_stride(1) is options
+    scaled = options.for_input_stride(2)
+    assert scaled.obstacle_min_points == 1
+    assert scaled.support_closing == options.support_closing + 1
+    assert scaled.resolution == options.resolution
+    dense = PlaceOptions(obstacle_min_points=9).for_input_stride(2)
+    assert dense.obstacle_min_points == 3
+
+
 def test_base_cloud():
     cloud = np.array([[[0.0, 0.0, 2.0], [np.nan, np.nan, np.nan]]])
     transform = np.eye(4)

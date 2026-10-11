@@ -57,7 +57,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "max_rate",
-                default_value="1.0",
+                default_value="5.0",
                 description="Maximum detections per second (0: as fast as possible)",
             ),
             # Wall clock on purpose, like head_look_at.py: the node only uses

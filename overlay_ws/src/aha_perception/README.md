@@ -315,6 +315,11 @@ params はパラメータ `merge` 以外を既定値にする（`merge` のな�
 画像時刻のTFが0.2 sで得られない場合は最新のTFを使いwarningを出す。
 最新のフレームだけを別スレッドで処理し、処理中に届いたフレームは捨てる。
 `/tf` の時刻が戻るとTFバッファを消す（`head_look_at.py` と共通の `aha_perception.tf_jump`）。
+`stride` N では画像のN行・N列ごとの画素を検出器に渡す（画素座標は全画像のまま）。
+RANSAC段の間引き（params の `stride`）は `params_for_input_stride` で 1/N（1以上）にし、全画像に対する作業解像度を保つ。
+置き場所は `PlaceOptions.for_input_stride` で `obstacle_min_points` を 1/N²（1以上）、`support_closing` を +N−1 セルにする。
+`min_inliers` などの画素数の閾値は変えない（1/N² にすると合成シーンで断片が増え、PQが stride 1 の値まで下がった）。
+1フレームの処理時間（実機の640×480、開発コンテナ、中央値）は stride 2 で約0.27 s、stride 1 で約0.62 s（他のシミュレーションが動いている負荷あり）。
 
 ```bash
 ros2 launch aha_perception plane_detection.launch.py
@@ -328,11 +333,11 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `target_frame` | `base_footprint` | 出力frame。原点が床、z軸が上のframeにする |
 | `depth_topic` | `/camera/depth_registered/image_rect` | RGBへ位置合わせしたDepth |
 | `camera_info_topic` | `/camera/color/camera_info` | Depthと同じ解像度のCameraInfo |
-| `max_rate` | `1.0` | 検出の上限頻度（Hz、wall clock）。0で上限なし |
+| `max_rate` | `5.0` | 検出の上限頻度（Hz、wall clock）。0で上限なし。処理が追いつかないフレームは捨てる。`real_head_camera.launch.py` / `perception.launch.py` にも `max_rate:=` で渡せる |
 | `detect_vertical` | `true` | 垂直面も検出し、壁を出力する |
 | `min_depth` / `max_depth` | `0.3` / `3.0` | 使う深度の範囲（m） |
 | `max_points_per_plane` | `5000` | 出力点群の平面あたりの最大点数（0で全点） |
-| `stride` | `1` | Depthの間引き（行・列） |
+| `stride` | `2` | Depthの間引き（行・列）。2は1より検出が1.5〜2.4倍速い。合成シーンではPQが高く、水平面のrecall・置き場所のvalidity・availabilityの差は0.01以内（[ベンチマーク](../../../tools/perception/plane_bench/README.md#設定の比較)の `--node-stride`） |
 | `merge` | `true` | 同一平面の断片の統合（params の `merge`）。較正ノイズでの断片化を抑える（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
 | `noise_subpixel` | `0.12` | 検出器の `DepthNoiseModel` の subpixel（0より大きい値）。較正ノイズでの利得と既定ノイズでの低下の釣り合い（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)） |
 | `max_detection_age` | `3.0` | 置き場所のserviceが使う検出の古さの上限（s、wall clock）。0以下で無制限 |

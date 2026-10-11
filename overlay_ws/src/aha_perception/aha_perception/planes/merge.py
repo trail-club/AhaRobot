@@ -30,7 +30,7 @@ from .geometry import clip_convex_polygons, convex_hull_2d, plane_axes, polygon_
 from .preprocess import Frame
 from .refine import full_resolution
 from .segmentation import label_image, planes_from_labels
-from .types import DetectionOptions, Plane
+from .types import DetectionOptions, InlierMoments, Plane
 
 _MAX_ROUNDS = 5
 
@@ -69,13 +69,21 @@ def _group(
     depth: np.ndarray,
     options: DetectionOptions,
 ) -> _Group:
-    pts = points[plane.inliers]
+    moments = plane.moments
+    if moments is None:
+        pts = points[plane.inliers]
+        moments = InlierMoments(
+            count=float(len(pts)),
+            total=pts.sum(axis=0),
+            outer=pts.T @ pts,
+            depth_sum=float(depth[plane.inliers].sum()),
+        )
     return _Group(
         members=[index],
-        count=float(len(pts)),
-        total=pts.sum(axis=0),
-        outer=pts.T @ pts,
-        depth_sum=float(depth[plane.inliers].sum()),
+        count=moments.count,
+        total=moments.total,
+        outer=moments.outer,
+        depth_sum=moments.depth_sum,
         normal=plane.normal,
         orientation=_orientation(plane.normal, options),
         hull=plane.hull_points(),
@@ -216,6 +224,7 @@ def merge_coplanar(
 
     ``frame`` is the frame the planes were detected on (any stride);
     ``refine_k`` is passed to ``planes_from_labels`` for the merged groups.
+    ``Plane.moments`` is used when set (it must come from this frame).
     Returns ``planes`` unchanged when nothing merges.
     """
     full = full_resolution(frame)

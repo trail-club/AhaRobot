@@ -61,6 +61,7 @@ class Run:
     valid: list  # per frame (H*W,) bool, depth within range
     ms: list  # per frame
     config: str = ""  # configs.Config label
+    shape: tuple = ()  # (H, W) of the detector input (decimated by node stride)
 
     def output(self, name):
         return self.planes if name == "all" else self.selected
@@ -81,14 +82,15 @@ def run_detection(scene, method, min_depth, max_depth, config=None):
     fx, fy, cx, cy = scene.intrinsics
     run = Run(scene, method, max_depth, [], [], [], [], config.label)
     for i, depth in enumerate(scene.depth):
-        cloud = depth_to_cloud(depth, fx, fy, cx, cy)
+        cloud = depth_to_cloud(depth, fx, fy, cx, cy, config.node_stride)
         options = _options(scene, i, min_depth, max_depth, config)
         start = time.perf_counter()
         planes = detect_planes(cloud, method, options, params)
         run.ms.append((time.perf_counter() - start) * 1e3)
         run.planes.append(planes)
         run.selected.append(select_output_planes(planes, options))
-        z = depth.reshape(-1)
+        run.shape = cloud.shape[:2]
+        z = config.decimate(depth).reshape(-1)
         run.valid.append(np.isfinite(z) & (z >= min_depth) & (z <= max_depth))
     return run
 
@@ -218,7 +220,6 @@ def make_figure(path, scene, runs, outputs):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    shape = scene.depth.shape[1:]
     panels = []
     if scene.color_path is not None:
         panels.append(("color", plt.imread(scene.color_path), {}))
@@ -228,6 +229,7 @@ def make_figure(path, scene, runs, outputs):
     for run in runs:
         # A plane keeps its detection color in the selected panel.
         color_index = {id(p): i for i, p in enumerate(run.planes[0])}
+        shape = run.shape or scene.depth.shape[1:]
         for output in outputs:
             planes = run.output(output)[0]
             image = np.ones((shape[0] * shape[1], 3))

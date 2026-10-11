@@ -13,6 +13,8 @@ ROS free (numpy / scipy only); the inputs are the planes of
 
 from __future__ import annotations
 
+import dataclasses
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
@@ -69,6 +71,22 @@ class PlaceOptions:
     # Candidate spacing is max(footprint radius, min_spacing).
     min_spacing: float = 0.05
     max_candidates: int = 10
+
+    def for_input_stride(self, stride: int) -> PlaceOptions:
+        """Options for a cloud of every ``stride``-th row and column of the image.
+
+        ``obstacle_min_points`` follows the point density (divided by
+        stride², at least 1) and ``support_closing`` grows by stride - 1 cells
+        for the wider gaps between pixel footprints (scaling it by stride also
+        bridged object shadows in the synthetic place study, run_place.py).
+        """
+        if stride <= 1:
+            return self
+        return dataclasses.replace(
+            self,
+            obstacle_min_points=max(1, math.ceil(self.obstacle_min_points / stride**2)),
+            support_closing=self.support_closing + stride - 1,
+        )
 
 
 @dataclass

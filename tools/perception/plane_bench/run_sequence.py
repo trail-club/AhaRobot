@@ -15,6 +15,7 @@ for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 
 import argparse  # noqa: E402
 import contextlib  # noqa: E402
+import dataclasses  # noqa: E402
 import datetime  # noqa: E402
 import platform  # noqa: E402
 import sys  # noqa: E402
@@ -107,12 +108,23 @@ def make_sequence(scene, preset, max_depth, n_frames, intrinsics=None):
     )
 
 
+def node_frame(frame, config):
+    """The frame as the detector sees it with ``config.node_stride``; GT labels
+    are decimated alike, so metrics count the kept pixels."""
+    if config.node_stride == 1:
+        return frame
+    return dataclasses.replace(
+        frame, cloud=config.decimate(frame.cloud), labels=config.decimate(frame.labels)
+    )
+
+
 def run_sequence(frames, method, max_depth, config=None):
     config = config or Config()
     params = config.detector_params(method)
     run = Run(frames[0], method, max_depth, [], [], [], [])
     frame_stats = []
     for frame in frames:
+        frame = node_frame(frame, config)
         options = DetectionOptions(
             camera_to_base=frame.camera_to_base,
             min_depth=MIN_DEPTH,

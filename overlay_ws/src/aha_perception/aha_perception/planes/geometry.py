@@ -55,10 +55,43 @@ def plane_axes(normal: np.ndarray, up: np.ndarray | None = None) -> np.ndarray:
     return np.stack([first, second])
 
 
+_HULL_PREFILTER_MIN_POINTS = 64
+
+
+def _outside_octagon(points: np.ndarray) -> np.ndarray:
+    """Mask of points not strictly inside the polygon of the extreme points in
+    8 directions (Akl-Toussaint); the others cannot be hull vertices."""
+    x, y = points[:, 0], points[:, 1]
+    s, d = x + y, x - y
+    ids = [
+        int(np.argmax(x)),
+        int(np.argmax(s)),
+        int(np.argmax(y)),
+        int(np.argmin(d)),
+        int(np.argmin(x)),
+        int(np.argmin(s)),
+        int(np.argmin(y)),
+        int(np.argmax(d)),
+    ]
+    ids = [i for k, i in enumerate(ids) if i != ids[k - 1]]
+    if len(ids) < 3:
+        return np.ones(len(points), dtype=bool)
+    corners = points[ids]
+    edges = np.roll(corners, -1, axis=0) - corners
+    # Margin against rounding: points on or near an edge stay candidates.
+    eps = 1e-9 * (float(np.abs(points).max()) or 1.0) ** 2
+    inside = np.ones(len(points), dtype=bool)
+    for (ax, ay), (ex, ey) in zip(corners, edges):
+        inside &= ex * (y - ay) - ey * (x - ax) > eps
+    return ~inside
+
+
 def convex_hull_2d(points: np.ndarray) -> tuple[np.ndarray, float]:
     """Counter-clockwise hull vertices and area of (N, 2) points."""
     if len(points) < 3:
         return points.copy(), 0.0
+    if len(points) >= _HULL_PREFILTER_MIN_POINTS:
+        points = points[_outside_octagon(points)]
     try:
         hull = ConvexHull(points)
     except QhullError:

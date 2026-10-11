@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -17,10 +18,6 @@ def crop_depth(cloud: np.ndarray, min_depth: float, max_depth: float) -> np.ndar
         invalid = ~np.isfinite(out).all(axis=-1) | (z < min_depth) | (z > max_depth)
     out[invalid] = np.nan
     return out
-
-
-def valid_mask(cloud: np.ndarray) -> np.ndarray:
-    return np.isfinite(cloud).all(axis=-1)
 
 
 def decimate(cloud: np.ndarray, stride: int) -> np.ndarray:
@@ -86,12 +83,29 @@ class Frame:
 
 
 def prepare_frame(cloud: np.ndarray, options: DetectionOptions, stride: int) -> Frame:
+    """Depth-cropped cloud in the output frame; NaN where invalid.
+
+    Same values as transforming ``crop_depth(cloud, ...)``: invalid pixels are
+    set to NaN after the transform, and validity is tested per coordinate
+    (cheaper than ``isfinite(...).all(axis=-1)``).
+    """
     if cloud.ndim != 3 or cloud.shape[2] != 3:
         raise ValueError("cloud must be an organized (H, W, 3) array")
-    cropped = crop_depth(cloud, options.min_depth, options.max_depth)
-    full_valid = valid_mask(cropped)
-    full_depth = cropped[..., 2]
-    full_points = transform_points(cropped, options.camera_to_base)
+    cloud = np.ascontiguousarray(cloud, dtype=np.float64)
+    x, y, z = cloud[..., 0], cloud[..., 1], cloud[..., 2]
+    with np.errstate(invalid="ignore"):
+        full_valid = (
+            np.isfinite(z)
+            & np.isfinite(x)
+            & np.isfinite(y)
+            & (z >= options.min_depth)
+            & (z <= options.max_depth)
+        )
+    invalid = ~full_valid
+    full_depth = z.copy()
+    full_depth[invalid] = np.nan
+    full_points = transform_points(cloud, options.camera_to_base)
+    full_points[invalid] = np.nan
     camera_origin = np.asarray(options.camera_to_base, dtype=np.float64)[:3, 3].copy()
     return Frame(
         points=decimate(full_points, stride),
@@ -102,6 +116,17 @@ def prepare_frame(cloud: np.ndarray, options: DetectionOptions, stride: int) -> 
         full_depth=full_depth,
         full_valid=full_valid,
         camera_origin=camera_origin,
+    )
+
+
+def with_stride(frame: Frame, stride: int) -> Frame:
+    """The same prepared frame at another working stride (no recomputation)."""
+    return dataclasses.replace(
+        frame,
+        points=decimate(frame.full_points, stride),
+        depth=decimate(frame.full_depth, stride),
+        valid=decimate(frame.full_valid, stride),
+        stride=stride,
     )
 
 

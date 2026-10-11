@@ -61,7 +61,7 @@ from std_msgs.msg import ColorRGBA, Header
 from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
-from aha_perception.place import base_cloud, find_place_candidates
+from aha_perception.place import PlaceOptions, base_cloud, find_place_candidates
 from aha_perception.plane_detection_io import (
     POINT_DTYPE,
     depth_from_buffer,
@@ -80,6 +80,7 @@ from aha_perception.planes import (
     DepthNoiseModel,
     DetectionOptions,
     detect_planes,
+    params_for_input_stride,
     select_output_planes,
 )
 from aha_perception.tf_jump import (
@@ -280,7 +281,7 @@ class PlaneDetection(Node):
         info_topic = self.declare_parameter(
             "camera_info_topic", "/camera/color/camera_info"
         ).value
-        max_rate = float(self.declare_parameter("max_rate", 1.0).value)
+        max_rate = float(self.declare_parameter("max_rate", 5.0).value)
         self.period = 1.0 / max_rate if max_rate > 0.0 else 0.0
         self.detect_vertical = bool(
             self.declare_parameter("detect_vertical", True).value
@@ -290,9 +291,12 @@ class PlaneDetection(Node):
         self.max_points = int(
             self.declare_parameter("max_points_per_plane", 5000).value
         )
-        self.stride = int(self.declare_parameter("stride", 1).value)
+        # Every stride-th row and column; the detector's working stride and the
+        # place options follow (params_for_input_stride, for_input_stride).
+        self.stride = int(self.declare_parameter("stride", 2).value)
         if self.stride < 1:
             raise ValueError(f"stride must be >= 1, got {self.stride}")
+        self.place_options = PlaceOptions().for_input_stride(self.stride)
         # Tuned on calibrated D435i noise, see
         # tools/perception/plane_bench/results/tuning.md.
         merge = bool(self.declare_parameter("merge", True).value)
@@ -315,6 +319,7 @@ class PlaneDetection(Node):
                 self.get_logger().warn(
                     f"{self.method} has no merge param, merge ignored"
                 )
+        self.params = params_for_input_stride(self.params, self.stride)
 
         self.tf_buffer = Buffer()
         self.tf_listener = JumpDetectingTransformListener(
@@ -575,6 +580,7 @@ class PlaneDetection(Node):
                 depth,
                 size,
                 detection.noise,
+                self.place_options,
                 labels=list(request.surface_labels) or None,
                 near=near,
                 max_candidates=int(request.max_candidates) or None,

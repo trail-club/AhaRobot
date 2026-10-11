@@ -87,13 +87,25 @@ class DetectionOptions:
         return up / np.linalg.norm(up)
 
 
+@dataclass(frozen=True)
+class InlierMoments:
+    """Sums over the inlier points of a plane (output frame) and their depths."""
+
+    count: float
+    total: np.ndarray  # sum of points (3,)
+    outer: np.ndarray  # sum of outer products (3, 3)
+    depth_sum: float
+
+
 @dataclass
 class Plane:
     """A detected plane: ``normal . p + offset = 0`` in the output frame.
 
     ``inliers`` are flat indices (row * width + col) into the input organized
     cloud. ``hull`` holds the 2D convex hull vertices (counter-clockwise) in the
-    in-plane basis ``axes`` relative to ``centroid``.
+    in-plane basis ``axes`` relative to ``centroid``. ``moments`` caches the
+    inlier sums of the frame the plane was fitted on (used by merging); it is
+    not an init field, so ``dataclasses.replace`` drops it.
     """
 
     normal: np.ndarray
@@ -105,6 +117,9 @@ class Plane:
     area: float
     rms: float
     label: PlaneLabel = PlaneLabel.OTHER
+    moments: InlierMoments | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def hull_points(self) -> np.ndarray:
         """Hull vertices as (K, 3) points in the output frame."""

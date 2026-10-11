@@ -17,7 +17,7 @@ import numpy as np
 from .geometry import point_components, ransac_plane
 from .merge import merge_coplanar
 from .normals import knn_normals, organized_normals
-from .preprocess import prepare_frame, voxel_downsample
+from .preprocess import Frame, prepare_frame, voxel_downsample
 from .segmentation import planes_from_labels
 from .types import DetectionOptions, Plane
 
@@ -90,7 +90,13 @@ def detect(
 ) -> list[Plane]:
     options = options or DetectionOptions()
     params = params or RansacGravityParams()
-    frame = prepare_frame(cloud, options, params.stride)
+    return detect_frame(prepare_frame(cloud, options, params.stride), options, params)
+
+
+def detect_frame(
+    frame: Frame, options: DetectionOptions, params: RansacGravityParams
+) -> list[Plane]:
+    """``detect`` on a frame prepared at the working stride ``params.stride``."""
     labels = np.full(frame.valid.shape, -1, dtype=np.int32)
     pixels = np.flatnonzero(frame.valid)
     if pixels.size < params.min_points:
