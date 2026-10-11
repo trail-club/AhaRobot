@@ -65,7 +65,23 @@ obstacle a box (ns "obstacle") and per request exclude region a box (ns
 are not used. With surface_ids only the planes of the latest detection
 assigned to those surfaces are supports (STATUS_NO_SURFACE if none is);
 status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE without
-candidates and STATUS_ERROR (success false) on errors.
+candidates and STATUS_ERROR (success false) on errors. The request's
+clearance is passed to find_place_candidates.
+
+Furniture (parameter furniture_config, a YAML of aha_perception.furniture;
+empty = none, nothing below happens): after every detection the tracked
+surfaces are associated with the furniture levels (associate_surfaces with
+furniture_margin and furniture_height_tolerance) through the TF tracking
+frame -> config frame at the image stamp (else the latest); without that TF
+there is no association (throttled warning). The result fills
+Surface.furniture / furniture_level and serves the request's furniture /
+furniture_level: unknown furniture or level is STATUS_ERROR, an object
+taller than the room of the level(s) STATUS_NO_SPACE, a level without an
+associated surface in the latest detection STATUS_NO_SURFACE. view_point is
+the level center from the config in the tracking frame (latest TF). The
+level rectangles are published once, latched, on
+/aha/perception/furniture/markers (MarkerArray in the config frame: per
+level a rectangle (ns "level") and a text "<name> <level>" (ns "label")).
 
 The TF buffer and the surfaces are cleared when a /tf stamp goes back (sim
 restart or reset).
@@ -91,6 +107,7 @@ from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import (
     Point,
     Point32,
+    PointStamped,
     Polygon,
     Pose,
     PoseStamped,
@@ -112,6 +129,16 @@ from std_msgs.msg import ColorRGBA, Header
 from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
+from aha_perception.furniture import (
+    AssociationOptions,
+    FurnitureConfigError,
+    associate_surfaces,
+    level_markers,
+    load_config,
+    missing_message,
+    requested_surfaces,
+    resolve_request,
+)
 from aha_perception.place import (
     ExcludeBox,
     PlaceOptions,
@@ -157,6 +184,7 @@ MARKER_TOPIC = "/aha/perception/planes/markers"
 SURFACES_TOPIC = "/aha/perception/surfaces"
 PLACE_SERVICE = "/aha/perception/get_place_candidates"
 PLACE_MARKER_TOPIC = "/aha/perception/place/markers"
+FURNITURE_MARKER_TOPIC = "/aha/perception/furniture/markers"
 
 TF_TIMEOUT = Duration(seconds=0.2)
 HULL_WIDTH = 0.015
@@ -268,10 +296,13 @@ def to_time(seconds):
     return TimeMsg(sec=sec, nanosec=nanosec)
 
 
-def make_surface_array(header, surfaces):
-    """SurfaceArray of aha_perception.surfaces.Surface in header.frame_id."""
+def make_surface_array(header, surfaces, furniture=None):
+    """SurfaceArray of aha_perception.surfaces.Surface in header.frame_id;
+    ``furniture`` maps surface ids to aha_perception.furniture.Match."""
+    furniture = furniture or {}
     msgs = []
     for s in surfaces:
+        match = furniture.get(s.id)
         plane = PlaneMsg(
             header=header,
             id=s.id,
@@ -297,9 +328,35 @@ def make_surface_array(header, surfaces):
                 last_seen=to_time(s.last_seen),
                 observations=s.observations,
                 visible=s.visible,
+                furniture=match.furniture if match else "",
+                furniture_level=match.level if match else 0,
             )
         )
     return SurfaceArray(header=header, surfaces=msgs)
+
+
+def make_furniture_markers(config):
+    """Level rectangles (ns "level") and texts (ns "label") in the config frame."""
+    header = Header(frame_id=config.frame)  # zero stamp: the latest TF
+    color = ColorRGBA(r=0.9, g=0.7, b=0.2, a=0.9)
+    markers = [Marker(action=Marker.DELETEALL)]
+    for k, level in enumerate(level_markers(config)):
+        outline = Marker(header=header, ns="level", id=k, type=Marker.LINE_STRIP)
+        outline.action = Marker.ADD
+        outline.pose.orientation.w = 1.0
+        outline.scale.x = HULL_WIDTH / 2
+        outline.color = color
+        outline.points = [to_point(p) for p in level.outline]
+        markers.append(outline)
+        text = Marker(header=header, ns="label", id=k, type=Marker.TEXT_VIEW_FACING)
+        text.action = Marker.ADD
+        text.pose.position = to_point(level.center + [0.0, 0.0, PLACE_TEXT_OFFSET])
+        text.pose.orientation.w = 1.0
+        text.scale.z = PLACE_TEXT_HEIGHT
+        text.color = color
+        text.text = f"{level.furniture} {level.number}"
+        markers.append(text)
+    return MarkerArray(markers=markers)
 
 
 def make_candidate_msg(header, candidate, surface_ids):
@@ -426,6 +483,8 @@ class Detection:
     wall_time: float  # time.monotonic() when the detection finished
     surface_ids: list  # Surface.id per plane, 0 = not tracked
     surfaces: list  # aha_perception.surfaces.Surface after this detection
+    # Surface.id -> aha_perception.furniture.Match; None without association
+    furniture: dict | None = None
 
 
 class PlaneDetection(Node):
@@ -495,6 +554,19 @@ class PlaneDetection(Node):
         self.tracker = SurfaceTracker(tracker_options)
         self.tracker_lock = threading.Lock()
         self.tracker_frame = None  # frame the tracker currently works in
+        furniture_path = self.declare_parameter("furniture_config", "").value
+        self.association = AssociationOptions(
+            margin=float(self.declare_parameter("furniture_margin", 0.10).value),
+            height_tolerance=float(
+                self.declare_parameter("furniture_height_tolerance", 0.05).value
+            ),
+        )
+        self.furniture = None
+        if furniture_path:
+            try:
+                self.furniture = load_config(furniture_path)
+            except FurnitureConfigError as e:
+                raise ValueError(str(e)) from e
 
         self.tf_buffer = Buffer()
         self.tf_listener = JumpDetectingTransformListener(
@@ -540,6 +612,21 @@ class PlaneDetection(Node):
         )
         # Clear markers left in RViz by a previous run.
         self.clear_markers()
+        furniture_text = ""
+        if self.furniture is not None:
+            latched = QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            )
+            self.furniture_marker_pub = self.create_publisher(
+                MarkerArray, FURNITURE_MARKER_TOPIC, latched
+            )
+            self.furniture_marker_pub.publish(make_furniture_markers(self.furniture))
+            furniture_text = (
+                f", furniture {', '.join(self.furniture.names)} "
+                f"in {self.furniture.frame} ({furniture_path})"
+            )
 
         self.worker = threading.Thread(target=self.run_worker, daemon=True)
         self.worker.start()
@@ -548,7 +635,7 @@ class PlaneDetection(Node):
             f"{self.method} on {depth_topic} -> {self.target_frame}, {rate}, "
             f"walls {'on' if self.detect_vertical else 'off'}, stride {self.stride}, "
             f"merge {merge_text}, noise subpixel {self.noise_subpixel:g}, "
-            f"surfaces in {self.tracking_frame}"
+            f"surfaces in {self.tracking_frame}{furniture_text}"
         )
 
     def clear_markers(self):
@@ -708,6 +795,39 @@ class PlaneDetection(Node):
             surfaces = self.tracker.surfaces()
         return Header(stamp=stamp, frame_id=frame), ids, surfaces
 
+    def lookup_matrix(self, target, source, stamp=None):
+        """(4x4 source -> target, None) at ``stamp`` (no wait) or else the
+        latest TF; (None, error) without one."""
+        if target == source:
+            return np.eye(4), None
+        error = None
+        times = [Time.from_msg(stamp)] if stamp is not None else []
+        for when in times + [Time()]:
+            try:
+                tf = self.tf_buffer.lookup_transform(target, source, when)
+            except TransformException as e:
+                error = e
+                continue
+            t, q = tf.transform.translation, tf.transform.rotation
+            return transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w)), None
+        return None, error
+
+    def associate_furniture(self, tracked, stamp):
+        """Surface id -> furniture Match of the tracked surfaces, or None."""
+        if self.furniture is None or not tracked:
+            return None
+        header, _, surfaces = tracked
+        frame = self.furniture.frame
+        matrix, error = self.lookup_matrix(frame, header.frame_id, stamp)
+        if matrix is None:
+            self.get_logger().warn(
+                f"TF {frame} <- {header.frame_id} unavailable, surfaces not "
+                f"associated with the furniture: {error}",
+                throttle_duration_sec=WARN_PERIOD_S,
+            )
+            return None
+        return associate_surfaces(self.furniture, surfaces, matrix, self.association)
+
     def process(self, msg):
         info = self.camera_info
         if info is None:
@@ -755,6 +875,7 @@ class PlaneDetection(Node):
             msg.header.stamp, planes, cloud, camera_to_base, info, options.noise
         )
         surface_ids = tracked[1] if tracked else [0] * len(planes)
+        furniture = self.associate_furniture(tracked, msg.header.stamp)
 
         colors = [plane_palette(i) for i in range(len(planes))]
         xyz, rgb = plane_points(planes, cloud, camera_to_base, colors, self.max_points)
@@ -771,10 +892,13 @@ class PlaneDetection(Node):
                 wall_time=time.monotonic(),
                 surface_ids=surface_ids,
                 surfaces=tracked[2] if tracked else [],
+                furniture=furniture,
             )
         self.plane_pub.publish(make_plane_array(header, planes))
         if tracked:
-            self.surface_pub.publish(make_surface_array(tracked[0], tracked[2]))
+            self.surface_pub.publish(
+                make_surface_array(tracked[0], tracked[2], furniture)
+            )
         self.cloud_pub.publish(make_cloud(header, xyz, rgb))
         self.marker_pub.publish(make_markers(header, planes, surface_ids))
 
@@ -783,6 +907,8 @@ class PlaneDetection(Node):
         counts = Counter(plane.label.value for plane in planes)
         summary = ", ".join(f"{label} {n}" for label, n in sorted(counts.items()))
         tracked_text = f", {len(tracked[2])} surfaces" if tracked else ""
+        if furniture is not None:
+            tracked_text += f" ({len(furniture)} on furniture)"
         text = (
             f"{len(planes)} planes ({summary or 'none'}) of {len(detected_planes)} "
             f"detected in {total_ms:.0f} ms "
@@ -807,6 +933,30 @@ class PlaneDetection(Node):
         matrix = transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
         return transform_point(matrix, p)
 
+    def furniture_view_point(self, furniture):
+        """Center of a FurnitureRequest's level in tracking_frame (else
+        target_frame) with the latest TF, or None."""
+        center = furniture.furniture.view_center(furniture.level)
+        for frame in dict.fromkeys((self.tracking_frame, self.target_frame)):
+            matrix, _ = self.lookup_matrix(frame, self.furniture.frame)
+            if matrix is not None:
+                point = PointStamped(header=Header(frame_id=frame))
+                point.point = to_point(transform_point(matrix, center))
+                return point
+        return None
+
+    def no_candidates(self, response, status, message, detection=None):
+        """A successful response without candidates (NO_SURFACE / NO_SPACE)."""
+        response.success = True
+        response.status = int(status)
+        response.message = message
+        header = Header(frame_id=self.target_frame)
+        if detection is not None:
+            response.stamp = header.stamp = detection.stamp
+        self.place_marker_pub.publish(make_place_markers(header, []))
+        self.get_logger().warn(f"place candidates: {message}")
+        return response
+
     def on_get_place_candidates(self, request, response):
         def fail(message):
             response.success = False
@@ -814,6 +964,25 @@ class PlaneDetection(Node):
             response.message = message
             self.get_logger().warn(f"place candidates: {message}")
             return response
+
+        furniture = None
+        if request.furniture:
+            furniture = resolve_request(
+                self.furniture,
+                request.furniture,
+                int(request.furniture_level),
+                float(request.object_size.z),
+            )
+            if furniture.furniture is not None:
+                view_point = self.furniture_view_point(furniture)
+                if view_point is not None:
+                    response.view_point = view_point
+            if furniture.status == PlaceStatus.ERROR:
+                return fail(furniture.message)
+            if furniture.status is not None:
+                return self.no_candidates(response, furniture.status, furniture.message)
+        elif request.furniture_level:
+            return fail("furniture_level given without furniture")
 
         with self.latest_lock:
             detection = self.latest
@@ -835,21 +1004,44 @@ class PlaneDetection(Node):
                 )
         header = Header(stamp=detection.stamp, frame_id=self.target_frame)
         plane_indices = None
-        if request.surface_ids:
+        wanted = None
+        if furniture is not None:
+            if detection.furniture is None:
+                return fail(
+                    f"surfaces not associated with the furniture (no TF "
+                    f"{self.furniture.frame} <- {self.tracker_frame or self.tracking_frame})"
+                )
+            ids = requested_surfaces(
+                furniture,
+                detection.furniture,
+                detection.surface_ids,
+                request.surface_ids,
+            )
+            if not ids:
+                return self.no_candidates(
+                    response,
+                    PlaceStatus.NO_SURFACE,
+                    missing_message(
+                        furniture, detection.furniture, request.surface_ids
+                    ),
+                    detection,
+                )
+            wanted = set(ids)
+        elif request.surface_ids:
             wanted = set(request.surface_ids)
+        if wanted is not None:
             plane_indices = [
                 i for i, s in enumerate(detection.surface_ids) if s in wanted
             ]
             if not plane_indices:
-                response.success = True
-                response.status = GetPlaceCandidates.Response.STATUS_NO_SURFACE
-                response.stamp = detection.stamp
-                response.message = surfaces_missing(
-                    sorted(wanted), detection.surfaces, detection.stamp
+                return self.no_candidates(
+                    response,
+                    PlaceStatus.NO_SURFACE,
+                    surfaces_missing(
+                        sorted(wanted), detection.surfaces, detection.stamp
+                    ),
+                    detection,
                 )
-                self.place_marker_pub.publish(make_place_markers(header, []))
-                self.get_logger().warn(f"place candidates: {response.message}")
-                return response
 
         surface_height = None
         if request.restrict_height:
@@ -876,6 +1068,7 @@ class PlaneDetection(Node):
                 exclude=exclude,
                 viewpoint=viewpoint,
                 plane_indices=plane_indices,
+                clearance=float(request.clearance),
             )
         except ValueError as e:
             return fail(str(e))
@@ -901,6 +1094,10 @@ class PlaneDetection(Node):
         response.obstacles = [make_obstacle_msg(o) for o in obstacles]
         support_ids = sorted({detection.surface_ids[i] for i in result.supports} - {0})
         restriction = "" if surface_height is None else f" at {surface_height:.2f} m"
+        if furniture is not None:
+            restriction += f" of {furniture.text}"
+        if request.clearance > 0.0:
+            restriction += f", clearance {request.clearance:.2f} m"
         excluded = f", {len(exclude)} excluded boxes" if exclude else ""
         response.message = (
             f"{PlaceStatus(result.status).name}: {len(result.candidates)} candidates "

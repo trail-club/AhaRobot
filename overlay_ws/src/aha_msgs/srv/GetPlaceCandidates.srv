@@ -16,16 +16,30 @@ float32                    height_tolerance # m, <= 0 = default (0.03)
 # to the object height) is unobserved.
 PlaceObstacle[]            exclude_regions
 uint32[]                   surface_ids      # empty = any; else only these Surface.id observed in the latest detection
+# Furniture of the perception furniture config (empty = any): only the
+# surfaces of the latest detection associated with it (Surface.furniture),
+# at furniture_level (0 = any level the object height fits), intersected
+# with surface_ids when both are given; labels default to any support.
+string                     furniture
+int32                      furniture_level
+# m of free space wanted between the object footprint and obstacles, beyond
+# perception's obstacle margin (0 = none); the support edge margin is unchanged
+float32                    clearance
 ---
 uint8 STATUS_OK=0          # candidates found
-uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids) in the detection
-uint8 STATUS_NO_SPACE=2    # supports seen, but no free spot for the size
-uint8 STATUS_ERROR=3       # no or old detection, bad arguments, no TF (success false)
+uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids, furniture) in the detection
+uint8 STATUS_NO_SPACE=2    # supports seen, but no free spot for the size; or the object is taller than the room of the furniture level
+uint8 STATUS_ERROR=3       # no or old detection, bad arguments, unknown furniture or level, no TF (success false)
 
 bool                       success
 uint8                      status
 string                     message
 builtin_interfaces/Time    stamp            # depth image stamp of the detection used
+# Center of the requested furniture level top (level 0: at the mean level
+# height) from the config, in the tracking frame (odom; base_footprint
+# without its TF); empty frame_id without furniture or TF. Look at it when
+# the level is not observed.
+geometry_msgs/PointStamped view_point
 PlaceCandidate[]           candidates       # best first
 PlaneArray                 planes           # support planes considered (after the label, height and surface id filters)
 PlaceObstacle[]            obstacles        # objects on every horizontal support of the detection

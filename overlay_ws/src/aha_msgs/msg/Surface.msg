@@ -9,3 +9,7 @@ string[]     object_categories  # categories of objects seen on the surface (emp
 builtin_interfaces/Time last_seen  # depth image stamp of the last detection that observed it
 uint32       observations       # detections that observed it
 bool         visible            # observed in the latest detection
+# Furniture of the perception furniture config whose level this surface is
+# (footprint and level height); empty / 0 = not associated or no config.
+string       furniture
+int32        furniture_level    # 1 = lowest configured level of the furniture

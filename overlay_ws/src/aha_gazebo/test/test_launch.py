@@ -333,6 +333,54 @@ def test_standard_clock_bridge_can_be_supplied_by_parent(monkeypatch):
     assert not clock_bridge.condition.evaluate(context)
 
 
+def test_world_tf_is_opt_in_and_follows_the_spawn_pose(monkeypatch):
+    from launch_ros.actions import Node
+
+    module = load_launch("aha_bringup", "sim.launch.py")
+    monkeypatch.setattr(
+        module, "get_package_share_directory", lambda package: str(SOURCE / package)
+    )
+    monkeypatch.setattr(
+        module, "get_package_prefix", lambda package: "/install/" + package
+    )
+    context = LaunchContext()
+    description = module.generate_launch_description()
+    for action in description.entities:
+        if isinstance(action, DeclareLaunchArgument):
+            action.execute(context)
+    world_tf = next(
+        action
+        for action in description.entities
+        if isinstance(action, Node)
+        and perform_substitutions(
+            context, normalize_to_list_of_substitutions(action.node_executable)
+        )
+        == "static_transform_publisher"
+    )
+
+    def arguments():
+        """The node's arguments: cmd entries after the executable, before --ros-args."""
+        out = []
+        for entry in world_tf.cmd[1:]:
+            value = perform_substitutions(context, entry)
+            if value == "--ros-args":
+                break
+            out.append(value)
+        return out
+
+    assert not world_tf.condition.evaluate(context)
+    context.launch_configurations["world_tf"] = "true"
+    assert world_tf.condition.evaluate(context)
+    args = arguments()
+    assert args[args.index("--x") + 1] == "-2.0"
+    assert args[args.index("--y") + 1] == "1.5"
+    assert args[args.index("--frame-id") + 1] == "world"
+    assert args[args.index("--child-frame-id") + 1] == "odom"
+    context.launch_configurations["use_nav"] = "true"
+    args = arguments()
+    assert args[args.index("--child-frame-id") + 1] == "map"
+
+
 def test_default_gazebo_expands_arena_and_preserves_resources(tmp_path, monkeypatch):
     import hashlib
     from launch.actions import IncludeLaunchDescription

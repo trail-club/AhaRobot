@@ -13,8 +13,13 @@ basis (``axes``, ``centroid``) over the hull bounding box plus ``grid_margin``.
   board) whose centroid is ``overhead_min_gap`` to object height +
   ``height_margin`` above the support is blocked.
 - Placeable centers keep the circumscribed footprint radius r (valid for any
-  yaw) + ``edge_margin`` from the support edge and r + ``obstacle_margin``
-  from obstacles. ``clearance`` is the distance to the nearest blocking cell.
+  yaw) + ``edge_margin`` from the support edge and r + ``obstacle_margin`` +
+  the requested ``clearance`` (free space wanted around the object, e.g. the
+  5 cm between items of a breakfast setting) from obstacles and overhead
+  cells. The request's clearance does not grow the edge distance: it is
+  about the neighbouring objects, and the edge keeps its own margin (a
+  narrow shelf board would lose most spots otherwise). The output
+  ``clearance`` is the distance to the nearest blocking cell.
 
 Candidates are local clearance maxima, largest first (ties: closer to the
 support center; across planes: closer to the frame origin), or with ``near``
@@ -521,7 +526,7 @@ def _excluded_columns(frame, top, exclude) -> np.ndarray:
 
 
 def _support_grid(
-    plane, index, cloud, horizontal, size, radius, options, up, exclude=()
+    plane, index, cloud, horizontal, size, radius, options, up, exclude=(), spacing=0.0
 ):
     res = options.resolution
     inliers = np.asarray(plane.inliers, dtype=np.int64)
@@ -574,7 +579,7 @@ def _support_grid(
     placeable = (
         support
         & (edge >= radius + options.edge_margin)
-        & (free >= radius + options.obstacle_margin)
+        & (free >= radius + options.obstacle_margin + spacing)
     )
     return PlaceGrid(
         plane_index=index,
@@ -649,6 +654,7 @@ def find_place_candidates(
     exclude: Sequence[ExcludeBox] = (),
     viewpoint: Sequence[float] | None = None,
     plane_indices: Iterable[int] | None = None,
+    clearance: float = 0.0,
 ) -> PlaceResult:
     """Where an object of ``object_size`` (x, y footprint, z height; m) fits.
 
@@ -673,7 +679,9 @@ def find_place_candidates(
 
     ``plane_indices`` restricts the supports to these indices of ``planes``
     (e.g. the planes of tracked surfaces); ``labels`` then defaults to every
-    support label.
+    support label. ``clearance`` (m, >= 0) is free space required between
+    the footprint circle and obstacles (or overhead planes) beyond
+    ``options.obstacle_margin``; the support edge distance is unchanged.
     """
     options = options or PlaceOptions()
     noise = noise or DepthNoiseModel()
@@ -688,6 +696,9 @@ def find_place_candidates(
         raise ValueError(f"unknown support labels {unknown}, use {SUPPORT_LABELS}")
     if surface_height is not None and not np.isfinite(surface_height):
         raise ValueError(f"surface height must be finite, got {surface_height}")
+    clearance = float(clearance)
+    if not (np.isfinite(clearance) and clearance >= 0.0):
+        raise ValueError(f"clearance must be finite and >= 0, got {clearance}")
     tolerance = (
         float(height_tolerance)
         if height_tolerance is not None and height_tolerance > 0.0
@@ -718,7 +729,16 @@ def find_place_candidates(
     grids, ranked = [], []
     for i in supports:
         grid = _support_grid(
-            planes[i], i, cloud, horizontal, size, radius, options, up, exclude
+            planes[i],
+            i,
+            cloud,
+            horizontal,
+            size,
+            radius,
+            options,
+            up,
+            exclude,
+            clearance,
         )
         if grid is None:
             continue

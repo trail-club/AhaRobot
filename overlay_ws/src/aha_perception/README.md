@@ -86,6 +86,7 @@ ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=
 | `control_panel` | `true` | 操作パネルの起動 |
 | `use_sim_time` | `true` | bridge・点群node・RVizでシミュレーション時刻を使う |
 | `planes` | `false` | 平面検出（`plane_detection.launch.py`）の起動。`max_rate:=` も渡せる |
+| `furniture_config` | 空 | 平面検出に渡す[家具の設定](#家具の設定)のYAML |
 | `depth_noise` | `none` | Depthに加えるノイズ（`none` / `d435i_filtered` / `d435i_raw`、[Depthノイズ](#depthノイズ)） |
 
 Gazeboを止めずに表示だけ再起動する場合は `rviz:=false` で起動し、別ターミナルで `ros2 launch aha_perception sim_view.launch.py` を実行する。
@@ -201,7 +202,7 @@ ros2 launch aha_perception plane_detection.launch.py
 `plane_detection_node.py` はDepthとCameraInfoから点群を作り、画像時刻のTFで `target_frame` へ変換して平面を検出する。
 水平面と壁を出力し、最新の検出から置き場所の候補をserviceで返す（topic・service・型は [ROSインターフェース](../../../docs/interfaces.md#平面検出)）。
 処理が追いつかないフレームは捨てる。`rviz/sim_view.rviz` の `Planes` グループに平面と置き場所の候補の表示がある。
-launch引数は `method`・`target_frame`・`max_rate`。その他はノードのパラメータで変える（入力は `depth_topic`・`camera_info_topic`、既定はインターフェースの入力topic）。
+launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。その他はノードのパラメータで変える（入力は `depth_topic`・`camera_info_topic`、既定はインターフェースの入力topic）。
 
 | パラメータ | 既定 | 内容 |
 | --- | --- | --- |
@@ -217,6 +218,8 @@ launch引数は `method`・`target_frame`・`max_rate`。その他はノード�
 | `max_detection_age` | `3.0` | 置き場所のserviceが使う検出の古さの上限（s、wall clock）。0以下で無制限 |
 | `tracking_frame` | `odom` | 面（[面の追跡](#面の追跡)）を追跡するframe。z軸が上で、台車が動いても面が動かないframeにする |
 | `surface_confirm_hits` / `surface_max_misses` / `surface_max_unseen` | `2` / `5` / `120.0` | 面にIDを付けるまでの観測回数 / 視野内なのに観測されない検出が続くと消す回数 / 観測されないまま消すまでの時間（s、画像時刻） |
+| `furniture_config` | 空 | [家具の設定](#家具の設定)のYAMLのパス。空なら家具を使わない |
+| `furniture_margin` / `furniture_height_tolerance` | `0.10` / `0.05` | 面を家具の段に対応させる外形の広げ幅 / 段の高さとの差の上限（m） |
 
 `merge`・`noise_subpixel` の既定は較正したD435iのノイズで選んだ値で、ライブラリの既定（`merge=False`・0.08）とは異なる（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)）。
 
@@ -254,6 +257,42 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
 `restrict_height: true` では重心の高さが `surface_height` から `height_tolerance`（既定0.03 m）以内の支持面だけを使う。
 `surface_ids: [7]` を渡すと、最新の検出でその面に対応した平面だけを支持面にする（`surface_labels` を省くとラベルで絞らない）。
 最新の検出にない場合は `status` が `STATUS_NO_SURFACE` になる。候補の `surface_id` は支持面の面のID。
+`clearance: 0.05` は物体の周りの障害物との間を5 cm多く空ける（支持面の縁までの余裕は変えない）。
+似た物体の隣に置く場合は、その物体の位置を `near` に渡す（面の上の物体の種類は扱わない）。
+
+### 家具の設定
+
+事前に測った家具の外形と段の高さをYAMLに書き、`furniture_config` で渡すと、追跡した水平面を家具の段に対応させ、
+`get_place_candidates` で家具と段を名前で指定できる。
+
+```yaml
+frame: map            # 下のposeのframe（z上向き、床がz = 0）
+furniture:
+  - name: cabinet
+    category: shelf   # 自由な文字列
+    pose: {x: 1.2, y: -0.4, yaw: 1.57}   # 外形の中心、局所x軸（奥行き）の向き
+    size: {x: 0.35, y: 0.80}             # 奥行き x 幅（m）
+    levels: [0.05, 0.42, 0.78, 1.12]     # 各段の上面の高さ（m）、下から
+    board_thickness: 0.02                # 省略時0.02
+```
+
+- 段の番号は設定の一番下の段が1。段の上の空きは次の段の高さ − `board_thickness` − その段の高さ（一番上の段は制限なし）。
+- 面の重心を設定のframeへ変換し、`furniture_margin` だけ広げた外形の中にあり、段の高さとの差が `furniture_height_tolerance` 未満なら、最も近い段に対応させる。
+  複数の家具の外形に入る場合は外形の中心が最も近い家具にする。床・壁のラベルの面は対応させない（床の高さの段は対応しない）。
+- 名前の重複、大きさ0以下、段の高さが増えない設定は起動時のエラーになる。
+
+```bash
+ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
+  "{object_size: {x: 0.06, y: 0.06, z: 0.12}, furniture: shelf, furniture_level: 3, clearance: 0.05}"
+```
+
+シミュレーションのworldの家具は [config/furniture/rcjo2026_arena.yaml](config/furniture/rcjo2026_arena.yaml)（frame `world`、形状はworldのSDFから）。
+`world` のTFは `sim.launch.py world_tf:=true` が出す。
+
+```bash
+ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true world_tf:=true \
+  furniture_config:=$(ros2 pkg prefix aha_perception)/share/aha_perception/config/furniture/rcjo2026_arena.yaml
+```
 
 ### ライブラリ
 
@@ -262,6 +301,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - [`aha_perception.planes`](aha_perception/planes/__init__.py)：organized point cloudから平面を検出する。`detect_planes(cloud, method, options, params)`、手法は `DETECTORS`（8種）、ノードの出力の選択は `select_output_planes`。
 - [`aha_perception.place`](aha_perception/place.py)：`find_place_candidates` が検出した平面と点群から置き場所の候補を、`find_place_obstacles` が支持面の上の物体の箱を返す。格子・余裕・箱の既定は `PlaceOptions`。
 - [`aha_perception.surfaces`](aha_perception/surfaces.py)：`SurfaceTracker.update` が検出ごとの平面を追跡し、面のIDを返す。閾値の既定は `TrackerOptions`。
+- [`aha_perception.furniture`](aha_perception/furniture.py)：家具の設定の読み込み（`load_config`）と面の段への対応（`associate_surfaces`）。PyYAMLも使う。
 - [`aha_perception.depth_noise`](aha_perception/depth_noise.py)：D435i相当のDepthノイズ（`NOISE_PRESETS`）。`sim_depth_noise.py` とベンチマークで共通。
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
 
@@ -274,6 +314,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - 厚さ約2 cm未満の物体（本など）は障害物にならず、厚さ1 cmでは平面のインライアに入ってその上が候補になる。棚の一番下の段は上の棚板に遮られ、手前の一部しか見えない（シミュレーションで確認）。
 - 机（`table`）は高さ0.4–1.0 m・面積0.05 m²以上（`ClassifyOptions`）。範囲外の水平面（低い机、カウンター、小さい台）は棚板でなければ `other` になり、既定の支持面に入らない。
 - 面の追跡は `tracking_frame` の位置の誤差（odomのずれ）をそのまま受ける。戻ってきた面が前の凸包と重ならないほどずれると別のIDになる。
+- 家具の段への対応は設定の寸法と `tracking_frame` → 設定のframeのTFの誤差を受ける。重心のずれが `furniture_margin`、高さの差が `furniture_height_tolerance` を超えると対応しない。
 - 既定値は合成シーンと較正したノイズで選んだ（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)、[place.md](../../../tools/perception/plane_bench/results/place.md)）。実機ではGTを使った評価をしていない。
 
 ## テスト
@@ -282,7 +323,9 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 ```bash
 cd overlay_ws/src/aha_perception
-uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pytest \
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
-  test/test_surfaces.py test/test_imu_tilt.py
+  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py
 ```
+
+`test/test_plane_detection_node.py`（ノードのメッセージ変換）はROSのメッセージが必要で、colconでだけ実行する。

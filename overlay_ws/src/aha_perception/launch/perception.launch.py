@@ -14,6 +14,7 @@ arguments are read from the command line. Starts:
   - pointcloud.launch.py: /camera/depth/points
   - rviz:=true (default)  sim_view.launch.py (RViz, control panel, head look-at)
   - planes:=true          plane_detection.launch.py: /aha/perception/planes/*
+    (furniture_config:=<yaml> is passed to it)
 
 The real camera does not use this file: camera_view.launch.py (Mac/Linux
 RealSense stream through rosbridge) and real_head_camera.launch.py (real head
@@ -125,6 +126,9 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([share, "launch", "plane_detection.launch.py"])
         ),
+        launch_arguments={
+            "furniture_config": LaunchConfiguration("furniture_config"),
+        }.items(),
         condition=IfCondition(LaunchConfiguration("planes")),
     )
 
@@ -154,6 +158,11 @@ def generate_launch_description():
                 "planes",
                 default_value="false",
                 description="Start plane detection on the head depth camera",
+            ),
+            DeclareLaunchArgument(
+                "furniture_config",
+                default_value="",
+                description="Furniture YAML for plane detection (empty = none)",
             ),
             DeclareLaunchArgument(
                 "depth_noise",

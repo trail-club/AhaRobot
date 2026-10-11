@@ -200,6 +200,46 @@ def test_plane_indices_restrict_supports():
     assert scene.run(size, plane_indices=[]).candidates == []
 
 
+def test_clearance_keeps_distance_to_obstacles_only():
+    size = (0.06, 0.06, 0.12)
+    half = 0.05
+
+    def outside_box(p):
+        return (np.abs(p[:, 0] - CENTER[0]) > half) | (np.abs(p[:, 1]) > half)
+
+    scene = table_scene(outside_box)
+    scene.add(box_points(CENTER[0], 0.0, 0.75, 2 * half, 2 * half, 0.10))
+    options = PlaceOptions()
+    radius = footprint_radius(size)
+
+    def gaps(result):
+        """Per placeable cell: distance to the box, and to the table edge."""
+        g = result.grids[0]
+        centers = g.cell_points(np.argwhere(g.placeable))
+        d = np.maximum(np.abs(centers[:, :2] - CENTER[:2]) - half, 0.0)
+        edge = np.minimum.reduce(
+            [
+                centers[:, 0] - TABLE[0],
+                TABLE[1] - centers[:, 0],
+                centers[:, 1] - TABLE[2],
+                TABLE[3] - centers[:, 1],
+            ]
+        )
+        return np.linalg.norm(d, axis=1), edge
+
+    plain, plain_edge = gaps(scene.run(size))
+    wide, wide_edge = gaps(scene.run(size, clearance=0.05))
+    reach = radius + options.obstacle_margin
+    assert plain.min() == pytest.approx(reach, abs=0.015)
+    assert wide.min() >= reach + 0.05 - 0.01
+    assert wide.min() == pytest.approx(reach + 0.05, abs=0.015)
+    # The edge distance is not grown: spots along the far edge stay.
+    assert wide_edge.min() == pytest.approx(plain_edge.min(), abs=1e-9)
+    for bad in (-0.01, float("nan")):
+        with pytest.raises(ValueError):
+            scene.run(size, clearance=bad)
+
+
 def test_low_obstacle_points_are_ignored():
     scene = table_scene()
     scene.add(grid(1.3, 1.5, -0.1, 0.1, 0.76))  # 1 cm above the table

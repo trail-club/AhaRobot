@@ -12,6 +12,9 @@ planes:=true. Starts plane_detection_node.py:
        /aha/perception/surfaces (aha_msgs/SurfaceArray), in tracking_frame
   srv  /aha/perception/get_place_candidates (aha_msgs/GetPlaceCandidates),
        candidates shown on /aha/perception/place/markers (MarkerArray)
+  furniture_config:=<yaml>  furniture levels (aha_perception.furniture) for
+       Surface.furniture and the service's furniture requests, shown on
+       /aha/perception/furniture/markers; empty (default) = none
 
 The node gets aha_perception's Python dir prepended to PYTHONPATH, so it also
 starts from a shell sourced before that module existed.
@@ -61,6 +64,11 @@ def generate_launch_description():
                 default_value="5.0",
                 description="Maximum detections per second (0: as fast as possible)",
             ),
+            DeclareLaunchArgument(
+                "furniture_config",
+                default_value="",
+                description="Furniture YAML (aha_perception.furniture); empty = none",
+            ),
             # Wall clock on purpose, like head_look_at.py: the node only uses
             # image stamps (TF lookups, output stamps) and a wall-clock rate
             # limit, so handling /clock at 1 kHz would only cost CPU.
@@ -73,6 +81,9 @@ def generate_launch_description():
                         "target_frame": LaunchConfiguration("target_frame"),
                         "max_rate": ParameterValue(
                             LaunchConfiguration("max_rate"), value_type=float
+                        ),
+                        "furniture_config": ParameterValue(
+                            LaunchConfiguration("furniture_config"), value_type=str
                         ),
                     }
                 ],

@@ -37,6 +37,8 @@
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
+`sim.launch.py world_tf:=true`（既定 `false`）は初期位置（`spawn_x` / `spawn_y` / `spawn_yaw`）から
+`world` → `odom`（`use_nav:=true` では `world` → `map`）の静的TFを配信する。`odom` の原点は初期位置の床（`map` はslam_toolboxの起動時の `odom`）とみなす。
 
 ## タスク評価
 
@@ -234,6 +236,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 | 追跡した面（ID・ラベル・段・平面） | `/aha/perception/surfaces` | `aha_msgs/msg/SurfaceArray` |
 | 置き場所の候補（service） | `/aha/perception/get_place_candidates` | `aha_msgs/srv/GetPlaceCandidates` |
 | 置き場所の候補と障害物の表示（service呼び出し時） | `/aha/perception/place/markers` | `visualization_msgs/msg/MarkerArray` |
+| 家具の段の表示（`furniture_config` の指定時のみ、transient local） | `/aha/perception/furniture/markers` | `visualization_msgs/msg/MarkerArray` |
 
 入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
@@ -242,10 +245,14 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
 視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
 `object_categories` は今は空。追跡の規則は [aha_perception](../overlay_ws/src/aha_perception/README.md#面の追跡)を参照。
+`furniture` / `furniture_level` は家具の設定（パラメータ `furniture_config`、[家具の設定](../overlay_ws/src/aha_perception/README.md#家具の設定)）で
+その面が対応した家具の名前と段（1が設定の一番下の段）。対応しない面・設定なしでは空 / 0。
+対応には `tracking_frame` から設定のframeへのTFを使い、TFがない間は対応しない。
 `planes/cloud` は平面ごとに色分けしたインライア点。
 `planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
 `place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）、
 中心の球（ns `center`、1位は緑）、順位（ns `rank`）を、障害物ごとに箱（ns `obstacle`）を出す。
+`furniture/markers` は起動時に1回、設定のframeで段ごとに家具の外形の長方形（ns `level`）と `<名前> <段>` の文字（ns `label`）を出す。
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
 `object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
@@ -254,12 +261,18 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `exclude_regions`（`aha_msgs/PlaceObstacle` の箱、`base_footprint`、`plane_id` は無視）の中とカメラから見てその後ろの点は
 候補にも障害物の箱にも使わず、その下の支持面（物体の高さまで）は見えていないものとする。
 `surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
+`furniture` が空でなければ、最新の検出でその家具の `furniture_level`（0は物体の高さが入るすべての段）に対応した面だけを支持面にする
+（`surface_ids` もあれば両方に含まれる面、ラベルの扱いは `surface_ids` と同じ）。
+`clearance`（m）は候補の物体の外接円と障害物の間に `obstacle_margin` に加えて空ける距離で、支持面の縁までの距離は変えない。
+応答の `view_point` は要求した段の上面の中心（段0では段の高さの平均）を設定から求めて `tracking_frame` で表した点
+（TFがなければ `base_footprint`、家具の指定がないかTFがなければ `frame_id` が空）。段が見えていない場合に頭を向ける先に使う。
 候補の `pose` は `base_footprint`、`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
 `surface_id` はその面の `Surface.id`（まだIDがなければ0）、`planes` は候補を探した支持面、`stamp` は使った検出のDepthの時刻。
 `obstacles` は検出のすべての支持面（ラベル・高さ・IDの指定によらない、床を除く）の上の物体の箱（`aha_msgs/PlaceObstacle`、`base_footprint`）。
-検出がない・古い・引数やTFが不正な場合は `success` がfalseで `status` が `STATUS_ERROR`。
-それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面が最新の検出にない場合を含む）と `STATUS_NO_SURFACE`、
-置ける場所がないと `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。
+検出がない・古い・引数やTFが不正、家具の設定がない・家具や段が設定にない場合は `success` がfalseで `status` が `STATUS_ERROR`。
+それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面や家具の段が最新の検出にない場合を含む）と `STATUS_NO_SURFACE`、
+置ける場所がない（物体の高さ `object_size.z` が段の上の空き（次の段の高さ − 板の厚さ − 段の高さ）を超える場合を含む）と
+`STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行う。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
 ## 実機の頭部
