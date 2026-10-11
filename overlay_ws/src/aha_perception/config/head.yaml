@@ -1,0 +1,26 @@
+# Head pan/tilt config shared by head_look_at.py, sim_control_panel.py and
+# teleop_head.py (loaded as ROS parameters, see
+# aha_perception/head_config.py).
+#
+# Joint values are radians. Sign conventions (measured with TF):
+#   joint_head_pan  + = robot's right, - = left
+#   joint_head_tilt + = down,          - = up
+/**:
+  ros__parameters:
+    head:
+      # Set values; the real head's range has not been measured.
+      # pan: left 90 deg .. right 90 deg (URDF limit is +-1.57)
+      pan_limits: [-1.570, 1.570]
+      # tilt: up 30 deg .. down 60 deg
+      tilt_limits: [-0.524, 1.047]
+
+      # Move duration = max(|delta| / max_speed, min_duration)
+      max_speed: 1.0       # rad/s
+      min_duration: 0.3    # s
+
+      # Presets (parallel arrays, shown in this order)
+      preset_labels: ["正面", "テーブル", "床・足元", "左", "右"]
+      #               front  table      floor      left 60  right 60
+      preset_pan:    [0.0,   0.0,       0.0,       -1.047,  1.047]
+      #               -      down 25    down 50    -        -
+      preset_tilt:   [0.0,   0.436,     0.873,     0.0,     0.0]

@@ -11,6 +11,7 @@ on:
 jobs:
   claude-review:
     if: github.event.pull_request.draft == false
+    continue-on-error: true
 
     runs-on: ubuntu-latest
 
@@ -23,9 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Claude Code Review
+        id: claude_review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -57,7 +59,56 @@ jobs:
             Prefer inline comments on the relevant code.
             Only report issues that are actionable.
 
+            Write review comments and the final summary in Japanese.
+            Follow these Japanese writing rules:
+            - Make the subject and object of each action or state clear. Name the subject when it changes or when multiple subjects are possible.
+            - In body text, use predicates that show who does what or what state something is in. Noun-ending fragments are acceptable in headings and labels.
+            - Aim to address one main point per sentence. Split sentences when the subject or point changes, or when conditions or exceptions accumulate.
+            - Choose the order of explanation and connective expressions so readers can understand causes and results, contrasts, conditions, additions, and examples. Omit connectives when the relation is obvious.
+            - Make clear what demonstratives and modifiers refer to.
+            - Use the same term for the same thing and distinguish different things. For example, use one consistent term when 「目標」 and 「ゴール」 refer to the same thing.
+            - Preserve technical meaning and certainty while improving readability.
+
           claude_args: |
             --model claude-sonnet-5-5
             --effort high
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      - name: Show Claude error details
+        if: >-
+          always() &&
+          steps.claude_review.outcome == 'failure' &&
+          steps.claude_review.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          execution_file = os.environ["EXECUTION_FILE"]
+          with open(execution_file, encoding="utf-8") as source:
+              messages = json.load(source)
+
+          found_error = False
+          for message in messages:
+              if not isinstance(message, dict):
+                  continue
+              if message.get("type") != "result" or not message.get("is_error"):
+                  continue
+
+              found_error = True
+              print("Claude error result:")
+              detail = message.get("result")
+              if detail:
+                  if isinstance(detail, str):
+                      print(detail)
+                  else:
+                      print(json.dumps(detail, ensure_ascii=False, indent=2))
+              errors = message.get("errors")
+              if errors:
+                  print(json.dumps(errors, ensure_ascii=False, indent=2))
+
+          if not found_error:
+              print("No is_error result message was found in the execution file.")
+          PY

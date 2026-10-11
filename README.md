@@ -10,7 +10,7 @@ RoboCup@Home（OPL）向けのROS 2ソフトウェアスタック。
 | `overlay_ws/` | AhaRobot独自のROSパッケージ |
 | `upstream/` | Astraコード・ファームウェア・CAD、SOBITS / TMC資源のsubmodule |
 | `docker/` | 開発コンテナ |
-| `tools/` | 知覚・サーボ・ファームウェアのツール |
+| `tools/` | 知覚・サーボ・ファームウェア・ローカルLLMのツール |
 | `docs/` | 開発・起動手順とインターフェース |
 | `docs/context/` | 実機実験・CAD・検証結果の補助資料 |
 

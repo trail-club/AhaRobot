@@ -29,4 +29,4 @@ setup・起動・テストは同じ `.venv-perception-macos` を使い、`uv syn
 追加後はsetupまたはテストを実行して専用venvへ同期する。
 ROS側のビルド・テストを含めた確認はホストから `make test` を実行する。
 
-実機の観測結果は[カメラ検証記録](../../../docs/context/perception.md)を参照する。
+実機の観測結果は[カメラ検証記録](../../../docs/context/camera.md)を参照する。
