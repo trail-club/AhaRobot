@@ -1,0 +1,31 @@
+{
+  "frame_id": "map",
+  "locations": {
+    "waiting": [1.25, 1.6, 3.141593],
+    "entrance": [-4.2, 1.5, 3.141593],
+    "study_chair_left": [1.75, 2.5, 1.570796],
+    "study_chair_right": [0.75, 2.5, 1.570796],
+    "host": [2.7, 1.8, 1.570796],
+    "bag_drop": [2.8, -1.8, -1.570796]
+  },
+  "steps": [
+    {"id": "wait_guest_1", "navigate": "waiting"},
+    {"id": "doorbell_1", "skip": "Doorbell detection is not integrated"},
+    {"id": "meet_guest_1", "navigate": "entrance"},
+    {"id": "greet_guest_1", "skip": "Door opening, greeting, gaze and name/drink recognition are not integrated"},
+    {"id": "escort_guest_1", "navigate": "study_chair_left"},
+    {"id": "seat_guest_1", "skip": "Seat detection and pointing are not integrated"},
+    {"id": "wait_guest_2", "navigate": "waiting"},
+    {"id": "doorbell_2", "skip": "Doorbell detection is not integrated"},
+    {"id": "meet_guest_2", "navigate": "entrance"},
+    {"id": "greet_guest_2", "skip": "Greeting, gaze, name/drink recognition and visual description are not integrated"},
+    {"id": "receive_bag", "skip": "Bag handover is not integrated"},
+    {"id": "escort_guest_2", "navigate": "study_chair_right"},
+    {"id": "seat_guest_2", "skip": "Seat detection and pointing are not integrated"},
+    {"id": "introduce_guests", "skip": "Guest recognition, gaze and introductions are not integrated"},
+    {"id": "meet_host", "navigate": "host"},
+    {"id": "follow_host", "skip": "Person following is replaced by navigation to the fixed bag_drop label"},
+    {"id": "carry_bag", "navigate": "bag_drop"},
+    {"id": "drop_bag", "skip": "Bag placement is not integrated"}
+  ]
+}

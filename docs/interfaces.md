@@ -84,6 +84,22 @@ world poseの座標はworld、policyのodom座標は `odom`。
 slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
 LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
 
+## 固定地図のnavigation・Human Interaction（シミュレーションのみ）
+
+[aha_tasks](../overlay_ws/src/aha_tasks/README.md)の専用launchでは、SLAMの代わりに
+map_serverが `/map`、AMCLが `map → odom` を配信する。同時にSLAMを起動しない。
+Nav2は既存の `/diff_drive_controller/odom` を読み、
+`/diff_drive_controller/cmd_vel` へTwistStampedを送信する。
+teleopや別タスクから同時に速度指令を送らない。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 地点への移動action | `/navigate_to_pose` | `nav2_msgs/action/NavigateToPose` |
+| ラベルと到着姿勢の表示 | `/aha/tasks/locations` | `visualization_msgs/msg/MarkerArray` |
+
+ゴールと表示のframeは `map`。MarkerArrayはRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。
+タスクの進行・スキップ・失敗はnodeのログに出力する。新しい独自msgは追加しない。
+
 ## 頭部カメラ
 
 | Topic | 型 |
