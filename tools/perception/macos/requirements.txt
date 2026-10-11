@@ -1,3 +1,0 @@
-# Mac host dependencies for the RealSense -> rosbridge development path.
-numpy>=1.26,<3
-websocket-client>=1.8,<2

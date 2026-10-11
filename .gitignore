@@ -7,6 +7,7 @@ log/
 __pycache__/
 *.pyc
 .venv/
+/.venv-perception-macos/
 .tool-versions
 
 # Editors
@@ -32,3 +33,5 @@ overlay_ws/evaluation-results*
 docs/personal/
 
 tools/servo/*.csv
+/artifacts/perception/
+/.cache-sam31/

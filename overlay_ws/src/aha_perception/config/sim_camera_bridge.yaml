@@ -4,7 +4,7 @@
 #
 # The Gazebo rgbd_camera (aha_description/urdf/sensors.xacro) is bridged to
 # the same topics as the real RealSense pipeline
-# (tools/perception/macos/stream_realsense.py): depth is aligned to color and
+# (tools/perception/macos/pointcloud/stream_realsense.py): depth is aligned to color and
 # every message is stamped with frame_id camera_color_optical_frame.
 # The Gazebo point cloud (head_camera/points) is intentionally not bridged;
 # pointcloud.launch.py builds /camera/depth/points with depth_image_proc,

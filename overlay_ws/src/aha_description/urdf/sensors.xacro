@@ -40,7 +40,7 @@
   <xacro:property name="camera_mount_xyz" value="${camera_back_offset + camera_body_x/2} 0 0"/>
   <xacro:property name="camera_mount_rpy" value="${pi/2} 0 0"/>
 
-  <!-- Head camera stream, matching tools/perception/macos/stream_realsense.py -->
+  <!-- Head camera stream, matching tools/perception/macos/pointcloud/stream_realsense.py -->
   <xacro:property name="camera_width"  value="640"/>
   <xacro:property name="camera_height" value="480"/>
   <xacro:property name="camera_rate"   value="15"/>

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -17,7 +16,23 @@ SDK_REPOSITORY = "https://github.com/realsenseai/librealsense.git"
 
 
 def main() -> int:
-    if importlib.util.find_spec("pyrealsense2") is not None:
+    # A binding can exist while its SDK dylib has been removed. Probe loading
+    # in a child so a failed dlopen cannot contaminate the build process.
+    probe_env = os.environ.copy()
+    sdk_lib = Path(sys.prefix) / "realsense-sdk/lib"
+    probe_env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
+        filter(None, (str(sdk_lib), probe_env.get("DYLD_LIBRARY_PATH", "")))
+    )
+    if (
+        subprocess.run(
+            [sys.executable, "-c", "import pyrealsense2"],
+            env=probe_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 0
+    ):
         return 0
 
     missing = [
@@ -94,7 +109,9 @@ def main() -> int:
     )
     subprocess.run(["cmake", "--build", str(build), "--parallel", "4"], check=True)
     subprocess.run(["cmake", "--install", str(build)], check=True)
-    if importlib.util.find_spec("pyrealsense2") is None:
+    if subprocess.run(
+        [sys.executable, "-c", "import pyrealsense2"], env=probe_env, check=False
+    ).returncode:
         print(
             "[perception] SDK build finished but pyrealsense2 was not installed",
             file=sys.stderr,

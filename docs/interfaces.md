@@ -96,7 +96,7 @@ LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）に�
 | 経路 | 起動 | 上3topicの配信元 |
 | --- | --- | --- |
 | シミュレーション | `sim.launch.py use_perception:=true` | Gazeboの `rgbd_camera`（640×480、15 Hz）を `ros_gz_bridge` で変換 |
-| 実機カメラ | [カメラツール](../tools/perception/macos/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
+| 実機カメラ | [カメラツール](../tools/perception/macos/pointcloud/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
 | 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
 
 `/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)

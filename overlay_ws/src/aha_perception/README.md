@@ -1,10 +1,16 @@
 # aha_perception
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、
-シミュレーションの左右の手首RGBカメラのbridge。
-topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)、
-macOSのカメラ経路は [カメラツール](../../../tools/perception/macos/README.md)を参照。
+シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
+topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
+
+- [Macカメラツール](../../../tools/perception/macos/pointcloud/README.md): RGB-DをROSへ配信し、RVizで点群を表示する。
+- [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md): Macで撮影し、DGX Sparkで推論して結果を保存する。
+
+`aha_perception.sam31` が単一フレームのモデル推論・マスク処理・深度集計を行い、
+`aha_perception.sam31_worker` が対話検証用の常駐ワーカーを提供する。
+SAM検証はROS topicを使わず、カメラ表示launchとは独立して動作する。
 
 ## launch
 
@@ -122,5 +128,5 @@ TFはrobot_state_publisher（`sim:=false`）とjoint_state_publisherが出す。
 `/joint_states` の頭は `/head_controller/joint_states`、その他の関節は0。
 Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッジはエラーで終了する。
 
-`camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/README.md#rosbridgeへの直接送信)
+`camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
 で既定の `ws://127.0.0.1:9090` へ送ると、RVizに点群が表示される。
