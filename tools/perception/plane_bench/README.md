@@ -197,6 +197,7 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --wi
 ```
 
 - `--configs`（既定 `sub=0.08 sub=0.12,merge=on`、名前 `current` / `node`）・`--labels` は `make_tuning_figures.py` と同じ形式。
+  `node_stride=N` を加えると [設定の比較](#設定の比較) と同じ間引きで検出し、画素数（GT・coverage・merge の下限）も間引いた画素で数える（図は出せない）。
 - `--presets`（既定 `d435i_filtered d435i_raw default`）・`--methods`・`--frames`・`--max-depth`・`--scenes`・`--jobs`・`--figures`（既定3シーン）。
 - `--keep-downward`：下向きの水平面を残す選択（`ClassifyOptions(drop_downward=False)`）も ` +keep` として並べる。
 
@@ -227,6 +228,7 @@ GTの作り方は [`run_place.py`](run_place.py) のdocstringを参照。
   `--groups`（既定 `bench shelf place`）・`--scenes`・`--jobs`・`--figures`（既定3シーン、`<scene>[:<サイズの番号>]`）。
 - `--variants`：`PlaceOptions` の上書き（例 `default obstacle_k=3 edge_margin=0.03,obstacle_margin=0.03`）、`--labels` で名前を付ける。
 - `--node-stride`（既定1）：[設定の比較](#設定の比較) と同じ間引き。variantは `PlaceOptions.for_input_stride` を通す。
+- `--detector`（既定 `sub=0.12,merge=on`）：検出器の設定（`make_tuning_figures.py` の `--configs` と同じ形式、例 `sub=0.12,merge=on,hole_iterations=4`）。
 - 1回の呼び出しで最大50候補を返させ、全候補を評価する。
 
 | 指標 | 定義 |

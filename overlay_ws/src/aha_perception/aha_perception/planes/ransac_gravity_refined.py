@@ -7,6 +7,11 @@ connected in the image to its RANSAC inliers, small pieces are dropped, small
 holes are closed with pixels that are still on the plane, and the planes are
 refitted on the final inliers. With ``merge=True`` coplanar fragments are
 merged before and after the refinement.
+
+``refine_k_high`` > ``refine_k`` adds hysteresis to the assignment
+(``refine.assign_seeded``); it is off by default because in the synthetic
+study it mostly added pixels across object and surface boundaries
+(tools/perception/plane_bench/results/tuning.md).
 """
 
 from __future__ import annotations
@@ -25,6 +30,9 @@ from .types import DetectionOptions, Plane
 @dataclass
 class RansacGravityRefinedParams(ransac_gravity.RansacGravityParams):
     refine_k: float = 3.0
+    # Hysteresis: pixels within refine_k_high sigma join through connected
+    # refine_k pieces; <= refine_k disables it.
+    refine_k_high: float = 0.0
     min_component_pixels: int = 50
     hole_iterations: int = 2
     hole_k: float = 4.0
@@ -33,7 +41,9 @@ class RansacGravityRefinedParams(ransac_gravity.RansacGravityParams):
 def refine_planes(frame, planes, options, params) -> np.ndarray:
     """Full-resolution label image for already detected planes."""
     models = [(p.normal, p.offset) for p in planes]
-    labels = assign_seeded(frame, planes, params.refine_k, options)
+    labels = assign_seeded(
+        frame, planes, params.refine_k, options, params.refine_k_high
+    )
     labels = keep_seeded_components(
         labels, [p.inliers for p in planes], params.min_component_pixels
     )

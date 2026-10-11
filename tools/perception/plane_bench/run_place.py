@@ -424,9 +424,9 @@ def node_options(frame, max_depth, config):
     )
 
 
-def node_config(node_stride: int):
+def node_config(node_stride: int, detector: str = NODE_CONFIG):
     return parse_config(
-        f"{NODE_CONFIG},node_stride={node_stride}", [METHOD], node_stride=True
+        f"{detector},node_stride={node_stride}", [METHOD], node_stride=True
     )
 
 
@@ -440,10 +440,10 @@ def detect(frame, max_depth, config):
 
 def run_job(job):
     """Frame, candidate and surface records of one (scene, preset) sequence."""
-    name, preset, max_depth, n_frames, sizes, variants, labels, node_stride = job
+    name, preset, max_depth, n_frames, sizes, variants, labels, stride, detector = job
     group, scene = find_scene(name)
-    config = node_config(node_stride)
-    variants = [v.for_input_stride(node_stride) for v in variants]
+    config = node_config(stride, detector)
+    variants = [v.for_input_stride(stride) for v in variants]
     frames = make_sequence(scene, preset, max_depth, n_frames)
     surfaces = scene_surfaces(scene, frames[0].intrinsics, max_depth)
     gts = {size: [surface_gt(s, scene, size) for s in surfaces] for size in sizes}
@@ -663,7 +663,7 @@ def build_report(args, frames, cands, surfs, elapsed):
         f"- CPU: {_cpu_name()}, single thread per process; Python "
         f"{platform.python_version()}, numpy {np.__version__}, scipy {scipy.__version__}",
         f"- {len(args.scene_names)} scenes, {args.frames} frames per sequence, depth "
-        f"{MIN_DEPTH:g}-{args.max_depth:g} m, detector `{METHOD}` `{NODE_CONFIG}` "
+        f"{MIN_DEPTH:g}-{args.max_depth:g} m, detector `{METHOD}` `{args.detector}` "
         f"(node output, node stride {args.node_stride}; variants through "
         "`PlaceOptions.for_input_stride`), presets with focal = fx",
         f"- Object sizes (x x y x z m): {', '.join(args.size_names)}; up to "
@@ -709,14 +709,24 @@ def _project(points, frame):
     )
 
 
-def make_figure(path, scene, preset, size, options, label, max_depth, node_stride=1):
+def make_figure(
+    path,
+    scene,
+    preset,
+    size,
+    options,
+    label,
+    max_depth,
+    node_stride=1,
+    detector=NODE_CONFIG,
+):
     """Depth error, candidates in the image and top views of the supports."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    config = node_config(node_stride)
+    config = node_config(node_stride, detector)
     frame = make_sequence(scene, preset, max_depth, 1)[0]
     planes, points, depth, noise = detect(frame, max_depth, config)
     result = find_place_candidates(
@@ -842,6 +852,12 @@ def main():
         default=1,
         help="node parameter stride (every N-th row and column of the image)",
     )
+    parser.add_argument(
+        "--detector",
+        default=NODE_CONFIG,
+        help="detector configuration like make_tuning_figures.py --configs, e.g. "
+        f"{NODE_CONFIG},refine_k_high=5",
+    )
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument(
         "--figures",
@@ -860,6 +876,7 @@ def main():
     if args.node_stride < 1:
         parser.error("--node-stride must be >= 1")
     try:
+        node_config(args.node_stride, args.detector)
         sizes = [parse_size(text) for text in args.sizes]
         options = [parse_variant(text) for text in args.variants]
     except ValueError as error:
@@ -889,6 +906,7 @@ def main():
             options,
             args.labels,
             args.node_stride,
+            args.detector,
         )
         for scene in scenes
         for preset in args.presets
@@ -938,6 +956,7 @@ def main():
             args.labels[0],
             args.max_depth,
             args.node_stride,
+            args.detector,
         )
         print(f"wrote {path}", flush=True)
 

@@ -5,6 +5,8 @@ fast helpers must match their straightforward versions. A change that alters
 the expected values is a behaviour change, not an optimisation.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from scipy.ndimage import binary_closing
@@ -20,7 +22,12 @@ from aha_perception.planes import (
 from aha_perception.planes.geometry import convex_hull_2d
 from aha_perception.planes.normals import smallest_eigh3
 from aha_perception.planes.preprocess import Frame
-from aha_perception.planes.refine import EIGHT, fill_holes, keep_seeded_components
+from aha_perception.planes.refine import (
+    EIGHT,
+    assign_seeded,
+    fill_holes,
+    keep_seeded_components,
+)
 
 # (label, inlier count) of ransac_gravity_refined with merge, per input stride.
 EXPECTED = {
@@ -55,6 +62,105 @@ def test_node_detector_output_is_unchanged(render_cloud, camera_pose, stride):
     assert [(p.label.value, len(p.inliers)) for p in planes] == EXPECTED[stride]
     heights = [float(p.centroid[2]) for p in planes]
     assert heights == pytest.approx(EXPECTED_HEIGHTS[stride], abs=1e-3)
+
+
+@pytest.mark.parametrize("k_high", [2.0, 3.0])
+def test_refine_k_high_up_to_refine_k_keeps_output(render_cloud, camera_pose, k_high):
+    scene = render_cloud(
+        horizontal=[(0.0, -5, 5, -5, 5), (0.72, 1.0, 1.8, -0.6, 0.6)],
+        vertical=[(2.6, -3, 3, 0.0, 2.5)],
+        noise_scale=1.0,
+        seed=7,
+    )
+    options = DetectionOptions(camera_to_base=camera_pose())
+    params_type = DETECTORS["ransac_gravity_refined"].params_type
+    cloud = scene[::2, ::2]
+    expected = detect_planes(
+        cloud, "ransac_gravity_refined", options, params_type(merge=True)
+    )
+    planes = detect_planes(
+        cloud,
+        "ransac_gravity_refined",
+        options,
+        params_type(merge=True, refine_k_high=k_high),
+    )
+    assert len(planes) == len(expected)
+    for plane, reference in zip(planes, expected):
+        assert np.array_equal(plane.inliers, reference.inliers)
+        assert np.array_equal(plane.normal, reference.normal)
+
+
+def _flat_frame(z, valid=None):
+    """Points (0, 0, z) at depth 1 m; NaN where invalid like prepared frames."""
+    h, w = z.shape
+    valid = np.ones((h, w), dtype=bool) if valid is None else valid
+    points = np.zeros((h, w, 3))
+    points[..., 2] = z
+    points[~valid] = np.nan
+    depth = np.where(valid, 1.0, np.nan)
+    return Frame(points, depth, valid, 1, points, depth, valid, np.zeros(3))
+
+
+def test_assign_seeded_hysteresis_grows_through_weak_pixels():
+    options = DetectionOptions()
+    unit = max(3.0 * float(options.noise.sigma(np.array(1.0))), 0.005)
+    ratio = np.full((20, 30), 0.5)
+    ratio[:, 10:12] = 1.3  # weak at k 3, strong enough at k 5
+    ratio[:, 20:22] = 2.0  # beyond k 5
+    frame = _flat_frame(ratio * unit)
+    seeds = np.ravel_multi_index(np.nonzero(np.ones((20, 3), dtype=bool)), (20, 30))
+    plane = SimpleNamespace(normal=np.array([0.0, 0.0, 1.0]), offset=0.0, inliers=seeds)
+
+    taken = assign_seeded(frame, [plane], 3.0, options) == 0
+    assert taken[:, :10].all() and not taken[:, 10:].any()
+    taken = assign_seeded(frame, [plane], 3.0, options, k_high=5.0) == 0
+    assert taken[:, :20].all() and not taken[:, 20:].any()
+
+    # A seed on a weak pixel alone does not start a piece.
+    weak_seed = SimpleNamespace(normal=plane.normal, offset=0.0, inliers=np.array([10]))
+    assert (assign_seeded(frame, [weak_seed], 3.0, options, k_high=5.0) < 0).all()
+
+
+def test_assign_seeded_hysteresis_matches_two_step_version():
+    rng = np.random.default_rng(5)
+    options = DetectionOptions()
+    h, w = 60, 80
+    for _ in range(5):
+        frame = _flat_frame(
+            np.kron(rng.normal(scale=0.012, size=(15, 20)), np.ones((4, 4))),
+            rng.random((h, w)) > 0.05,
+        )
+        planes = []
+        for _ in range(3):
+            normal = np.array([rng.normal(scale=0.01), 0.0, 1.0])
+            planes.append(
+                SimpleNamespace(
+                    normal=normal / np.linalg.norm(normal),
+                    offset=float(rng.normal(scale=0.005)),
+                    inliers=rng.choice(h * w, 30, replace=False),
+                )
+            )
+        limit = np.maximum(3.0 * options.noise.sigma(frame.depth), 0.005)
+        expected = np.full((h, w), -1, dtype=np.int32)
+        best = np.full((h, w), 5.0 / 3.0)
+        for index, plane in enumerate(planes):
+            with np.errstate(invalid="ignore"):
+                ratio = np.abs(frame.points @ plane.normal + plane.offset) / limit
+                strong, n = connected_label(ratio < 1.0, structure=EIGHT)
+                seeded = np.zeros(n + 1, dtype=bool)
+                seeded[strong.reshape(-1)[plane.inliers]] = True
+                seeded[0] = False
+                weak, m = connected_label(ratio < 5.0 / 3.0, structure=EIGHT)
+                grown = np.zeros(m + 1, dtype=bool)
+                grown[weak[seeded[strong]]] = True
+                grown[0] = False
+                take = grown[weak] & (ratio < best)
+            best[take] = ratio[take]
+            expected[take] = index
+        out = assign_seeded(frame, planes, 3.0, options, k_high=5.0)
+        assert np.array_equal(out, expected)
+        without = assign_seeded(frame, planes, 3.0, options)
+        assert (out >= 0).sum() > (without >= 0).sum()
 
 
 def test_params_for_input_stride():

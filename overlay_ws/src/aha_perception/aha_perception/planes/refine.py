@@ -86,22 +86,39 @@ def _seeded(mask: np.ndarray, seeds: np.ndarray) -> np.ndarray:
     return hit[components]
 
 
-def assign_seeded(frame: Frame, planes, k: float, options: DetectionOptions):
+def assign_seeded(
+    frame: Frame,
+    planes,
+    k: float,
+    options: DetectionOptions,
+    k_high: float | None = None,
+):
     """Label image of ``planes`` (with ``normal``, ``offset``, ``inliers``).
 
     A plane may take the pixels with ratio < 1 that are connected in the image
     to its inliers; each pixel goes to the plane with the smallest ratio. Same
     result as ``assign_pixels`` with those masks as candidates, but every
     plane's ratio image is computed once for both steps.
+
+    With ``k_high > k`` (hysteresis) a plane may instead take the pixels within
+    ``k_high * sigma(z)`` that are connected through such pixels to an inlier
+    with ratio < 1, i.e. to a seeded ratio < 1 piece; ``k_high <= k`` gives
+    the result above.
     """
     shape = frame.valid.shape
     limit = limit_image(frame, k, options)
+    high = max(1.0, (k_high or 0.0) / k)
     out = np.full(shape, -1, dtype=np.int32)
-    best = np.full(shape, 1.0)
+    best = np.full(shape, high)
     for index, plane in enumerate(planes):
         ratio = residual_ratio(frame, plane.normal, plane.offset, limit)
+        seeds = plane.inliers
         with np.errstate(invalid="ignore"):
-            take = _seeded(ratio < 1.0, plane.inliers)
+            if high > 1.0:
+                # A weak piece needs a strong seed; at high == 1 seeds with
+                # ratio >= 1 fall outside the mask anyway.
+                seeds = seeds[ratio.reshape(-1)[seeds] < 1.0]
+            take = _seeded(ratio < high, seeds)
             take &= ratio < best
         best[take] = ratio[take]
         out[take] = index

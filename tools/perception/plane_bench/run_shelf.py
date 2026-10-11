@@ -41,7 +41,7 @@ from aha_perception.planes import (  # noqa: E402
 from aha_perception.planes.classify import is_horizontal  # noqa: E402
 from configs import parse_config  # noqa: E402
 from run_bench import _cpu_name, _table, _write_csv  # noqa: E402
-from run_sequence import MIN_DEPTH, make_sequence  # noqa: E402
+from run_sequence import MIN_DEPTH, make_sequence, node_frame  # noqa: E402
 from scenes import (  # noqa: E402
     _FACES,
     NOISE_PRESETS,
@@ -176,7 +176,20 @@ def plane_height_at(plane, xy) -> float:
     return float(-(n[0] * xy[0] + n[1] * xy[1] + d) / n[2])
 
 
-def evaluate_frame(frame, outputs, info, options):
+def node_view(frames, info, config):
+    """Frames and face identity as the detector sees them with the node stride.
+
+    Pixel counts (GT, coverage) then count the kept pixels; ``top_px`` stays at
+    the full resolution.
+    """
+    if config.node_stride == 1:
+        return frames, info
+    shape = frames[0].labels.shape
+    role = config.decimate(info.role.reshape(shape)).reshape(-1)
+    return [node_frame(f, config) for f in frames], dataclasses.replace(info, role=role)
+
+
+def evaluate_frame(frame, outputs, info, options, mix_min_px=MIX_MIN_PX):
     """Per-board and per-plane place statistics of one frame's output planes."""
     labels = frame.labels.reshape(-1)
     horizontal = [p for p in outputs if is_horizontal(p.normal, options)]
@@ -240,7 +253,7 @@ def evaluate_frame(frame, outputs, info, options):
         n = len(plane.inliers)
         share = count / n
         mixed = np.flatnonzero(
-            (surface_count >= MIX_SHARE * n) & (surface_count >= MIX_MIN_PX)
+            (surface_count >= MIX_SHARE * n) & (surface_count >= mix_min_px)
         )
         on_board = [s for s in mixed if s in info.board_surface]
         merge = ""
@@ -309,7 +322,9 @@ def run_job(job):
     boards, planes, runs = [], [], []
     for method in methods:
         for config, label in zip(configs, labels):
-            detections = detect_sequence(frames, method, max_depth, config)
+            seen, seen_info = node_view(frames, info, config)
+            mix_min_px = MIX_MIN_PX // config.node_stride**2
+            detections = detect_sequence(seen, method, max_depth, config)
             # The keep-downward variant only changes the selection.
             for variant in [False, True] if keep else [False]:
                 run = dict(
@@ -317,14 +332,14 @@ def run_job(job):
                 )
                 counts = []
                 for t, (frame, (all_planes, selected, options, _)) in enumerate(
-                    zip(frames, detections)
+                    zip(seen, detections)
                 ):
                     if variant:
                         options = keep_downward_options(options)
                         selected = select_output_planes(all_planes, options)
                     counts.append(len(selected))
                     board_recs, plane_recs = evaluate_frame(
-                        frame, selected, info, options
+                        frame, selected, seen_info, options, mix_min_px
                     )
                     boards += [dict(run, frame=t, **r) for r in board_recs]
                     planes += [dict(run, frame=t, **r) for r in plane_recs]
@@ -743,7 +758,7 @@ def main():
         "--configs",
         nargs="+",
         default=DEFAULT_CONFIGS,
-        help="detector configurations, e.g. sub=0.08 sub=0.12,merge=on",
+        help="detector configurations, e.g. sub=0.08 sub=0.12,merge=on,node_stride=2",
     )
     parser.add_argument("--labels", nargs="*", default=None, help="config labels")
     parser.add_argument(
@@ -773,9 +788,13 @@ def main():
         if unknown:
             parser.error(f"unknown {name} {unknown}, choose from {sorted(valid)}")
     try:
-        configs = [parse_config(text, args.methods) for text in args.configs]
+        configs = [
+            parse_config(text, args.methods, node_stride=True) for text in args.configs
+        ]
     except ValueError as error:
         parser.error(str(error))
+    if args.figures and any(c.node_stride != 1 for c in configs):
+        parser.error("figures need node_stride 1; pass --figures without names")
     if args.labels is None:
         default = args.configs == DEFAULT_CONFIGS
         args.labels = DEFAULT_LABELS if default else [c.label for c in configs]
