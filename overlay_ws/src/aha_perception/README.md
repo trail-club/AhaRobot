@@ -1,7 +1,7 @@
 # aha_perception
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出と置き場所の候補、
-シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
+シミュレーションの左右の手首RGBカメラのbridgeと物体検出（真の姿勢から）、SAM 3.1のセグメンテーション検証。
 topic・frame・serviceは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
 
@@ -36,12 +36,13 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
+| `sim_object_detector.py` | シミュレーション専用。Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定する（`aha_perception.head_config`）。
 符号は +pan = ロボットの右、+tilt = 下。可動範囲は設定値で、実機の頭の可動域は測定していない。
 操作パネルは `/diff_drive_controller/cmd_vel` に10 Hzで送り、離すと0を1回送る。送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`、車輪の上限は約0.42 m/s）。
-`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py`・`sim_depth_noise.py` はwall clockで動く。
+`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py`・`sim_depth_noise.py`・`sim_object_detector.py` はwall clockで動く。
 `head_look_at.py`・`plane_detection_node.py` はシミュレーションの再起動・リセットを検知するとTFバッファを消す。
 
 `arm_controls:=true`（[aha_manipulationの操作画面](../aha_manipulation/README.md#rviz操作画面)が指定）では右手・左手の欄を追加する。
@@ -88,6 +89,7 @@ ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=
 | `planes` | `false` | 平面検出（`plane_detection.launch.py`）の起動。`max_rate:=` も渡せる |
 | `furniture_config` | 空 | 平面検出に渡す[家具の設定](#家具の設定)のYAML |
 | `depth_noise` | `none` | Depthに加えるノイズ（`none` / `d435i_filtered` / `d435i_raw`、[Depthノイズ](#depthノイズ)） |
+| `objects` / `objects_config` | `false` / 空 | [シミュレーションの物体検出](#シミュレーションの物体検出)の起動と物体リスト（空はパッケージの `config/objects/robocup_objects.yaml`） |
 
 Gazeboを止めずに表示だけ再起動する場合は `rviz:=false` で起動し、別ターミナルで `ros2 launch aha_perception sim_view.launch.py` を実行する。
 RVizのPublish Pointツール（`/clicked_point`）は `/aha/perception/look_at` へremapしてあり、
@@ -112,6 +114,32 @@ ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true depth_no
 プリセットは実機D435iの静止フレームに合わせた値（[較正](../../../tools/perception/plane_bench/README.md#ノイズの較正)）。
 Gazebo側はDepthにノイズを設定していない（`aha_description/urdf/sensors.xacro` のノイズはRGBの `camera_rgb_noise_stddev`）。
 ノードのパラメータは `preset`（launchの `depth_noise`）・`seed`（既定0）・入出力topic。
+
+### シミュレーションの物体検出
+
+```bash
+ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true objects:=true
+```
+
+ROSの物体検出器がないため、`sim_object_detector.py` がGazeboのモデルの真の姿勢から `/aha/perception/objects`
+（`aha_msgs/DetectedObjectArray`、[ROSインターフェース](../../../docs/interfaces.md#物体検出シミュレーションのみ)）を出す。
+対象は名前が物体リスト（[config/objects/robocup_objects.yaml](config/objects/robocup_objects.yaml)、`aha_perception.object_list`）の
+パターン（既定はラベルの空白を `_` にした名前と `<それ>_*`、例：`tuna_can_2` は `tuna can`）に合うモデルだけ。
+物体の中心か上面の中心が画像に入り、そこのDepthがその点より手前（中心は物体の最大寸法の半分 + `depth_tolerance`）でなければ見えているとする。
+姿勢はロボットのモデル（原点が `base_footprint`）からの相対で、Depthの時刻のTFで `output_frame` に直す（カメラの検出器と同じくodomのずれを含む）。
+`class_name` はラベル、`track_id` はモデルごとの番号、`size` はリストの大きさ、`confidence` は1。
+GZ_PARTITIONはシミュレーションと同じにする（launchから起動すれば同じ）。
+
+| パラメータ | 既定 | 内容 |
+| --- | --- | --- |
+| `objects_config` | 空 | 物体リスト（空はパッケージのもの） |
+| `output_frame` / `base_frame` / `robot_model` | `odom` / `base_footprint` / `aha_robot` | 出力のframe（TFがなければ `base_frame`）、ロボットのGazeboのモデル名 |
+| `rate` | `2.0` | 出力の上限頻度（Hz、wall clock、最新のDepthで判定） |
+| `depth_tolerance` / `image_margin` | `0.03` / `4.0` | 見えているとするDepthの余裕（m）、画像の縁の除外（px） |
+| `pose_noise` | `0.01` | 位置に加える正規分布のσ（m、軸・検出ごと）。共分散にも入れる |
+| `miss_rate` / `mislabel_rate` / `seed` | `0.0` / `0.0` / `0` | 見落とす割合、別のラベルにする割合。`seed` とモデル名ごとに決め、`seed` を変えるまで同じ物体が見落とされる・間違われる |
+
+パラメータは実行中に `ros2 param set` で変えられる。物体の向き・遮蔽の割合・検出器の誤差特性は再現しない。
 
 ## 実機の頭部とカメラ
 
@@ -304,6 +332,8 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - [`aha_perception.furniture`](aha_perception/furniture.py)：家具の設定の読み込み（`load_config`）と面の段への対応（`associate_surfaces`）。PyYAMLも使う。
 - [`aha_perception.depth_noise`](aha_perception/depth_noise.py)：D435i相当のDepthノイズ（`NOISE_PRESETS`）。`sim_depth_noise.py` とベンチマークで共通。
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
+- [`aha_perception.object_list`](aha_perception/object_list.py)：物体リスト（ラベル・カテゴリ・大きさ・Gazeboのモデル名）の読み込み。PyYAMLも使う。
+- [`aha_perception.sim_object_detection`](aha_perception/sim_object_detection.py)：`sim_object_detector.py` の見えているかの判定と見落とし・ラベルの誤り。
 
 ### 制限
 
@@ -325,7 +355,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
-  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py
+  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py
 ```
 
 `test/test_plane_detection_node.py`（ノードのメッセージ変換）はROSのメッセージが必要で、colconでだけ実行する。

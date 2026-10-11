@@ -14,6 +14,8 @@ find_package(ament_cmake_python REQUIRED)
 # aha_perception.plane_detection_io: ROS message conversions for the depth nodes
 # aha_perception.depth_noise: D435i depth noise model for sim_depth_noise.py
 # aha_perception.tf_jump: TF listener that detects sim restarts
+# aha_perception.object_list: object labels, categories, sizes and sim model names
+# aha_perception.sim_object_detection: visibility and corruption of simulated detections
 ament_python_install_package(${PROJECT_NAME})
 
 install(
@@ -29,6 +31,7 @@ install(
     scripts/plane_detection_node.py
     scripts/sim_control_panel.py
     scripts/sim_depth_noise.py
+    scripts/sim_object_detector.py
     scripts/teleop_head.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -46,6 +49,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_furniture test/test_furniture.py TIMEOUT 60)
   ament_add_pytest_test(test_plane_detection_node test/test_plane_detection_node.py TIMEOUT 60)
   ament_add_pytest_test(test_imu_tilt test/test_imu_tilt.py TIMEOUT 60)
+  ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
+  ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)
 endif()
 
 ament_package()

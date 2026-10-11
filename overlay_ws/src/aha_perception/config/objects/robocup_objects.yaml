@@ -1,0 +1,31 @@
+# Object list: labels, categories and sizes of the objects the robot knows
+# (aha_perception.object_list). Used by sim_object_detector.py (Gazebo model
+# name -> label, size of the detection).
+#
+# size: x, y footprint and z height (m). shape: box | cylinder (diameter x).
+# models: fnmatch patterns of the Gazebo model names detected as the label;
+# default [<label with "_" for spaces>, <same>_*], e.g. "tuna can" matches the
+# models tuna_can and tuna_can_2. Sizes are typical of the RoboCup@Home object
+# set, simplified to boxes / upright cylinders for the simulation.
+objects:
+  # fruit
+  - {label: apple, category: fruit, shape: cylinder, size: [0.075, 0.075, 0.075]}
+  - {label: orange, category: fruit, shape: cylinder, size: [0.07, 0.07, 0.07]}
+  - {label: lemon, category: fruit, shape: cylinder, size: [0.055, 0.055, 0.06]}
+  - {label: peach, category: fruit, shape: cylinder, size: [0.07, 0.07, 0.065]}
+  # food
+  - {label: tuna can, category: food, shape: cylinder, size: [0.085, 0.085, 0.045]}
+  - {label: spam, category: food, shape: box, size: [0.06, 0.10, 0.08]}
+  - {label: tomato soup, category: food, shape: cylinder, size: [0.067, 0.067, 0.10]}
+  - {label: cup noodle, category: food, shape: cylinder, size: [0.095, 0.095, 0.11]}
+  # drink
+  - {label: green tea, category: drink, shape: cylinder, size: [0.065, 0.065, 0.20]}
+  - {label: lemonade, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
+  - {label: cola, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
+  - {label: milk, category: drink, shape: box, size: [0.07, 0.07, 0.19]}
+  # snack
+  - {label: pringles, category: snack, shape: cylinder, size: [0.075, 0.075, 0.23]}
+  - {label: cookies, category: snack, shape: box, size: [0.06, 0.10, 0.15]}
+  # cleaning supplies
+  - {label: cleanser, category: cleaning supplies, shape: cylinder, size: [0.07, 0.07, 0.20]}
+  - {label: sponge, category: cleaning supplies, shape: box, size: [0.09, 0.06, 0.04]}

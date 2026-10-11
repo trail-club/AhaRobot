@@ -275,6 +275,20 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行う。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
+## 物体検出（シミュレーションのみ）
+
+`perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
+`sim_object_detector.py` がGazeboの真の姿勢から頭部カメラに見える物体を出す。実機の物体検出器はまだない。
+判定・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 検出した物体（ラベル・track ID・姿勢・大きさ） | `/aha/perception/objects` | `aha_msgs/msg/DetectedObjectArray` |
+
+frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`）、時刻は判定に使ったDepthの時刻、2 Hz以下（RELIABLE）。
+`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
+`pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
+
 ## 実機の頭部
 
 `real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
@@ -290,5 +304,6 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、`PickObject`、`TaskCommand` の型定義がある。
-型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出) が使う）。
+型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ) が使う）。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

@@ -15,6 +15,8 @@ arguments are read from the command line. Starts:
   - rviz:=true (default)  sim_view.launch.py (RViz, control panel, head look-at)
   - planes:=true          plane_detection.launch.py: /aha/perception/planes/*
     (furniture_config:=<yaml> is passed to it)
+  - objects:=true         sim_object_detector.py: /aha/perception/objects from
+    Gazebo ground truth (objects_config:=<yaml> for another object list)
 
 The real camera does not use this file: camera_view.launch.py (Mac/Linux
 RealSense stream through rosbridge) and real_head_camera.launch.py (real head
@@ -132,6 +134,16 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("planes")),
     )
 
+    # Wall clock: the node copies the depth stamps.
+    objects = Node(
+        package="aha_perception",
+        executable="sim_object_detector.py",
+        parameters=[{"objects_config": LaunchConfiguration("objects_config")}],
+        additional_env=python_env(),
+        condition=IfCondition(LaunchConfiguration("objects")),
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -170,10 +182,21 @@ def generate_launch_description():
                 choices=DEPTH_NOISE_CHOICES,
                 description="D435i depth noise preset added by sim_depth_noise.py",
             ),
+            DeclareLaunchArgument(
+                "objects",
+                default_value="false",
+                description="Start the simulated object detector (Gazebo ground truth)",
+            ),
+            DeclareLaunchArgument(
+                "objects_config",
+                default_value="",
+                description="Object list YAML of the detector (empty = the package's)",
+            ),
             camera_bridge,
             depth_noise_node,
             pointcloud,
             sim_view,
             planes,
+            objects,
         ]
     )
