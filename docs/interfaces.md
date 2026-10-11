@@ -251,6 +251,8 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
 `surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ最新のTFで `base_footprint` へ変換し、その点に近い順に並べる。
 `restrict_height` がtrueなら、高さが `surface_height`（`base_footprint` のz）から `height_tolerance`（0以下は0.03 m）以内の支持面だけを使う。
+`exclude_regions`（`aha_msgs/PlaceObstacle` の箱、`base_footprint`、`plane_id` は無視）の中とカメラから見てその後ろの点は
+候補にも障害物の箱にも使わず、その下の支持面（物体の高さまで）は見えていないものとする。
 `surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
 候補の `pose` は `base_footprint`、`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
 `surface_id` はその面の `Surface.id`（まだIDがなければ0）、`planes` は候補を探した支持面、`stamp` は使った検出のDepthの時刻。

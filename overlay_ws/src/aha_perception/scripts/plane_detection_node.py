@@ -59,12 +59,13 @@ The latest detection is kept for the service
 runs aha_perception.place.find_place_candidates and find_place_obstacles on
 it and publishes the result on /aha/perception/place/markers (MarkerArray:
 DELETEALL, then per candidate a disc of the clearance radius (ns
-"clearance"), the center (ns "center") and the rank (ns "rank"), and per
-obstacle a box (ns "obstacle")). Detections older than max_detection_age
-seconds (wall clock) are not used. With surface_ids only the planes of the
-latest detection assigned to those surfaces are supports (STATUS_NO_SURFACE
-if none is); status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE
-without candidates and STATUS_ERROR (success false) on errors.
+"clearance"), the center (ns "center") and the rank (ns "rank"), per
+obstacle a box (ns "obstacle") and per request exclude region a box (ns
+"exclude")). Detections older than max_detection_age seconds (wall clock)
+are not used. With surface_ids only the planes of the latest detection
+assigned to those surfaces are supports (STATUS_NO_SURFACE if none is);
+status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE without
+candidates and STATUS_ERROR (success false) on errors.
 
 The TF buffer and the surfaces are cleared when a /tf stamp goes back (sim
 restart or reset).
@@ -112,6 +113,7 @@ from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
 from aha_perception.place import (
+    ExcludeBox,
     PlaceOptions,
     PlaceStatus,
     base_cloud,
@@ -346,7 +348,20 @@ def make_obstacle_msg(obstacle):
     )
 
 
-def make_place_markers(header, candidates, obstacles=()):
+def exclude_boxes(regions):
+    """aha_perception.place.ExcludeBox of PlaceObstacle messages (target_frame)."""
+    boxes = []
+    for region in regions:
+        p, q = region.pose.position, region.pose.orientation
+        if q.x == q.y == q.z == q.w == 0.0:
+            q = Quaternion(w=1.0)
+        matrix = transform_to_matrix((p.x, p.y, p.z), (q.x, q.y, q.z, q.w))
+        size = (region.size.x, region.size.y, region.size.z)
+        boxes.append(ExcludeBox.of(matrix[:3, 3], matrix[:3, :3], size))
+    return boxes
+
+
+def make_place_markers(header, candidates, obstacles=(), excluded=()):
     markers = [Marker(action=Marker.DELETEALL)]
     for k, obstacle in enumerate(obstacles):
         box = Marker(header=header, ns="obstacle", id=k, type=Marker.CUBE)
@@ -354,6 +369,13 @@ def make_place_markers(header, candidates, obstacles=()):
         box.pose = obstacle_pose(obstacle)
         box.scale = to_vector(obstacle.size)
         box.color = ColorRGBA(r=1.0, g=0.3, b=0.2, a=0.4)
+        markers.append(box)
+    for k, region in enumerate(excluded):
+        box = Marker(header=header, ns="exclude", id=k, type=Marker.CUBE)
+        box.action = Marker.ADD
+        box.pose = region.pose
+        box.scale = region.size
+        box.color = ColorRGBA(r=0.6, g=0.6, b=0.6, a=0.25)
         markers.append(box)
     for rank, candidate in enumerate(candidates):
         x, y, z, w = quaternion_from_z_axis(candidate.normal)
@@ -835,7 +857,10 @@ class PlaneDetection(Node):
 
         start = time.perf_counter()
         points, depth = base_cloud(detection.cloud, detection.camera_to_base)
+        # Points behind the exclude boxes, seen from the camera, are edge noise.
+        viewpoint = detection.camera_to_base[:3, 3]
         try:
+            exclude = exclude_boxes(request.exclude_regions)
             result = find_place_candidates(
                 detection.planes,
                 points,
@@ -848,12 +873,20 @@ class PlaneDetection(Node):
                 max_candidates=int(request.max_candidates) or None,
                 surface_height=surface_height,
                 height_tolerance=float(request.height_tolerance),
+                exclude=exclude,
+                viewpoint=viewpoint,
                 plane_indices=plane_indices,
             )
         except ValueError as e:
             return fail(str(e))
         obstacles = find_place_obstacles(
-            detection.planes, points, depth, detection.noise, self.place_options
+            detection.planes,
+            points,
+            depth,
+            detection.noise,
+            self.place_options,
+            exclude=exclude,
+            viewpoint=viewpoint,
         )
         elapsed_ms = (time.perf_counter() - start) * 1e3
 
@@ -868,14 +901,17 @@ class PlaneDetection(Node):
         response.obstacles = [make_obstacle_msg(o) for o in obstacles]
         support_ids = sorted({detection.surface_ids[i] for i in result.supports} - {0})
         restriction = "" if surface_height is None else f" at {surface_height:.2f} m"
+        excluded = f", {len(exclude)} excluded boxes" if exclude else ""
         response.message = (
             f"{PlaceStatus(result.status).name}: {len(result.candidates)} candidates "
             f"on {len(result.supports)} support planes{restriction} "
-            f"(surfaces {support_ids}), {len(obstacles)} obstacles, "
+            f"(surfaces {support_ids}), {len(obstacles)} obstacles{excluded}, "
             f"detection {age:.1f} s old"
         )
         self.place_marker_pub.publish(
-            make_place_markers(header, result.candidates, obstacles)
+            make_place_markers(
+                header, result.candidates, obstacles, request.exclude_regions
+            )
         )
         self.get_logger().info(
             f"place {size[0]:g} x {size[1]:g} x {size[2]:g} m: {response.message}, "

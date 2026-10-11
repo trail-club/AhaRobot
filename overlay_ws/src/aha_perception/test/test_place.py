@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from aha_perception.place import (
+    ExcludeBox,
     PlaceOptions,
     PlaceStatus,
     base_cloud,
@@ -241,6 +242,15 @@ def test_height_restriction_picks_the_board():
     assert {c.plane_index for c in scene.run(size).candidates} == {0, 1}
 
 
+def test_height_restriction_combines_with_plane_indices():
+    scene = shelf_scene()
+    size = (0.08, 0.08, 0.10)
+    both = scene.run(size, plane_indices=[0, 1], surface_height=0.62)
+    assert both.supports == [1] and both.status == PlaceStatus.OK
+    none = scene.run(size, plane_indices=[0], surface_height=0.62)
+    assert none.supports == [] and none.status == PlaceStatus.NO_SURFACE
+
+
 def test_height_restriction_without_a_match_is_no_surface():
     scene = shelf_scene()
     size = (0.08, 0.08, 0.10)
@@ -379,6 +389,103 @@ def test_speckle_and_points_off_the_plane_are_not_boxes():
     floor = Scene().add(grid(0.5, 1.5, -0.5, 0.5, 0.0), PlaneLabel.FLOOR)
     floor.add(box_points(1.0, 0.0, 0.0, 0.1, 0.1, 0.2))
     assert floor.obstacles() == []
+
+
+def held_box(center, size, padding=0.02):
+    return ExcludeBox.of(center, np.eye(3), np.asarray(size) + 2 * padding)
+
+
+def test_object_under_the_held_object_stays_a_separate_box():
+    # A 0.08 m box on the table and the held object (0.06 x 0.06 x 0.12) 1.5 cm
+    # above it: one merged box without the exclusion, the real box with it.
+    scene = table_scene()
+    scene.add(box_points(1.2, 0.0, 0.75, 0.06, 0.06, 0.08))
+    held_bottom = 0.75 + 0.08 + 0.015
+    scene.add(box_points(1.2, 0.0, held_bottom, 0.06, 0.06, 0.12))
+    (merged,) = scene.obstacles()
+    assert merged.size[2] > 0.18
+    held = held_box([1.2, 0.0, held_bottom + 0.06], (0.06, 0.06, 0.12))
+    (box,) = scene.obstacles(exclude=[held])
+    np.testing.assert_allclose(box.center[:2], [1.2, 0.0], atol=0.01)
+    assert 0.06 <= box.size[2] <= 0.08 + 1e-6
+    assert sorted(box.size[:2]) == pytest.approx([0.06, 0.06], abs=0.015)
+
+
+def test_object_beside_the_held_object_stays_a_separate_box():
+    scene = table_scene()
+    scene.add(box_points(1.2, 0.0, 0.75, 0.06, 0.06, 0.10))
+    # Held object touching it from the side, lower part below its top.
+    scene.add(box_points(1.2, 0.065, 0.80, 0.06, 0.06, 0.12))
+    held = held_box([1.2, 0.065, 0.86], (0.06, 0.06, 0.12), padding=0.005)
+    (box,) = scene.obstacles(exclude=[held])
+    np.testing.assert_allclose(box.center[:2], [1.2, 0.0], atol=0.01)
+    assert box.size[2] == pytest.approx(0.10, abs=0.01)
+
+
+def test_support_under_an_exclude_box_is_unobserved():
+    size = (0.06, 0.06, 0.12)
+    # A hand 0.10 m above the table center: its column is not placeable,
+    # although the table under it is seen.
+    hand = ExcludeBox.of([1.4, 0.0, 0.90], np.eye(3), (0.2, 0.2, 0.06))
+    result = table_scene().run(size, exclude=[hand])
+    grid_ = result.grids[0]
+    under = grid_.sample(grid_.support, np.array([[1.4, 0.0, 0.75]]))
+    assert not under[0]
+    for c in result.candidates:
+        d = np.maximum(np.abs(c.position[:2] - [1.4, 0.0]) - 0.1, 0.0)
+        assert np.linalg.norm(d) >= footprint_radius(size) - 0.01
+    # Above the band top (object height + height_margin) it does not matter.
+    high = ExcludeBox.of([1.4, 0.0, 1.10], np.eye(3), (0.2, 0.2, 0.06))
+    grid_ = table_scene().run(size, exclude=[high]).grids[0]
+    assert grid_.sample(grid_.support, np.array([[1.4, 0.0, 0.75]]))[0]
+
+
+def test_edge_noise_behind_the_held_object_is_dropped_with_the_viewpoint():
+    # Flying pixels: points on the camera rays through the held object's
+    # silhouette, between it and the table, 2-10 cm above the table.
+    scene = table_scene()
+    center = np.array([1.2, 0.0, 0.90])
+    scene.add(box_points(1.2, 0.0, 0.84, 0.06, 0.06, 0.12))
+    edge = np.array(
+        [[1.2 + dx, dy, 0.84] for dx in (-0.03, 0.03) for dy in (-0.03, 0.03)]
+    )
+    edge = np.concatenate([edge + [0.0, 0.0, dz] for dz in np.arange(0.0, 0.12, 0.01)])
+    noise = []
+    for p in edge:
+        ray = p - CAMERA
+        for t in np.linspace(1.02, 1.5, 40):
+            q = CAMERA + t * ray
+            if 0.77 <= q[2] <= 0.85:
+                noise.append(q)
+    scene.add(np.array(noise))
+    held = held_box(center, (0.06, 0.06, 0.12))
+    assert scene.obstacles(exclude=[held]), "the noise alone makes a box"
+    assert scene.obstacles(exclude=[held], viewpoint=CAMERA) == []
+    # The table behind the held object is hidden too, not free.
+    result = table_scene().run((0.06, 0.06, 0.12), exclude=[held], viewpoint=CAMERA)
+    behind = CAMERA + 1.25 * (center - CAMERA)
+    grid_ = result.grids[0]
+    assert not grid_.sample(grid_.observed, behind[None])[0]
+
+
+def test_exclude_box_hides_points_on_the_line_of_sight():
+    box = ExcludeBox.of([1.0, 0.0, 1.0], np.eye(3), (0.1, 0.1, 0.1))
+    eye = np.array([0.0, 0.0, 1.0])
+    points = np.array([[2.0, 0.0, 1.0], [0.5, 0.0, 1.0], [2.0, 0.5, 1.0], [1.0, 0, 1]])
+    assert box.hides(eye, points).tolist() == [True, False, False, True]
+
+
+def test_exclude_box_contains_and_segments():
+    yaw = math.radians(45)
+    c, s = math.cos(yaw), math.sin(yaw)
+    rotation = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+    box = ExcludeBox.of([1.0, 0.0, 1.0], rotation, (0.2, 0.02, 0.1))
+    inside = box.contains(np.array([[1.06, 0.06, 1.0], [1.06, -0.06, 1.0]]))
+    assert inside.tolist() == [True, False]
+    starts = np.array([[1.06, 0.06, 0.5], [1.06, -0.06, 0.5], [1.0, 0.0, 0.5]])
+    hits = box.hits_segments(starts, np.array([0.0, 0.0, 0.6]))
+    assert hits.tolist() == [True, False, True]
+    assert not box.hits_segments(starts, np.array([0.0, 0.0, 0.4])).any()
 
 
 def test_base_cloud():

@@ -29,6 +29,14 @@ planning band above the plane, each as the minimum-area rectangle of its
 points and a high percentile of their heights. Unobserved cells are not
 obstacles.
 
+Both take ``exclude`` boxes (``ExcludeBox``: the robot's arms and the held
+object): points inside them, or with ``viewpoint`` (the camera) also behind
+them on the line of sight (depth edge noise of their silhouettes), are
+dropped first, so an object touching the held object stays a separate box.
+For the candidates, cells whose column above the support (up to the object
+band top) meets an exclude box are unobserved as well. 17 boxes with a
+viewpoint added about 0.2 s on a full 640x480 cloud (uniform random points).
+
 ROS free (numpy / scipy only); the inputs are the planes of
 ``aha_perception.planes`` and the organized cloud they were detected in.
 """
@@ -243,6 +251,54 @@ class PlaceObstacle:
         return math.atan2(float(self.rotation[1, 0]), float(self.rotation[0, 0]))
 
 
+@dataclass(frozen=True)
+class ExcludeBox:
+    """Oriented box in the output frame whose points are not used."""
+
+    center: np.ndarray
+    rotation: np.ndarray  # 3x3, columns: box axes
+    size: np.ndarray  # full extents along the axes (m)
+
+    @classmethod
+    def of(cls, center, rotation, size) -> ExcludeBox:
+        return cls(
+            np.asarray(center, dtype=np.float64).reshape(3),
+            np.asarray(rotation, dtype=np.float64).reshape(3, 3),
+            np.abs(np.asarray(size, dtype=np.float64).reshape(3)),
+        )
+
+    def contains(self, points: np.ndarray) -> np.ndarray:
+        local = (np.asarray(points, dtype=np.float64) - self.center) @ self.rotation
+        return (np.abs(local) <= self.size / 2).all(axis=-1)
+
+    def hits_segments(self, starts: np.ndarray, delta: np.ndarray) -> np.ndarray:
+        """Whether the segments ``starts`` .. ``starts + delta`` meet the box
+        (``starts`` and ``delta`` are (N, 3) or (3,), broadcast)."""
+        o = (np.asarray(starts, dtype=np.float64) - self.center) @ self.rotation
+        d = np.asarray(delta, dtype=np.float64) @ self.rotation
+        o, d = np.broadcast_arrays(np.atleast_2d(o), np.atleast_2d(d))
+        half = self.size / 2
+        lo = np.zeros(len(o))
+        hi = np.ones(len(o))
+        hit = np.ones(len(o), dtype=bool)
+        for k in range(3):
+            flat = np.abs(d[:, k]) < 1e-12
+            hit &= ~flat | (np.abs(o[:, k]) <= half[k])
+            step = np.where(flat, 1.0, d[:, k])
+            t1 = np.where(flat, -np.inf, (-half[k] - o[:, k]) / step)
+            t2 = np.where(flat, np.inf, (half[k] - o[:, k]) / step)
+            lo = np.maximum(lo, np.minimum(t1, t2))
+            hi = np.minimum(hi, np.maximum(t1, t2))
+        return hit & (lo <= hi)
+
+    def hides(self, viewpoint, points: np.ndarray) -> np.ndarray:
+        """Whether the box is on the line of sight from ``viewpoint`` to each
+        point (or contains it): the camera sees such points only through the
+        box's silhouette, as depth edge noise (flying pixels)."""
+        viewpoint = np.asarray(viewpoint, dtype=np.float64).reshape(3)
+        return self.hits_segments(viewpoint, np.asarray(points) - viewpoint)
+
+
 def base_cloud(cloud: np.ndarray, camera_to_base: np.ndarray):
     """Output-frame points and optical depth of an organized camera cloud."""
     cloud = np.asarray(cloud, dtype=np.float64)
@@ -347,13 +403,49 @@ def _sorted_pick(points, order, spacing, limit) -> list[int]:
     return picked
 
 
-class _Cloud:
-    """Finite points of the organized cloud with their noise thresholds."""
+def _excluded(points, exclude, viewpoint=None) -> np.ndarray:
+    """Mask of (N, 3) points inside the boxes, or with ``viewpoint`` hidden by
+    them. A cheap test against each box's circumscribed sphere (distance, or
+    the cone of view from ``viewpoint``) selects the points tested exactly."""
+    out = np.zeros(len(points), dtype=bool)
+    if viewpoint is not None:
+        viewpoint = np.asarray(viewpoint, dtype=np.float64).reshape(3)
+        rays = points - viewpoint
+        lengths = np.linalg.norm(rays, axis=1)
+        directions = rays / np.maximum(lengths, 1e-9)[:, None]
+    for box in exclude:
+        radius = float(np.linalg.norm(box.size)) / 2
+        if viewpoint is None:
+            near = np.einsum("ij,ij->i", points - box.center, points - box.center)
+            index = np.flatnonzero(near <= radius * radius)
+            out[index[box.contains(points[index])]] = True
+            continue
+        to_box = box.center - viewpoint
+        distance = float(np.linalg.norm(to_box))
+        if distance <= radius:
+            index = np.arange(len(points))
+        else:
+            cos_cone = math.sqrt(1.0 - (radius / distance) ** 2)
+            index = np.flatnonzero(
+                (directions @ (to_box / distance) >= cos_cone)
+                & (lengths >= distance - radius)
+            )
+        out[index[box.hides(viewpoint, points[index])]] = True
+    return out
 
-    def __init__(self, points, depth, noise, options):
+
+class _Cloud:
+    """Finite points of the organized cloud outside the exclude boxes, with
+    their noise thresholds."""
+
+    def __init__(self, points, depth, noise, options, exclude=(), viewpoint=None):
         flat = np.asarray(points, dtype=np.float64).reshape(-1, 3)
         self.flat = flat
         finite = np.isfinite(flat[:, 2])
+        if exclude:
+            index = np.flatnonzero(finite)
+            finite[index[_excluded(flat[index], exclude, viewpoint)]] = False
+        self.valid = finite  # per flat index
         self.index = np.flatnonzero(finite)  # flat index of each point
         z = np.asarray(depth, dtype=np.float64).reshape(-1)[finite]
         self.points = flat[finite]
@@ -416,21 +508,40 @@ class _PlaneFrame:
         return np.bincount(flat[inside], minlength=size).reshape(self.shape)
 
 
-def _support_grid(plane, index, cloud, horizontal, size, radius, options, up):
+def _excluded_columns(frame, top, exclude) -> np.ndarray:
+    """Cells whose column from the plane up to ``top`` meets an exclude box."""
+    cells = np.indices(frame.shape).reshape(2, -1).T
+    uv = frame.lower + cells * frame.resolution
+    starts = frame.origin + uv @ frame.axes
+    starts = starts - np.outer(starts @ frame.normal + frame.offset, frame.normal)
+    out = np.zeros(len(starts), dtype=bool)
+    for box in exclude:
+        out |= box.hits_segments(starts, frame.normal * top)
+    return out.reshape(frame.shape)
+
+
+def _support_grid(
+    plane, index, cloud, horizontal, size, radius, options, up, exclude=()
+):
     res = options.resolution
-    inlier_points = cloud.flat[np.asarray(plane.inliers, dtype=np.int64)]
-    inlier_points = inlier_points[np.isfinite(inlier_points[:, 2])]
+    inliers = np.asarray(plane.inliers, dtype=np.int64)
+    inlier_points = cloud.flat[inliers[cloud.valid[inliers]]]
     if len(inlier_points) < 3 or len(plane.hull) < 3:
         return None
     frame = _PlaneFrame.of(plane, up, options)
     shape, u, v = frame.shape, frame.u, frame.v
+    top = size[2] + options.height_margin
 
     observed = frame.counts(inlier_points) > 0
     hull_mask = convex_mask(plane.hull, u, v)
     closed = binary_closing(observed, _disk(options.support_closing))
     support = closed & hull_mask
+    if exclude:
+        # Where the robot is, the support is not known to be free.
+        hidden = _excluded_columns(frame, top, exclude)
+        observed &= ~hidden
+        support &= ~hidden
 
-    top = size[2] + options.height_margin
     height = cloud.points @ frame.normal + frame.offset
     band = (height >= cloud.band_low) & (height <= top)
     obstacle = frame.counts(cloud.points[band]) >= options.obstacle_min_points
@@ -535,6 +646,8 @@ def find_place_candidates(
     up: Sequence[float] = (0.0, 0.0, 1.0),
     surface_height: float | None = None,
     height_tolerance: float | None = None,
+    exclude: Sequence[ExcludeBox] = (),
+    viewpoint: Sequence[float] | None = None,
     plane_indices: Iterable[int] | None = None,
 ) -> PlaceResult:
     """Where an object of ``object_size`` (x, y footprint, z height; m) fits.
@@ -547,7 +660,10 @@ def find_place_candidates(
     <= 0: DEFAULT_HEIGHT_TOLERANCE) of it remain. ``points`` is the organized
     (H, W, 3) cloud the planes were detected in, transformed to the output
     frame (NaN = invalid), and ``depth`` its (H, W) optical depth for
-    ``noise`` (the detector's model).
+    ``noise`` (the detector's model). Points inside ``exclude`` boxes, or
+    behind them seen from ``viewpoint`` (the camera position, output frame),
+    are dropped, and support cells whose column up to the band top meets one
+    are unobserved.
 
     Candidates are ordered by clearance (largest first) or, with ``near``
     (output frame), by distance to it among all placeable cells. At most
@@ -597,10 +713,13 @@ def find_place_candidates(
             if abs(float(np.asarray(planes[i].centroid) @ up) - surface_height)
             <= tolerance
         ]
-    cloud = _Cloud(points, depth, noise, options)
+    exclude = tuple(exclude)
+    cloud = _Cloud(points, depth, noise, options, exclude, viewpoint)
     grids, ranked = [], []
     for i in supports:
-        grid = _support_grid(planes[i], i, cloud, horizontal, size, radius, options, up)
+        grid = _support_grid(
+            planes[i], i, cloud, horizontal, size, radius, options, up, exclude
+        )
         if grid is None:
             continue
         grids.append(grid)
@@ -725,6 +844,8 @@ def find_place_obstacles(
     noise: DepthNoiseModel | None = None,
     options: PlaceOptions | None = None,
     up: Sequence[float] = (0.0, 0.0, 1.0),
+    exclude: Sequence[ExcludeBox] = (),
+    viewpoint: Sequence[float] | None = None,
 ) -> list[PlaceObstacle]:
     """Boxes of what stands on the horizontal planes facing up whose label is
     in ``options.box_labels`` (inputs as ``find_place_candidates``).
@@ -733,18 +854,19 @@ def find_place_obstacles(
     max(obstacle_min_height, obstacle_k * sigma(Z)) to the band top
     (``box_max_height``, lowered to ``cap_margin`` under a covering plane
     above) are rasterized on the plane grid; inliers of structure planes
-    (floor, table, shelf, wall) and points near walls are left out. Each
-    8-connected component of cells with ``obstacle_min_points`` points that
-    touches the plane hull becomes a box: the minimum-area rectangle of its
-    points on the plane and the ``box_height_percentile`` of their heights;
-    components filling less than ``box_min_fill`` of the rectangle are split
-    into tiles.
+    (floor, table, shelf, wall), points near walls and points inside (or,
+    with ``viewpoint``, behind) the ``exclude`` boxes are left out. Each
+    8-connected component of cells with
+    ``obstacle_min_points`` points that touches the plane hull becomes a box:
+    the minimum-area rectangle of its points on the plane and the
+    ``box_height_percentile`` of their heights; components filling less than
+    ``box_min_fill`` of the rectangle are split into tiles.
     """
     options = options or PlaceOptions()
     noise = noise or DepthNoiseModel()
     up = _unit(up)
     horizontal = _horizontal(planes, up, options)
-    cloud = _Cloud(points, depth, noise, options)
+    cloud = _Cloud(points, depth, noise, options, tuple(exclude), viewpoint)
     structure = np.zeros(len(cloud.flat), dtype=bool)
     for plane in planes:
         if PlaneLabel(plane.label).value in STRUCTURE_LABELS:

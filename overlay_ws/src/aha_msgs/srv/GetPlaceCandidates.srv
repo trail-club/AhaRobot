@@ -10,6 +10,11 @@ uint32                     max_candidates   # 0 = default (10)
 bool                       restrict_height
 float32                    surface_height
 float32                    height_tolerance # m, <= 0 = default (0.03)
+# Boxes in base_footprint (pose = center, size = full extents; plane_id
+# ignored), e.g. the robot's arms and the held object: points in them or
+# behind them seen from the camera are not used, and support under them (up
+# to the object height) is unobserved.
+PlaceObstacle[]            exclude_regions
 uint32[]                   surface_ids      # empty = any; else only these Surface.id observed in the latest detection
 ---
 uint8 STATUS_OK=0          # candidates found
