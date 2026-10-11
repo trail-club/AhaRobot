@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Also sourced by start.sh and test.sh to select the same uv environment.
+# Also sourced by pointcloud/start.sh, sam31/interactive.sh and test.sh to select the same uv environment.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"

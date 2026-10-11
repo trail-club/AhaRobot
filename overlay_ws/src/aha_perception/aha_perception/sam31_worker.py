@@ -7,6 +7,7 @@ import base64
 from contextlib import redirect_stdout
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -26,8 +27,9 @@ RESULT_FILES = ("rgb.png", "labels.png", "overlay.png", "masks.npz", "result.jso
 
 
 def segment_request(segmenter, request: dict) -> dict:
-    prompt = request["prompt"].strip()
+    prompt = request["prompt"]
     validate_options(prompt, segmenter.threshold)
+    prompt = prompt.strip()
     payload = base64.b64decode(request["rgbd"], validate=True)
     rgb, depth_m, metadata = load_capture(BytesIO(payload))
     segmenter.prompt = prompt
@@ -66,20 +68,38 @@ def serve(
     # Upstream prints model construction and prediction diagnostics. Keep the
     # protocol channel separate so those messages cannot corrupt responses.
     try:
-        with redirect_stdout(sys.stderr):
-            segmenter = factory("bottle", threshold, checkpoint)
+        try:
+            with redirect_stdout(sys.stderr):
+                segmenter = factory("bottle", threshold, checkpoint)
+        except Exception as exc:
+            send({"type": "error", "message": safe_error(exc)})
+            return 1
         send({"type": "ready"})
         for line in input_stream:
+            # One bad request or upstream assertion must not discard the loaded
+            # model; predict() closes its session before the error is reported.
             try:
                 with redirect_stdout(sys.stderr):
                     response = segment_request(segmenter, json.loads(line))
-            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+            except Exception as exc:
                 response = {"type": "error", "message": safe_error(exc)}
             send(response)
         return 0
-    except (ImportError, OSError, ValueError, RuntimeError) as exc:
-        send({"type": "error", "message": safe_error(exc)})
+    except BrokenPipeError:
+        # The client has gone; there is nobody left to report to.
         return 1
+
+
+def protocol_stream():
+    """Return the original stdout and point fd 1 at stderr.
+
+    redirect_stdout only covers Python writes; native libraries can still write
+    to fd 1 directly, which would corrupt the JSON lines read by the client.
+    """
+    sys.stdout.flush()
+    stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
+    os.dup2(2, 1)
+    return stream
 
 
 def main(argv=None):
@@ -88,7 +108,10 @@ def main(argv=None):
     parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args(argv)
     return serve(
-        sys.stdin, sys.stdout, threshold=args.threshold, checkpoint=args.checkpoint
+        sys.stdin,
+        protocol_stream(),
+        threshold=args.threshold,
+        checkpoint=args.checkpoint,
     )
 
 

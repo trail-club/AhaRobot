@@ -118,6 +118,77 @@ class WorkerTests(unittest.TestCase):
                 )
             self.assertFalse(output.exists())
 
+    def test_unexpected_request_errors_keep_the_loaded_model(self):
+        class Segmenter:
+            threshold = 0.5
+
+            def __init__(self):
+                self.calls = 0
+
+            def predict(self, rgb):
+                self.calls += 1
+                if self.calls == 1:
+                    raise AssertionError("upstream assertion")
+                return {
+                    "out_binary_masks": np.ones((1, 2, 3), dtype=bool),
+                    "out_probs": np.array([0.8], dtype=np.float32),
+                }
+
+        source = StringIO(
+            json.dumps({"prompt": 1, "rgbd": capture_payload()})
+            + "\n"
+            + json.dumps({"prompt": "cup", "rgbd": capture_payload()})
+            + "\n"
+            + json.dumps({"prompt": "cup", "rgbd": capture_payload()})
+            + "\n"
+        )
+        destination = StringIO()
+        status = sam31_worker.serve(
+            source,
+            destination,
+            threshold=0.5,
+            checkpoint=Path("/models/checkpoint"),
+            factory=Mock(return_value=Segmenter()),
+        )
+        responses = [json.loads(line) for line in destination.getvalue().splitlines()]
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            [r["type"] for r in responses], ["ready", "error", "error", "result"]
+        )
+        self.assertIn("string", responses[1]["message"])
+        self.assertIn("upstream assertion", responses[2]["message"])
+
+    def test_client_disconnect_does_not_retry_the_failed_write(self):
+        destination = Mock()
+        destination.write.side_effect = BrokenPipeError("client gone")
+        status = sam31_worker.serve(
+            StringIO(),
+            destination,
+            threshold=0.5,
+            checkpoint=Path("/models/checkpoint"),
+            factory=Mock(),
+        )
+        self.assertEqual(status, 1)
+        destination.write.assert_called_once()
+
+    def test_native_stdout_writes_do_not_reach_the_protocol_channel(self):
+        script = (
+            "import os, sys\n"
+            f"sys.path.insert(0, {str(ROOT / 'overlay_ws/src/aha_perception')!r})\n"
+            "from aha_perception.sam31_worker import protocol_stream\n"
+            "stream = protocol_stream()\n"
+            "os.write(1, b'native diagnostic\\n')\n"
+            "print('python diagnostic', flush=True)\n"
+            "stream.write('{\"type\": \"ready\"}\\n')\n"
+            "stream.flush()\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, check=True
+        )
+        self.assertEqual(result.stdout, '{"type": "ready"}\n')
+        self.assertIn("native diagnostic", result.stderr)
+        self.assertIn("python diagnostic", result.stderr)
+
 
 class SshConnectionTests(unittest.TestCase):
     def test_no_config_destination_prompts_for_roster_user_and_sets_public_key_port(
@@ -260,6 +331,46 @@ class InteractionTests(unittest.TestCase):
         ) as remote:
             self.assertFalse(worker.close())
         self.assertEqual(remote.call_count, 2)
+
+    def test_container_runs_the_image_id_built_in_this_session(self):
+        worker = interactive.RemoteWorker(
+            argparse.Namespace(
+                host="dgx-spark",
+                image="local/aharobot-sam31",
+                checkpoint="/srv/shared/models/sam3.1/sam3.1_multiplex.pt",
+                threshold=0.5,
+            )
+        )
+        image_id = "sha256:" + "a" * 64
+        results = [
+            Mock(stdout="/tmp/aharobot-sam31-1234\n"),
+            None,
+            None,
+            Mock(stdout=image_id + "\n"),
+            None,
+        ]
+        with (
+            patch.object(worker, "run", side_effect=results) as remote,
+            patch.object(interactive, "source_archive"),
+            patch.object(interactive.subprocess, "Popen") as popen,
+            patch.object(interactive.threading, "Thread"),
+            patch.object(worker, "receive", return_value={"type": "ready"}),
+            redirect_stdout(StringIO()),
+        ):
+            worker.start()
+        self.assertIn("--iidfile", remote.call_args_list[2].args[0])
+        script = popen.call_args.args[0][-1]
+        self.assertIn(" " + image_id + " ", script)
+        self.assertNotIn(" local/aharobot-sam31 ", script)
+
+    def test_non_protocol_output_names_the_offending_line(self):
+        worker = interactive.RemoteWorker(
+            argparse.Namespace(host="dgx-spark", timeout=0.01)
+        )
+        worker.process = Mock(stdout=StringIO("Welcome to DGX\n"))
+        worker._read_responses()
+        with self.assertRaisesRegex(RuntimeError, "Welcome to DGX"):
+            worker.receive()
 
     def test_disconnect_and_timeout_stop_the_session(self):
         worker = interactive.RemoteWorker(

@@ -68,7 +68,6 @@ bash tools/perception/macos/sam31/interactive.sh
 3D位置ではない。有効深度がなければ `null`。未検出時は背景ラベルと空のobjectsを保存する。
 画像ごとに独立して処理し、物体の追跡・永続IDは提供しない。
 ローカル重みのrevisionは自動検証しないため、`model_revision` は `null` となる。
-実機の観測・重みの確認記録は[カメラ検証記録](../../../../docs/context/camera.md)を参照する。
 
 ## 実装とテスト
 

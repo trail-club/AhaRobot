@@ -149,10 +149,18 @@ class RemoteWorker:
         with tempfile.TemporaryFile() as archive:
             source_archive(archive)
             self.run(f"tar -xf - -C {remote}", stdin=archive)
+        # The tag is shared by DGX users; run the ID built from this session's
+        # sources so a concurrent build cannot swap the image under us.
         self.run(
-            f"cd {remote} && docker build -t {shlex.quote(self.args.image)} "
+            f"cd {remote} && docker build --iidfile .image-id "
+            f"-t {shlex.quote(self.args.image)} "
             "-f tools/perception/macos/sam31/Dockerfile ."
         )
+        image_id = self.run(
+            f"cat {remote}/.image-id", capture_output=True, text=True
+        ).stdout.strip()
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise RuntimeError("unexpected Docker image ID")
         checkpoint = shlex.quote(self.args.checkpoint)
         self.run(
             f"test -r {checkpoint} && mkdir -p "
@@ -172,7 +180,7 @@ class RemoteWorker:
             f"{self.remote_dir}:/app:ro",
             "-v",
             f"{self.args.checkpoint}:/models/sam3.1_multiplex.pt:ro",
-            self.args.image,
+            image_id,
             "--checkpoint",
             "/models/sam3.1_multiplex.pt",
             "--threshold",
@@ -202,8 +210,17 @@ class RemoteWorker:
     def _read_responses(self):
         try:
             for line in self.process.stdout:
-                self.responses.put(json.loads(line))
-        except (OSError, ValueError) as exc:
+                try:
+                    response = json.loads(line)
+                except ValueError:
+                    response = None
+                if not isinstance(response, dict):
+                    # e.g. a shell startup file printing on the SSH channel.
+                    raise RuntimeError(
+                        f"unexpected output from DGX worker: {line.strip()[:200]!r}"
+                    )
+                self.responses.put(response)
+        except (OSError, RuntimeError) as exc:
             self.responses.put(exc)
         finally:
             self.responses.put(

@@ -1,7 +1,7 @@
 # submoduleの変更・更新
 
 `upstream/` は特定commitを参照する。Astra系6件は `trail-club` のfork、
-SOBITS / TMC資源はTeamSOBITSを直接参照する。URLは [.gitmodules](../.gitmodules)を参照。
+SOBITS / TMC資源はTeamSOBITS、`sam3` はfacebookresearchを直接参照する。URLは [.gitmodules](../.gitmodules)を参照。
 
 ## コードを変更する
 

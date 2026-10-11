@@ -83,22 +83,25 @@ def capture(args) -> int:
             created_dirs.append(parent)
             parent = parent.parent
         args.output.mkdir(parents=True)
-        np.savez_compressed(
-            args.output / "rgbd.npz",
-            rgb=rgb,
-            depth_m=depth_m,
-            metadata=json.dumps(metadata, allow_nan=False),
-        )
-        Image.fromarray(rgb).save(args.output / "rgb.png")
-        (args.output / "capture.json").write_text(
-            json.dumps(metadata, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-        )
-        # Only USB access needs root. Return newly created artifacts to the
-        # invoking user so later inference can write alongside the capture.
-        if os.geteuid() == 0 and os.environ.get("SUDO_UID"):
-            uid, gid = int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"])
-            for path in [*args.output.iterdir(), *created_dirs]:
-                os.chown(path, uid, gid)
+        try:
+            np.savez_compressed(
+                args.output / "rgbd.npz",
+                rgb=rgb,
+                depth_m=depth_m,
+                metadata=json.dumps(metadata, allow_nan=False),
+            )
+            Image.fromarray(rgb).save(args.output / "rgb.png")
+            (args.output / "capture.json").write_text(
+                json.dumps(metadata, indent=2, allow_nan=False) + "\n",
+                encoding="utf-8",
+            )
+        finally:
+            # Only USB access needs root. Return created artifacts, including
+            # partial ones after a failed write, to the invoking user.
+            if os.geteuid() == 0 and os.environ.get("SUDO_UID"):
+                uid, gid = int(os.environ["SUDO_UID"]), int(os.environ["SUDO_GID"])
+                for path in [*args.output.iterdir(), *created_dirs]:
+                    os.chown(path, uid, gid)
         print(
             f"[capture] {metadata['device']}; {rgb.shape[1]}x{rgb.shape[0]}; "
             f"valid depth pixels={np.isfinite(depth_m).sum()}; saved: {args.output}"

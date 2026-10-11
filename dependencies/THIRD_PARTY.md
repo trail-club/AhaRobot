@@ -55,6 +55,17 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 条件の原文: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)。
 資源の再配布時は、各LICENSEの条件に従って著作権表示・ライセンス本文・免責事項などを保持する。
 
+## SAM 3.1
+
+[SAM対話検証ツール](../tools/perception/macos/sam31/README.md)が使う。ROSパッケージ・launchからは使わない。
+
+| 資源 / 使用commit | 確認した記載 | 参照元 |
+| --- | --- | --- |
+| [sam3](https://github.com/facebookresearch/sam3/tree/9f22cb976fb6e38dad5bb34940fad852dd897d0e)（コード） | SAM License（Last Updated: November 19, 2025）。再配布時は本文の添付、研究成果の公表時はSAMの使用の明記が必要 | [LICENSE](../upstream/sam3/LICENSE)、[README](../upstream/sam3/README.md#license) |
+| [facebook/sam3.1](https://huggingface.co/facebook/sam3.1)の `sam3.1_multiplex.pt`（重み） | Hugging Faceの表示は `License: other`、承認制のアクセス。重みに適用される条件の原文は未確認 | DGXの共有重み（`/srv/shared/models/sam3.1/`）のrevisionは未確認 |
+
+重みはリポジトリ・Dockerイメージに含めない。DGX上で構築するイメージには `upstream/sam3` のコードを含めるが、配布しない。
+
 ## その他の第三者資源
 
 [tools/firmware/backup/](../tools/firmware/backup/) の `stock-waveshare-esp32-*.bin`、

@@ -29,11 +29,15 @@ def safe_error(error: Exception) -> str:
     return re.sub(r"hf_[A-Za-z0-9]+", "[redacted]", message)
 
 
-def validate_options(prompt: str, threshold: float) -> None:
-    if not prompt.strip():
-        raise ValueError("prompt must not be empty")
+def validate_threshold(threshold: float) -> None:
     if not math.isfinite(threshold) or not 0 <= threshold <= 1:
         raise ValueError("threshold must be between 0 and 1")
+
+
+def validate_options(prompt: str, threshold: float) -> None:
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("prompt must be a nonempty string")
+    validate_threshold(threshold)
 
 
 def validate_rgb(rgb: np.ndarray) -> None:
@@ -140,7 +144,7 @@ def make_result(rgb: np.ndarray, depth_m: np.ndarray, outputs: dict, threshold: 
     Labels 1..N are frame-local; 0 is background. Summaries use the resolved
     labels, so their pixel counts and depth statistics agree with the PNG.
     """
-    validate_options("result", threshold)
+    validate_threshold(threshold)
     validate_rgbd(rgb, depth_m)
     height, width = rgb.shape[:2]
     masks = np.asarray(outputs["out_binary_masks"], dtype=bool)
