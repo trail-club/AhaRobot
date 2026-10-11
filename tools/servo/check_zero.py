@@ -2,7 +2,7 @@
 
 """
 Usage:
-  uv run check_zero.py [port] [seconds, default 10]
+  uv run check_zero.py [port] [seconds, default 10] [left|right]
 """
 
 import csv
@@ -12,7 +12,7 @@ import os
 import sys
 import time
 
-REPO = os.path.expanduser("~/aharobot/AhaRobot")
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "upstream", "astra_controller"))
 
 from astra_controller.arm_controller import ArmController  # noqa: E402
@@ -23,7 +23,9 @@ duration = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
 # Do not send any command on connect (upstream __init__ in normal mode auto-calls set_torque(1) + set_pid).
 _real_set_torque = ArmController.set_torque
 ArmController.set_torque = lambda self, *a, **k: None
-ctrl = ArmController(port, do_init=True, side=sys.argv[3] if len(sys.argv) > 3 else None)
+ctrl = ArmController(
+    port, do_init=True, side=sys.argv[3] if len(sys.argv) > 3 else None
+)
 ArmController.set_torque = _real_set_torque
 
 print("=" * 60)

@@ -246,7 +246,9 @@ URDFのゼロ姿勢と実機サーボのゼロ位置・符号の整合は確認�
 現状の中心合わせは可動域中心であってURDFゼロではない。
 
 ## 2026-10-04 — URDFゼロ姿勢・正方向への校正（両腕）
-Issues：wrist (ID12–14) と URDF ゼロ姿勢の整合、両腕の厳密な再校正　に参照
+
+[Issue #13](https://github.com/trail-club/AhaRobot/issues/13)（wrist（ID12–14）とURDFゼロ姿勢の整合、両腕の厳密な再校正）への対応。
+
 ### 対象・条件
 
 両腕で、実機サーボのゼロ位置と回転方向をURDFのゼロ姿勢・正方向に合わせた。
@@ -255,6 +257,9 @@ Issues：wrist (ID12–14) と URDF ゼロ姿勢の整合、両腕の厳密な�
 サーボEEPROMの書き込みは一時的に [UARTブリッジ](../../tools/firmware/README.md) を書き込んで
 `tools/servo/rezero.py` で行い、その後AstraArmControllerを書き戻した。
 作業前のFlash全域とサーボEEPROMは `tools/firmware/{left,right}_arm/pre_rezero_20261004/` に保存した。
+左腕は `tools/firmware/left_arm/pre_rewrist_20261004/` にもFlash全域とサーボ状態がある。
+保存されたoffsetはID4–11が切り分け後の値、ID12–14が `pre_rezero_20261004` と異なる値で、
+ディレクトリ名からはwristの中点を取り直す前の採取と読める。採取した時点と、サーボEEPROMのJSONがない理由は記録していない。
 
 URDFの正方向は `tools/servo/view_urdf.py` で関節を1つずつ回して確認した。
 
@@ -269,13 +274,42 @@ URDFの正方向は `tools/servo/view_urdf.py` で関節を1つずつ回して�
 
 ### 左腕の初期化がID10で止まった問題
 
-joint0 / joint1をURDFゼロ姿勢に置いて初期化すると、左腕は2回続けて
-`Maybe cause wrong init_pos0 ... servo #6`（ID10）で停止し、タスクWDTで再起動した。
-ID4–11はPWMモードでoffsetが適用されずエンコーダ生値を返し、ID10が4088と
-ファームの範囲チェック `20 < pos < 4076` を外れていた。
-このため `rezero.py` でID4–11のoffsetを変えても初期化時の読み値は変わらない。
+joint0 / joint1をURDFゼロ姿勢（旧零点の座標系でj0 ≈ +1°、j1 ≈ +11°）に置いて
+`init_arm.py`（`setupTorque(128)`）を実行すると、左腕は同じ姿勢で2回続けて次で停止した。
+
+```text
+Maybe cause wrong init_pos0, check power status, or reinstall the servo #6
+E (...) task_wdt: Task watchdog got triggered ... Rebooting...
+```
+
+`#6` はループ添字でID10（= 4 + 6）。停止は予圧より前でPWM出力はなく、
+タイマタスク内の `while (1)` がタスクWDTに検出されて約5秒後にESP32が再起動し、全サーボが脱力した。
+`/config.txt` は書き換わらなかった。ID15の `doInitJoint` とID4–11のPWMモード書き込みは失敗前に実行済みだった。
+
+ブリッジファームで同じ姿勢のまま読んだ値（mode=2、PWMモード）:
+
+| ID | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 読み値 | 992 | 340 | 182 | 199 | 3904 | 151 | 4088 | 393 |
+
+ID10の4088がファームの範囲チェック `20 < pos < 4076` を外れていた。
+ID4–11をmode=0（位置モード）に切り替えて読むと2034–2109となり、
+PWMモードの読み値 = 位置モードの読み値 + offset（mod 4096）が8個全てで一致した
+（ID4は2034 + (−1042) = 992、ID10は2048 + 2040 = 4088）。
+PWMモードではoffsetが適用されずエンコーダ生値が返るため、
+`rezero.py` でID4–11のoffsetを変えても初期化時の読み値は変わらない。
+PWMモードのID10に `rezero.py` を実行すると「★失敗」と表示されたが、offsetは2047から2040へ書き換わっていた。
+
+ID9（151）とID10（4088）はどちらも符号−1で、エンコーダ境界がjoint1のURDFゼロ付近にある。
+ID10を境界から離す向きにjoint1を動かすとID9が0側の境界に近づき、
+両方が範囲チェックを満たすjoint1の姿勢は約10°の幅しかない。
+9月27日の可動域中心での初期化は、推算でID9 ≈ 26と範囲内に収まっていた。
+
+範囲チェックのほか、予圧2回の差 `abs(pos1 - pos2)` と平均 `(pos1 + pos2) / 2` も境界をまたぐ場合を扱っていなかった
+（4090と10では差4080、平均2050になる）。運転中の `read_pos()` は `init_pos` を基準にmod 4096で計算しており、
+境界をまたぐ問題は初期化処理に限られるとコードから判断した。
 ファームの初期化処理をエンコーダ境界をまたいでも動くよう修正し、同じ姿勢で初期化できた。
-修正内容と適用方法は [パッチの説明](../../patches/README.md) を参照。
+修正内容と適用方法は [パッチの説明](../../patches/README.md#trail-club-ver1004) を参照。
 
 切り分けの過程で左腕ID4–11のoffsetが変わったが、PWMモードでは使われないため運転には影響しない。
 変更前の値は `pre_rezero_20261004/servo_eeprom_before_rezero.json` にある。

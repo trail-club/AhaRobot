@@ -16,22 +16,29 @@
 """
 
 import argparse
+import math
 import os
 
 import trimesh
 import yourdfpy
 
-REPO = os.path.expanduser("~/aharobot/AhaRobot")
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DESC = os.path.join(REPO, "upstream", "astra_description")
 URDF_PATH = os.path.join(DESC, "urdf", "astra_description.urdf")
 PKG = "package://astra_description/"
 
-SLOT = {"2": "joint0 (ID4-7)", "3": "joint1 (ID8-11)", "4": "ID12", "5": "ID13", "6": "ID14"}
+SLOT = {
+    "2": "joint0 (ID4-7)",
+    "3": "joint1 (ID8-11)",
+    "4": "ID12",
+    "5": "ID13",
+    "6": "ID14",
+}
 
 
 def handler(fname: str) -> str:
     if fname.startswith(PKG):
-        return os.path.join(DESC, fname[len(PKG):])
+        return os.path.join(DESC, fname[len(PKG) :])
     return fname
 
 
@@ -41,8 +48,9 @@ ap.add_argument("--joints", default="2,3,4,5,6", help="順に表示する関節�
 ap.add_argument("--deg", type=float, default=30.0, help="正方向に回す角度")
 args = ap.parse_args()
 
-robot = yourdfpy.URDF.load(URDF_PATH, filename_handler=handler,
-                           load_meshes=True, build_scene_graph=True)
+robot = yourdfpy.URDF.load(
+    URDF_PATH, filename_handler=handler, load_meshes=True, build_scene_graph=True
+)
 names = [f"joint_{args.arm}{k}" for k in args.joints.split(",")]
 for n in names:
     if n not in robot.joint_map:
@@ -56,8 +64,11 @@ def show(cfg: dict, caption: str) -> None:
     scene = robot.scene.copy()
     for n in names:
         T = robot.get_transform(robot.joint_map[n].child)
-        scene.add_geometry(trimesh.creation.axis(
-            origin_size=0.004, axis_radius=0.002, axis_length=0.06, transform=T))
+        scene.add_geometry(
+            trimesh.creation.axis(
+                origin_size=0.004, axis_radius=0.002, axis_length=0.06, transform=T
+            )
+        )
     print(f"表示中: {caption}  (ウィンドウを閉じると次へ)")
     scene.show(caption=caption)
 
@@ -65,6 +76,7 @@ def show(cfg: dict, caption: str) -> None:
 show({}, f"{args.arm}-arm: ALL ZERO (URDF 0 rad)")
 for n in names:
     k = n[-1]
-    show({n: __import__("math").radians(args.deg)},
-         f"{n} = +{args.deg:.0f} deg  -> {SLOT.get(k, '?')}")
+    show(
+        {n: math.radians(args.deg)}, f"{n} = +{args.deg:.0f} deg  -> {SLOT.get(k, '?')}"
+    )
 print("完了")
