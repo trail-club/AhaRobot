@@ -36,7 +36,7 @@ AhaRobotはRoboCup@Home向けのROS 2スタック。
 ## 動作確認
 
 作業中の検証は変更の影響範囲に合わせる。
-PR前に、起動済み開発コンテナ、pre-commit、Python 3.11を用意し、ホストで実行する。
+PR前に、起動済み開発コンテナ、pre-commit、Python 3.11、uv（0.7.11以上）を用意し、ホストで実行する。
 
 ```bash
 make test

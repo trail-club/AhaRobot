@@ -22,6 +22,7 @@ import tempfile
 import threading
 import uuid
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[4]
 MACOS = ROOT / "tools/perception/macos"
@@ -343,11 +344,17 @@ def interact(args, worker, session, read=input):
         if response.get("type") == "error":
             print("[sam31] Inference failed: " + response["message"], file=sys.stderr)
             continue
-        summary = unpack_result(response, frame / "result")
-        print(
-            f"[sam31] {len(summary['objects'])} objects; {summary['inference_seconds']:.3f}s; {frame / 'result/overlay.png'}",
-            flush=True,
-        )
+        # A damaged result loses only this frame, like capture/inference errors.
+        try:
+            summary = unpack_result(response, frame / "result")
+            message = f"[sam31] {len(summary['objects'])} objects; {summary['inference_seconds']:.3f}s; {frame / 'result/overlay.png'}"
+        except (ValueError, KeyError, TypeError, zipfile.BadZipFile, zlib.error) as exc:
+            print(
+                f"[sam31] Result transfer failed: {exc}; retry with Enter or change the prompt.",
+                file=sys.stderr,
+            )
+            continue
+        print(message, flush=True)
         if platform.system() == "Darwin" and not args.no_open:
             subprocess.run(["open", str(frame / "result/overlay.png")], check=False)
 

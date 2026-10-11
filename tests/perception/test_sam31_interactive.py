@@ -283,6 +283,25 @@ class InteractionTests(unittest.TestCase):
             [call.args[0] for call in worker.predict.call_args_list], ["bottle", "cup"]
         )
 
+    def test_damaged_result_is_reported_and_the_session_continues(self):
+        worker = Mock()
+        worker.predict.side_effect = [
+            {"type": "result", "archive": base64.b64encode(b"not a zip").decode()},
+            {"type": "result"},
+            {"type": "result"},
+        ]
+        args = argparse.Namespace(no_open=True)
+        reader = Mock(side_effect=["bottle", "", "", EOFError()])
+        errors = StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(interactive, "capture_frame"), patch(
+                "sys.stderr", errors
+            ), redirect_stdout(StringIO()):
+                with self.assertRaises(EOFError):
+                    interactive.interact(args, worker, Path(directory), reader)
+        self.assertEqual(worker.predict.call_count, 3)
+        self.assertEqual(errors.getvalue().count("Result transfer failed"), 3)
+
     def test_ctrl_c_always_cleans_up_after_partial_start(self):
         with patch.object(interactive.subprocess, "run"), patch.object(
             interactive, "RemoteWorker"
