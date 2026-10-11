@@ -1,0 +1,61 @@
+# Arm trajectory bridge configuration (aha_manipulation).
+#
+# One bridge node per arm. `controller_name` names the EXTERNAL interface
+# (mirrors the sim's left/right_arm_controller):
+#   /<controller_name>/joint_trajectory, /<controller_name>/follow_joint_trajectory,
+#   /<controller_name>/joint_states
+# `command_topic` / `state_topic` are the arm hardware node's (upstream
+# arm_node, run in that namespace) astra topics.
+#
+# Joint limits are radians, extracted from the aha_description URDF:
+#   *_2 *_3 *_5 *_6 are +/-1.57, *_4 is +/-3.14.
+# `command_joint_names` is the full JointCommand `name` the arm_node expects;
+# arm joints beyond `joint_names` (e.g. the gripper degree) are held at
+# `command_hold`. The arm_node's own --joint_names must match this list.
+
+/**:
+  ros__parameters:
+    # default joint set (left arm); each node below overrides what differs
+    rate_hz: 30.0
+    max_speed: 1.0            # rad/s: paces the issued goals (arm firmware ramps on its own)
+    goal_tolerance: 0.03      # rad
+    goal_timeout: 5.0         # s, after the plan completes, to confirm reach (closed_loop)
+    state_timeout: 0.3        # s; a state older than this falls back to open-loop
+    closed_loop: false        # true only with a real joint-state feedback source
+    hold_interval: 1.0        # s; re-send the held position while idle
+
+aha_left_arm_bridge:
+  ros__parameters:
+    controller_name: left_arm_controller
+    command_topic: left/arm/joint_command
+    state_topic: joint_states
+    joint_names: [joint_l2, joint_l3, joint_l4, joint_l5, joint_l6]
+    command_joint_names: [joint_l2, joint_l3, joint_l4, joint_l5, joint_l6]
+    joint_l2__min: -1.57
+    joint_l2__max: 1.57
+    joint_l3__min: -1.57
+    joint_l3__max: 1.57
+    joint_l4__min: -3.14
+    joint_l4__max: 3.14
+    joint_l5__min: -1.57
+    joint_l5__max: 1.57
+    joint_l6__min: -1.57
+    joint_l6__max: 1.57
+
+aha_right_arm_bridge:
+  ros__parameters:
+    controller_name: right_arm_controller
+    command_topic: right/arm/joint_command
+    state_topic: joint_states
+    joint_names: [joint_r2, joint_r3, joint_r4, joint_r5, joint_r6]
+    command_joint_names: [joint_r2, joint_r3, joint_r4, joint_r5, joint_r6]
+    joint_r2__min: -1.57
+    joint_r2__max: 1.57
+    joint_r3__min: -1.57
+    joint_r3__max: 1.57
+    joint_r4__min: -3.14
+    joint_r4__max: 3.14
+    joint_r5__min: -1.57
+    joint_r5__max: 1.57
+    joint_r6__min: -1.57
+    joint_r6__max: 1.57
