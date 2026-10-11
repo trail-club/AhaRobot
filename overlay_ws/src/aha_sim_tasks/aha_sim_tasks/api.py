@@ -1,7 +1,7 @@
 """Robot observations and commands exchanged with a separate policy process.
 
-Scoring state is excluded from this IPC API. Process and transport separation
-prevent accidental access; team-owned policy code is not security-sandboxed.
+Normal policies exclude scoring state. The explicit ground_truth_ik baseline
+receives Gazebo poses and joint positions for simulator-only IK verification.
 """
 
 from dataclasses import dataclass, field
@@ -34,6 +34,15 @@ JOINT_LIMITS = {
 }
 
 
+def clamp_joint_roundoff(name, value):
+    """Bound physics roundoff for MoveIt without hiding meaningful excursions."""
+    if name in JOINT_LIMITS:
+        lower, upper = JOINT_LIMITS[name]
+        if lower - 1e-6 <= value <= upper + 1e-6:
+            return max(lower, min(upper, value))
+    return value
+
+
 @dataclass(frozen=True)
 class CameraObservation:
     image: Any  # sensor_msgs/msg/Image (RGB)
@@ -45,15 +54,24 @@ class CameraObservation:
 
 
 @dataclass(frozen=True)
+class GroundTruth:
+    # Pose of the URDF root (base_footprint) in world: xyz, quaternion xyzw.
+    robot_world_pose: tuple[float, float, float, float, float, float, float]
+    object_position: tuple[float, float, float]
+    finger_contacts: int
+
+
+@dataclass(frozen=True)
 class Observation:
     sim_time: float
     task_id: str
     instruction: str
     joint_positions: Mapping[str, float]
     joint_velocities: Mapping[str, float]
-    odometry: tuple[float, float, float]  # x, y, yaw in odom
+    odometry: tuple[float, float, float]  # x/y/yaw: odom normally, world for truth IK
     head_image: Any | None = None  # Optional sensor_msgs/msg/Image
     cameras: Mapping[str, CameraObservation] = field(default_factory=dict)
+    ground_truth: GroundTruth | None = None
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,8 @@ World and spawn settings are documented in the [Japan Open simulation guide](../
 To bridge their images and calibration, use `use_perception:=true`; camera topics
 and display options are described in [aha_perception](../aha_perception/README.md).
 
+`use_manip:=true` starts [MoveIt right-arm planning and execution](../aha_manipulation/README.md).
+
 For approach, apple picking, and pick-and-place demonstrations with independent
 success checks, use [aha_sim_tasks](../aha_sim_tasks/README.md). That package
 owns the task scene and scripted policy.

@@ -41,6 +41,12 @@ def serve(connection, name):
             except OSError:
                 pass
             return 1
+        finally:
+            if name == "ground_truth_ik" and "policy" in locals():
+                try:
+                    policy.close()
+                except Exception:
+                    traceback.print_exc()
     return 0
 
 
