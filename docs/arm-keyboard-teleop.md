@@ -109,6 +109,6 @@ ros2 topic echo /joint_states --field name --once
 
 左の `w` で `joint_l2` が減る方向へ動き、右の `W` で `joint_r2` が同じ向きに動く。`q` で両腕の `/arm/torque_enable` に 0 が行く。
 
-## まだ実機で見ていないこと
+## 実機
 
-この変更を入れた時点では、制御基板は Astra ファームではなくシリアル転送デモのままで、`arm_node` の 921600 には応答しない。両腕をこのノードで動かした確認は、ファームを焼いて `arms.launch.py` が `/joint_states` を出したあとに取る。焼く作業はこの手順に含めない。
+2026-10-11、コンテナ `aharobot_aha_project_1` の中から右腕が動いた。`arms.launch.py` を `use_left:=false right_device:=/dev/ttyUSB0` で上げ、別の `docker exec -it` で `keyboard_teleop`（`sides:=['right']`）を打った。左腕は同じ日に、コンテナの外の WSL 上のキーボードで各関節が動いた。左右を同時には上げていない。本番機で udev 名 `/dev/tty_puppet_left` と `/dev/tty_puppet_right` が出るなら、launch の初期値のままでよい。イメージを新しく作るときは `python3-serial` が要る。`arm_node` はそれを import する。

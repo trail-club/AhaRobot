@@ -30,6 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-joint-trajectory-controller \
       ros-jazzy-diff-drive-controller \
       ros-jazzy-forward-command-controller \
+      python3-serial \
+      python3-numpy \
       gz-harmonic \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*

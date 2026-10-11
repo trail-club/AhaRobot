@@ -10,7 +10,7 @@ UPSTREAM=/app/upstream
 # Symlink upstream packages into overlay_ws/src so colcon picks them up in one build.
 # Only pkgs that overlay actually needs are linked; add more here later if required.
 mkdir -p ${WS}/src
-for pkg in astra_description astra_controller_interfaces; do
+for pkg in astra_description astra_controller_interfaces astra_controller; do
     if [ -d "${UPSTREAM}/${pkg}" ] && [ ! -e "${WS}/src/${pkg}" ]; then
         ln -s "${UPSTREAM}/${pkg}" "${WS}/src/${pkg}"
         echo "[init] linked ${pkg} into overlay_ws/src"
@@ -25,12 +25,19 @@ fi
 
 # Install ROS deps for all packages present under overlay_ws/src.
 # Safe to re-run; rosdep is a no-op when everything is satisfied.
+# rosdep is an external program, but a failing apt step has been exiting
+# this PID 1 script with code 255 even after `||`. A subshell keeps `exit`
+# from tearing the container down.
 if [ -d "${WS}/src" ]; then
-    source /opt/ros/jazzy/setup.bash
-    cd ${WS}
-    rosdep install --from-paths src --ignore-src -r -y || \
-        echo "[init] rosdep reported unresolved deps (continuing)"
+    (
+        set +e
+        source /opt/ros/jazzy/setup.bash
+        cd ${WS}
+        rosdep install --from-paths src --ignore-src -r -y
+    ) || echo "[init] rosdep reported unresolved deps (continuing)"
 fi
 
-# Keep container alive.
-tail -f /dev/null
+echo "[init] container ready"
+# `tail -f /dev/null` ended this container with exit 255 once /dev was the
+# host bind mount. `sleep infinity` is the keep-alive.
+exec sleep infinity
