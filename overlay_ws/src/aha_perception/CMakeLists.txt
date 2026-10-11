@@ -20,6 +20,7 @@ install(
 install(
   PROGRAMS
     scripts/head_look_at.py
+    scripts/manual_head.py
     scripts/plane_detection_node.py
     scripts/sim_control_panel.py
     scripts/sim_depth_noise.py

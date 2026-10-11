@@ -11,13 +11,16 @@ simulation.
   ros2 launch aha_perception real_head_camera.launch.py camera:=true
   ros2 launch aha_perception real_head_camera.launch.py camera:=true planes:=true
   ros2 launch aha_perception real_head_camera.launch.py port:=/dev/ttyUSB1 baud:=921600 rviz:=false
+  ros2 launch aha_perception real_head_camera.launch.py head:=manual camera:=true planes:=true
 
 Starts:
   - robot_state_publisher (xacro sim:=false, wall clock)
   - joint_state_publisher: /joint_states with every movable joint; the head
     comes from /head_controller/joint_states, all other joints read 0
   - aha_servo servo_trajectory_bridge.py with config (default
-    aha_servo/config/head.yaml; port/baud override it when given)
+    aha_servo/config/head.yaml; port/baud override it when given), or with
+    head:=manual manual_head.py: no servos, the commanded angles become the
+    head state (match a hand-tilted camera with the panel sliders)
   - rviz:=true (default)  sim_view.launch.py with use_sim_time:=false,
                           fixed_frame:=base_link (RViz, control panel,
                           look-at; the base pad does nothing)
@@ -53,6 +56,18 @@ HEAD_STATES = "/head_controller/joint_states"
 
 
 def head_bridge(context):
+    if LaunchConfiguration("head").perform(context) == "manual":
+        head_params = PathJoinSubstitution(
+            [FindPackageShare("aha_perception"), "config", "head.yaml"]
+        )
+        return [
+            Node(
+                package="aha_perception",
+                executable="manual_head.py",
+                parameters=[head_params],
+                output="screen",
+            )
+        ]
     overrides = {}
     port = LaunchConfiguration("port").perform(context)
     baud = LaunchConfiguration("baud").perform(context)
@@ -167,6 +182,13 @@ def generate_launch_description():
                     ]
                 ),
                 description="Head servo bus config (aha_servo/joint_map.py format)",
+            ),
+            DeclareLaunchArgument(
+                "head",
+                default_value="servo",
+                choices=["servo", "manual"],
+                description="servo: drive the head servos; manual: no servos, "
+                "manual_head.py publishes the commanded angles as the head state",
             ),
             DeclareLaunchArgument(
                 "port",
