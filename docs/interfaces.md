@@ -158,22 +158,26 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 | --- | --- |
 | `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） |
 | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
-| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1、m単位） |
+| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1のm、RealSenseドライバでは16UC1のmm） |
 | `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` |
+| `/camera/imu` | `sensor_msgs/msg/Imu`（RealSenseドライバのみ、accel・gyro、`camera_imu_optical_frame`） |
 
 | 経路 | 起動 | 上3topicの配信元 |
 | --- | --- | --- |
 | シミュレーション | `sim.launch.py use_perception:=true` | Gazeboの `rgbd_camera`（640×480、15 Hz）を `ros_gz_bridge` で変換 |
 | 実機カメラ | [カメラツール](../tools/perception/macos/pointcloud/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
 | 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
+| 実機（RealSenseドライバ） | `real_head_camera.launch.py camera:=true camera_source:=realsense`、`camera_view.launch.py camera_source:=realsense`、`realsense.launch.py` | `realsense2_camera_node`（既定640×480、15 fps） |
 
 シミュレーションで `depth_noise:=d435i_filtered`（または `d435i_raw`）を付けると、bridgeのDepthは
 `/camera/depth_registered/image_rect_clean` に出て、`sim_depth_noise.py` が実機D435i相当のノイズを加えた
 `/camera/depth_registered/image_rect` を配信する（[Depthノイズ](../overlay_ws/src/aha_perception/README.md#depthノイズ)）。
 `/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)
-の `depth_image_proc` が生成する。全topicは `camera_color_optical_frame` を使い、
+の `depth_image_proc` が生成する。`/camera/imu` 以外のtopicは `camera_color_optical_frame` を使い、
 RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
 `stream_realsense.py` の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
+RealSenseドライバは位置合わせしたDepthのCameraInfoを `/camera/depth_registered/camera_info` にも出し、
+`/camera/depth/image_rect_raw` など位置合わせ前のtopicも出す（`publish_tf` は無効）。
 
 TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
@@ -248,6 +252,9 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から `joint_state_publisher` が `/joint_states` へ合流させ、
 頭以外の関節は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
+`/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
+（`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
 
 ## 独自型
 

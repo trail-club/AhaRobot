@@ -27,6 +27,7 @@ from aha_perception.head_config import (
     TRAJECTORY_TOPIC,
     declare_head_config,
 )
+from aha_perception.head_follow import CommandedHead
 
 STATE_TOPIC = "/head_controller/joint_states"
 RATE_HZ = 30.0
@@ -35,52 +36,37 @@ RATE_HZ = 30.0
 class ManualHead(Node):
     def __init__(self):
         super().__init__("aha_manual_head")
-        self.head = declare_head_config(self)
+        head = declare_head_config(self)
         pan = float(self.declare_parameter("initial_pan", 0.0).value)
         tilt = float(self.declare_parameter("initial_tilt", 0.0).value)
-        pan, tilt, _ = self.head.clamp(pan, tilt)
-        self.position = [pan, tilt]
-        self.target = list(self.position)
+        self.follower = CommandedHead(head, pan, tilt)
         self.last = time.monotonic()
         self.pub = self.create_publisher(JointState, STATE_TOPIC, 10)
         self.create_subscription(
             JointTrajectory, TRAJECTORY_TOPIC, self.on_trajectory, 10
         )
         self.create_timer(1.0 / RATE_HZ, self.on_timer)
+        pan, tilt = self.follower.position
         self.get_logger().info(
             f"manual head: pan {pan:+.3f} tilt {tilt:+.3f} rad; "
             f"follows {TRAJECTORY_TOPIC}"
         )
 
     def on_trajectory(self, msg):
-        if not msg.points:
-            self.target = list(self.position)
-            return
-        point = msg.points[-1]
-        target = list(self.target)
-        for name, value in zip(msg.joint_names, point.positions):
-            if name == PAN_JOINT:
-                target[0] = value
-            elif name == TILT_JOINT:
-                target[1] = value
-        pan, tilt, clamped = self.head.clamp(*target)
-        if clamped:
+        if self.follower.command(msg):
+            pan, tilt = self.follower.target
             self.get_logger().warn(
                 f"target clamped to pan {pan:+.3f} tilt {tilt:+.3f} rad"
             )
-        self.target = [pan, tilt]
 
     def on_timer(self):
         now = time.monotonic()
-        step = self.head.max_speed * (now - self.last)
+        position = self.follower.step(now - self.last)
         self.last = now
-        for i in range(2):
-            delta = self.target[i] - self.position[i]
-            self.position[i] += max(-step, min(step, delta))
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = [PAN_JOINT, TILT_JOINT]
-        msg.position = list(self.position)
+        msg.position = position
         self.pub.publish(msg)
 
 

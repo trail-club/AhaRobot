@@ -20,7 +20,8 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用。`depth_topic` で頭部Depthの配信先を変える |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
-| `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`） |
+| `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`）。`camera_source:=realsense` で `realsense.launch.py` も起動 |
+| `realsense.launch.py` | RealSense ROSドライバでD435iを配信する（Linux、[RealSenseドライバ](#realsenseドライバ)） |
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
 
@@ -31,10 +32,12 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
+| `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
+| `imu_head.py` | D435iのIMUでtiltを求め、`/head_controller/joint_states` に出す（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | 頭部のDepthから床・机・棚・壁の平面を検出して出力し、置き場所の候補をserviceで返す（[平面検出](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 
-頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
+頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、頭を扱うノードが
 `aha_perception.head_config` 経由で読む。符号は +pan = ロボットの右、+tilt = 下。
 可動範囲は設定値で、実機の頭の可動域は測定していない。
 
@@ -168,16 +171,80 @@ ROS_DOMAIN_ID=7 ros2 run aha_perception teleop_head.py  # 別シェルからキ�
 | --- | --- | --- |
 | `config` | `aha_servo/config/head.yaml` | サーボバスの設定 |
 | `port` / `baud` | 空（configの値） | configの上書き |
+| `head` | `servo` | `servo`：サーボを動かす。`manual`：サーボなしで `manual_head.py` が指令した角度を頭の状態にする。`imu`：サーボなしで `imu_head.py` がIMUのtiltと指令したpanを頭の状態にする（`camera_source:=realsense` が必要） |
+| `imu_check` | `false` | `head:=servo` で、サーボとIMUのtiltが3°より違うとwarningを出す（`camera_source:=realsense` が必要） |
 | `rviz` | `true` | `sim_view.launch.py` をfixed frame `base_link` で起動。台車の操作は無効 |
-| `camera` | `false` | rosbridge（127.0.0.1:9090）と `pointcloud.launch.py` を起動 |
+| `camera` | `false` | カメラの配信元と `pointcloud.launch.py` を起動 |
+| `camera_source` | `rosbridge` | `rosbridge`：rosbridge（127.0.0.1:9090）を起動し、`stream_realsense.py` から受ける。`realsense`：`realsense.launch.py` を起動 |
+| `color_profile` / `depth_profile` | `640,480,15` | `camera_source:=realsense` の解像度とfps（[RealSenseドライバ](#realsenseドライバ)） |
 | `planes` | `false` | 平面検出（`plane_detection.launch.py`）を起動。`camera:=true` と併用する |
 
 TFはrobot_state_publisher（`sim:=false`）とjoint_state_publisherが出す。
 `/joint_states` の頭は `/head_controller/joint_states`、その他の関節は0。
 Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッジはエラーで終了する。
 
-`camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
+`camera:=true camera_source:=rosbridge` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
 で既定の `ws://127.0.0.1:9090` へ送ると、RVizに点群が表示される。
+Linuxでは `camera_source:=realsense` でRealSense ROSドライバから直接配信できる（rosbridgeはDepthのJSON変換で遅れる。[測定](../../../docs/context/camera.md)）。
+
+```bash
+ROS_DOMAIN_ID=7 ros2 launch aha_perception real_head_camera.launch.py camera:=true camera_source:=realsense planes:=true
+ROS_DOMAIN_ID=7 ros2 launch aha_perception real_head_camera.launch.py head:=imu camera:=true camera_source:=realsense planes:=true
+```
+
+### RealSenseドライバ
+
+`realsense.launch.py` は `realsense2_camera_node`（node `/camera`）を起動し、
+[頭部カメラ](../../../docs/interfaces.md#頭部カメラ)のtopicで配信する。
+
+- カラーはrgb8、Depthは16UC1（mm）でカラーへ位置合わせし、`/camera/depth_registered/image_rect` に出す。
+- 位置合わせの前に `stream_realsense.py` と同じ後処理（disparity変換 → spatial → temporal → depthへ戻す、SDKの既定値）をかける（`filters:=false` で無効）。
+- 画像は `camera_color_optical_frame`、IMUは `camera_imu_optical_frame`。`publish_tf` は無効で、カメラのTFはURDFが出す。
+- 赤外線は配信しない。IMU（`imu:=true`、既定）はaccelをgyroの時刻へ線形補間して `/camera/imu` に出す。
+  `real_head_camera.launch.py` は `head:=imu` か `imu_check:=true` のときだけIMUを有効にする。
+
+| 引数 | 既定 | 内容 |
+| --- | --- | --- |
+| `color_profile` | `640,480,15` | カラーの幅,高さ,fps。位置合わせしたDepthもこの大きさ |
+| `depth_profile` | `640,480,15` | 位置合わせ前のDepthの幅,高さ,fps |
+| `filters` | `true` | Depthの後処理 |
+| `imu` | `true` | accel・gyro |
+| `serial_no` | 空 | 使う機体のシリアル番号（空は最初の機体） |
+
+USB 2.0接続では、D435iはカラー848×480を持たず、Depth 848×480は10 / 6 fpsだけ、カラー1280×720は15 fpsまでになる。
+既定の640×480・15 fpsはUSB 2.0で選べる組み合わせ。USB 3では両方を848×480（15 / 30 fps）にできる。
+
+コンテナのユーザー（uid 1000）は、映像（`/dev/video*`）はホストのログインユーザーのACLで開けるが、
+IMU（HIDのiioデバイス）は開けない。ホストにlibrealsenseのudevルールを入れる（NixOSでは `services.udev.packages = [ pkgs.librealsense ];`）。
+ルールがない場合は、挿すたびにホストで次を実行する。
+
+```bash
+for d in /sys/bus/iio/devices/iio:device*; do sudo chmod -R a+rw "$(dirname "$(dirname "$(readlink -f "$d")")")"; done
+sudo chmod a+rw /dev/iio:device*
+```
+
+### IMUによる頭部のtilt
+
+`imu_head.py`（`aha_perception.imu_tilt`）は `/camera/imu` のaccelとgyroから重力の向き（上向きの単位ベクトル）を求め、頭のtiltにする。
+
+- 相補フィルタ：サンプルごとに推定をgyroで回転させ（du/dt = u × ω）、accel/|accel| へ係数 1 − exp(−dt/`time_constant`) で近づける。accelのノルムと重力の差が `accel_tolerance` 以上のとき（加速中）はgyroだけで追従する。動いている間もtiltは連続に変わる。
+- 最初のサンプルと、0.5 sを超えて途切れた後はaccelから初期化する。
+- accelは `camera_color_optical_frame` と同じ向きとして扱う（librealsenseはD435iのIMUをDepthの光学座標系の向きで出す。Depthとカラーの間の回転は無視）。
+  水平に置くとaccelは約 (0, −9.8, 0)。カメラのtilt = atan2(−a_z, √(a_x² + a_y²))（+ = 下）、roll = atan2(−a_x, −a_y)（+ = 画像の右が下）。
+- URDFでは頭の関節が0のとき光軸が水平で、tiltはpanによらないため、`joint_head_tilt` = カメラのtilt + `tilt_offset`。台車が水平であることを仮定する。
+- rollは頭の関節で表せないため、|roll| が3°を超えると5 sごとにwarningを出す。
+- `mode:=state`（`head:=imu`）：tiltはIMU、panは指令した軌道（`manual_head.py` と同じ）で30 Hzで出す。最初のIMUが届くまでは出さない。
+- `mode:=check`（`imu_check:=true`）：サーボのtiltが1 s以上変わらず、IMUが静止している（gyroのノルムが `gyro_threshold` 未満、accelのノルムが重力に近い）ときに比べ、3°を超えて違うとwarningを出す。
+- IMUは200 Hzで届くため、IMUのコールバックはフィルタの更新だけにし、`rclpy.experimental.EventsExecutor` で動かす（既定のexecutorより1メッセージあたりのCPUが約1/3）。
+
+| パラメータ | 既定 | 内容 |
+| --- | --- | --- |
+| `mode` | `state` | `state` / `check` |
+| `imu_topic` | `/camera/imu` | IMU（accel・gyro） |
+| `tilt_offset` | `0.0` | tiltに加える値（rad）。取付の誤差の補正 |
+| `time_constant` | `0.5` | accelによる補正の時定数（s） |
+| `gyro_threshold` / `accel_tolerance` | `0.05` / `0.8` | 静止の判定（rad/s）/ accelで補正するaccelのノルムと重力の差の上限（m/s²） |
+| `roll_tolerance_deg` / `check_tolerance_deg` | `3.0` / `3.0` | warningの閾値（°） |
 
 ## 平面検出 (`aha_perception.planes`)
 
@@ -340,5 +407,5 @@ for c in result.candidates:  # position, clearance, label, plane_index, score
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
   --with pytest python -m pytest test/test_planes_*.py test/test_plane_detection_io.py \
-  test/test_depth_noise.py test/test_place.py
+  test/test_depth_noise.py test/test_place.py test/test_imu_tilt.py
 ```

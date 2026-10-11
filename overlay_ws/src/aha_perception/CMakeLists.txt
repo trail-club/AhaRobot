@@ -5,6 +5,8 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
 # aha_perception.head_config: head.yaml loader shared by the scripts below
+# aha_perception.head_follow: commanded head position for manual_head.py / imu_head.py
+# aha_perception.imu_tilt: head camera tilt/roll from the D435i accelerometer
 # aha_perception.planes: plane detection candidates
 # aha_perception.place: place candidates on the detected support planes
 # aha_perception.plane_detection_io: ROS message conversions for the depth nodes
@@ -20,6 +22,7 @@ install(
 install(
   PROGRAMS
     scripts/head_look_at.py
+    scripts/imu_head.py
     scripts/manual_head.py
     scripts/plane_detection_node.py
     scripts/sim_control_panel.py
@@ -37,6 +40,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_plane_detection_io test/test_plane_detection_io.py TIMEOUT 120)
   ament_add_pytest_test(test_depth_noise test/test_depth_noise.py TIMEOUT 120)
   ament_add_pytest_test(test_place test/test_place.py TIMEOUT 120)
+  ament_add_pytest_test(test_imu_tilt test/test_imu_tilt.py TIMEOUT 60)
 endif()
 
 ament_package()

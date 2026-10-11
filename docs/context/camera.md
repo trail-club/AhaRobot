@@ -74,3 +74,41 @@ URDFのカメラ位置（設計値）と取り付け後の実際の位置との�
 今回は1つの視野だけで、照明・対象の材質・USB 3接続・848×480での差、フィルタのCPU負荷、
 フィルタによる境界の変形は確認していない。
 机の上に置いた状態とTFの高さ（天板が1.20 m）の関係は確認しておらず、床からの高さは不明。
+
+## 2026-10-11 — rosbridge経由の遅延とRealSense ROSドライバの試験（USB 2.0）
+
+### 背景・条件
+
+Linuxホストで `real_head_camera.launch.py camera:=true planes:=true`（rosbridge経由）を使うと、
+映像が遅れた。ホストのDockerコンテナ（root）で `stream_realsense.py`（640×480、15 fps、後処理あり、送信上限5回/s）を動かしていた。
+この経路の代わりに、開発コンテナ（uid 1000）でRealSense ROSドライバ（`ros-jazzy-realsense2-camera` 4.58.4、librealsense 2.58.4、V4Lバックエンド）を試した。
+
+- D435iはUSB 2.1（480 Mbps）として認識された。ファームウェア 5.12.14.50。
+  `rs-enumerate-devices` のシリアル番号は 033422070007（ASIC 034323051424）で、2026-10-04の記録の 135222071405 と異なる。同じ機体かは確認していない。
+- USB 2.1でD435iが示したプロファイル：Depth 1280×720は6 fps、848×480は10 / 6 fps、640×480は30 / 15 / 6 fps。
+  カラー1920×1080は8 fps、1280×720は15 / 10 / 6 fps、640×480は30 / 15 / 6 fps（848×480はない）。accel 250 / 63 Hz、gyro 400 / 200 Hz。
+
+### 観測結果
+
+rosbridge経由（この試験の前に同じセッションで測定。測定方法・時間は記録していない）：
+
+- `stream_realsense.py` は4.2回/sで送信し、ROS側の受信は0.7–1 Hzで、数秒遅れた。rosbridgeのCPU使用率は約84%だった。
+
+RealSenseドライバ：
+
+- コンテナのユーザーは映像（`/dev/video*`、ホストのログインユーザーのACL）を開けたが、
+  IMUはiioのsysfs（`scan_elements/*_en`、`enable_sensor`）がPermission deniedで開けなかった。
+  コンテナ内のrootでHIDセンサーのsysfsと `/dev/iio:device*` をchmodすると、IMU（`/camera/imu`、`camera_imu_optical_frame`）が配信された。
+- IMUだけの起動（11:25）と、カラー・Depth 640×480 15 fps＋位置合わせ＋後処理＋IMUの起動（11:31）の両方で、
+  ドライバの起動後にD435iがUSBから切断・再接続を数回くり返した。11:31は起動から約15 s後に切断された。
+  ドライバのログにリセットの指令はなかった。
+- 11:31の切断の処理中に、ホストのカーネルが `uvcvideo` の `uvc_disconnect` で `list_del corruption`（kernel BUG）を出した。
+  ドライバのプロセスはD状態（割り込み不可）で残り、D435iは再接続されなかった。
+- このため、ドライバ経由のレート・遅延・CPU使用率と、新しい解像度での平面検出の時間は測定できなかった。IMUの重力ベクトルも記録していない。
+
+### 解釈と確認していない範囲
+
+rosbridge経由の遅れは、DepthをJSON・base64で送るrosbridgeの負荷によると考えられる。
+切断の原因（ケーブル・ポート・給電、USB 2.0でのIMU（HID）の併用、ドライバの再接続処理）は切り分けていない。
+同じホストで `stream_realsense.py`（IMUなし、root）は少なくとも24分動いていた。
+USB 3接続、848×480、ホストの再起動後の再試験、udevルールを入れた状態での動作は確認していない。

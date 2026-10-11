@@ -30,6 +30,10 @@ bash tools/perception/macos/pointcloud/start.sh --demo
 
 ## rosbridgeへの直接送信
 
+Linuxでカメラを同じ機体につなぐ場合は、RealSense ROSドライバ（`real_head_camera.launch.py camera_source:=realsense`、
+[aha_perception](../../../../overlay_ws/src/aha_perception/README.md#realsenseドライバ)）を使う。
+rosbridge経由ではDepthをJSONに変換するため、受信が遅れる。
+
 rosbridgeを別に起動している場合（例: `real_head_camera.launch.py camera:=true`）は、`stream_realsense.py` だけを実行する。
 共通の撮影環境では、`start.sh` の初回起動でビルドしたRealSense SDKのライブラリを指定する。
 pyrealsense2と [pyproject.toml](../pyproject.toml) の依存が入った他のPythonでも実行できる。
