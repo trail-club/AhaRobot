@@ -243,6 +243,19 @@ def generate_launch_description():
                 )
             ),
             condition=IfCondition(LaunchConfiguration(argument)),
+            launch_arguments={
+                "use_sim_time": use_sim_time,
+                **(
+                    {
+                        "joint_states_topic": LaunchConfiguration(
+                            "manip_joint_states_topic"
+                        ),
+                        "cameras": LaunchConfiguration("cameras"),
+                    }
+                    if package == "aha_manipulation"
+                    else {}
+                ),
+            }.items(),
         )
         for package, filename, argument in (
             ("aha_navigation", "nav.launch.py", "use_nav"),
@@ -285,6 +298,9 @@ def generate_launch_description():
                 description="Load command controllers and activate them in one switch",
             ),
             DeclareLaunchArgument("use_manip", default_value="false"),
+            DeclareLaunchArgument(
+                "manip_joint_states_topic", default_value="/joint_states"
+            ),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
             gz,

@@ -40,7 +40,7 @@ def scripted_distances(scene):
     return tuple(distances)
 
 
-def expand_world(template, scene_config, cameras=True):
+def expand_world(template, scene_config, cameras=True, ground_truth=False):
     import xacro
 
     return xacro.process_file(
@@ -48,5 +48,6 @@ def expand_world(template, scene_config, cameras=True):
         mappings={
             "scene_config": str(scene_config),
             "cameras": "true" if cameras else "false",
+            "ground_truth": "true" if ground_truth else "false",
         },
     ).toxml()
