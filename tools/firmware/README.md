@@ -11,6 +11,8 @@ Waveshare Servo Driver with ESP32（ESP32-D0WD-V3）用。左右の制御基板�
 | --- | --- |
 | `left_arm/` | 左腕側の純正デモバックアップ、サーボ状態、パーティション解析スクリプト |
 | `right_arm/` | 右腕側の純正デモバックアップ、サーボ状態 |
+| `<arm>/pre_rezero_20261004/` | URDFゼロ姿勢への校正前のFlash全域（AstraArmController + `/config.txt`）、サーボEEPROM、サーボ状態 |
+| `left_arm/pre_rewrist_20261004/` | 左腕wrist（ID12–14）の中点を取り直す前のFlash全域とサーボ状態。サーボEEPROMのJSONはない |
 | `right_arm/bridge/` | USB（UART0）とサーボバス（UART1、GPIO18/19）の透過ブリッジ |
 
 各腕のディレクトリは以下の構成で揃えている。`servo_state_before_init_*` の日付は
@@ -24,6 +26,7 @@ Waveshare Servo Driver with ESP32（ESP32-D0WD-V3）用。左右の制御基板�
 └── servo_state_before_init_<date>.txt  ← motor_check.py の出力
 ```
 
+`pre_*_20261004/` の採取条件は [モーターの検証記録](../../docs/context/motor.md#2026-10-04--urdfゼロ姿勢正方向への校正両腕)を参照。
 `parse_partitions.py` は左右で同一のため `left_arm/` にのみ置いている。
 右腕は採取時点でAstraArmControllerが焼かれていたため、サーボEEPROMの吸い出しに
 `bridge/` を一時書き込みして採取・書き戻しを行っている
