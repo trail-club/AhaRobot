@@ -30,6 +30,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
     AndSubstitution,
+    NotSubstitution,
     EqualsSubstitution,
     IfElseSubstitution,
     EnvironmentVariable,
@@ -251,6 +252,12 @@ def generate_launch_description():
                             "manip_joint_states_topic"
                         ),
                         "cameras": LaunchConfiguration("cameras"),
+                        "rviz": LaunchConfiguration("manip_rviz"),
+                        # use_perception already bridges the cameras.
+                        "camera_bridge": AndSubstitution(
+                            LaunchConfiguration("cameras"),
+                            NotSubstitution(LaunchConfiguration("use_perception")),
+                        ),
                     }
                     if package == "aha_manipulation"
                     else {}
@@ -300,6 +307,11 @@ def generate_launch_description():
             DeclareLaunchArgument("use_manip", default_value="false"),
             DeclareLaunchArgument(
                 "manip_joint_states_topic", default_value="/joint_states"
+            ),
+            DeclareLaunchArgument(
+                "manip_rviz",
+                default_value="false",
+                description="With use_manip, start the RViz manipulation view",
             ),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),

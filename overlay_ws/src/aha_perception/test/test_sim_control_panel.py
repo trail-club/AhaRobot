@@ -1,4 +1,4 @@
-"""sim_control_panel.py: base command and slider hold (no Qt window, no ROS transport)."""
+"""sim_control_panel.py: base, gripper and lift commands and slider hold (no Qt window, no ROS transport)."""
 
 import importlib.util
 import math
@@ -59,6 +59,33 @@ class CommandHoldTest(unittest.TestCase):
         self.assertFalse(self.hold.active(self.TARGET, 100.5))
         self.hold.start((-0.5, 0.0), duration=1.0, now=101.0)
         self.assertTrue(self.hold.active(self.TARGET, 101.1))
+
+
+class RightHandCommandTest(unittest.TestCase):
+    def test_gripper_fingers_move_symmetrically(self):
+        msg = panel.gripper_command(0.03)
+        self.assertEqual(list(msg.data), [0.03, -0.03])
+
+    def test_gripper_opening_is_clamped(self):
+        self.assertEqual(list(panel.gripper_command(0.5).data), [0.06, -0.06])
+        self.assertEqual(list(panel.gripper_command(-0.01).data), [0.0, -0.0])
+
+    def test_lift_moves_only_the_right_lift(self):
+        msg = panel.lift_trajectory(0.35, 2.5)
+        self.assertEqual(msg.joint_names, [panel.LIFT_JOINT])
+        self.assertEqual(list(msg.points[0].positions), [0.35])
+        self.assertEqual(
+            (msg.points[0].time_from_start.sec, msg.points[0].time_from_start.nanosec),
+            (2, 500_000_000),
+        )
+        # Zero stamp: the controller starts the trajectory on receipt.
+        self.assertEqual((msg.header.stamp.sec, msg.header.stamp.nanosec), (0, 0))
+
+    def test_lift_hold_uses_metres(self):
+        hold = panel.CommandHold(panel.LIFT_HOLD_TOLERANCE_M)
+        hold.start((0.4,), duration=1.0, now=0.0)
+        self.assertTrue(hold.active((0.38,), 0.5))
+        self.assertFalse(hold.active((0.395,), 0.6))
 
 
 if __name__ == "__main__":
