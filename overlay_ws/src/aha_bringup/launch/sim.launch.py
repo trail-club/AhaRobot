@@ -3,7 +3,8 @@
 Starts:
   - Gazebo Harmonic with the requested world
   - robot_state_publisher (from xacro, sim:=true)
-  - spawn AhaRobot into Gazebo
+  - spawn AhaRobot into Gazebo (physics joint limits widened and lift
+    friction added, see aha_gazebo.model)
   - ros_gz_bridge for /clock
   - controller_manager spawners:
         joint_state_broadcaster, diff_drive_controller,
@@ -40,6 +41,9 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+import xacro
+
+from aha_gazebo.model import gazebo_model
 from aha_gazebo.world import SPAWN_COORDINATES, load_preset, validate_spawn
 
 
@@ -104,6 +108,45 @@ def _validate_spawn(context):
     return []
 
 
+def _spawn(context):
+    # Gazebo gets the model with widened limits and lift friction
+    # (aha_gazebo.model); robot_state_publisher, ros2_control and MoveIt
+    # keep the URDF.
+    description = xacro.process_file(
+        str(
+            Path(get_package_share_directory("aha_description"))
+            / "urdf"
+            / "aha_robot.urdf.xacro"
+        ),
+        mappings={
+            "sim": "true",
+            "cameras": LaunchConfiguration("cameras").perform(context),
+        },
+    ).toxml()
+    return [
+        Node(
+            package="ros_gz_sim",
+            executable="create",
+            parameters=[{"gz_robot_description": gazebo_model(description)}],
+            arguments=[
+                "-name",
+                LaunchConfiguration("robot_name"),
+                "-param",
+                "gz_robot_description",
+                "-x",
+                LaunchConfiguration("spawn_x"),
+                "-y",
+                LaunchConfiguration("spawn_y"),
+                "-z",
+                LaunchConfiguration("spawn_z"),
+                "-Y",
+                LaunchConfiguration("spawn_yaw"),
+            ],
+            output="screen",
+        )
+    ]
+
+
 def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
 
@@ -150,26 +193,6 @@ def generate_launch_description():
             "world_path": LaunchConfiguration("world_path"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
-    )
-
-    spawn = Node(
-        package="ros_gz_sim",
-        executable="create",
-        arguments=[
-            "-name",
-            LaunchConfiguration("robot_name"),
-            "-topic",
-            "robot_description",
-            "-x",
-            LaunchConfiguration("spawn_x"),
-            "-y",
-            LaunchConfiguration("spawn_y"),
-            "-z",
-            LaunchConfiguration("spawn_z"),
-            "-Y",
-            LaunchConfiguration("spawn_yaw"),
-        ],
-        output="screen",
     )
 
     clock_bridge = Node(
@@ -306,7 +329,7 @@ def generate_launch_description():
             gz,
             rsp,
             clock_bridge,
-            spawn,
+            OpaqueFunction(function=_spawn),
             jsb,
             load_rest,
             *subsystems,
