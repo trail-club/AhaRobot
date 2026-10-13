@@ -1,4 +1,9 @@
-"""MoveIt 2 right-arm planning, KDL IK and ros2_control trajectory execution."""
+"""MoveIt 2 right-arm planning, KDL IK and ros2_control trajectory execution.
+
+move_group reads joint states through joint_state_bounds.py, which relays
+joint_states_topic to /aha/manipulation/joint_states with limit roundoff
+removed.
+"""
 
 import os
 from pathlib import Path
@@ -55,13 +60,25 @@ def _move_group(context):
         )
     return [
         Node(
+            package="aha_manipulation",
+            executable="joint_state_bounds.py",
+            output="screen",
+            parameters=[
+                {
+                    "robot_description": parameters["robot_description"],
+                    "use_sim_time": parameters["use_sim_time"],
+                }
+            ],
+            remappings=[("joint_states", LaunchConfiguration("joint_states_topic"))],
+        ),
+        Node(
             package="moveit_ros_move_group",
             executable="move_group",
             output="screen",
             parameters=[parameters],
             additional_env=environment,
-            remappings=[("joint_states", LaunchConfiguration("joint_states_topic"))],
-        )
+            remappings=[("joint_states", "/aha/manipulation/joint_states")],
+        ),
     ]
 
 

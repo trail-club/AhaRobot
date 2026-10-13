@@ -35,6 +35,9 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
   左リフトは既存位置を保持する。グリッパは既存のposition topicを使う。
 - 既定の状態入力は `/joint_states`。`joint_states_topic` で変更でき、標準bringupでは
   `manip_joint_states_topic` が対応する。真値評価は `/evaluation/joint_states` を指定する。
+  `joint_state_bounds.py` がこの入力を `/aha/manipulation/joint_states` へ中継し、
+  move_groupはこれを読む。URDFの関節限界から1e-6 m / rad以内の数値誤差だけを限界へ補正する。
+  Gazeboは下限で止まった昇降を約-1e-14 mと報告し、補正しないとMoveItがその状態からの計画を拒否する。
 - SRDFは上流Astraの衝突除外とAhaのベース・頭部の隣接リンクを記述する。
   外部物体の衝突形状は利用側がplanning sceneに追加する。標準worldの机等は自動登録しない。
 
