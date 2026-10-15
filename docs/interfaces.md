@@ -94,8 +94,11 @@ IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
 | 計画・軌道実行 | `/move_action` | `moveit_msgs/action/MoveGroup` |
 | Planning sceneの取得・更新 | `/get_planning_scene` / `/apply_planning_scene` | `moveit_msgs/srv/GetPlanningScene` / `ApplyPlanningScene` |
 | 監視用planning scene | `/monitored_planning_scene` | `moveit_msgs/msg/PlanningScene` |
+| MoveIt用の関節状態 | `/aha/manipulation/joint_states` | `sensor_msgs/msg/JointState` |
 
 状態入力は既定で `/joint_states`。`manip_joint_states_topic` で変更できる。
+move_groupは、この入力の関節限界の外 `limit_tolerance`（既定1e-6 m / rad）以内の値を限界へ補正した
+`/aha/manipulation/joint_states` を読む。
 実行先は `/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory`。
 同じcontrollerへのtopic指令とMoveItのaction実行を同時に行わない。
 
