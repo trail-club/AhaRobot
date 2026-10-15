@@ -39,6 +39,8 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
   move_groupとRVizはこれを読む。URDFの関節限界の外0.006 m / rad以内の値だけを限界へ補正する。
   MoveItは限界の外にある開始状態をわずかでも拒否するが、Gazeboは限界で止まった関節を約1e-14外側と報告し、
   移動中には物理限界（URDFの0.005外側）まで出ることもある。補正幅は軌道実行の開始位置の許容差（`allowed_start_tolerance` 0.01）より小さい。
+- SRDFの登録姿勢は `ready`（腕を伸ばす）、`standby`（腕を畳み、手先を前へ水平、昇降0.2 m）、
+  `carry`（同じく畳んだまま昇降0.5 m）。
 - SRDFは上流Astraの衝突除外とAhaのベース・頭部の隣接リンクを記述する。
   外部物体の衝突形状は利用側がplanning sceneに追加する。標準worldの机等は自動登録しない。
 
