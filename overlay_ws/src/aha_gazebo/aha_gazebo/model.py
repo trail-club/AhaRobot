@@ -3,39 +3,34 @@
 Gazebo's DART engine applies only the limit constraint while a joint is
 outside its position limit by any amount: the velocity command that
 gz_ros2_control sends for a position command is then ignored, and the joint
-stays at the limit for good. Two adjustments keep joints inside:
+stays at the limit for good. The model keeps joints inside:
 
-- Physics limits PHYSICS_LIMIT_MARGIN outside the URDF range. MoveIt, the
-  controllers and the panels command at most the URDF limit (the lift at
-  0 m, a closed finger at 0 m), where a joint settles about 1e-14 outside it.
-  When the robot lands after the spawn (z 0.10 m in the RCJO arena), the
-  lifts dip more than 5 mm below 0 m before the controllers bring them back.
-- Coulomb friction on the lifts. The controllers start a few seconds after
-  the spawn; until then the unactuated lifts would fall onto the physics
-  limit under the arm's weight (about 22 N each).
+- Physics limits LIMIT_MARGIN outside the URDF range. MoveIt, the
+  controllers and the panels command at most the URDF limit, where a joint
+  settles about 1e-14 outside it (the lift at 0 m, a finger at 0 m).
+- A large holding force on the lifts. When the robot lands after the spawn
+  (z 0.10 m in the RCJO arena), stopping the arm on a lift takes about 3 kN.
+  With the URDF effort (400 N) the lifts slid about 5 mm below 0 m and stayed
+  there until lift_controller started.
 """
 
 import xml.etree.ElementTree as ET
 
-PHYSICS_LIMIT_MARGIN = 0.05  # m for prismatic, rad for revolute joints
+LIMIT_MARGIN = 0.005  # m for prismatic, rad for revolute joints
 LIFT_JOINTS = ("joint_l1", "joint_r1")
-# Above the arm's weight on each lift, well below the lift effort limit (400 N).
-LIFT_FRICTION = 60.0  # N
+LIFT_EFFORT = 10000.0  # N
 
 
-def gazebo_model(urdf, margin=PHYSICS_LIMIT_MARGIN, lift_friction=LIFT_FRICTION):
-    """URDF string for Gazebo with widened limits and friction on the lifts."""
+def gazebo_model(urdf):
+    """URDF string for Gazebo with widened limits and holding lifts."""
     root = ET.fromstring(urdf)
     # Top-level joints only; ros2_control <joint> entries have no <limit>.
     for joint in root.findall("joint"):
         limit = joint.find("limit")
         if joint.get("type") not in ("revolute", "prismatic") or limit is None:
             continue
-        limit.set("lower", repr(float(limit.get("lower", 0.0)) - margin))
-        limit.set("upper", repr(float(limit.get("upper", 0.0)) + margin))
+        limit.set("lower", repr(float(limit.get("lower", 0.0)) - LIMIT_MARGIN))
+        limit.set("upper", repr(float(limit.get("upper", 0.0)) + LIMIT_MARGIN))
         if joint.get("name") in LIFT_JOINTS:
-            dynamics = joint.find("dynamics")
-            if dynamics is None:
-                dynamics = ET.SubElement(joint, "dynamics")
-            dynamics.set("friction", repr(float(lift_friction)))
+            limit.set("effort", repr(LIFT_EFFORT))
     return ET.tostring(root, encoding="unicode")

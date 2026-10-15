@@ -19,17 +19,10 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="pos_joint" params="name initial:=''">
+  <xacro:macro name="pos_joint" params="name">
     <joint name="${name}">
       <command_interface name="position"/>
-      <xacro:if value="${initial == ''}">
-        <state_interface name="position"/>
-      </xacro:if>
-      <xacro:unless value="${initial == ''}">
-        <state_interface name="position">
-          <param name="initial_value">${initial}</param>
-        </state_interface>
-      </xacro:unless>
+      <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
@@ -60,12 +53,9 @@
       <xacro:vel_joint name="left_wheel_joint"/>
       <xacro:vel_joint name="right_wheel_joint"/>
 
-      <!-- Lift (left + right; treated as 2 DoF for now).
-           initial_value makes gz_ros2_control start the position command at
-           0 m, which lift_controller holds on activation, so the lifts rise
-           back to 0 m after dipping when the robot lands at the spawn. -->
-      <xacro:pos_joint name="joint_l1" initial="0.0"/>
-      <xacro:pos_joint name="joint_r1" initial="0.0"/>
+      <!-- Lift (left + right; treated as 2 DoF for now) -->
+      <xacro:pos_joint name="joint_l1"/>
+      <xacro:pos_joint name="joint_r1"/>
 
       <!-- Left arm -->
       <xacro:pos_joint name="joint_l2"/>
