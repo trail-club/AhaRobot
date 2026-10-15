@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Relay joint states to MoveIt with physics roundoff at the limits removed.
+"""Relay joint states to MoveIt with small excursions past the limits removed.
 
-Gazebo reports a joint resting on a limit slightly outside it (the lift at
-its lower limit reads -1e-14 m), and MoveIt's CheckStartStateBounds then
-rejects every plan from that state. Positions within TOLERANCE of a URDF
-limit are moved onto the limit; larger excursions are relayed unchanged so
-that real limit violations stay visible.
+MoveIt's CheckStartStateBounds rejects every plan from a state outside the
+URDF limits by any amount. Gazebo reports a joint resting on a limit about
+1e-14 outside it, and its physics limits lie 0.005 outside the URDF, so a
+joint can also stop, or pass while moving, up to 0.005 outside (measured:
+joint_r4 5e-3 during a move to its limit).
+
+Positions within TOLERANCE outside a URDF limit are moved onto the limit.
+TOLERANCE stays below trajectory_execution.allowed_start_tolerance
+(config/controllers.yaml), so a plan from the clamped state still starts
+within the tolerance of the actual position. Larger excursions are relayed
+unchanged so that real limit violations stay visible.
 
 Input `joint_states` (remapped by manip.launch.py), output OUTPUT_TOPIC.
 Limits come from the robot_description parameter.
@@ -15,11 +21,10 @@ import sys
 import xml.etree.ElementTree as ET
 
 import rclpy
-from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
 OUTPUT_TOPIC = "/aha/manipulation/joint_states"
-TOLERANCE = 1e-6
+TOLERANCE = 0.005  # m for prismatic, rad for revolute joints
 
 
 def position_limits(urdf):
@@ -59,11 +64,13 @@ def main():
     limits = position_limits(node.declare_parameter("robot_description", "").value)
     publisher = node.create_publisher(JointState, OUTPUT_TOPIC, 10)
 
+    # Reliable like the publishers (joint_state_broadcaster, the evaluation),
+    # so no state is dropped under load.
     node.create_subscription(
         JointState,
         "joint_states",
         lambda msg: publisher.publish(clamp_positions(msg, limits)),
-        qos_profile_sensor_data,
+        10,
     )
     try:
         rclpy.spin(node)
