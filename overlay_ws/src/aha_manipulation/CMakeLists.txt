@@ -9,7 +9,7 @@ install(
 )
 
 install(
-  PROGRAMS scripts/joint_state_bounds.py
+  PROGRAMS scripts/eef_goal_monitor.py scripts/joint_state_bounds.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

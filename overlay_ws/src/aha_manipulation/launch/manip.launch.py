@@ -3,6 +3,7 @@
 move_group reads joint states through joint_state_bounds.py, which relays
 joint_states_topic to /aha/manipulation/joint_states with positions up to
 limit_tolerance outside the URDF limits moved onto them.
+rviz:=true adds the RViz manipulation view (manip_view.launch.py).
 """
 
 import os
@@ -13,9 +14,16 @@ import xacro
 import yaml
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import LaunchConfiguration
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def _move_group(context):
@@ -98,6 +106,34 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "cameras", default_value="true", choices=["true", "false"]
             ),
+            DeclareLaunchArgument(
+                "rviz",
+                default_value="false",
+                choices=["true", "false"],
+                description="Start the RViz manipulation view (manip_view.launch.py)",
+            ),
+            DeclareLaunchArgument(
+                "camera_bridge",
+                default_value="false",
+                choices=["true", "false"],
+                description="With rviz:=true, bridge the Gazebo cameras",
+            ),
             OpaqueFunction(function=_move_group),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("aha_manipulation"),
+                            "launch",
+                            "manip_view.launch.py",
+                        ]
+                    )
+                ),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "camera_bridge": LaunchConfiguration("camera_bridge"),
+                }.items(),
+                condition=IfCondition(LaunchConfiguration("rviz")),
+            ),
         ]
     )
