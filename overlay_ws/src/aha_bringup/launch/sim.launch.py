@@ -42,7 +42,7 @@ from launch_ros.substitutions import FindPackageShare
 
 import xacro
 
-from aha_gazebo.model import gazebo_model
+from aha_gazebo.model import LIMIT_TOLERANCE, gazebo_model
 from aha_gazebo.world import SPAWN_COORDINATES, load_preset, validate_spawn
 
 
@@ -258,6 +258,7 @@ def generate_launch_description():
                             "manip_joint_states_topic"
                         ),
                         "cameras": LaunchConfiguration("cameras"),
+                        "limit_tolerance": str(LIMIT_TOLERANCE),
                     }
                     if package == "aha_manipulation"
                     else {}

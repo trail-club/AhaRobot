@@ -34,11 +34,11 @@ JOINT_LIMITS = {
 }
 
 
-def clamp_joint_roundoff(name, value):
-    """Bound physics roundoff for MoveIt without hiding meaningful excursions."""
+def clamp_joint_near_limits(name, value, tolerance):
+    """Move a value at most tolerance outside its limits onto them for MoveIt."""
     if name in JOINT_LIMITS:
         lower, upper = JOINT_LIMITS[name]
-        if lower - 1e-6 <= value <= upper + 1e-6:
+        if lower - tolerance <= value <= upper + tolerance:
             return max(lower, min(upper, value))
     return value
 

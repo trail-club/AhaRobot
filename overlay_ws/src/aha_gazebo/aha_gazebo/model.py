@@ -7,7 +7,9 @@ stays at the limit for good. The model keeps joints inside:
 
 - Physics limits LIMIT_MARGIN outside the URDF range. MoveIt, the
   controllers and the panels command at most the URDF limit, where a joint
-  settles about 1e-14 outside it (the lift at 0 m, a finger at 0 m).
+  settles about 1e-14 outside it (the lift at 0 m, a finger at 0 m). A joint
+  overshooting a fast move can reach the physics limit (joint_r4 at 0.005
+  plus 9e-12), so MoveIt's state input accepts up to LIMIT_TOLERANCE.
 - A large holding force on the lifts. When the robot lands after the spawn
   (z 0.10 m in the RCJO arena), stopping the arm on a lift takes about 3 kN.
   With the URDF effort (400 N) the lifts slid about 5 mm below 0 m and stayed
@@ -17,6 +19,7 @@ stays at the limit for good. The model keeps joints inside:
 import xml.etree.ElementTree as ET
 
 LIMIT_MARGIN = 0.005  # m for prismatic, rad for revolute joints
+LIMIT_TOLERANCE = LIMIT_MARGIN + 1e-6  # physics limit with its roundoff
 LIFT_JOINTS = ("joint_l1", "joint_r1")
 LIFT_EFFORT = 10000.0  # N
 
