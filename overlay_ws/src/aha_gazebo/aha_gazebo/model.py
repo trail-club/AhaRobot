@@ -8,6 +8,8 @@ stays at the limit for good. Two adjustments keep joints inside:
 - Physics limits PHYSICS_LIMIT_MARGIN outside the URDF range. MoveIt, the
   controllers and the panels command at most the URDF limit (the lift at
   0 m, a closed finger at 0 m), where a joint settles about 1e-14 outside it.
+  When the robot lands after the spawn (z 0.10 m in the RCJO arena), the
+  lifts dip more than 5 mm below 0 m before the controllers bring them back.
 - Coulomb friction on the lifts. The controllers start a few seconds after
   the spawn; until then the unactuated lifts would fall onto the physics
   limit under the arm's weight (about 22 N each).
@@ -15,7 +17,7 @@ stays at the limit for good. Two adjustments keep joints inside:
 
 import xml.etree.ElementTree as ET
 
-PHYSICS_LIMIT_MARGIN = 0.005  # m for prismatic, rad for revolute joints
+PHYSICS_LIMIT_MARGIN = 0.05  # m for prismatic, rad for revolute joints
 LIFT_JOINTS = ("joint_l1", "joint_r1")
 # Above the arm's weight on each lift, well below the lift effort limit (400 N).
 LIFT_FRICTION = 60.0  # N
