@@ -36,9 +36,12 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
 - 既定の状態入力は `/joint_states`。`joint_states_topic` で変更でき、標準bringupでは
   `manip_joint_states_topic` が対応する。真値評価は `/evaluation/joint_states` を指定する。
   `joint_state_bounds.py` がこの入力を `/aha/manipulation/joint_states` へ中継し、
-  move_groupとRVizはこれを読む。URDFの関節限界の外0.006 m / rad以内の値だけを限界へ補正する。
-  MoveItは限界の外にある開始状態をわずかでも拒否するが、Gazeboは限界で止まった関節を約1e-14外側と報告し、
-  移動中には物理限界（URDFの0.005外側）まで出ることもある。補正幅は軌道実行の開始位置の許容差（`allowed_start_tolerance` 0.01）より小さい。
+  move_groupとRVizはこれを読む。URDFの関節限界の外 `limit_tolerance` 以内の値だけを限界へ補正し、
+  それより大きい逸脱はそのまま渡す。MoveItは限界の外にある開始状態をわずかでも拒否するが、
+  限界で止まった関節は限界のわずかに外側と報告される（Gazeboでは約1e-14）。
+  `limit_tolerance` の既定は数値誤差分の1e-6 m / rad。
+  MoveItは補正した状態から計画し、実行開始時の確認もこの状態で行う。
+  軌道の始点と実際の位置の差（最大 `limit_tolerance`）は、軌道のcontrollerが実行の始めに詰める。
 - SRDFの登録姿勢は `ready`（腕を伸ばす）、`standby`（腕を畳み、手先を前へ水平、昇降0.2 m）、
   `carry`（同じく畳んだまま昇降0.5 m）。
 - SRDFは上流Astraの衝突除外とAhaのベース・頭部の隣接リンクを記述する。
