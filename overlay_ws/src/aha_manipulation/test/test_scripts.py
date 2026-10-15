@@ -53,6 +53,20 @@ def test_final_state_overrides_start_with_last_waypoint():
     }
 
 
+def test_final_state_keeps_joints_of_earlier_segments():
+    display = DisplayTrajectory()
+    display.trajectory_start.joint_state.name = ["joint_r1", "joint_r2"]
+    display.trajectory_start.joint_state.position = [0.0, 0.0]
+    lift, arm = RobotTrajectory(), RobotTrajectory()
+    lift.joint_trajectory.joint_names = ["joint_r1"]
+    lift.joint_trajectory.points = [JointTrajectoryPoint(positions=[0.4])]
+    arm.joint_trajectory.joint_names = ["joint_r2"]
+    arm.joint_trajectory.points = [JointTrajectoryPoint(positions=[-0.7])]
+    display.trajectory = [lift, arm]
+    state = monitor.final_state(display)
+    assert dict(zip(state.name, state.position)) == {"joint_r1": 0.4, "joint_r2": -0.7}
+
+
 def test_final_state_of_empty_plan_is_none():
     assert monitor.final_state(DisplayTrajectory()) is None
     display = DisplayTrajectory(trajectory=[RobotTrajectory()])

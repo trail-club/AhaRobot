@@ -37,16 +37,19 @@ NAMESPACE = "eef_goal"
 def final_state(display):
     """JointState at the end of a DisplayTrajectory, or None if it is empty.
 
-    Joints outside the planned group keep their trajectory_start values.
+    Segments are applied in order, so a joint keeps the end of the last
+    segment that moves it; joints no segment moves keep trajectory_start.
     """
-    if not display.trajectory:
-        return None
-    points = display.trajectory[-1].joint_trajectory
-    if not points.points:
-        return None
     start = display.trajectory_start.joint_state
     positions = dict(zip(start.name, start.position))
-    positions.update(zip(points.joint_names, points.points[-1].positions))
+    moved = False
+    for segment in display.trajectory:
+        points = segment.joint_trajectory
+        if points.points:
+            positions.update(zip(points.joint_names, points.points[-1].positions))
+            moved = True
+    if not moved:
+        return None
     return JointState(name=list(positions), position=list(positions.values()))
 
 

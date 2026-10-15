@@ -302,6 +302,7 @@ class ControlPanel(QWidget):
         self._lift_hold = CommandHold(LIFT_HOLD_TOLERANCE_M)
         self._gripper_current = None
         self._gripper_target = None
+        self._last_arm_js_time = None
 
         self._build_ui()
 
@@ -536,11 +537,14 @@ class ControlPanel(QWidget):
             self._head_current = pos
             self._last_js_time = time.monotonic()
         if self.arm_controls:
+            # Tracked apart from the head: a setup may publish only one of them.
             joints = dict(zip(msg.name, msg.position))
             if LIFT_JOINT in joints:
                 self._lift_current = joints[LIFT_JOINT]
             if GRIPPER_JOINTS[0] in joints:
                 self._gripper_current = joints[GRIPPER_JOINTS[0]]
+            if LIFT_JOINT in joints or GRIPPER_JOINTS[0] in joints:
+                self._last_arm_js_time = time.monotonic()
 
     def _on_slider_changed(self, _value):
         slider = self.sender()
@@ -595,7 +599,11 @@ class ControlPanel(QWidget):
         self._lift_target = height
         _set_quietly(self.lift_slider, height * 100)
 
-    def _refresh_arm(self, connected, now):
+    def _refresh_arm(self, now):
+        connected = (
+            self._last_arm_js_time is not None
+            and now - self._last_arm_js_time < JOINT_STATE_TIMEOUT_S
+        )
         if (
             connected
             and self._lift_current is not None
@@ -639,7 +647,7 @@ class ControlPanel(QWidget):
         current = describe(*self._head_current) if connected else "-"
         self.head_label.setText(f"現在: {current}\n目標: {target}")
         if self.arm_controls:
-            self._refresh_arm(connected, now)
+            self._refresh_arm(now)
 
         head_txt = (
             "head_controller 接続中"
