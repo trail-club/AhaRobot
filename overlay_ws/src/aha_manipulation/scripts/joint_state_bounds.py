@@ -5,10 +5,11 @@ MoveIt's CheckStartStateBounds rejects every plan from a state outside the
 URDF limits by any amount. Gazebo reports a joint resting on a limit about
 1e-14 outside it, and its physics limits lie 0.005 outside the URDF, so a
 joint can also stop, or pass while moving, up to 0.005 outside (measured:
-joint_r4 5e-3 during a move to its limit).
+joint_r4 reached its physics limit, 0.005 plus 9e-12, when it overshot a
+fast move to its limit).
 
 Positions within TOLERANCE outside a URDF limit are moved onto the limit.
-TOLERANCE stays below trajectory_execution.allowed_start_tolerance
+TOLERANCE covers the physics limit with its roundoff and stays below trajectory_execution.allowed_start_tolerance
 (config/controllers.yaml), so a plan from the clamped state still starts
 within the tolerance of the actual position. Larger excursions are relayed
 unchanged so that real limit violations stay visible.
@@ -24,7 +25,7 @@ import rclpy
 from sensor_msgs.msg import JointState
 
 OUTPUT_TOPIC = "/aha/manipulation/joint_states"
-TOLERANCE = 0.005  # m for prismatic, rad for revolute joints
+TOLERANCE = 0.006  # m for prismatic, rad for revolute joints
 
 
 def position_limits(urdf):

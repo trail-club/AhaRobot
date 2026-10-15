@@ -134,10 +134,11 @@ def test_position_limits_from_urdf():
 
 def test_clamp_roundoff_only_near_limits():
     assert bounds.clamp_roundoff(-1.3e-14, 0.0, 1.2) == 0.0
-    assert bounds.clamp_roundoff(-4e-3, 0.0, 1.2) == 0.0
-    assert bounds.clamp_roundoff(1.2 + 4e-3, 0.0, 1.2) == 1.2
+    # Up to Gazebo's physics limit (0.005 outside) with its roundoff.
+    assert bounds.clamp_roundoff(-0.005 - 1e-11, 0.0, 1.2) == 0.0
+    assert bounds.clamp_roundoff(1.2 + 0.005 + 1e-11, 0.0, 1.2) == 1.2
     # Larger excursions and values inside the range pass unchanged.
-    assert bounds.clamp_roundoff(-6e-3, 0.0, 1.2) == -6e-3
+    assert bounds.clamp_roundoff(-7e-3, 0.0, 1.2) == -7e-3
     assert bounds.clamp_roundoff(0.5, 0.0, 1.2) == 0.5
 
 
