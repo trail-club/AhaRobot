@@ -1,8 +1,8 @@
 """MoveIt 2 right-arm planning, KDL IK and ros2_control trajectory execution.
 
 move_group reads joint states through joint_state_bounds.py, which relays
-joint_states_topic to /aha/manipulation/joint_states with limit roundoff
-removed.
+joint_states_topic to /aha/manipulation/joint_states with positions up to
+limit_tolerance outside the URDF limits moved onto them.
 """
 
 import os
@@ -67,6 +67,9 @@ def _move_group(context):
                 {
                     "robot_description": parameters["robot_description"],
                     "use_sim_time": parameters["use_sim_time"],
+                    "limit_tolerance": float(
+                        LaunchConfiguration("limit_tolerance").perform(context)
+                    ),
                 }
             ],
             remappings=[("joint_states", LaunchConfiguration("joint_states_topic"))],
@@ -87,6 +90,11 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("joint_states_topic", default_value="/joint_states"),
+            DeclareLaunchArgument(
+                "limit_tolerance",
+                default_value="1e-6",
+                description="m / rad outside a URDF limit still moved onto it for MoveIt",
+            ),
             DeclareLaunchArgument(
                 "cameras", default_value="true", choices=["true", "false"]
             ),

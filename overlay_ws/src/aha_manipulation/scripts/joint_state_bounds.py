@@ -2,17 +2,17 @@
 """Relay joint states to MoveIt with small excursions past the limits removed.
 
 MoveIt's CheckStartStateBounds rejects every plan from a state outside the
-URDF limits by any amount. Gazebo reports a joint resting on a limit about
-1e-14 outside it, and its physics limits lie 0.005 outside the URDF, so a
-joint can also stop, or pass while moving, up to 0.005 outside (measured:
-joint_r4 reached its physics limit, 0.005 plus 9e-12, when it overshot a
-fast move to its limit).
+URDF limits by any amount, while a joint resting on a limit is reported
+slightly outside it (Gazebo: about 1e-14).
 
-Positions within TOLERANCE outside a URDF limit are moved onto the limit.
-TOLERANCE covers the physics limit with its roundoff and stays below trajectory_execution.allowed_start_tolerance
-(config/controllers.yaml), so a plan from the clamped state still starts
-within the tolerance of the actual position. Larger excursions are relayed
-unchanged so that real limit violations stay visible.
+Positions at most the limit_tolerance parameter outside a URDF limit are
+moved onto the limit; larger excursions are relayed unchanged so that real
+limit violations stay visible. The default covers roundoff only. A simulator
+whose physics limits lie outside the URDF passes its margin (sim.launch.py).
+
+MoveIt plans from, and checks the execution start against, the relayed state,
+so it never sees the difference. The trajectory controllers close it, at most
+limit_tolerance, as the execution starts.
 
 Input `joint_states` (remapped by manip.launch.py), output OUTPUT_TOPIC.
 Limits come from the robot_description parameter.
@@ -25,7 +25,7 @@ import rclpy
 from sensor_msgs.msg import JointState
 
 OUTPUT_TOPIC = "/aha/manipulation/joint_states"
-TOLERANCE = 0.006  # m for prismatic, rad for revolute joints
+ROUNDOFF = 1e-6  # m for prismatic, rad for revolute joints
 
 
 def position_limits(urdf):
@@ -41,7 +41,8 @@ def position_limits(urdf):
     return limits
 
 
-def clamp_roundoff(value, lower, upper, tolerance=TOLERANCE):
+def clamp_near_limit(value, lower, upper, tolerance):
+    """Value moved onto a limit when at most tolerance outside it."""
     if lower - tolerance <= value < lower:
         return lower
     if upper < value <= upper + tolerance:
@@ -49,11 +50,13 @@ def clamp_roundoff(value, lower, upper, tolerance=TOLERANCE):
     return value
 
 
-def clamp_positions(msg, limits):
+def clamp_positions(msg, limits, tolerance):
     """Clamp msg.position in place; a message without positions passes unchanged."""
     if len(msg.position) == len(msg.name):
         msg.position = [
-            clamp_roundoff(value, *limits[name]) if name in limits else value
+            clamp_near_limit(value, *limits[name], tolerance)
+            if name in limits
+            else value
             for name, value in zip(msg.name, msg.position)
         ]
     return msg
@@ -63,6 +66,7 @@ def main():
     rclpy.init(args=sys.argv)
     node = rclpy.create_node("aha_joint_state_bounds")
     limits = position_limits(node.declare_parameter("robot_description", "").value)
+    tolerance = node.declare_parameter("limit_tolerance", ROUNDOFF).value
     publisher = node.create_publisher(JointState, OUTPUT_TOPIC, 10)
 
     # Reliable like the publishers (joint_state_broadcaster, the evaluation),
@@ -70,7 +74,7 @@ def main():
     node.create_subscription(
         JointState,
         "joint_states",
-        lambda msg: publisher.publish(clamp_positions(msg, limits)),
+        lambda msg: publisher.publish(clamp_positions(msg, limits, tolerance)),
         10,
     )
     try:
