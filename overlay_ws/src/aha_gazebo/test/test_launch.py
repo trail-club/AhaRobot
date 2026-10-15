@@ -230,6 +230,32 @@ def test_standard_sim_preserves_explicit_pose(monkeypatch):
     assert context.launch_configurations["spawn_z"] == "0.1"
 
 
+def test_manipulation_accepts_states_up_to_the_physics_limits(monkeypatch):
+    from launch.actions import IncludeLaunchDescription
+
+    from aha_gazebo.model import LIMIT_MARGIN, LIMIT_TOLERANCE
+
+    module = load_launch("aha_bringup", "sim.launch.py")
+    monkeypatch.setattr(
+        module, "get_package_prefix", lambda package: "/install/" + package
+    )
+    context = LaunchContext()
+    (manip,) = [
+        action
+        for action in module.generate_launch_description().entities
+        if isinstance(action, IncludeLaunchDescription)
+        and "joint_states_topic" in dict(action.launch_arguments)
+    ]
+    arguments = dict(manip.launch_arguments)
+    tolerance = float(
+        perform_substitutions(
+            context, normalize_to_list_of_substitutions(arguments["limit_tolerance"])
+        )
+    )
+    assert tolerance == LIMIT_TOLERANCE
+    assert LIMIT_MARGIN < tolerance < LIMIT_MARGIN + 1e-3
+
+
 def test_standard_clock_bridge_can_be_supplied_by_parent(monkeypatch):
     from launch_ros.actions import Node
 
