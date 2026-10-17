@@ -58,6 +58,8 @@ ros2 launch aha_bringup sim.launch.py use_manip:=true manip_rviz:=true
 起動済みのシミュレーションとmove_groupに画面だけ追加・再起動する場合は
 `ros2 launch aha_manipulation manip_view.launch.py`。画像は `use_perception:=true` か
 `manip_view.launch.py camera_bridge:=true` でbridgeしたときに表示される（`manip_rviz:=true` は自動でbridgeする）。
+`use_perception:=true` と併用すると、点群用のRViz（aha_perceptionの `sim_view`）も開く。
+操作パネルはこの画面のものだけを起動する。点群用のRVizが不要なら `rviz:=false` を加える。
 
 | 表示・操作 | 内容 |
 | --- | --- |

@@ -19,6 +19,7 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
@@ -242,42 +243,59 @@ def generate_launch_description():
     ]
 
     # Optional per-squad subsystems. Default off — bringup is minimal.
+    manip_arguments = {
+        "joint_states_topic": LaunchConfiguration("manip_joint_states_topic"),
+        "cameras": LaunchConfiguration("cameras"),
+        "rviz": LaunchConfiguration("manip_rviz"),
+        # use_perception already bridges the cameras.
+        "camera_bridge": AndSubstitution(
+            LaunchConfiguration("cameras"),
+            NotSubstitution(LaunchConfiguration("use_perception")),
+        ),
+    }
+    perception_arguments = {
+        # The manipulation view has its own panel (base, head, hands); two
+        # panels would send separate base and head commands.
+        "control_panel": IfElseSubstitution(
+            LaunchConfiguration("manip_rviz"),
+            "false",
+            LaunchConfiguration("control_panel", default="true"),
+        ),
+    }
     subsystems = [
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare(package),
-                        "launch",
-                        filename,
-                    ]
+        # Scoped: an include sets its arguments as launch configurations,
+        # which would otherwise reach the following includes (manip's rviz
+        # turned off perception's view).
+        GroupAction(
+            [
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare(package),
+                                "launch",
+                                filename,
+                            ]
+                        )
+                    ),
+                    launch_arguments={
+                        "use_sim_time": use_sim_time,
+                        **arguments,
+                    }.items(),
                 )
-            ),
+            ],
             condition=IfCondition(LaunchConfiguration(argument)),
-            launch_arguments={
-                "use_sim_time": use_sim_time,
-                **(
-                    {
-                        "joint_states_topic": LaunchConfiguration(
-                            "manip_joint_states_topic"
-                        ),
-                        "cameras": LaunchConfiguration("cameras"),
-                        "rviz": LaunchConfiguration("manip_rviz"),
-                        # use_perception already bridges the cameras.
-                        "camera_bridge": AndSubstitution(
-                            LaunchConfiguration("cameras"),
-                            NotSubstitution(LaunchConfiguration("use_perception")),
-                        ),
-                    }
-                    if package == "aha_manipulation"
-                    else {}
-                ),
-            }.items(),
+            scoped=True,
         )
-        for package, filename, argument in (
-            ("aha_navigation", "nav.launch.py", "use_nav"),
-            ("aha_manipulation", "manip.launch.py", "use_manip"),
-            ("aha_perception", "perception.launch.py", "use_perception"),
+        for package, filename, argument, arguments in (
+            ("aha_navigation", "nav.launch.py", "use_nav", {}),
+            ("aha_manipulation", "manip.launch.py", "use_manip", manip_arguments),
+            (
+                "aha_perception",
+                "perception.launch.py",
+                "use_perception",
+                perception_arguments,
+            ),
         )
     ]
 

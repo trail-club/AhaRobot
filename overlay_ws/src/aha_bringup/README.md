@@ -11,6 +11,8 @@ and display options are described in [aha_perception](../aha_perception/README.m
 `use_manip:=true` starts [MoveIt right-arm planning and execution](../aha_manipulation/README.md).
 Adding `manip_rviz:=true` (only together with `use_manip:=true`) also opens the [RViz manipulation view](../aha_manipulation/README.md#rviz操作画面)
 and, unless `use_perception:=true` already does, bridges the camera images.
+With `use_perception:=true` the perception RViz still opens, but only the manipulation
+view's control panel starts.
 
 For approach, apple picking, and pick-and-place demonstrations with independent
 success checks, use [aha_sim_tasks](../aha_sim_tasks/README.md). That package
