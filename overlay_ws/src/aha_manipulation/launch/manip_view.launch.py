@@ -13,7 +13,7 @@ Nodes:
                          Joint states: /aha/manipulation/joint_states, the
                          same input as move_group (manip.launch.py)
   sim_control_panel.py   aha_perception's panel with arm_controls:=true
-                         (base, head, right gripper, right lift); wall clock
+                         (base, head, both grippers and lifts); wall clock
   eef_goal_monitor.py    goal of the last plan vs. current link_ree;
                          wall clock (latest TF)
   camera_bridge          camera_bridge:=true only; aha_perception's head and

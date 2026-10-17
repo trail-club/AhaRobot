@@ -64,7 +64,7 @@ ros2 launch aha_bringup sim.launch.py use_manip:=true manip_rviz:=true
 | MotionPlanning | 現在の姿勢、手先目標（橙）、計画した軌道（紫）。左のパネルで計画・実行する |
 | `EefGoalError` | 直近の計画の終端の手先姿勢（座標軸）、現在の手先からの線、誤差 `err=<距離>mm/<角度>deg` |
 | `HeadCamera` / `RightWristCamera` | `/camera/color/image_raw` / `/camera/right_wrist/image_raw` |
-| 操作パネル | 台車・頭に加えて、右グリッパの開閉と右昇降の高さ。詳細は[aha_perception](../aha_perception/README.md#ノード) |
+| 操作パネル | 台車・頭に加えて、左右のグリッパの開閉と昇降の高さ。詳細は[aha_perception](../aha_perception/README.md#ノード) |
 
 手先目標を指定して動かす手順:
 
@@ -84,7 +84,8 @@ TFの現在姿勢と比べて `/aha/manipulation/eef_goal/markers` に描く。
 RVizのテキストは日本語を描けないため、誤差は英数字で表示する。空白は環境により広く描かれるため使わない。
 
 グリッパはMoveItの計画対象ではなく、操作パネルから位置指令で動かす。
-パネルの昇降とMoveItの軌道実行は同じ `lift_controller` を使うため、同時に操作しない。
+左手はMoveItの計画対象ではなく、パネルからグリッパと昇降だけを動かす。
+パネルの左右の昇降とMoveItの軌道実行は同じ `lift_controller` を使うため、同時に操作しない。
 
 RVizの開始状態 `<current>` のうち、`right_arm` の関節（昇降 `joint_r1` を含む）は、
 RVizからの実行が終わったときとStart Stateを選び直したときだけ現在値に更新される（MoveItのRViz pluginの仕様）。

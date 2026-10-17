@@ -18,15 +18,16 @@ Head:
     duration + 1 s), so they do not fight with head_look_at.py or
     teleop_head.py and do not jump to mid-motion states when the sim runs
     slower than real time.
-Right hand (arm_controls:=true, used by aha_manipulation's view):
+Right and left hands (arm_controls:=true, used by aha_manipulation's view):
   - Gripper open/close buttons and opening slider. Publishes
-    std_msgs/Float64MultiArray [joint_r7r, joint_r7l] to
-    /right_gripper_controller/commands (forward position command).
-  - Right lift (joint_r1) height slider. Publishes a single-joint trajectory
-    to /lift_controller/joint_trajectory; the left lift keeps its position.
-    The slider follows /joint_states like the head sliders, so it also shows
-    lift motions executed by MoveIt. A panel command preempts a MoveIt
-    trajectory on the lift controller, so do not use both at once.
+    std_msgs/Float64MultiArray [joint_?7r, joint_?7l] to
+    /{right,left}_gripper_controller/commands (forward position command).
+  - Lift (joint_r1 / joint_l1) height slider. Publishes a single-joint
+    trajectory to /lift_controller/joint_trajectory; the other lift keeps its
+    position. The slider follows /joint_states like the head sliders, so it
+    also shows lift motions executed by MoveIt. Both lifts and MoveIt share
+    the lift controller: a new command preempts a running lift trajectory,
+    so do not move them at the same time.
 
 Runs on the wall clock (no use_sim_time): base commands are zero-stamped
 and head trajectories are unstamped (start now).
@@ -40,6 +41,7 @@ import math
 import signal
 import sys
 import time
+from typing import NamedTuple
 
 import rclpy
 from builtin_interfaces.msg import Duration
@@ -92,12 +94,25 @@ PAD_HINT_LINES = 16
 PAD_MIN_PX = 200
 PAD_HINT_PX = 250
 
-GRIPPER_TOPIC = "/right_gripper_controller/commands"
-GRIPPER_JOINTS = ("joint_r7r", "joint_r7l")
-# Per-finger travel (URDF: joint_r7r 0..0.06, joint_r7l -0.06..0); 0 is closed.
+# Per-finger travel (URDF: joint_?7r 0..0.06, joint_?7l -0.06..0); 0 is closed.
 GRIPPER_MAX_OPENING = 0.06
 LIFT_TOPIC = "/lift_controller/joint_trajectory"
-LIFT_JOINT = "joint_r1"
+
+
+class Hand(NamedTuple):
+    label: str
+    gripper_topic: str
+    gripper_joints: tuple
+    lift_joint: str
+
+
+RIGHT_HAND = Hand(
+    "右手", "/right_gripper_controller/commands", ("joint_r7r", "joint_r7l"), "joint_r1"
+)
+LEFT_HAND = Hand(
+    "左手", "/left_gripper_controller/commands", ("joint_l7r", "joint_l7l"), "joint_l1"
+)
+HANDS = (RIGHT_HAND, LEFT_HAND)
 
 KEY_DIRECTIONS = {
     Qt.Key_W: (1, 0),
@@ -116,19 +131,19 @@ def base_command(linear, angular):
 
 
 def gripper_command(opening):
-    """Right gripper position command; opening is the per-finger travel (m)."""
+    """Gripper position command; opening is the per-finger travel (m)."""
     opening = min(max(float(opening), 0.0), GRIPPER_MAX_OPENING)
     return Float64MultiArray(data=[opening, -opening])
 
 
-def lift_trajectory(height, duration):
-    """Right lift trajectory; the zero stamp means start now."""
+def lift_trajectory(joint, height, duration):
+    """Single-lift trajectory; the zero stamp means start now."""
     sec = int(duration)
     point = JointTrajectoryPoint(
         positions=[float(height)],
         time_from_start=Duration(sec=sec, nanosec=int((duration - sec) * 1e9)),
     )
-    return JointTrajectory(joint_names=[LIFT_JOINT], points=[point])
+    return JointTrajectory(joint_names=[joint], points=[point])
 
 
 def _set_quietly(slider, value):
@@ -258,6 +273,126 @@ class JoystickPad(QWidget):
         p.drawEllipse(c + self._knob, knob_r, knob_r)
 
 
+class HandControls:
+    """Gripper and lift widgets and state of one hand (arm_controls:=true)."""
+
+    def __init__(self, node, hand, lift_limits, lift_speed):
+        self.hand = hand
+        self.lift_min, self.lift_max = lift_limits
+        self.lift_speed = lift_speed
+        self.gripper_pub = node.create_publisher(
+            Float64MultiArray, hand.gripper_topic, 10
+        )
+        self.lift_pub = node.create_publisher(JointTrajectory, LIFT_TOPIC, 10)
+        self.lift_current = None
+        self.lift_target = None
+        self.lift_hold = CommandHold(LIFT_HOLD_TOLERANCE_M)
+        self.gripper_current = None
+        self.gripper_target = None
+        self.last_js_time = None
+
+    def build(self):
+        box = QGroupBox(self.hand.label)
+        layout = QVBoxLayout(box)
+
+        layout.addWidget(QLabel("グリッパ (指1本の開き mm)"))
+        gripper_row = QHBoxLayout()
+        for label, opening in (("開く", GRIPPER_MAX_OPENING), ("閉じる", 0.0)):
+            button = QPushButton(label)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(
+                lambda _checked=False, o=opening: self.send_gripper(o)
+            )
+            gripper_row.addWidget(button)
+        layout.addLayout(gripper_row)
+        self.gripper_slider = QSlider(Qt.Horizontal)
+        self.gripper_slider.setRange(0, round(GRIPPER_MAX_OPENING * 1000))
+        # The fingers stop at a grasped object, so this slider shows the
+        # command and does not follow /joint_states.
+        self.gripper_slider.valueChanged.connect(
+            lambda value: self.send_gripper(value / 1000.0)
+        )
+        layout.addWidget(self.gripper_slider)
+        self.gripper_label = QLabel()
+        layout.addWidget(self.gripper_label)
+
+        layout.addWidget(QLabel("昇降 (cm)"))
+        self.lift_slider = QSlider(Qt.Horizontal)
+        self.lift_slider.setRange(
+            round(self.lift_min * 100), round(self.lift_max * 100)
+        )
+        self.lift_slider.valueChanged.connect(
+            lambda value: self.send_lift(value / 100.0)
+        )
+        layout.addWidget(self.lift_slider)
+        self.lift_label = QLabel()
+        layout.addWidget(self.lift_label)
+        layout.addStretch(1)
+        for slider in (self.gripper_slider, self.lift_slider):
+            slider.setFocusPolicy(Qt.NoFocus)
+            # Send once on release or a page step, not while dragging.
+            slider.setTracking(False)
+        return box
+
+    def on_joint_states(self, joints):
+        # Tracked apart from the head: a setup may publish only one of them.
+        lift, finger = self.hand.lift_joint, self.hand.gripper_joints[0]
+        if lift in joints:
+            self.lift_current = joints[lift]
+        if finger in joints:
+            self.gripper_current = joints[finger]
+        if lift in joints or finger in joints:
+            self.last_js_time = time.monotonic()
+
+    def send_gripper(self, opening):
+        msg = gripper_command(opening)
+        self.gripper_pub.publish(msg)
+        self.gripper_target = msg.data[0]
+        _set_quietly(self.gripper_slider, self.gripper_target * 1000)
+
+    def send_lift(self, height):
+        height = min(max(height, self.lift_min), self.lift_max)
+        delta = (
+            self.lift_max - self.lift_min
+            if self.lift_current is None
+            else abs(height - self.lift_current)
+        )
+        duration = max(delta / self.lift_speed, 0.5)
+        self.lift_pub.publish(lift_trajectory(self.hand.lift_joint, height, duration))
+        self.lift_hold.start((height,), duration, time.monotonic())
+        self.lift_target = height
+        _set_quietly(self.lift_slider, height * 100)
+
+    def refresh(self, now):
+        connected = (
+            self.last_js_time is not None
+            and now - self.last_js_time < JOINT_STATE_TIMEOUT_S
+        )
+        if (
+            connected
+            and self.lift_current is not None
+            and not self.lift_slider.isSliderDown()
+            and not self.lift_hold.active((self.lift_current,), now)
+        ):
+            _set_quietly(self.lift_slider, self.lift_current * 100)
+
+        # + 0.0 turns a rounded -0.0 (physics roundoff below 0) into 0.0.
+        def cm(value):
+            return "-" if value is None else f"{round(value * 100, 1) + 0.0:.1f} cm"
+
+        def mm(value):
+            return "-" if value is None else f"{round(value * 1000) + 0.0:.0f} mm"
+
+        lift_current = self.lift_current if connected else None
+        gripper_current = self.gripper_current if connected else None
+        self.lift_label.setText(
+            f"現在: {cm(lift_current)}  目標: {cm(self.lift_target)}"
+        )
+        self.gripper_label.setText(
+            f"現在: {mm(gripper_current)}  目標: {mm(self.gripper_target)}"
+        )
+
+
 class ControlPanel(QWidget):
     def __init__(self, node):
         super().__init__()
@@ -268,19 +403,17 @@ class ControlPanel(QWidget):
         self.max_linear = node.declare_parameter("max_linear", 0.4).value
         self.max_angular = node.declare_parameter("max_angular", 1.5).value
         self.head = declare_head_config(node)
-        self.arm_controls = node.declare_parameter("arm_controls", False).value
-        self.lift_min, self.lift_max = node.declare_parameter(
-            "lift_limits", [0.0, 1.2]
-        ).value
-        self.lift_speed = node.declare_parameter("lift_speed", 0.1).value
+        arm_controls = node.declare_parameter("arm_controls", False).value
+        lift_limits = node.declare_parameter("lift_limits", [0.0, 1.2]).value
+        lift_speed = node.declare_parameter("lift_speed", 0.1).value
 
         self.cmd_pub = node.create_publisher(TwistStamped, CMD_VEL_TOPIC, 10)
         self.head_pub = node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 10)
-        if self.arm_controls:
-            self.gripper_pub = node.create_publisher(
-                Float64MultiArray, GRIPPER_TOPIC, 10
-            )
-            self.lift_pub = node.create_publisher(JointTrajectory, LIFT_TOPIC, 10)
+        self.hands = (
+            [HandControls(node, hand, lift_limits, lift_speed) for hand in HANDS]
+            if arm_controls
+            else []
+        )
         node.create_subscription(
             JointState,
             "/joint_states",
@@ -297,12 +430,6 @@ class ControlPanel(QWidget):
         self._last_js_time = None
         self._hold = CommandHold()
         self._last_slider_send = 0.0
-        self._lift_current = None
-        self._lift_target = None
-        self._lift_hold = CommandHold(LIFT_HOLD_TOLERANCE_M)
-        self._gripper_current = None
-        self._gripper_target = None
-        self._last_arm_js_time = None
 
         self._build_ui()
 
@@ -392,8 +519,12 @@ class ControlPanel(QWidget):
         top = QHBoxLayout()
         top.addWidget(base_box, 1)
         top.addWidget(head_box, 1)
-        if self.arm_controls:
-            top.addWidget(self._build_arm_box(), 1)
+        if self.hands:
+            # Stacked in one column so the window does not get much wider.
+            hand_col = QVBoxLayout()
+            for hand in self.hands:
+                hand_col.addWidget(hand.build())
+            top.addLayout(hand_col, 1)
         layout.addLayout(top, 1)
         layout.addWidget(self.status)
         self._refresh()
@@ -402,49 +533,6 @@ class ControlPanel(QWidget):
         for screen in app.screens():
             self._watch_dpi(screen)
         app.screenAdded.connect(self._watch_dpi)
-
-    def _build_arm_box(self):
-        arm_box = QGroupBox("右手")
-        arm_layout = QVBoxLayout(arm_box)
-
-        arm_layout.addWidget(QLabel("グリッパ (指1本の開き mm)"))
-        gripper_row = QHBoxLayout()
-        for label, opening in (("開く", GRIPPER_MAX_OPENING), ("閉じる", 0.0)):
-            button = QPushButton(label)
-            button.setFocusPolicy(Qt.NoFocus)
-            button.clicked.connect(
-                lambda _checked=False, o=opening: self.send_gripper(o)
-            )
-            gripper_row.addWidget(button)
-        arm_layout.addLayout(gripper_row)
-        self.gripper_slider = QSlider(Qt.Horizontal)
-        self.gripper_slider.setRange(0, round(GRIPPER_MAX_OPENING * 1000))
-        # The fingers stop at a grasped object, so this slider shows the
-        # command and does not follow /joint_states.
-        self.gripper_slider.valueChanged.connect(
-            lambda value: self.send_gripper(value / 1000.0)
-        )
-        arm_layout.addWidget(self.gripper_slider)
-        self.gripper_label = QLabel()
-        arm_layout.addWidget(self.gripper_label)
-
-        arm_layout.addWidget(QLabel("昇降 (右, cm)"))
-        self.lift_slider = QSlider(Qt.Horizontal)
-        self.lift_slider.setRange(
-            round(self.lift_min * 100), round(self.lift_max * 100)
-        )
-        self.lift_slider.valueChanged.connect(
-            lambda value: self.send_lift(value / 100.0)
-        )
-        arm_layout.addWidget(self.lift_slider)
-        self.lift_label = QLabel()
-        arm_layout.addWidget(self.lift_label)
-        arm_layout.addStretch(1)
-        for slider in (self.gripper_slider, self.lift_slider):
-            slider.setFocusPolicy(Qt.NoFocus)
-            # Send once on release or a page step, not while dragging.
-            slider.setTracking(False)
-        return arm_box
 
     def _watch_dpi(self, screen):
         screen.logicalDotsPerInchChanged.connect(
@@ -536,15 +624,10 @@ class ControlPanel(QWidget):
         if pos is not None:
             self._head_current = pos
             self._last_js_time = time.monotonic()
-        if self.arm_controls:
-            # Tracked apart from the head: a setup may publish only one of them.
+        if self.hands:
             joints = dict(zip(msg.name, msg.position))
-            if LIFT_JOINT in joints:
-                self._lift_current = joints[LIFT_JOINT]
-            if GRIPPER_JOINTS[0] in joints:
-                self._gripper_current = joints[GRIPPER_JOINTS[0]]
-            if LIFT_JOINT in joints or GRIPPER_JOINTS[0] in joints:
-                self._last_arm_js_time = time.monotonic()
+            for hand in self.hands:
+                hand.on_joint_states(joints)
 
     def _on_slider_changed(self, _value):
         slider = self.sender()
@@ -578,56 +661,6 @@ class ControlPanel(QWidget):
             slider.setValue(round(math.degrees(value)))
             slider.blockSignals(False)
 
-    # Right hand -----------------------------------------------------------
-
-    def send_gripper(self, opening):
-        msg = gripper_command(opening)
-        self.gripper_pub.publish(msg)
-        self._gripper_target = msg.data[0]
-        _set_quietly(self.gripper_slider, self._gripper_target * 1000)
-
-    def send_lift(self, height):
-        height = min(max(height, self.lift_min), self.lift_max)
-        delta = (
-            self.lift_max - self.lift_min
-            if self._lift_current is None
-            else abs(height - self._lift_current)
-        )
-        duration = max(delta / self.lift_speed, 0.5)
-        self.lift_pub.publish(lift_trajectory(height, duration))
-        self._lift_hold.start((height,), duration, time.monotonic())
-        self._lift_target = height
-        _set_quietly(self.lift_slider, height * 100)
-
-    def _refresh_arm(self, now):
-        connected = (
-            self._last_arm_js_time is not None
-            and now - self._last_arm_js_time < JOINT_STATE_TIMEOUT_S
-        )
-        if (
-            connected
-            and self._lift_current is not None
-            and not self.lift_slider.isSliderDown()
-            and not self._lift_hold.active((self._lift_current,), now)
-        ):
-            _set_quietly(self.lift_slider, self._lift_current * 100)
-
-        # + 0.0 turns a rounded -0.0 (physics roundoff below 0) into 0.0.
-        def cm(value):
-            return "-" if value is None else f"{round(value * 100, 1) + 0.0:.1f} cm"
-
-        def mm(value):
-            return "-" if value is None else f"{round(value * 1000) + 0.0:.0f} mm"
-
-        lift_current = self._lift_current if connected else None
-        gripper_current = self._gripper_current if connected else None
-        self.lift_label.setText(
-            f"現在: {cm(lift_current)}  目標: {cm(self._lift_target)}"
-        )
-        self.gripper_label.setText(
-            f"現在: {mm(gripper_current)}  目標: {mm(self._gripper_target)}"
-        )
-
     # Periodic -------------------------------------------------------------
 
     def _spin_ros(self):
@@ -646,8 +679,8 @@ class ControlPanel(QWidget):
         target = describe(*self._head_target) if self._head_target else "-"
         current = describe(*self._head_current) if connected else "-"
         self.head_label.setText(f"現在: {current}\n目標: {target}")
-        if self.arm_controls:
-            self._refresh_arm(now)
+        for hand in self.hands:
+            hand.refresh(now)
 
         head_txt = (
             "head_controller 接続中"

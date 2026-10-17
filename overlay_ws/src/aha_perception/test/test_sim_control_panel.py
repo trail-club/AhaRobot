@@ -61,7 +61,7 @@ class CommandHoldTest(unittest.TestCase):
         self.assertTrue(self.hold.active(self.TARGET, 101.1))
 
 
-class RightHandCommandTest(unittest.TestCase):
+class HandCommandTest(unittest.TestCase):
     def test_gripper_fingers_move_symmetrically(self):
         msg = panel.gripper_command(0.03)
         self.assertEqual(list(msg.data), [0.03, -0.03])
@@ -70,9 +70,32 @@ class RightHandCommandTest(unittest.TestCase):
         self.assertEqual(list(panel.gripper_command(0.5).data), [0.06, -0.06])
         self.assertEqual(list(panel.gripper_command(-0.01).data), [0.0, -0.0])
 
-    def test_lift_moves_only_the_right_lift(self):
-        msg = panel.lift_trajectory(0.35, 2.5)
-        self.assertEqual(msg.joint_names, [panel.LIFT_JOINT])
+    def test_hands_use_their_own_controllers_and_joints(self):
+        self.assertEqual(
+            panel.RIGHT_HAND,
+            (
+                "右手",
+                "/right_gripper_controller/commands",
+                ("joint_r7r", "joint_r7l"),
+                "joint_r1",
+            ),
+        )
+        self.assertEqual(
+            panel.LEFT_HAND,
+            (
+                "左手",
+                "/left_gripper_controller/commands",
+                ("joint_l7r", "joint_l7l"),
+                "joint_l1",
+            ),
+        )
+        self.assertEqual(panel.HANDS, (panel.RIGHT_HAND, panel.LEFT_HAND))
+
+    def test_lift_moves_only_the_given_lift(self):
+        for joint in ("joint_r1", "joint_l1"):
+            msg = panel.lift_trajectory(joint, 0.35, 2.5)
+            self.assertEqual(msg.joint_names, [joint])
+        msg = panel.lift_trajectory("joint_r1", 0.35, 2.5)
         self.assertEqual(list(msg.points[0].positions), [0.35])
         self.assertEqual(
             (msg.points[0].time_from_start.sec, msg.points[0].time_from_start.nanosec),
