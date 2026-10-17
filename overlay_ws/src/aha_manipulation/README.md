@@ -86,6 +86,11 @@ RVizのテキストは日本語を描けないため、誤差は英数字で表�
 グリッパはMoveItの計画対象ではなく、操作パネルから位置指令で動かす。
 パネルの昇降とMoveItの軌道実行は同じ `lift_controller` を使うため、同時に操作しない。
 
+RVizの開始状態 `<current>` のうち、`right_arm` の関節（昇降 `joint_r1` を含む）は、
+RVizからの実行が終わったときとStart Stateを選び直したときだけ現在値に更新される（MoveItのRViz pluginの仕様）。
+パネルで昇降を動かした後は **Plan & Execute** を使うか、Start Stateを一度別の項目にして `<current>` に戻してから **Plan** する。
+古い開始状態で計画した軌道を **Execute** すると、`start point deviates from current robot state` で中断される。
+
 MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再現するため、
 このバージョンのみmove_groupの `LD_PRELOAD` で同pluginを保持する。
 [上流の終了時障害報告](https://github.com/moveit/moveit2/issues/3680)も参照。
