@@ -102,6 +102,7 @@ class EefGoalMonitor:
             return
         if not self.fk.service_is_ready():
             self.node.get_logger().warning(f"{FK_SERVICE} not available")
+            self._clear_goal()
             return
         request = GetPositionFK.Request()
         request.header.frame_id = self.frame
@@ -122,8 +123,15 @@ class EefGoalMonitor:
             or not response.pose_stamped
         ):
             self.node.get_logger().warning("FK of the planned goal failed")
+            self._clear_goal()
             return
         self.goal = response.pose_stamped[0].pose
+
+    def _clear_goal(self):
+        # The error to the previous plan's goal would look like this plan's.
+        # Its markers are no longer sent and expire after their lifetime.
+        self.goal = None
+        self._pending = None
 
     def _current(self):
         try:

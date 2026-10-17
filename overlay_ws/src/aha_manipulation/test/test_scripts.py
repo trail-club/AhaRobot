@@ -113,6 +113,48 @@ def test_markers_place_axes_at_goal_and_line_from_current():
     assert len(view.markers(None, goal).markers) == 2
 
 
+class _Logger:
+    def warning(self, _message):
+        pass
+
+
+class _FK:
+    def service_is_ready(self):
+        return False
+
+
+class _Future:
+    def result(self):
+        return None
+
+
+def _monitor_with_goal():
+    view = monitor.EefGoalMonitor.__new__(monitor.EefGoalMonitor)
+    view.node = type("Node", (), {"get_logger": lambda self: _Logger()})()
+    view.fk = _FK()
+    view.goal = pose(0.4, -0.2, 0.6)
+    view._pending = None
+    return view
+
+
+def test_plan_without_fk_drops_the_previous_goal():
+    view = _monitor_with_goal()
+    display = DisplayTrajectory()
+    trajectory = RobotTrajectory()
+    trajectory.joint_trajectory.joint_names = ["joint_r1"]
+    trajectory.joint_trajectory.points = [JointTrajectoryPoint(positions=[0.3])]
+    display.trajectory = [trajectory]
+    view._on_plan(display)
+    assert view.goal is None
+
+
+def test_failed_fk_drops_the_previous_goal():
+    view = _monitor_with_goal()
+    view._pending = future = _Future()
+    view._on_fk(future)
+    assert view.goal is None and view._pending is None
+
+
 def test_rviz_shows_the_monitor_markers():
     rviz = yaml.safe_load((SHARE / "rviz/manip.rviz").read_text())
     topics = {

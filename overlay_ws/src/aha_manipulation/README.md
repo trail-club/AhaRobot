@@ -79,6 +79,7 @@ ros2 launch aha_bringup sim.launch.py use_manip:=true manip_rviz:=true
 誤差を測る目標は、`/display_planned_path` に配信された直近の計画の終端である。
 計画だけで実行していない場合も、この終端と現在の手先の差を表示する。
 RViz以外（`/move_action` を使うスクリプト等）の計画でも更新される。
+終端の手先姿勢を求められなかった計画では、前の計画の目標を表示し続けないよう表示を消す。
 `eef_goal_monitor.py` が終端の関節値を `/compute_fk` で `base_footprint` 基準の `link_ree` 姿勢に変換し、
 TFの現在姿勢と比べて `/aha/manipulation/eef_goal/markers` に描く。
 RVizのテキストは日本語を描けないため、誤差は英数字で表示する。空白は環境により広く描かれるため使わない。
