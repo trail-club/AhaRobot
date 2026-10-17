@@ -181,6 +181,9 @@ class CommandHold:
             return False
         return True
 
+    def cancel(self):
+        self.target = None
+
 
 class JoystickPad(QWidget):
     """Spring-loaded pad. Emits (x, y) in [-1, 1] (right +, up +) while held.
@@ -276,8 +279,9 @@ class JoystickPad(QWidget):
 class HandControls:
     """Gripper and lift widgets and state of one hand (arm_controls:=true)."""
 
-    def __init__(self, node, hand, lift_limits, lift_speed):
+    def __init__(self, node, hand, lift_limits, lift_speed, on_lift_sent=None):
         self.hand = hand
+        self.on_lift_sent = on_lift_sent
         self.lift_min, self.lift_max = lift_limits
         self.lift_speed = lift_speed
         self.gripper_pub = node.create_publisher(
@@ -362,6 +366,19 @@ class HandControls:
         self.lift_hold.start((height,), duration, time.monotonic())
         self.lift_target = height
         _set_quietly(self.lift_slider, height * 100)
+        if self.on_lift_sent is not None:
+            self.on_lift_sent(self)
+
+    def lift_preempted(self):
+        """The other lift's command replaced this lift's trajectory.
+
+        A lift still moving to its target stops where it is. Drop the target
+        so the slider follows /joint_states again right away instead of
+        showing a target the lift no longer moves to.
+        """
+        if self.lift_hold.target is not None:
+            self.lift_hold.cancel()
+            self.lift_target = None
 
     def refresh(self, now):
         connected = (
@@ -410,7 +427,10 @@ class ControlPanel(QWidget):
         self.cmd_pub = node.create_publisher(TwistStamped, CMD_VEL_TOPIC, 10)
         self.head_pub = node.create_publisher(JointTrajectory, TRAJECTORY_TOPIC, 10)
         self.hands = (
-            [HandControls(node, hand, lift_limits, lift_speed) for hand in HANDS]
+            [
+                HandControls(node, hand, lift_limits, lift_speed, self._on_lift_sent)
+                for hand in HANDS
+            ]
             if arm_controls
             else []
         )
@@ -628,6 +648,12 @@ class ControlPanel(QWidget):
             joints = dict(zip(msg.name, msg.position))
             for hand in self.hands:
                 hand.on_joint_states(joints)
+
+    def _on_lift_sent(self, sender):
+        # Both lifts share lift_controller: a command stops the other lift.
+        for hand in self.hands:
+            if hand is not sender:
+                hand.lift_preempted()
 
     def _on_slider_changed(self, _value):
         slider = self.sender()

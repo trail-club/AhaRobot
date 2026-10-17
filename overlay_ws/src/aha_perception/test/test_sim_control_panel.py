@@ -4,6 +4,7 @@ import importlib.util
 import math
 import os
 import sys
+import types
 import unittest
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -103,6 +104,27 @@ class HandCommandTest(unittest.TestCase):
         )
         # Zero stamp: the controller starts the trajectory on receipt.
         self.assertEqual((msg.header.stamp.sec, msg.header.stamp.nanosec), (0, 0))
+
+    def _hand(self, moving):
+        hand = panel.HandControls.__new__(panel.HandControls)
+        hand.lift_hold = panel.CommandHold(panel.LIFT_HOLD_TOLERANCE_M)
+        hand.lift_target = 0.6
+        if moving:
+            hand.lift_hold.start((0.6,), duration=5.0, now=0.0)
+        return hand
+
+    def test_lift_command_drops_the_moving_other_lift_target(self):
+        # The shared lift_controller stops the other lift where it is.
+        sender, moving, reached = self._hand(True), self._hand(True), self._hand(False)
+        panel.ControlPanel._on_lift_sent(
+            types.SimpleNamespace(hands=[sender, moving, reached]), sender
+        )
+        self.assertEqual(sender.lift_target, 0.6)
+        self.assertTrue(sender.lift_hold.active((0.1,), 1.0))
+        self.assertIsNone(moving.lift_target)
+        self.assertFalse(moving.lift_hold.active((0.1,), 1.0))
+        # A lift that already reached its target keeps showing it.
+        self.assertEqual(reached.lift_target, 0.6)
 
     def test_lift_hold_uses_metres(self):
         hold = panel.CommandHold(panel.LIFT_HOLD_TOLERANCE_M)
