@@ -105,6 +105,16 @@ def _validate_spawn(context):
     return []
 
 
+def _validate_manip_rviz(context):
+    # Without use_manip the view would silently not start.
+    if (
+        LaunchConfiguration("manip_rviz").perform(context) == "true"
+        and LaunchConfiguration("use_manip").perform(context) != "true"
+    ):
+        raise ValueError("manip_rviz:=true requires use_manip:=true")
+    return []
+
+
 def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
 
@@ -311,8 +321,10 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "manip_rviz",
                 default_value="false",
+                choices=["true", "false"],
                 description="With use_manip, start the RViz manipulation view",
             ),
+            OpaqueFunction(function=_validate_manip_rviz),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
             gz,
