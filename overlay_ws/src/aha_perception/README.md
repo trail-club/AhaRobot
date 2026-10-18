@@ -28,7 +28,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | node | 内容 |
 | --- | --- |
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
-| `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット |
+| `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
@@ -44,6 +44,17 @@ URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より�
 `head_look_at.py` は最新のTFを待たずに使い、TFがまだない注視点はwarningを出して捨てる。
 シミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
 操作パネルの頭のスライダーは、パネルから送った目標に `/joint_states` が2°以内に近づくまで（最長で移動時間の4倍 + 1 s）目標値を表示し、その後は `/joint_states` に追従する。
+
+`arm_controls:=true`（[aha_manipulationの操作画面](../aha_manipulation/README.md#rviz操作画面)が指定）では右手・左手の欄を追加する。
+グリッパは開く・閉じるボタンと指1本の開き（0–60 mm）のスライダーで、
+`/right_gripper_controller/commands`（左手は `/left_gripper_controller/commands`）に
+`[joint_r7r, joint_r7l]`（左手は `[joint_l7r, joint_l7l]`）= `[開き, -開き]` を送る。
+指は物体で止まるため、グリッパのスライダーは送った値を表示し、`/joint_states` に追従しない。
+昇降のスライダー（cm）はその手の昇降（`joint_r1` / `joint_l1`）だけの軌道を `/lift_controller/joint_trajectory` に送り、反対側の昇降は位置を保持する。
+移動時間は距離 / `lift_speed`（既定0.1 m/s、最短0.5 s）、範囲は `lift_limits`（既定0–1.2 m）。
+スライダーは離したとき・溝をクリックしたときに1回送り、頭と同じ方法で1 cm以内に近づいた後は `/joint_states` に追従する。
+左右の昇降とMoveItの軌道実行は同じ `lift_controller` を使う。昇降を送ると実行中の軌道を置き換えるため、動作中の昇降は止まる。
+パネルの片方の昇降を送ったとき、移動中だった反対側のスライダーは目標の表示をやめ、すぐに `/joint_states` に追従する。
 
 ## シミュレーション
 

@@ -20,6 +20,7 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
@@ -30,6 +31,7 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     AndSubstitution,
+    NotSubstitution,
     EqualsSubstitution,
     IfElseSubstitution,
     EnvironmentVariable,
@@ -104,6 +106,16 @@ def _validate_spawn(context):
             for key in SPAWN_COORDINATES
         }
     )
+    return []
+
+
+def _validate_manip_rviz(context):
+    # Without use_manip the view would silently not start.
+    if (
+        LaunchConfiguration("manip_rviz").perform(context) == "true"
+        and LaunchConfiguration("use_manip").perform(context) != "true"
+    ):
+        raise ValueError("manip_rviz:=true requires use_manip:=true")
     return []
 
 
@@ -243,37 +255,60 @@ def generate_launch_description():
     ]
 
     # Optional per-squad subsystems. Default off — bringup is minimal.
+    manip_arguments = {
+        "joint_states_topic": LaunchConfiguration("manip_joint_states_topic"),
+        "cameras": LaunchConfiguration("cameras"),
+        "rviz": LaunchConfiguration("manip_rviz"),
+        "limit_tolerance": str(LIMIT_TOLERANCE),
+        # use_perception already bridges the cameras.
+        "camera_bridge": AndSubstitution(
+            LaunchConfiguration("cameras"),
+            NotSubstitution(LaunchConfiguration("use_perception")),
+        ),
+    }
+    perception_arguments = {
+        # The manipulation view has its own panel (base, head, hands); two
+        # panels would send separate base and head commands.
+        "control_panel": IfElseSubstitution(
+            LaunchConfiguration("manip_rviz"),
+            "false",
+            LaunchConfiguration("control_panel", default="true"),
+        ),
+    }
     subsystems = [
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare(package),
-                        "launch",
-                        filename,
-                    ]
+        # Scoped: an include sets its arguments as launch configurations,
+        # which would otherwise reach the following includes (manip's rviz
+        # turned off perception's view).
+        GroupAction(
+            [
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare(package),
+                                "launch",
+                                filename,
+                            ]
+                        )
+                    ),
+                    launch_arguments={
+                        "use_sim_time": use_sim_time,
+                        **arguments,
+                    }.items(),
                 )
-            ),
+            ],
             condition=IfCondition(LaunchConfiguration(argument)),
-            launch_arguments={
-                "use_sim_time": use_sim_time,
-                **(
-                    {
-                        "joint_states_topic": LaunchConfiguration(
-                            "manip_joint_states_topic"
-                        ),
-                        "cameras": LaunchConfiguration("cameras"),
-                        "limit_tolerance": str(LIMIT_TOLERANCE),
-                    }
-                    if package == "aha_manipulation"
-                    else {}
-                ),
-            }.items(),
+            scoped=True,
         )
-        for package, filename, argument in (
-            ("aha_navigation", "nav.launch.py", "use_nav"),
-            ("aha_manipulation", "manip.launch.py", "use_manip"),
-            ("aha_perception", "perception.launch.py", "use_perception"),
+        for package, filename, argument, arguments in (
+            ("aha_navigation", "nav.launch.py", "use_nav", {}),
+            ("aha_manipulation", "manip.launch.py", "use_manip", manip_arguments),
+            (
+                "aha_perception",
+                "perception.launch.py",
+                "use_perception",
+                perception_arguments,
+            ),
         )
     ]
 
@@ -317,6 +352,13 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "manip_joint_states_topic", default_value="/joint_states"
             ),
+            DeclareLaunchArgument(
+                "manip_rviz",
+                default_value="false",
+                choices=["true", "false"],
+                description="With use_manip, start the RViz manipulation view",
+            ),
+            OpaqueFunction(function=_validate_manip_rviz),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
             gz,

@@ -2,8 +2,9 @@
 
   ros2 launch aha_bringup sim.launch.py use_perception:=true
 
-sim.launch.py passes no arguments; the ones below are read from the command
-line. Starts:
+sim.launch.py passes use_sim_time, and control_panel:=false with
+manip_rviz:=true (the manipulation view has its own panel); the other
+arguments are read from the command line. Starts:
   - camera_bridge.launch.py for Gazebo head and wrist cameras:
     /camera/color/image_raw, /camera/color/camera_info,
     /camera/depth_registered/image_rect (frame camera_color_optical_frame)

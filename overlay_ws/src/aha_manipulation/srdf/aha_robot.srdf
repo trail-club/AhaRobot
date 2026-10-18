@@ -16,6 +16,24 @@
     <joint name="joint_r5" value="0" />
     <joint name="joint_r6" value="0" />
   </group_state>
+  <!-- Arm folded in front of the body, gripper level and forward. -->
+  <group_state name="standby" group="right_arm">
+    <joint name="joint_r1" value="0.2" />
+    <joint name="joint_r2" value="-1.0" />
+    <joint name="joint_r3" value="1.5" />
+    <joint name="joint_r4" value="0.5" />
+    <joint name="joint_r5" value="0" />
+    <joint name="joint_r6" value="0" />
+  </group_state>
+  <!-- Folded as in standby, raised to hold an object above table height. -->
+  <group_state name="carry" group="right_arm">
+    <joint name="joint_r1" value="0.5" />
+    <joint name="joint_r2" value="-0.6" />
+    <joint name="joint_r3" value="1.2" />
+    <joint name="joint_r4" value="0.6" />
+    <joint name="joint_r5" value="0" />
+    <joint name="joint_r6" value="0" />
+  </group_state>
   <disable_collisions link1="base_link" link2="link_l1" reason="Adjacent" />
   <disable_collisions link1="base_link" link2="link_r1" reason="Adjacent" />
   <disable_collisions link1="link_l1" link2="link_l2" reason="Adjacent" />
