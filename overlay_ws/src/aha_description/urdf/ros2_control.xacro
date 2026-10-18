@@ -2,11 +2,10 @@
 <!--
   ros2_control block for AhaRobot.
 
-  Design note:
-    Upstream joint <limit> tags are all effort=0 velocity=0. We do NOT patch
-    those in the URDF (would require rewriting the upstream file). Instead we
-    enforce real limits at the controller layer via config/joint_limits.yaml
-    (loaded by joint_limits_interface).
+  Joint limits:
+    Upstream joint <limit> tags are all effort=0 velocity=0. At build time,
+    scripts/patch_limits.py writes urdf/astra_description_patched.urdf into
+    the install tree. aha_robot.urdf.xacro includes that generated copy.
 
   Joints exposed to controllers:
     - drive: left_wheel_joint, right_wheel_joint         (velocity)

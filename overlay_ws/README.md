@@ -1,124 +1,62 @@
 # overlay_ws
 
-チーム独自コード置き場。`upstream/*` を触らずに、上から機能を追加していく。
+AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が必要なsubmoduleを
+`src/` へリンクし、同じworkspaceでビルドする。
 
 ## パッケージ
 
-| package | 役割 |
+| package | 内容 |
 | --- | --- |
-| `aha_description` | 上流 URDF を xacro で wrap し、差動二輪ベース / `<ros2_control>` / (将来) センサを追加 |
-| `aha_gazebo` | Gazebo Harmonic world と Gazebo 起動 launch |
-| `aha_bringup` | sim / real の統合起動 launch |
-| `aha_arm_teleop` | 両腕のキーボード教示。`arm_node` の `joint_command` へ出す |
+| `aha_description` | URDF xacro、差動二輪ベース、ros2_control設定 |
+| `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
+| `aha_bringup` | [ロボット生成とcontrollerの起動](src/aha_bringup/README.md) |
+| `aha_sim_tasks` | [タスク・policy評価](src/aha_sim_tasks/README.md)、approach / pick / pick-and-place |
+| `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
+| `aha_msgs` | msg / srv / action定義 |
+| `aha_navigation` | シミュレーションのSLAM（slam_toolbox）。[README](src/aha_navigation/README.md)を参照 |
+| `aha_manipulation` | [MoveIt 2右腕IK・経路計画・軌道実行](src/aha_manipulation/README.md) |
+| `aha_perception` | 頭部・手首カメラのbridge、頭部の点群・RViz表示・操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
+| `aha_arm_teleop` | 実機両腕のキーボード教示。`arm_node` の `joint_command` へ出す。[手順](../docs/arm-keyboard-teleop.md) |
+| `aha_servo` | STSサーボのJointTrajectoryブリッジとキャリブレーション。[README](src/aha_servo/README.md)を参照 |
 
-## 前提
+## ビルド・起動
 
-- Ubuntu 24.04
-- ROS 2 Jazzy (`sudo apt install ros-jazzy-desktop`)
-- Gazebo Harmonic (`sudo apt install ros-jazzy-ros-gz`)
-- `ros-jazzy-gz-ros2-control` `ros-jazzy-joint-trajectory-controller` `ros-jazzy-diff-drive-controller` `ros-jazzy-joint-state-broadcaster` `ros-jazzy-forward-command-controller` `ros-jazzy-xacro`
+コマンドは [開発コンテナの起動フロー](../docs/docker.md#起動フロー)を参照。
 
-`rosdep` でまとめて入れる:
+world・spawn設定は [Japan Open起動設定](../docs/sobits-rcjo2026.md)、
+controllerとROSの入出力は [インターフェース](../docs/interfaces.md)を参照。
+
+## テスト
+
+PR前の標準チェックはホストで [make test](../AGENTS.md#動作確認) を実行する。
+上流パッケージも含めて再検証する場合は、開発コンテナ内で以下を実行する。
 
 ```bash
-cd <repo root>
-rosdep install --from-paths upstream overlay_ws/src --ignore-src -r -y
-```
-
-## ビルド
-
-```bash
-cd overlay_ws
-colcon build --symlink-install --packages-up-to aha_bringup
+cd /app/overlay_ws
+colcon build --symlink-install --cmake-force-configure
 source install/setup.bash
+colcon test-result --delete-yes  # 前回の生成済みテスト結果をクリア
+colcon test
+colcon test-result --verbose
 ```
 
-`upstream/astra_description` などが依存関係で必要な場合は super repo の `upstream/` を
-`AMENT_PREFIX_PATH` / `COLCON_PREFIX_PATH` で見えるようにする。最も簡単には super repo 直下で:
+`colcon.meta` はこのworkspaceからの実行時に自動で読み込まれ、上流の既知の失敗を次の範囲で除外する。
 
-```bash
-colcon build --symlink-install \
-  --paths upstream/astra_description upstream/astra_controller_interfaces \
-  --paths overlay_ws/src/aha_description overlay_ws/src/aha_gazebo overlay_ws/src/aha_bringup
-```
+- `sobits_gazebo_worlds`: `ament_cmake_flake8`
+- `tmc_wrs_gz_worlds`: `test_flake8` / `test_copyright`
 
-または単一ワークスペースに揃える運用として、`overlay_ws/src` の中に `upstream/*` への
-シンボリックリンクを張っても良い (upstream の git submodule 実体はそのまま)。
+SOBITSはCMakeの再構成時に除外を反映するため、設定追加後は上記のビルドから実行する。
+除外前の結果ファイルが集計に残らないよう、前回のテスト結果をクリアしてから再実行する。
+TMCの著作権・ライセンス本文は変更せず、表記を認識できないチェックを除外する。
+上流のその他のチェックと、`aha_gazebo` のworld・launch回帰テストは引き続き実行する。
+`astra_controller_interfaces` のlintは除外対象に含めない。
 
-## 動作確認済み (2026-08-30)
+## 制限
 
-Docker (macOS/Apple Silicon) で以下を確認:
-- `colcon build` 成功 (astra_description / aha_description / aha_gazebo / aha_bringup)
-- `ros2 launch aha_bringup sim.launch.py headless:=true` で:
-  - 8 controllers すべて active
-  - `/joint_states` @ 100 Hz
-  - `/diff_drive_controller/cmd_vel` に 0.3 m/s → `/odom` が前進を報告
-  - `ros2 run aha_bringup demo_arms.sh` で頭 / 左右腕 / 昇降 / グリッパが指令値通り動く
-
-## 起動
-
-**URDF を RViz で確認 (Gazebo 不要):**
-
-```bash
-ros2 launch aha_description view_robot.launch.py
-```
-
-**Gazebo Harmonic で sim 全体を起動:**
-
-```bash
-ros2 launch aha_bringup sim.launch.py
-```
-
-引数:
-
-- `world:=empty.sdf` (default)
-- `use_sim_time:=true` (default)
-- `headless:=true` — GUI 無し (macOS / CI 推奨)
-
-**実機の両腕をキーボードで教示する:**
-
-`arm_node` が `/joint_states` を出していることが前提。シリアル転送デモのままでは動かない。手順は [`docs/arm-keyboard-teleop.md`](../docs/arm-keyboard-teleop.md)。
-
-```bash
-ros2 launch aha_bringup arms.launch.py
-# 別の対話シェル
-ros2 run aha_arm_teleop keyboard_teleop
-```
-
-**ベースをキーボードで走らせる (別シェルで):**
-
-```bash
-docker exec -it aharobot-aha_project-1 bash
-aha_teleop   # i/j/k/l/, で操作
-```
-
-**腕・頭・グリッパのデモ:**
-
-```bash
-aha_demo     # 頭 pan +0.4, 左右腕を対称ポーズ, 昇降 +0.2m, 右グリッパ open
-```
-
-**動作確認:**
-
-```bash
-# 前進コマンド
-ros2 topic pub /diff_drive_controller/cmd_vel geometry_msgs/msg/TwistStamped \
-  '{twist: {linear: {x: 0.2}}}' -r 10
-
-# joint 状態
-ros2 topic echo /joint_states --once
-
-# 頭部を少し動かす
-ros2 action send_goal /head_controller/follow_joint_trajectory \
-  control_msgs/action/FollowJointTrajectory \
-  '{trajectory: {joint_names: [joint_head_pan, joint_head_tilt],
-                 points: [{positions: [0.3, 0.0], time_from_start: {sec: 1}}]}}'
-```
-
-## 既知の制限 (Phase 1 の残タスク)
-
-- 車輪寸法 / キャスターオフセットは仮の値 (実測して置換)
-- 上流 URDF の `<limit effort=0 velocity=0>` は未修正 (controller 側 joint_limits で防御予定)
-- 左右昇降を 2 DoF として扱っている (実機は共通軸; 後で mimic か融合コントローラ化)
-- センサ (RGB-D / LiDAR / IMU) 未実装
-- 実機 Hardware Interface (`aha_hardware/AhaSystem`) 未実装 → `sim:=false` は起動できない
+- 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
+- 昇降は左右2軸として記述しているが、実機は共通軸。
+- Gazeboのセンサは頭部RGB-Dカメラ、左右の手首RGBカメラ、シミュレーション専用の2D LiDAR。
+  手首カメラは仮想取付位置で、実機のURDFには手首カメラとLiDARはない。
+- Nav2の統合は未実装。SLAMとMoveItの動作確認はシミュレーションのみ。
+- 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。
+  実機の頭部は `aha_servo` のブリッジで動かす。

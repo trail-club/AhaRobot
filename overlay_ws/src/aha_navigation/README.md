@@ -1,26 +1,8 @@
 # aha_navigation
 
-SLAM (slam_toolbox) と Nav2 の設定・launch を集約する。
+navigation用のROSパッケージ。
 
-## ディレクトリ
-
-- `launch/` — `slam.launch.py`, `nav2.launch.py`, `bringup.launch.py`（未実装）
-- `config/` — `nav2_params.yaml`, `slam_toolbox_params.yaml`, EKF params
-- `maps/` — 保存済み地図 (`.yaml` + `.pgm`)
-- `rviz/` — `nav.rviz`
-
-## 契約（他班との interface）
-
-- **subscribe**: `/scan` (sensor_msgs/LaserScan), `/odom` (nav_msgs/Odometry), `/tf`
-- **publish**: `/cmd_vel` (geometry_msgs/Twist), `/map` (nav_msgs/OccupancyGrid)
-- **action**: `navigate_to_pose` (nav2_msgs/action/NavigateToPose)
-- **service**: `set_nav_goal` (aha_msgs/srv/SetNavGoal) — task planner 用薄いラッパ
-
-frame 規約は [`docs/interfaces.md`](../../../docs/interfaces.md) を参照。
-
-## TODO
-
-- [ ] Nav2 params の初期セット
-- [ ] slam_toolbox online_async config
-- [ ] `robot_localization` EKF (wheel odom + IMU)
-- [ ] docking behavior
+`launch/nav.launch.py`（`sim.launch.py use_nav:=true`）はシミュレーション専用の2D LiDAR
+（`aha_description/urdf/lidar.xacro`、frame `laser_link`）の `/scan` をbridgeし、
+`launch/slam.launch.py` でslam_toolbox（online async、`config/slam_toolbox.yaml`）を起動する。
+`/map` と `map → odom` を配信する。Nav2は起動しない。

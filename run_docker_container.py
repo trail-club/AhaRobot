@@ -19,7 +19,7 @@ from pathlib import Path
 
 PROJECT = "aharobot"
 SERVICE = "aha_project"
-CONTAINER = f"{PROJECT}_{SERVICE}_1"          # docker compose --compatibility naming
+CONTAINER = f"{PROJECT}_{SERVICE}_1"  # docker compose --compatibility naming
 COMPOSE_BASE = "./docker/docker-compose.yml"
 COMPOSE_GPU = "./docker/docker-compose.gpu.yml"
 COMPOSE_WSL = "./docker/docker-compose.wsl-novnc.yml"
@@ -56,7 +56,9 @@ def detect_nvidia_gpu() -> bool:
         candidates.append("/usr/lib/wsl/lib/nvidia-smi")
 
     for candidate in candidates:
-        found = shutil.which(candidate) or (candidate if Path(candidate).is_file() else None)
+        found = shutil.which(candidate) or (
+            candidate if Path(candidate).is_file() else None
+        )
         if not found:
             continue
         try:
@@ -88,8 +90,14 @@ def build_compose_cmd(*, use_novnc: bool, use_gpu: bool, use_wsl_novnc: bool) ->
     )
 
 
-def start_container(*, display: str, ros_domain_id: int,
-                    use_novnc: bool, use_gpu: bool, use_wsl_novnc: bool) -> None:
+def start_container(
+    *,
+    display: str,
+    ros_domain_id: int,
+    use_novnc: bool,
+    use_gpu: bool,
+    use_wsl_novnc: bool,
+) -> None:
     env = {
         "DISPLAY": display,
         "ROS_DOMAIN_ID": str(ros_domain_id),
@@ -98,7 +106,9 @@ def start_container(*, display: str, ros_domain_id: int,
     }
     # `up -d` is idempotent: it reconciles config drift (e.g. after toggling
     # GPU) without needing an explicit rm/recreate step.
-    cmd = build_compose_cmd(use_novnc=use_novnc, use_gpu=use_gpu, use_wsl_novnc=use_wsl_novnc)
+    cmd = build_compose_cmd(
+        use_novnc=use_novnc, use_gpu=use_gpu, use_wsl_novnc=use_wsl_novnc
+    )
     print(f"$ {cmd}")
     sh(cmd, env=env)
 
@@ -124,7 +134,7 @@ def setup_x11_auth(display: str | None, *, use_novnc: bool, is_wsl: bool) -> Non
         if len(parts) >= 3:
             proto, key = parts[1], parts[2]
             sh(
-                f'docker exec -i {CONTAINER} bash -c '
+                f"docker exec -i {CONTAINER} bash -c "
                 f'"touch $HOME/.Xauthority; xauth add {display} {proto} {key}"',
                 check=False,
             )
@@ -149,15 +159,18 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--rebuild", action="store_true", help="rebuild the image first")
     p.add_argument(
-        "--novnc", action="store_true",
+        "--novnc",
+        action="store_true",
         help="force NoVNC even on native Linux (auto on macOS/WSL)",
     )
     p.add_argument(
-        "--no-gpu", action="store_true",
+        "--no-gpu",
+        action="store_true",
         help="disable NVIDIA GPU passthrough even if detected",
     )
     p.add_argument(
-        "--no-enter", action="store_true",
+        "--no-enter",
+        action="store_true",
         help="only bring the container up; don't drop into a shell",
     )
     args = p.parse_args()

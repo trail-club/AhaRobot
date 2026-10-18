@@ -105,7 +105,9 @@ def main(args=None) -> None:
         import termios
         import tty
     except ImportError:
-        sys.exit("このノードは Linux の対話端末で動かす。Windows のコンソールではキーを取れない。")
+        sys.exit(
+            "このノードは Linux の対話端末で動かす。Windows のコンソールではキーを取れない。"
+        )
 
     rclpy.init(args=args)
     node = KeyboardTeleopNode()

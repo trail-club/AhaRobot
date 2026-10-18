@@ -40,7 +40,7 @@ _FW_ABS = (
 )
 
 # (名前, 腕の何番目か, 実測可動域の片側 step, 左腕のキー)
-# 右腕は同じ文字の大文字。可動域は docs/servo-bringup.md。
+# 右腕は同じ文字の大文字。可動域は docs/context/motor.md。
 _JOINTS = (
     ("joint0", 0, 920, ("w", "s")),
     ("joint1", 1, 990, ("e", "d")),
@@ -122,7 +122,9 @@ class Outputs:
 
 
 class _Joint:
-    def __init__(self, label: str, index: int, rom: int, keys: tuple[str, str], ros_name: str):
+    def __init__(
+        self, label: str, index: int, rom: int, keys: tuple[str, str], ros_name: str
+    ):
         self.label = label
         self.index = index
         self.is_gripper = label == "gripper"
@@ -334,7 +336,10 @@ class Teleop:
             arm = self.arms[side]
             for joint in arm.joints:
                 moving = bool(
-                    joint.hold_dir and now < joint.hold_until and arm.torque_on and not joint.faulted
+                    joint.hold_dir
+                    and now < joint.hold_until
+                    and arm.torque_on
+                    and not joint.faulted
                 )
                 if not moving:
                     if joint.hold_dir and now >= joint.hold_until:
@@ -353,9 +358,7 @@ class Teleop:
                     joint.faulted = True
                     joint.hold_dir = 0
                     self._set_goal(side, joint, int(joint.actual), force=True)
-                    self.message = (
-                        f"★{side} {joint.label}: 実位置が {joint.jumped:.0f} step 飛んだので切り離しました"
-                    )
+                    self.message = f"★{side} {joint.label}: 実位置が {joint.jumped:.0f} step 飛んだので切り離しました"
                     joint.jumped = 0.0
                     continue
                 pushing = abs(joint.goal - joint.actual) > self.lead * 0.6
@@ -419,7 +422,9 @@ class Teleop:
                     mark = "!"
                 elif joint.hold_dir:
                     mark = ">"
-                chunks.append(f"{joint.label}:{joint.goal:+5d}/{joint.actual:+5.0f}{mark}")
+                chunks.append(
+                    f"{joint.label}:{joint.goal:+5d}/{joint.actual:+5.0f}{mark}"
+                )
             parts.append(side[0].upper() + " " + " ".join(chunks))
         return f"{'  '.join(parts)}  step={self.step:<3} | {self.message}"
 
@@ -447,7 +452,9 @@ class Teleop:
         if neg < ORIGIN_MARGIN:
             joint.lim_neg = 0
 
-    def _set_goal(self, side: str, joint: _Joint, goal: int, force: bool = False) -> None:
+    def _set_goal(
+        self, side: str, joint: _Joint, goal: int, force: bool = False
+    ) -> None:
         goal = int(goal)
         if goal == joint.goal and not force:
             return

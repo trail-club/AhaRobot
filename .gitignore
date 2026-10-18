@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+/.venv-perception-macos/
+.tool-versions
 
 # Editors
 .vscode/
@@ -18,9 +20,19 @@ __pycache__/
 # Container-created symlinks under overlay_ws/src (target /app/...)
 /overlay_ws/src/astra_description
 /overlay_ws/src/astra_controller_interfaces
+/overlay_ws/src/astra_controller
+/overlay_ws/src/sobits_gazebo_worlds
+/overlay_ws/src/tmc_wrs_gz_worlds
+
+# Simulation evaluation outputs (aha_sim_tasks evaluate)
+overlay_ws/evaluation-results*
 
 # Session artifacts
 .claude/
 
 # Personal notes (per-dev learning material, not shared)
 docs/personal/
+
+tools/servo/*.csv
+/artifacts/perception/
+/.cache-sam31/

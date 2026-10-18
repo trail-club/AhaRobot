@@ -1,0 +1,59 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Image
+      Name: RGB
+      Enabled: true
+      Topic:
+        Value: /camera/color/image_raw
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Image
+      Name: Depth
+      Enabled: false
+      Topic:
+        Value: /camera/depth_registered/image_rect
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/PointCloud2
+      Name: PointCloud
+      Enabled: true
+      Topic:
+        Value: /camera/depth/points
+        Depth: 5
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+      Style: Points
+      Size (m): 0.01
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+  Global Options:
+    Fixed Frame: camera_color_optical_frame
+    Frame Rate: 15
+    Background Color: 48; 48; 48
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Orbit
+      Distance: 1.5
+      Focal Point: {X: 0.0, Y: 0.0, Z: 1.0}
+      Pitch: 0.3
+      Yaw: 1.2
+
+Window Geometry:
+  Height: 800
+  Width: 1200
+  Displays: {collapsed: false}
+  Views: {collapsed: false}

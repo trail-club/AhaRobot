@@ -8,6 +8,7 @@ ID4-11 は「4個で1関節」の対向駆動なので、1個だけトルクON�
 の両方が一度に取れる。トルク上限を絞っているので突っ張っても機構を痛めない。
 """
 
+import argparse
 import json
 import sys
 import time
@@ -47,7 +48,7 @@ class Bus:
         return None
 
     def state(self, i, tries=4):
-        """位置と負荷を 1 回で読む。別々に読むと取り違える (README の「落とし穴」)。"""
+        """位置と負荷を 1 回で読む。取り違えの経緯は docs/context/motor.md を参照。"""
         for _ in range(tries):
             try:
                 d, c, _ = self.pk.readTxRx(self.ph, i, R_POS, 6)
@@ -117,6 +118,9 @@ def nudge(bus, mid, peers):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", default="nudge_report.json", help="測定結果の保存先")
+    args = parser.parse_args()
     bus = Bus()
     all_ids = sum(GROUPS.values(), []) + SINGLES
     report = {}
@@ -151,7 +155,7 @@ if __name__ == "__main__":
         print("\n全モータ トルクOFF")
     json.dump(
         report,
-        open("/home/hrt/aharobot-check/nudge_report.json", "w"),
+        open(args.out, "w"),
         indent=1,
         ensure_ascii=False,
     )

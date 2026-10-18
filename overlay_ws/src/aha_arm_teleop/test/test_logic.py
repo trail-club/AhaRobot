@@ -205,7 +205,9 @@ def test_jump_disconnects_until_torque_cycles():
     tele.tick(["0"], 0.2, 0.0)
     reenabled = tele.tick(["u"], 0.3, 0.0)
     assert not joint.faulted
-    assert any(t.value == 1 and t.topic == "/left/arm/torque_enable" for t in reenabled.torque)
+    assert any(
+        t.value == 1 and t.topic == "/left/arm/torque_enable" for t in reenabled.torque
+    )
     moved = tele.tick(["u"], 0.5, 0.0)
     assert joint.goal == 8
     assert _arm(moved, "/left/arm/joint_command") is not None

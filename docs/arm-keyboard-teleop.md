@@ -13,7 +13,7 @@
 
 - 1 回叩くと 8 step (約 0.7°)。押しっぱなしは 250 step/秒。`[` `]` で増減する。
 - 目標は実位置から 80 step 以上先行しない。追従しないまま押し続けると、先行分を捨ててその向きを止める。
-- 可動域は [`docs/servo-bringup.md`](servo-bringup.md) の片側 step (joint0 ±920、joint1 ±990、wrist12 は 1950 で頭打ち、wrist13 ±1360、wrist14 ±1650、gripper ±1310)。
+- 可動域は [保存済み可動域データ](context/motor.md#保存済み可動域データと解釈の限界) の片側 step (joint0 ±920、joint1 ±990、wrist12 は 1950 で頭打ち、wrist13 ±1360、wrist14 ±1650、gripper ±1310)。
 - エンコーダ原点 (raw 0 / 4095) から 150 step 以内の向きへは出さない。
 - 1 回の観測で 250 step を超えて飛んだ関節は、その関節だけ指令を止める。`0` のあと方向キーで入れ直す。
 - `space` でその場停止。`0` でトルク OFF。`q` でトルク OFF して終了。
@@ -95,9 +95,10 @@ ros2 run aha_arm_teleop keyboard_teleop --ros-args -p step:=20 -p rate:=400 -p l
 ## 動いたことの確認
 
 ロジック (step、符号、名前、lead、可動域、原点、stall、飛び) はコンテナの外でも回る。
+`make test` の `colcon test` にも含まれる。
 
 ```bash
-make test
+python3 -m pytest overlay_ws/src/aha_arm_teleop/test -q
 ```
 
 実機では腕ノードを上げたまま、別シェルで次を見る。`/joint_states` は左右とグリッパが同じトピックに載るので、`hz` は合計になる。名前に両腕が入っていることと、キーでその値が変わることを見る。
