@@ -178,7 +178,8 @@ def label_color(label: PlaneLabel | str) -> tuple[float, float, float, float]:
 
 
 def plane_palette(index: int) -> tuple[float, float, float]:
-    """Distinct RGB in [0, 1] for the ``index``-th plane (golden-ratio hues)."""
+    """Distinct RGB in [0, 1] for an integer key such as a surface id
+    (golden-ratio hues)."""
     hue = (0.13 + index * 0.618033988749895) % 1.0
     return colorsys.hsv_to_rgb(hue, 0.75, 0.95)
 

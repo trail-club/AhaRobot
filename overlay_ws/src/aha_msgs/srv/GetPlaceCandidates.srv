@@ -25,6 +25,13 @@ int32                      furniture_level
 # m of free space wanted between the object footprint and obstacles, beyond
 # perception's obstacle margin (0 = none); the support edge margin is unchanged
 float32                    clearance
+# Empty frame_id: the footprint is checked for any yaw (its circumscribed
+# circle). Else the footprint rectangle is checked at the yaws the object
+# would be placed with: its x axis along the direction from this point (e.g.
+# the arm's shoulder) to the spot, plus each of yaw_offsets (rad, tried in
+# order; empty = [0]); a candidate gets the first yaw that fits.
+geometry_msgs/PointStamped approach_from
+float32[]                  yaw_offsets
 ---
 uint8 STATUS_OK=0          # candidates found
 uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids, furniture) in the detection

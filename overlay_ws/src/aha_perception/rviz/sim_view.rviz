@@ -289,7 +289,6 @@ Visualization Manager:
           Namespaces:
             center: true
             clearance: true
-            rank: true
           Topic:
             Depth: 10
             Durability Policy: Volatile

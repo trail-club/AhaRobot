@@ -248,6 +248,7 @@ launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。�
 | `surface_confirm_hits` / `surface_max_misses` / `surface_max_unseen` | `2` / `5` / `120.0` | 面にIDを付けるまでの観測回数 / 視野内なのに観測されない検出が続くと消す回数 / 観測されないまま消すまでの時間（s、画像時刻） |
 | `furniture_config` | 空 | [家具の設定](#家具の設定)のYAMLのパス。空なら家具を使わない |
 | `furniture_margin` / `furniture_height_tolerance` | `0.10` / `0.05` | 面を家具の段に対応させる外形の広げ幅 / 段の高さとの差の上限（m） |
+| `furniture_clip_margin` | `0.02` | 家具の段に対応した平面の凸包を切り取る外形の広げ幅（m、負なら切り取らない） |
 
 `merge`・`noise_subpixel` の既定は較正したD435iのノイズで選んだ値で、ライブラリの既定（`merge=False`・0.08）とは異なる（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)）。
 
@@ -270,6 +271,8 @@ launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。�
 
 `object_size`（底面 x × y、高さ z、m）の物体を置ける机・棚板上の点を、余裕（clearance）の大きい順か `near` に近い順で返す。
 応答の `obstacles` は検出のすべての支持面（床を除く）の上の物体を衝突判定用の箱にしたもの。
+箱にする点の高さは、上に検出した棚板（支持面の3割以上を覆う面）か、家具の段に対応した面では設定の上の棚板の下面から、
+`cap_margin`（0.05 m）下まで（上の棚板が断片的にしか見えず検出されないと、その前の縁が棚の入口の箱になった）。
 要求の `exclude_regions`（ロボットの腕と持っている物体などの箱）の中と、カメラから見てその後ろの点
 （輪郭のDepthのにじみ）は使わず、箱の下の支持面は見えていないものとする。
 
@@ -307,6 +310,8 @@ furniture:
 - 段の番号は設定の一番下の段が1。段の上の空きは次の段の高さ − `board_thickness` − その段の高さ（一番上の段は制限なし）。
 - 面の重心を設定のframeへ変換し、`furniture_margin` だけ広げた外形の中にあり、段の高さとの差が `furniture_height_tolerance` 未満なら、最も近い段に対応させる。
   複数の家具の外形に入る場合は外形の中心が最も近い家具にする。床・壁のラベルの面は対応させない（床の高さの段は対応しない）。
+- 対応した面のその検出の平面は、凸包を家具の外形を `furniture_clip_margin` 広げた範囲で切り取る（Depthの縁のにじみで棚板の凸包が縁より手前・横へ数cm伸び、
+  planning sceneの上の棚板が腕の通り道に掛かった）。`/aha/perception/planes`、置き場所の候補、障害物の箱は切り取った凸包を、面の追跡は検出したままの凸包を使う。
 - 名前の重複、大きさ0以下、段の高さが増えない設定は起動時のエラーになる。
 
 ```bash

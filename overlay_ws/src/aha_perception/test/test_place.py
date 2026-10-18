@@ -1,3 +1,4 @@
+import dataclasses
 import math
 
 import numpy as np
@@ -5,6 +6,8 @@ import pytest
 
 from aha_perception.place import (
     ExcludeBox,
+    Orientation,
+    PlaceObstacle,
     PlaceOptions,
     PlaceStatus,
     base_cloud,
@@ -12,8 +15,9 @@ from aha_perception.place import (
     find_place_obstacles,
     footprint_radius,
     min_area_rectangle,
+    veil_pixels,
 )
-from aha_perception.planes import PlaneLabel
+from aha_perception.planes import DepthNoiseModel, PlaneLabel
 from aha_perception.planes.segmentation import make_plane
 
 UP = np.array([0.0, 0.0, 1.0])
@@ -240,6 +244,148 @@ def test_clearance_keeps_distance_to_obstacles_only():
             scene.run(size, clearance=bad)
 
 
+def test_oriented_footprint_gets_closer_to_a_neighbour():
+    # A 0.1 m box at the table center; the robot reaches from the origin
+    # (approach along +x, so the object x points along +x near y = 0).
+    size = (0.075, 0.075, 0.08)
+    half = 0.05
+
+    def outside_box(p):
+        return (np.abs(p[:, 0] - CENTER[0]) > half) | (np.abs(p[:, 1]) > half)
+
+    scene = table_scene(outside_box)
+    scene.add(box_points(CENTER[0], 0.0, 0.75, 2 * half, 2 * half, 0.10))
+    options = PlaceOptions()
+    beside = np.array([CENTER[0], -0.15, 0.75])
+
+    def nearest_side_gap(result):
+        """Smallest |y| - half of the placeable cells in the box's row."""
+        g = result.grids[0]
+        centers = g.cell_points(np.argwhere(g.placeable))
+        row = np.abs(centers[:, 0] - CENTER[0]) < 0.006
+        return (np.abs(centers[row, 1]) - half).min()
+
+    circle = scene.run(size, near=beside)
+    oriented = scene.run(size, near=beside, orientation=Orientation((0.0, 0.0)))
+    # Circle: radius + margin. Rectangle: its extent across the row at the
+    # approach yaw there (about -5 deg) + margin; both to the 1 cm grid.
+    circle_gap, oriented_gap = nearest_side_gap(circle), nearest_side_gap(oriented)
+    assert circle_gap == pytest.approx(
+        footprint_radius(size) + options.obstacle_margin, abs=0.012
+    )
+    tilted = (size[1] / 2 + options.obstacle_margin) * (
+        math.cos(math.radians(5)) + math.sin(math.radians(5))
+    )
+    assert tilted - 0.005 <= oriented_gap <= tilted + 0.012
+    assert oriented_gap <= circle_gap - 0.005
+    top = oriented.candidates[0]
+    # The yaw points from the origin to the spot.
+    assert top.yaw == pytest.approx(
+        math.atan2(top.position[1], top.position[0]), abs=0.05
+    )
+    assert math.isnan(circle.candidates[0].yaw)
+
+
+def test_long_object_fits_only_along_its_length():
+    # 0.3 x 0.06 m object on a 0.8 x 0.6 table with a wall of boxes leaving a
+    # 0.14 m wide lane along x: the circle (r 0.15 m) never fits, the
+    # rectangle along the lane does, across it it does not.
+    size = (0.3, 0.06, 0.05)
+    lane = 0.07
+
+    def lane_only(p):
+        return np.abs(p[:, 1]) <= lane + 0.03
+
+    scene = Scene().add(
+        grid(1.0, 1.8, -0.1, 0.1, 0.75, keep=lane_only), PlaneLabel.TABLE
+    )
+    for side in (-1, 1):
+        y = side * (lane + 0.05)
+        scene.add(box_points(1.4, y, 0.75, 0.8, 0.04, 0.08))
+    options = PlaceOptions(edge_margin=0.0, obstacle_margin=0.0)
+    assert scene.run(size, options=options).candidates == []
+    along = scene.run(size, options=options, orientation=Orientation((-5.0, 0.0)))
+    assert along.candidates
+    assert abs(along.candidates[0].yaw) < 0.05
+    across = scene.run(size, options=options, orientation=Orientation((1.4, -5.0)))
+    assert across.candidates == []
+    # A second offset of 90 deg turns it along the lane.
+    turned = scene.run(
+        size,
+        options=options,
+        orientation=Orientation((1.4, -5.0), (0.0, math.pi / 2)),
+    )
+    assert turned.candidates
+
+
+def test_flying_pixels_between_foreground_and_background():
+    noise = DepthNoiseModel()
+    options = PlaceOptions()
+    # A row: object at 1.0 m, two interpolated pixels, background at 1.6 m.
+    row = np.array([1.0, 1.0, 1.0, 1.2, 1.4, 1.6, 1.6, 1.6])
+    depth = np.tile(row, (3, 1))
+    mask = veil_pixels(depth, noise, options)
+    assert mask[1].tolist() == [False, False, False, True, True, False, False, False]
+    # A plain step (object edge) and smooth slopes stay.
+    step = np.tile(np.array([1.0, 1.0, 1.0, 1.6, 1.6, 1.6]), (3, 1))
+    assert not veil_pixels(step, noise, options).any()
+    slope = np.tile(np.linspace(1.0, 1.05, 8), (3, 1))
+    assert not veil_pixels(slope, noise, options).any()
+    # NaN neighbours never make a pixel a flying pixel.
+    holes = depth.copy()
+    holes[:, 2] = np.nan
+    assert not veil_pixels(holes, noise, options)[1, 3]
+
+
+def test_boxes_block_the_gap_between_touching_objects():
+    # Two cubes 0.08 m apart share one box in the planning scene: the
+    # candidates keep clear of the box (with its padding), not just the cells.
+    size = (0.03, 0.03, 0.05)
+    cubes = [(CENTER[0], -0.09), (CENTER[0], 0.09)]
+
+    def outside(p):
+        keep = np.ones(len(p), dtype=bool)
+        for cx, cy in cubes:
+            keep &= (np.abs(p[:, 0] - cx) > 0.05) | (np.abs(p[:, 1] - cy) > 0.05)
+        return keep
+
+    scene = table_scene(outside)
+    for cx, cy in cubes:
+        scene.add(box_points(cx, cy, 0.75, 0.1, 0.1, 0.08))
+    one_box = PlaceObstacle(
+        center=np.array([CENTER[0], 0.0, 0.79]),
+        rotation=np.eye(3),
+        size=np.array([0.1, 0.28, 0.08]),
+        plane_index=0,
+        points=100,
+    )
+    options = PlaceOptions(
+        edge_margin=0.0, obstacle_margin=0.0, candidate_box_padding=0.0
+    )
+    gap = scene.run(size, options=options, near=CENTER)
+    assert np.linalg.norm(gap.candidates[0].position - CENTER) < 0.011
+    boxed = scene.run(size, options=options, near=CENTER, boxes=[one_box])
+    assert boxed.candidates
+    for c in boxed.candidates:
+        local = np.abs(c.position[:2] - CENTER[:2])
+        assert local[0] >= 0.05 + 0.015 - 0.011 or local[1] >= 0.14 + 0.015 - 0.011
+    # A box of another plane is ignored.
+    other = dataclasses.replace(one_box, plane_index=5)
+    assert scene.run(size, options=options, near=CENTER, boxes=[other]).candidates[
+        0
+    ].position == pytest.approx(gap.candidates[0].position)
+
+
+def test_thin_curtain_is_not_a_box():
+    scene = table_scene()
+    # A 0.5 cm thin, 0.15 m tall curtain of points standing on the table.
+    curtain = grid(CENTER[0] - 0.02, CENTER[0] + 0.02, 0.0, 0.0, 0.0)
+    layers = [curtain + [0.0, 0.0, 0.76 + z] for z in np.arange(0.0, 0.15, STEP)]
+    scene.add(np.concatenate(layers))
+    assert scene.obstacles() == []
+    assert scene.obstacles(options=PlaceOptions(box_min_width=0.0))
+
+
 def test_low_obstacle_points_are_ignored():
     scene = table_scene()
     scene.add(grid(1.3, 1.5, -0.1, 0.1, 0.76))  # 1 cm above the table
@@ -386,6 +532,22 @@ def test_object_on_the_lower_board_and_the_cap_of_the_board_above():
     assert uncapped.size[2] == pytest.approx(0.30, abs=0.01)
 
 
+def test_known_board_above_caps_the_band_when_it_is_not_detected():
+    # Only the lower board is a plane; the upper board shows as fragments
+    # (its front face and a strip of its underside), no plane.
+    scene = Scene().add(grid(*BOARD, 0.40), PlaneLabel.SHELF)
+    for z in np.arange(0.60, 0.62, STEP):
+        scene.add(grid(BOARD[0], BOARD[0], BOARD[2], BOARD[3], z))
+    scene.add(grid(BOARD[0], BOARD[0] + 0.05, BOARD[2], BOARD[3], 0.60))
+    assert scene.obstacles()  # a wall at the opening
+    assert scene.obstacles(ceilings={0: 0.20}) == []
+    # An object under the cap stays.
+    scene.add(box_points(1.2, 0.1, 0.40, 0.06, 0.06, 0.10))
+    (box,) = scene.obstacles(ceilings={0: 0.20})
+    np.testing.assert_allclose(box.center[:2], [1.2, 0.1], atol=0.01)
+    assert box.size[2] == pytest.approx(0.10, abs=0.01)
+
+
 def test_l_shaped_structure_is_split_into_tiles():
     # Back and side panels of a shelf: a thin L must not become a box over the
     # free board between them.
@@ -414,8 +576,11 @@ def test_wall_noise_is_not_a_box():
     scene.add(wall[::7] - [0.01, 0.0, 0.0])
     (box,) = scene.obstacles()
     np.testing.assert_allclose(box.center[:2], [1.7, 0.0], atol=0.01)
-    # Beyond max(obstacle_min_height, wall_k * sigma) the same points are boxes.
-    assert len(noisy.add(wall[::7] - [0.05, 0.0, 0.0]).obstacles()) > 1
+    # Beyond max(obstacle_min_height, wall_k * sigma) the same points are
+    # boxes (thin ones, kept here with box_min_width 0).
+    thin = PlaceOptions(box_min_width=0.0)
+    noisy.add(wall[::7] - [0.05, 0.0, 0.0])
+    assert len(noisy.obstacles(options=thin)) > 1
 
 
 def test_speckle_and_points_off_the_plane_are_not_boxes():
@@ -499,8 +664,9 @@ def test_edge_noise_behind_the_held_object_is_dropped_with_the_viewpoint():
                 noise.append(q)
     scene.add(np.array(noise))
     held = held_box(center, (0.06, 0.06, 0.12))
-    assert scene.obstacles(exclude=[held]), "the noise alone makes a box"
-    assert scene.obstacles(exclude=[held], viewpoint=CAMERA) == []
+    thin = PlaceOptions(box_min_width=0.0)  # the noise makes thin boxes
+    assert scene.obstacles(exclude=[held], options=thin), "the noise alone makes a box"
+    assert scene.obstacles(exclude=[held], viewpoint=CAMERA, options=thin) == []
     # The table behind the held object is hidden too, not free.
     result = table_scene().run((0.06, 0.06, 0.12), exclude=[held], viewpoint=CAMERA)
     behind = CAMERA + 1.25 * (center - CAMERA)

@@ -32,7 +32,8 @@ are dropped and the subscriptions are never blocked.
 Outputs, stamped with the depth image stamp, in target_frame:
   /aha/perception/planes          aha_msgs/PlaneArray: the output planes
   /aha/perception/planes/cloud    sensor_msgs/PointCloud2 (x, y, z, rgb):
-                                  inlier points, one color per plane
+                                  inlier points, one color per surface id
+                                  (gray before the plane is tracked)
   /aha/perception/planes/markers  visualization_msgs/MarkerArray: DELETEALL,
                                   then per plane the convex hull (ns "hull")
                                   and a text (ns "label") colored by label:
@@ -59,14 +60,16 @@ The latest detection is kept for the service
 runs aha_perception.place.find_place_candidates and find_place_obstacles on
 it and publishes the result on /aha/perception/place/markers (MarkerArray:
 DELETEALL, then per candidate a disc of the clearance radius (ns
-"clearance"), the center (ns "center") and the rank (ns "rank"), per
-obstacle a box (ns "obstacle") and per request exclude region a box (ns
-"exclude")). Detections older than max_detection_age seconds (wall clock)
+"clearance") and the center (ns "center"), per obstacle a box (ns
+"obstacle") and per request exclude region a box (ns "exclude"); no rank:
+a caller such as the place server tries the candidates in its own order). Detections older than max_detection_age seconds (wall clock)
 are not used. With surface_ids only the planes of the latest detection
 assigned to those surfaces are supports (STATUS_NO_SURFACE if none is);
 status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE without
 candidates and STATUS_ERROR (success false) on errors. The request's
-clearance is passed to find_place_candidates.
+clearance is passed to find_place_candidates, and its approach_from (in
+target_frame, latest TF) with yaw_offsets as the Orientation: the
+candidates are then oriented, the pose's yaw the object yaw checked.
 
 Furniture (parameter furniture_config, a YAML of aha_perception.furniture;
 empty = none, nothing below happens): after every detection the tracked
@@ -74,7 +77,11 @@ surfaces are associated with the furniture levels (associate_surfaces with
 furniture_margin and furniture_height_tolerance) through the TF tracking
 frame -> config frame at the image stamp (else the latest); without that TF
 there is no association (throttled warning). The result fills
-Surface.furniture / furniture_level and serves the request's furniture /
+Surface.furniture / furniture_level, clips the hulls of the planes of those
+surfaces to the furniture footprint grown by furniture_clip_margin
+(furniture.clip_plane: depth edge noise bleeds a board's hull past its
+edges; the published planes, candidates and obstacles use the clipped
+hulls, the tracker the detected ones) and serves the request's furniture /
 furniture_level: unknown furniture or level is STATUS_ERROR, an object
 taller than the room of the level(s) STATUS_NO_SPACE, a level without an
 associated surface in the latest detection STATUS_NO_SURFACE. view_point is
@@ -88,6 +95,7 @@ restart or reset).
 """
 
 import dataclasses
+import math
 import sys
 import threading
 import time
@@ -133,6 +141,7 @@ from aha_perception.furniture import (
     AssociationOptions,
     FurnitureConfigError,
     associate_surfaces,
+    clip_plane,
     level_markers,
     load_config,
     missing_message,
@@ -141,6 +150,7 @@ from aha_perception.furniture import (
 )
 from aha_perception.place import (
     ExcludeBox,
+    Orientation,
     PlaceOptions,
     PlaceStatus,
     base_cloud,
@@ -187,6 +197,7 @@ PLACE_MARKER_TOPIC = "/aha/perception/place/markers"
 FURNITURE_MARKER_TOPIC = "/aha/perception/furniture/markers"
 
 TF_TIMEOUT = Duration(seconds=0.2)
+UNTRACKED_COLOR = (0.5, 0.5, 0.5)  # cloud color of planes without a surface id
 HULL_WIDTH = 0.015
 TEXT_HEIGHT = 0.08
 TEXT_OFFSET = 0.1
@@ -362,10 +373,17 @@ def make_furniture_markers(config):
 def make_candidate_msg(header, candidate, surface_ids):
     pose = PoseStamped(header=header)
     pose.pose.position = to_point(candidate.position)
-    x, y, z, w = quaternion_from_z_axis(candidate.normal)
-    pose.pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
+    oriented = math.isfinite(candidate.yaw)
+    if oriented:
+        # Supports are horizontal within a few degrees: the yaw about z.
+        half = candidate.yaw / 2
+        pose.pose.orientation = Quaternion(z=math.sin(half), w=math.cos(half))
+    else:
+        x, y, z, w = quaternion_from_z_axis(candidate.normal)
+        pose.pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
     return PlaceCandidateMsg(
         pose=pose,
+        oriented=oriented,
         clearance=float(candidate.clearance),
         plane_id=candidate.plane_index,
         surface_id=surface_ids[candidate.plane_index],
@@ -434,13 +452,13 @@ def make_place_markers(header, candidates, obstacles=(), excluded=()):
         box.scale = region.size
         box.color = ColorRGBA(r=0.6, g=0.6, b=0.6, a=0.25)
         markers.append(box)
-    for rank, candidate in enumerate(candidates):
+    for k, candidate in enumerate(candidates):
         x, y, z, w = quaternion_from_z_axis(candidate.normal)
         orientation = Quaternion(x=x, y=y, z=z, w=w)
         center = np.asarray(candidate.position)
         normal = np.asarray(candidate.normal)
 
-        disc = Marker(header=header, ns="clearance", id=rank, type=Marker.CYLINDER)
+        disc = Marker(header=header, ns="clearance", id=k, type=Marker.CYLINDER)
         disc.action = Marker.ADD
         disc.pose.position = to_point(center + 0.5 * PLACE_DISC_HEIGHT * normal)
         disc.pose.orientation = orientation
@@ -449,25 +467,13 @@ def make_place_markers(header, candidates, obstacles=(), excluded=()):
         disc.color = ColorRGBA(r=0.1, g=0.6, b=1.0, a=0.25)
         markers.append(disc)
 
-        dot = Marker(header=header, ns="center", id=rank, type=Marker.SPHERE)
+        dot = Marker(header=header, ns="center", id=k, type=Marker.SPHERE)
         dot.action = Marker.ADD
         dot.pose.position = to_point(center)
         dot.pose.orientation.w = 1.0
         dot.scale.x = dot.scale.y = dot.scale.z = PLACE_CENTER_SIZE
-        if rank == 0:
-            dot.color = ColorRGBA(r=0.1, g=0.9, b=0.2, a=1.0)
-        else:
-            dot.color = ColorRGBA(r=0.1, g=0.6, b=1.0, a=0.9)
+        dot.color = ColorRGBA(r=0.1, g=0.6, b=1.0, a=0.9)
         markers.append(dot)
-
-        text = Marker(header=header, ns="rank", id=rank, type=Marker.TEXT_VIEW_FACING)
-        text.action = Marker.ADD
-        text.pose.position = to_point(center + PLACE_TEXT_OFFSET * normal)
-        text.pose.orientation.w = 1.0
-        text.scale.z = PLACE_TEXT_HEIGHT
-        text.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
-        text.text = str(rank + 1)
-        markers.append(text)
     return MarkerArray(markers=markers)
 
 
@@ -560,6 +566,11 @@ class PlaneDetection(Node):
             height_tolerance=float(
                 self.declare_parameter("furniture_height_tolerance", 0.05).value
             ),
+        )
+        # Hulls of planes on a furniture level are clipped to its footprint
+        # grown by this (m; negative: not clipped).
+        self.clip_margin = float(
+            self.declare_parameter("furniture_clip_margin", 0.02).value
         )
         self.furniture = None
         if furniture_path:
@@ -828,6 +839,27 @@ class PlaneDetection(Node):
             return None
         return associate_surfaces(self.furniture, surfaces, matrix, self.association)
 
+    def clip_to_furniture(self, planes, surface_ids, furniture, stamp):
+        """The planes, those of surfaces on a furniture level with their hull
+        clipped to its footprint grown by ``furniture_clip_margin``
+        (furniture.clip_plane; target_frame <- config frame at the stamp)."""
+        if not furniture or self.clip_margin < 0.0:
+            return planes
+        matrix, _ = self.lookup_matrix(self.target_frame, self.furniture.frame, stamp)
+        if matrix is None:
+            return planes
+        out = []
+        for plane, surface_id in zip(planes, surface_ids):
+            match = furniture.get(surface_id)
+            item = self.furniture.get(match.furniture) if match else None
+            if item is not None:
+                corners = item.corners(self.clip_margin)
+                points = np.column_stack([corners, np.zeros(len(corners))])
+                xy = (points @ matrix[:3, :3].T + matrix[:3, 3])[:, :2]
+                plane = clip_plane(plane, xy)
+            out.append(plane)
+        return out
+
     def process(self, msg):
         info = self.camera_info
         if info is None:
@@ -876,8 +908,12 @@ class PlaneDetection(Node):
         )
         surface_ids = tracked[1] if tracked else [0] * len(planes)
         furniture = self.associate_furniture(tracked, msg.header.stamp)
+        planes = self.clip_to_furniture(
+            planes, surface_ids, furniture, msg.header.stamp
+        )
 
-        colors = [plane_palette(i) for i in range(len(planes))]
+        # Stable colors over detections: by surface id, gray before tracking.
+        colors = [plane_palette(s) if s else UNTRACKED_COLOR for s in surface_ids]
         xyz, rgb = plane_points(planes, cloud, camera_to_base, colors, self.max_points)
         header = Header(stamp=msg.header.stamp, frame_id=self.target_frame)
         if self.stopping:
@@ -932,6 +968,21 @@ class PlaneDetection(Node):
         t, q = tf.transform.translation, tf.transform.rotation
         matrix = transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
         return transform_point(matrix, p)
+
+    def level_ceilings(self, detection) -> dict:
+        """Plane index -> room above its furniture level (config: from the
+        level top to the bottom of the board above) for the planes associated
+        with a level that has a board above."""
+        if self.furniture is None or not detection.furniture:
+            return {}
+        out = {}
+        for i, surface_id in enumerate(detection.surface_ids):
+            match = detection.furniture.get(surface_id)
+            furniture = self.furniture.get(match.furniture) if match else None
+            level = furniture.level(match.level) if furniture else None
+            if level is not None and level.max_object_height is not None:
+                out[i] = level.max_object_height
+        return out
 
     def furniture_view_point(self, furniture):
         """Center of a FurnitureRequest's level in tracking_frame (else
@@ -1002,6 +1053,16 @@ class PlaneDetection(Node):
                 return fail(
                     f"no TF {self.target_frame} <- {request.near.header.frame_id}"
                 )
+        orientation = None
+        if request.approach_from.header.frame_id:
+            origin = self.near_in_target(request.approach_from)
+            if origin is None:
+                return fail(
+                    f"no TF {self.target_frame} <- "
+                    f"{request.approach_from.header.frame_id}"
+                )
+            offsets = tuple(float(v) for v in request.yaw_offsets) or (0.0,)
+            orientation = Orientation((float(origin[0]), float(origin[1])), offsets)
         header = Header(stamp=detection.stamp, frame_id=self.target_frame)
         plane_indices = None
         wanted = None
@@ -1053,6 +1114,17 @@ class PlaneDetection(Node):
         viewpoint = detection.camera_to_base[:3, 3]
         try:
             exclude = exclude_boxes(request.exclude_regions)
+            # First: the candidates keep clear of these boxes too.
+            obstacles = find_place_obstacles(
+                detection.planes,
+                points,
+                depth,
+                detection.noise,
+                self.place_options,
+                exclude=exclude,
+                viewpoint=viewpoint,
+                ceilings=self.level_ceilings(detection),
+            )
             result = find_place_candidates(
                 detection.planes,
                 points,
@@ -1069,18 +1141,11 @@ class PlaneDetection(Node):
                 viewpoint=viewpoint,
                 plane_indices=plane_indices,
                 clearance=float(request.clearance),
+                orientation=orientation,
+                boxes=obstacles,
             )
         except ValueError as e:
             return fail(str(e))
-        obstacles = find_place_obstacles(
-            detection.planes,
-            points,
-            depth,
-            detection.noise,
-            self.place_options,
-            exclude=exclude,
-            viewpoint=viewpoint,
-        )
         elapsed_ms = (time.perf_counter() - start) * 1e3
 
         response.success = True

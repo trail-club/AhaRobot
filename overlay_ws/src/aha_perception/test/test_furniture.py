@@ -9,6 +9,7 @@ from aha_perception.furniture import (
     AssociationOptions,
     FurnitureConfigError,
     associate_surfaces,
+    clip_plane,
     level_markers,
     load_config,
     match_point,
@@ -18,6 +19,7 @@ from aha_perception.furniture import (
     resolve_request,
 )
 from aha_perception.place import PlaceStatus
+from aha_perception.planes.segmentation import make_plane
 
 ARENA = Path(__file__).resolve().parents[1] / "config" / "furniture"
 
@@ -247,3 +249,35 @@ def test_level_markers():
     ]
     np.testing.assert_allclose(markers[4].center, [-1.0, 0.0, 0.75])
     assert markers[1].outline.shape == (5, 3)
+
+
+def test_clip_plane_cuts_the_bleeding_hull_to_the_footprint():
+    # A board 0.4 x 0.6 m at 0.61 m whose hull bled 5 cm towards the camera
+    # (x -) and 6 cm to the side.
+    x, y = np.meshgrid(np.arange(0.45, 0.90, 0.01), np.arange(-0.55, 0.11, 0.01))
+    points = np.column_stack([x.ravel(), y.ravel(), np.full(x.size, 0.61)])
+    plane = make_plane(
+        points, np.arange(len(points)), (0.0, 0.0, 1.4), np.array([0.0, 0, 1])
+    )
+    board = parse_config(
+        {
+            "frame": "base",
+            "furniture": [
+                {
+                    "name": "shelf",
+                    "pose": {"x": 0.70, "y": -0.25},
+                    "size": {"x": 0.4, "y": 0.6},
+                    "levels": [0.31, 0.61],
+                }
+            ],
+        }
+    ).get("shelf")
+    clipped = clip_plane(plane, board.corners(0.02))
+    hull = clipped.hull_points()
+    assert hull[:, 0].min() == pytest.approx(0.48, abs=1e-6)
+    assert hull[:, 1].max() == pytest.approx(0.07, abs=1e-6)
+    np.testing.assert_allclose(hull[:, 2], 0.61, atol=1e-9)
+    assert clipped.area < plane.area and len(clipped.inliers) == len(points)
+    # Nothing left (a wrong association): unchanged.
+    far = board.corners(0.0) + [5.0, 0.0]
+    assert clip_plane(plane, far) is plane

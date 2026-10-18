@@ -25,11 +25,15 @@ footprints, the furniture with the closest footprint center wins. Floor
 surfaces are skipped because the tracker merges every floor-height surface
 into one floor (a level at floor height is never associated).
 
+``clip_plane`` cuts a detected plane's hull to a footprint (the detection
+node does it for the planes of associated surfaces, with a margin).
+
 ROS free (numpy; PyYAML for ``load_config``).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -37,6 +41,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .place import PlaceStatus
+from .planes.geometry import clip_convex_polygons, convex_hull_2d, polygon_area
 
 DEFAULT_BOARD_THICKNESS = 0.02
 SKIPPED_LABELS = ("floor", "wall")
@@ -291,6 +296,27 @@ def associate_surfaces(
         if match is not None:
             out[int(surface.id)] = match
     return out
+
+
+def clip_plane(plane, corners):
+    """``plane`` (aha_perception.planes.types.Plane, not vertical) with its
+    hull clipped to a footprint: ``corners`` (N, 2), the footprint's xy in
+    the plane's frame (e.g. ``Furniture.corners(margin)`` transformed), taken
+    vertically onto the plane. Depth edge noise bleeds a board's hull past
+    its edges; the inliers stay. Unchanged if the plane is vertical or nothing
+    would remain (a wrong association)."""
+    normal = np.asarray(plane.normal, dtype=np.float64)
+    if abs(normal[2]) < 0.5:
+        return plane
+    corners = np.asarray(corners, dtype=np.float64)
+    z = -(corners @ normal[:2] + plane.offset) / normal[2]
+    uv = (np.column_stack([corners, z]) - plane.centroid) @ np.asarray(plane.axes).T
+    polygon, _ = convex_hull_2d(uv)
+    clipped = clip_convex_polygons(np.asarray(plane.hull), polygon)
+    area = polygon_area(clipped)
+    if len(clipped) < 3 or area <= 0.0:
+        return plane
+    return dataclasses.replace(plane, hull=clipped, area=area)
 
 
 @dataclass(frozen=True)
