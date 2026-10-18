@@ -47,10 +47,10 @@
   <!-- 69 deg, D435i color HFOV -->
   <xacro:property name="camera_hfov"   value="1.204"/>
 
-  <!-- Depth range and noise -->
+  <!-- Depth range; benchmark depth noise is applied by aha_sim_tasks to policy observations. -->
   <xacro:property name="camera_depth_near"         value="0.28"/>
   <xacro:property name="camera_depth_far"          value="10.0"/>
-  <xacro:property name="camera_depth_noise_stddev" value="0.005"/>
+  <xacro:property name="camera_rgb_noise_stddev" value="$(arg camera_rgb_noise_stddev)"/>
 
   <!-- Virtual wrist mounts, outside the palm and finger meshes (max x < 0.09 m).
        Both palms have the same local geometry. Look toward the grasp center
@@ -91,6 +91,7 @@
             <format>R8G8B8</format>
           </image>
           <clip><near>0.02</near><far>3.0</far></clip>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>${camera_rgb_noise_stddev}</stddev></noise>
         </camera>
       </sensor>
     </gazebo>
@@ -148,7 +149,7 @@
             <noise>
               <type>gaussian</type>
               <mean>0.0</mean>
-              <stddev>${camera_depth_noise_stddev}</stddev>
+              <stddev>${camera_rgb_noise_stddev}</stddev>
             </noise>
           </camera>
         </sensor>

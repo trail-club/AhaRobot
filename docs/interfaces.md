@@ -59,19 +59,23 @@ Codexへの観測変換・判断ログと実行方法は [policy評価](../overl
 評価側の全カメラのRGB・深度・CameraInfo購読はbridgeと同じreliable（履歴10）とし、
 pauseや動画記録の負荷がある場合も同一stampの組を受け取る。
 
-`/evaluation/state` は1つのJSONに `schema_version: 1`、`frame_id: "world"`、
+`/evaluation/state` は1つのJSONに `schema_version: 2`、`frame_id: "world"`、
 `stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
 `robot_pose`（world x / y / yaw）、`object_position`（world x / y / z）、
-`finger_contacts`（0 / 1 / 2）を持つ。poseと接触数を別topicから組み合わせない。
+`object_orientation`（qx / qy / qz / qw）、`finger_contacts`（0 / 1 / 2）、
+`simultaneous_grasp`（窓内の同じphysics stepで両指接触）、
+`destination_contact`（窓内に配置先の天板へ接触）を持つ。物体位置は衝突形状中心へ揃えたlink原点。
+poseと接触数を別topicから組み合わせない。adapterは旧schema 1も読めるが、配置先接触がないため汎用placeの成功には使えない。
 `environment.launch.py ground_truth:=true` のときだけ、同じサンプルに
 `ground_truth.robot_world_pose`（URDF rootの `base_footprint` のworld姿勢、x / y / z / qx / qy / qz / qw）と
 `ground_truth.joint_positions`（Gazebo physicsの関節名→位置、m / rad）を追加する。
 既定は `false` で、通常の評価stateにこの追加情報はない。
-指接触数は直前の50 ms窓内にappleへ接触した右グリッパの指の数。
+指接触数は直前の50 ms窓内に対象物体へ接触した右グリッパの指の数。
 窓内の和集合とholdの意味は [Grasp model](../overlay_ws/src/aha_sim_tasks/README.md#grasp-model) を参照。
 姿勢・時刻は窓の終端で、成功判定はこのstateの `stamp` を使う。
 重複・逆順のstateは速度履歴とfreshnessも更新しない。
-pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
+pickは同時の両指接触と天板からの持ち上げ、placeのreleaseは0本の接触で判定する。
+角速度は連続する物体quaternionから求める。物体の全collisionを接触集計に含める。
 この観測系は物体の運動を変更しない。通常のpolicyには `/joint_states`、車輪odom、シミュレーション時刻、
 タスクID・言語指示を渡す。既定では頭部RGB-D・左右の手首RGBカメラを描画し、画像・校正・画像時刻のbase_linkからのTFを
 policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは
