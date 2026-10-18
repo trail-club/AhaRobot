@@ -193,15 +193,23 @@ def saved_or_ask(library, name, ask):
 
 
 def resolve_phrase(args, library, capture, kind):
-    """The SAM phrase: --phrase, else the saved one, else ask the VLM once."""
+    """(SAM phrase, source to save or None): --phrase, else the saved one, else the VLM.
+
+    A new phrase is saved by the caller only after a view is saved with it, so a
+    phrase that finds nothing is not reused.
+    """
+    saved = load_phrase(library, args.name)
     if args.phrase:
-        saved = load_phrase(library, args.name)
-        if not saved or (saved["phrase"], saved["source"]) != (args.phrase, "user"):
-            save_phrase(library, args.name, args.phrase, "user")
-        return args.phrase
-    if kind is None and not load_phrase(library, args.name):
+        if saved and saved["source"] == "user" and saved["phrase"] == args.phrase:
+            return args.phrase, None
+        return args.phrase, "user"
+    if saved:
+        return saved["phrase"], None
+    if kind is None:
         raise RuntimeError("種類の言葉がありません。--phrase で指定してください")
-    return saved_or_ask(library, args.name, lambda: kind(np.load(capture)["rgb"]))
+    phrase = kind(np.load(capture)["rgb"])
+    print(f"[reference] Qwen が種類の言葉を決めました: {phrase}", flush=True)
+    return phrase, "vlm"
 
 
 def load_views(library, name):
@@ -273,6 +281,18 @@ img{width:100%;border-radius:4px}.meta{color:var(--muted);font-weight:normal;fon
 """
 
 
+class WorkerError(Exception):
+    """The DGX worker timed out or disconnected; the session cannot continue."""
+
+
+def predict(worker, phrase, capture):
+    # A late reply would be read as the next shot's result, so stop instead.
+    try:
+        return worker.predict(phrase, capture)
+    except (OSError, RuntimeError) as exc:
+        raise WorkerError(f"DGX の SAM 3.1 と通信できません: {exc}") from exc
+
+
 def next_view(views):
     return next((v for v in REQUIRED_VIEWS if v not in views), "")
 
@@ -311,19 +331,31 @@ def session(args, worker, camera, library, read=input, kind=None):
             camera.set_status("撮影に失敗しました。Enterで撮り直せます")
             continue
         camera.set_status(f"「{args.name}」{view} から商品を切り出し中…")
+        phrase = source = None
         try:
-            phrase = resolve_phrase(args, library, work / "capture/rgbd.npz", kind)
-            response = worker.predict(phrase, work / "capture/rgbd.npz")
+            phrase, source = resolve_phrase(
+                args, library, work / "capture/rgbd.npz", kind
+            )
+            response = predict(worker, phrase, work / "capture/rgbd.npz")
             summary = interactive.unpack_result(response, work / "result")
             record = save_view(
                 library, args.name, view, work / "capture", work / "result", summary
             )
         except (RuntimeError, ValueError, KeyError, OSError) as exc:
             print(f"[reference] {view}: {exc}", file=sys.stderr)
+            if source:
+                print(
+                    f"[reference] 言葉「{phrase}」は保存していません。"
+                    "見つからない場合は --phrase で指定してください",
+                    file=sys.stderr,
+                )
             camera.set_status(f"{view}: 保存できませんでした。置き直してEnter")
             continue
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        if source:
+            save_phrase(library, args.name, phrase, source)
+            write_index(library, args.name)
         preview = library / args.name / view / "preview.png"
         camera.show_result(preview, f"「{args.name}」{view}")
         message = f"[reference] {view} を保存しました: {preview.parent}"
@@ -410,7 +442,13 @@ def main(argv=None):
     except (KeyboardInterrupt, EOFError):
         print("\n[reference] 終了します...", flush=True)
         status = 130
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        subprocess.SubprocessError,
+        WorkerError,
+    ) as exc:
         print(f"[reference] {exc}", file=sys.stderr)
         status = 1
     finally:

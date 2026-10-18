@@ -251,6 +251,66 @@ class SessionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "--phrase"):
                 reference.resolve_phrase(args, library, capture, None)
 
+    def test_vlm_phrase_that_finds_nothing_is_not_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            library = directory / "refs"
+            (library / "can").mkdir(parents=True)
+
+            def capture(destination):
+                c, r, s = write_shot(destination.parent / "shot", [])
+                c.rename(destination)
+                capture.summary, capture.result = s, r
+
+            def unpack(response, output):
+                capture.result.rename(output)
+                return capture.summary
+
+            kind = Mock(return_value="box")
+            worker = Mock(predict=Mock(return_value={"type": "result"}))
+            camera = Mock(capture=Mock(side_effect=capture))
+            args = argparse.Namespace(name="can", phrase=None)
+            original = reference.interactive.unpack_result
+            reference.interactive.unpack_result = unpack
+            stderr = StringIO()
+            try:
+                with redirect_stdout(StringIO()), unittest.mock.patch(
+                    "sys.stderr", stderr
+                ):
+                    with self.assertRaises(EOFError):
+                        reference.session(
+                            args,
+                            worker,
+                            camera,
+                            library,
+                            Mock(side_effect=["", EOFError()]),
+                            kind=kind,
+                        )
+            finally:
+                reference.interactive.unpack_result = original
+            self.assertIsNone(reference.load_phrase(library, "can"))
+            self.assertIn("「box」は保存していません", stderr.getvalue())
+
+    def test_worker_timeout_ends_the_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = Path(directory)
+            (library / "can").mkdir()
+
+            def capture(destination):
+                c, _, _ = write_shot(destination.parent / "shot", [])
+                c.rename(destination)
+
+            worker = Mock(predict=Mock(side_effect=TimeoutError("timed out")))
+            camera = Mock(capture=Mock(side_effect=capture))
+            args = argparse.Namespace(name="can", phrase="can")
+            reader = Mock(side_effect=["", ""])
+            with redirect_stdout(StringIO()):
+                with self.assertRaisesRegex(reference.WorkerError, "timed out"):
+                    reference.session(args, worker, camera, library, reader)
+            self.assertEqual(reader.call_count, 1)
+            self.assertIsNone(reference.load_phrase(library, "can"))
+            self.assertFalse(any((library / ".work").iterdir()))
+
 
 if __name__ == "__main__":
     unittest.main()
