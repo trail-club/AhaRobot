@@ -3,13 +3,23 @@
 キーボード教示はここに含めない。`ros2 launch` はキーを渡さないので、
 別の対話シェルで `ros2 run aha_arm_teleop keyboard_teleop` する。
 手順は docs/arm-keyboard-teleop.md。
+
+既定で全トピックを rosbag に記録する（`record:=false` で止める）。
+保存先は `bag_dir`（既定 /app/overlay_ws/bags）の下の `arms_<日時>/`。
 """
 
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+DEFAULT_BAG_DIR = os.environ.get("AHA_BAG_DIR", "/app/overlay_ws/bags")
+JST = timezone(timedelta(hours=9), "JST")
 
 
 def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
@@ -34,6 +44,23 @@ def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
     )
 
 
+def _record(context):
+    if LaunchConfiguration("record").perform(context).lower() not in ("1", "true"):
+        return []
+    root = Path(LaunchConfiguration("bag_dir").perform(context))
+    root.mkdir(parents=True, exist_ok=True)
+    # bags/ の中を colcon がパッケージとして探しに行かないように。
+    (root / "COLCON_IGNORE").touch(exist_ok=True)
+    # out = root / datetime.now().strftime("arms_%Y%m%d_%H%M%S")
+    out = root / datetime.now(JST).strftime("arms_%Y%m%d_%H%M%S")
+    return [
+        ExecuteProcess(
+            cmd=["ros2", "bag", "record", "-a", "-s", "mcap", "-o", str(out)],
+            output="screen",
+        )
+    ]
+
+
 def generate_launch_description():
     return LaunchDescription(
         [
@@ -43,6 +70,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("use_left", default_value="true"),
             DeclareLaunchArgument("use_right", default_value="true"),
+            DeclareLaunchArgument("record", default_value="true"),
+            DeclareLaunchArgument("bag_dir", default_value=DEFAULT_BAG_DIR),
             _arm(
                 "left",
                 ["joint_l2", "joint_l3", "joint_l4", "joint_l5", "joint_l6"],
@@ -53,5 +82,6 @@ def generate_launch_description():
                 ["joint_r2", "joint_r3", "joint_r4", "joint_r5", "joint_r6"],
                 ["joint_r7l", "joint_r7r"],
             ),
+            OpaqueFunction(function=_record),
         ]
     )
