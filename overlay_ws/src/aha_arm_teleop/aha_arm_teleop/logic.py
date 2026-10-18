@@ -28,6 +28,9 @@ HOLD_GRACE = 0.15
 REPEAT_WINDOW = 0.25
 STALL_MOVE = 3
 BLOCK_COOLDOWN = 0.6
+# 実位置がこの秒数より古いときは、押しっぱなしでも目標を進めず、stall も判定しない。
+# 古い実位置を基準に lead で止めたり、そこへ目標を戻したりすると逆向きに跳ぶ。
+FEEDBACK_STALE = 0.1
 
 # arm_controller.ArmController.JOINT_MIN/MAX の先頭 5 要素。範囲外の 1 成分でも
 # set_pos はパケットごと捨てるので、出す前にこちらで収める。
@@ -143,7 +146,11 @@ class _Joint:
         self.start_si: float | None = None
         self.last_si: float | None = None
         self.goal = 0
+        # 押しっぱなしの rate * dt は 1 tick あたり 1 step 前後なので、整数に丸めると
+        # 端数が消えて速度が tick 頻度で決まってしまう。端数はここに貯める。
+        self.goal_f = 0.0
         self.actual = 0.0
+        self.fb_at = 0.0
         self.lim_pos = self.rom
         self.lim_neg = self.rom
         self.blocked_dir = 0
@@ -225,16 +232,21 @@ class Teleop:
                 self._by_key[joint.keys[0]] = (side, joint, +1)
                 self._by_key[joint.keys[1]] = (side, joint, -1)
 
-    def update_feedback(self, name: str, position: float) -> None:
+    def update_feedback(
+        self, name: str, position: float, now: float | None = None
+    ) -> None:
         for arm in self.arms.values():
             joint = arm.by_ros.get(name)
             if joint is None:
                 continue
             joint.last_si = float(position)
+            if now is not None:
+                joint.fb_at = now
             if joint.start_si is None:
                 joint.start_si = float(position)
                 joint.actual = 0.0
                 joint.goal = 0
+                joint.goal_f = 0.0
                 joint.seen = True
                 self._apply_limits(joint)
                 return
@@ -321,7 +333,7 @@ class Teleop:
                 self._set_goal(
                     side,
                     joint,
-                    self._clamp(joint, joint.goal + direction * self.step),
+                    self._clamp(joint, joint.goal_f + direction * self.step),
                 )
                 joint.hold_dir = 0
                 joint.hold_until = 0.0
@@ -349,10 +361,15 @@ class Teleop:
                     if joint.blocked_dir and now - joint.blocked_at > BLOCK_COOLDOWN:
                         joint.blocked_dir = 0
                     continue
+                if joint.fb_at and now - joint.fb_at > FEEDBACK_STALE:
+                    # 実位置が古い間は進めない。stall の計時もやり直す。
+                    joint.stall_ref = joint.actual
+                    joint.stall_at = now
+                    continue
                 self._set_goal(
                     side,
                     joint,
-                    self._clamp(joint, joint.goal + joint.hold_dir * self.rate * dt),
+                    self._clamp(joint, joint.goal_f + joint.hold_dir * self.rate * dt),
                 )
                 if joint.jumped:
                     joint.faulted = True
@@ -428,16 +445,15 @@ class Teleop:
             parts.append(side[0].upper() + " " + " ".join(chunks))
         return f"{'  '.join(parts)}  step={self.step:<3} | {self.message}"
 
-    def _clamp(self, joint: _Joint, want: float) -> int:
+    def _clamp(self, joint: _Joint, want: float) -> float:
         want = max(joint.actual - self.lead, min(joint.actual + self.lead, want))
         want = max(-joint.lim_neg, min(joint.lim_pos, want))
         lo, hi = joint.count_bounds()
         # 今の姿勢自体が arm_node の受付範囲の外なら、範囲の端まで引き戻して
         # 飛ばさない。その場に留める。
         if joint.actual < lo or joint.actual > hi:
-            return int(joint.actual)
-        want = max(lo, min(hi, want))
-        return int(want)
+            return float(joint.actual)
+        return float(max(lo, min(hi, want)))
 
     def _apply_limits(self, joint: _Joint) -> None:
         if joint.start_si is None:
@@ -453,12 +469,13 @@ class Teleop:
             joint.lim_neg = 0
 
     def _set_goal(
-        self, side: str, joint: _Joint, goal: int, force: bool = False
+        self, side: str, joint: _Joint, goal: float, force: bool = False
     ) -> None:
-        goal = int(goal)
-        if goal == joint.goal and not force:
+        joint.goal_f = float(goal)
+        goal_i = round(joint.goal_f)
+        if goal_i == joint.goal and not force:
             return
-        joint.goal = goal
+        joint.goal = goal_i
         if joint.is_gripper:
             self._grip_dirty[side] = True
         else:
@@ -471,6 +488,7 @@ class Teleop:
             joint.start_si = joint.last_si
             joint.actual = 0.0
             joint.goal = 0
+            joint.goal_f = 0.0
             joint.jumped = 0.0
             joint.faulted = False
             joint.hold_dir = 0
