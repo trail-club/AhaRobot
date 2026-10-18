@@ -15,10 +15,14 @@ from typing import BinaryIO
 from zipfile import BadZipFile
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 
 MODEL_ID = "facebook/sam3.1"
+# Overlay style: diagonal hatch stripes plus a solid outline per object.
+HATCH_PERIOD_PX = 10
+HATCH_WIDTH_PX = 3
+OUTLINE_PX = 2
 
 
 def safe_error(error: Exception) -> str:
@@ -112,8 +116,11 @@ class Sam31Segmenter:
         self.predictor.bf16_context.__exit__(None, None, None)
         self.predictor.model.tracker.bf16_context.__exit__(None, None, None)
 
-    def predict(self, rgb: np.ndarray) -> dict:
+    def predict(self, rgb: np.ndarray, threshold: float | None = None) -> dict:
         validate_rgb(rgb)
+        if threshold is None:
+            threshold = self.threshold
+        validate_threshold(threshold)
         with (
             self.torch.inference_mode(),
             self.torch.autocast(device_type="cuda", dtype=self.torch.bfloat16),
@@ -128,7 +135,7 @@ class Sam31Segmenter:
                         "session_id": session,
                         "frame_index": 0,
                         "text": self.prompt,
-                        "output_prob_thresh": self.threshold,
+                        "output_prob_thresh": threshold,
                     }
                 )
                 return response["outputs"]
@@ -136,6 +143,77 @@ class Sam31Segmenter:
                 self.predictor.handle_request(
                     {"type": "close_session", "session_id": session}
                 )
+
+
+def erode(mask: np.ndarray) -> np.ndarray:
+    """4-neighbour binary erosion; pixels on the image border are eroded."""
+    padded = np.pad(mask, 1, constant_values=False)
+    return (
+        mask
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+    )
+
+
+def label_color(label: int) -> np.ndarray:
+    """Distinct, deterministic RGB colour per label (also in result.json)."""
+    return np.array(
+        [(label * 73) % 192 + 63, (label * 131) % 192 + 63, (label * 47) % 192 + 63],
+        dtype=np.float32,
+    )
+
+
+def color_hex(label: int) -> str:
+    return "#" + "".join(f"{int(c):02X}" for c in label_color(label))
+
+
+def _hatch_stripes(height: int, width: int) -> np.ndarray:
+    ys_grid, xs_grid = np.indices((height, width))
+    return (xs_grid + ys_grid) % HATCH_PERIOD_PX < HATCH_WIDTH_PX
+
+
+def _paint(overlay, rgb, visible, color, stripes) -> None:
+    """Hatch the mask interior and draw a solid outline in place."""
+    interior = visible
+    for _ in range(OUTLINE_PX):
+        interior = erode(interior)
+    tint = visible & ~stripes
+    overlay[tint] = (0.8 * rgb[tint] + 0.2 * color).astype(np.uint8)
+    overlay[(visible & stripes) | (visible & ~interior)] = color.astype(np.uint8)
+
+
+def render_candidates(rgb: np.ndarray, masks: np.ndarray) -> np.ndarray:
+    """Draw each candidate with its own colour and a numbered tag (1..N).
+
+    Masks are drawn in reverse so candidate 1 stays on top where they overlap.
+    The image is what a VLM sees when choosing which candidates to keep.
+    """
+    validate_rgb(rgb)
+    masks = np.asarray(masks, dtype=bool)
+    if masks.ndim != 3 or masks.shape[1:] != rgb.shape[:2]:
+        raise ValueError("candidate masks must be NxHxW matching the RGB image")
+    overlay = rgb.copy()
+    stripes = _hatch_stripes(*rgb.shape[:2])
+    for index in reversed(range(len(masks))):
+        if masks[index].any():
+            _paint(overlay, rgb, masks[index], label_color(index + 1), stripes)
+    image = Image.fromarray(overlay)
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=max(14, rgb.shape[0] // 24))
+    for index, mask in enumerate(masks):
+        ys, xs = np.nonzero(mask)
+        if not len(xs):
+            continue
+        text = str(index + 1)
+        x, y = int(xs.min()) + 2, int(ys.min()) + 2
+        left, top, right, bottom = draw.textbbox((x, y), text, font=font)
+        draw.rectangle((left - 3, top - 2, right + 3, bottom + 2), fill=(0, 0, 0))
+        draw.text(
+            (x, y), text, font=font, fill=tuple(int(c) for c in label_color(index + 1))
+        )
+    return np.asarray(image)
 
 
 def make_result(rgb: np.ndarray, depth_m: np.ndarray, outputs: dict, threshold: float):
@@ -157,6 +235,7 @@ def make_result(rgb: np.ndarray, depth_m: np.ndarray, outputs: dict, threshold: 
     labels = np.zeros((height, width), dtype=np.uint16)
     objects = []
     overlay = rgb.copy()
+    stripes = _hatch_stripes(height, width)
     for index in order:
         if scores[index] < threshold:
             continue
@@ -183,17 +262,10 @@ def make_result(rgb: np.ndarray, depth_m: np.ndarray, outputs: dict, threshold: 
                 "pixels": int(len(xs)),
                 "valid_depth_pixels": int(len(valid)),
                 "median_depth_m": float(np.median(valid)) if len(valid) else None,
+                "color": color_hex(label),
             }
         )
-        color = np.array(
-            [
-                (label * 73) % 192 + 63,
-                (label * 131) % 192 + 63,
-                (label * 47) % 192 + 63,
-            ],
-            dtype=np.float32,
-        )
-        overlay[visible] = (0.55 * rgb[visible] + 0.45 * color).astype(np.uint8)
+        _paint(overlay, rgb, visible, label_color(label), stripes)
     return labels, overlay, objects
 
 
@@ -207,9 +279,14 @@ def save_result(
     threshold,
     metadata,
     elapsed,
+    vlm=None,
+    images=None,
 ):
+    """Save the result files; VLM mode adds a `vlm` record and its named images."""
     labels, overlay, objects = make_result(rgb, depth_m, outputs, threshold)
     output.mkdir(parents=True, exist_ok=True)
+    for name, image in (images or {}).items():
+        Image.fromarray(image).save(output / name)
     Image.fromarray(rgb).save(output / "rgb.png")
     Image.fromarray(labels).save(output / "labels.png")
     Image.fromarray(overlay).save(output / "overlay.png")
@@ -229,6 +306,8 @@ def save_result(
         "source": metadata,
         "objects": objects,
     }
+    if vlm is not None:
+        summary["vlm"] = vlm
     (output / "result.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",

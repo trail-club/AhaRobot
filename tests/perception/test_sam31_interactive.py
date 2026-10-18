@@ -118,6 +118,31 @@ class WorkerTests(unittest.TestCase):
                 )
             self.assertFalse(output.exists())
 
+    def test_result_archive_accepts_only_the_optional_candidates_image(self):
+        def archive(*extra):
+            data = BytesIO()
+            with zipfile.ZipFile(data, "w") as result:
+                for name in [*interactive.RESULT_FILES, *extra]:
+                    content = b"{}" if name == "result.json" else b"x"
+                    result.writestr(name, content)
+            return {
+                "type": "result",
+                "archive": base64.b64encode(data.getvalue()).decode(),
+                "summary": {},
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            interactive.unpack_result(
+                archive("candidates.png"), Path(directory) / "vlm"
+            )
+            self.assertTrue((Path(directory) / "vlm/candidates.png").is_file())
+            interactive.unpack_result(
+                archive("candidates.png", "match_3.png"), Path(directory) / "match"
+            )
+            for name in ("other.png", "match_9.png", "../match_1.png"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    interactive.unpack_result(archive(name), Path(directory) / "x")
+
     def test_unexpected_request_errors_keep_the_loaded_model(self):
         class Segmenter:
             threshold = 0.5
@@ -260,6 +285,173 @@ class SshConnectionTests(unittest.TestCase):
         self.assertIn(f"docker rm -f {worker.name}", errors.getvalue())
 
 
+class FlowReportTests(unittest.TestCase):
+    def test_flow_report_shows_each_stage_and_escapes_vlm_text(self):
+        summary = {
+            "prompt": "pringles",
+            "inference_seconds": 40.0,
+            "objects": [
+                {
+                    "label": 1,
+                    "score": 0.98,
+                    "median_depth_m": None,
+                    "bbox_xyxy": [1, 2, 3, 4],
+                    "color": "#88C26E",
+                }
+            ],
+            "vlm": {
+                "model": "qwen3-vl:30b",
+                "phrases": ["pringles", "red snack can"],
+                "candidate_threshold": 0.3,
+                "candidates": [
+                    {
+                        "number": 1,
+                        "phrase": "red snack can",
+                        "score": 0.98,
+                        "kept": True,
+                        "color": "#88C26E",
+                    },
+                    {
+                        "number": 2,
+                        "phrase": "pringles",
+                        "score": 0.74,
+                        "kept": False,
+                        "color": "#D1859D",
+                    },
+                ],
+                "keep": [1],
+                "vlm_seconds": 35.0,
+                "steps": [
+                    {
+                        "name": "phrases",
+                        "seconds": 30.0,
+                        "answer": '{"phrases": []}',
+                        "thinking": "<think><script>x</script>",
+                    },
+                    {
+                        "name": "select",
+                        "seconds": 5.0,
+                        "answer": '{"keep": [1]}',
+                        "thinking": "",
+                    },
+                ],
+                "sam_runs": [
+                    {
+                        "phrase": "pringles",
+                        "seconds": 0.4,
+                        "masks": [
+                            {
+                                "score": 0.74,
+                                "bbox_xyxy": [5, 6, 7, 8],
+                                "pixels": 9,
+                                "outcome": "candidate 2",
+                            }
+                        ],
+                    },
+                    {"phrase": "red snack can", "seconds": 0.4, "masks": []},
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "candidates.png").write_bytes(b"x")
+            page = interactive.write_flow_report(directory, summary).read_text()
+        for text in (
+            "1. VLMによる言い換え",
+            "→ 候補2",
+            "検出なし",
+            "採用",
+            "除外",
+            "#D1859D",
+            "candidates.png",
+        ):
+            self.assertIn(text, page)
+        self.assertNotIn("<script>", page)
+        self.assertIn("&lt;script&gt;", page)
+
+    def test_flow_report_shows_the_same_product_checks(self):
+        candidate = {"phrase": "red snack can", "score": 0.9, "color": "#88C26E"}
+        summary = {
+            "prompt": "pringles",
+            "inference_seconds": 50.0,
+            "objects": [],
+            "vlm": {
+                "model": "qwen3-vl:30b",
+                "phrases": ["red snack can"],
+                "candidate_threshold": 0.3,
+                "candidates": [
+                    dict(candidate, number=1, kept=True, via="select"),
+                    dict(candidate, number=2, kept=False, via=None),
+                    dict(candidate, number=3, kept=True, via="match"),
+                ],
+                "selected": [1],
+                "matches": [
+                    {"number": 2, "reference": 1, "same": False},
+                    {
+                        "number": 3,
+                        "reference": 1,
+                        "same": True,
+                        "reference_size": {
+                            "height_cm": 23.4,
+                            "width_cm": 7.6,
+                            "depth_m": 0.61,
+                            "cut_off": False,
+                        },
+                        "size": None,
+                    },
+                ],
+                "keep": [1, 3],
+                "vlm_seconds": 40.0,
+                "steps": [
+                    {"name": "match 3", "seconds": 6.0, "answer": '{"same": true}'},
+                ],
+                "sam_runs": [],
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("candidates.png", "match_3.png"):
+                (Path(directory) / name).write_bytes(b"x")
+            from PIL import Image
+
+            Image.new("RGB", (400, 300), "white").save(Path(directory) / "rgb.png")
+            summary["vlm"]["candidates"][0]["bbox_xyxy"] = [10, 100, 100, 280]
+            summary["vlm"]["sam_runs"] = [
+                {
+                    "phrase": "red snack can",
+                    "masks": [
+                        {
+                            "score": 0.9,
+                            "bbox_xyxy": [200, 100, 350, 280],
+                            "pixels": 9,
+                            "outcome": "candidate 3",
+                        }
+                    ],
+                }
+            ]
+            page = interactive.write_flow_report(directory, summary).read_text()
+            boxes = Image.open(Path(directory) / "match_3_boxes.png")
+            # A (candidate 1) and B (candidate 3) are outlined in their colours.
+            self.assertEqual(boxes.getpixel((11, 200)), (0x88, 0xC2, 0x6E))
+            self.assertEqual(boxes.getpixel((50, 200)), (255, 255, 255))
+            self.assertNotEqual(boxes.getpixel((201, 200)), (255, 255, 255))
+            self.assertFalse((Path(directory) / "match_2_boxes.png").exists())
+        for text in (
+            "5. 照合（同じ商品か）",
+            "候補1（A） と 候補3（B）",
+            "同じ商品 → 採用",
+            "別の商品 → 除外",
+            "match_3.png",
+            "採用（照合）",
+            "採用（選択）",
+            "最終的な採用: [1, 3]",
+            "{&quot;same&quot;: true}",
+            "A: 高さ約23 cm・幅約8 cm（距離 0.61 m） / B: 大きさ不明",
+            "match_3_boxes.png",
+            "SAM 3.1 が検出した枠",
+        ):
+            self.assertIn(text, page)
+        self.assertNotIn("match_2.png", page)
+
+
 class InteractionTests(unittest.TestCase):
     def test_enter_reuses_prompt_and_capture_failure_can_retry(self):
         worker = Mock()
@@ -305,18 +497,53 @@ class InteractionTests(unittest.TestCase):
     def test_ctrl_c_always_cleans_up_after_partial_start(self):
         with patch.object(interactive.subprocess, "run"), patch.object(
             interactive, "RemoteWorker"
-        ) as factory:
+        ) as factory, patch.object(interactive, "CameraStream") as camera_factory:
             worker = factory.return_value
             worker.start.side_effect = KeyboardInterrupt()
             worker.close.return_value = True
+            camera_factory.return_value.url = "http://127.0.0.1:8765/"
             with tempfile.TemporaryDirectory() as directory, redirect_stdout(
                 StringIO()
             ):
                 self.assertEqual(
-                    interactive.main(["--host", "dgx-spark", "--output", directory]),
+                    interactive.main(
+                        ["--host", "dgx-spark", "--output", directory, "--no-open"]
+                    ),
                     130,
                 )
             worker.close.assert_called_once()
+            camera_factory.return_value.close.assert_called_once()
+
+    def test_live_camera_reports_status_and_capture_errors_can_retry(self):
+        worker = Mock()
+        worker.predict.return_value = {"type": "result"}
+        camera = Mock()
+        camera.capture.side_effect = [interactive.CaptureError("no frame"), None]
+        args = argparse.Namespace(no_open=True)
+        reader = Mock(side_effect=["cup", "", EOFError()])
+        errors = StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(
+                interactive, "capture_frame"
+            ) as capture_frame, patch.object(
+                interactive,
+                "unpack_result",
+                return_value={"objects": [{}], "inference_seconds": 0.1},
+            ), patch("sys.stderr", errors), redirect_stdout(StringIO()):
+                with self.assertRaises(EOFError):
+                    interactive.interact(
+                        args, worker, Path(directory), reader, camera=camera
+                    )
+        capture_frame.assert_not_called()
+        self.assertEqual(camera.capture.call_count, 2)
+        self.assertIn("Capture failed: no frame", errors.getvalue())
+        camera.show_result.assert_called_once()
+        self.assertTrue(
+            str(camera.show_result.call_args.args[0]).endswith("result/overlay.png")
+        )
+        statuses = [call.args[0] for call in camera.set_status.call_args_list]
+        self.assertIn("撮影に失敗しました。Enterで再撮影できます", statuses)
+        self.assertTrue(statuses[-1].startswith("完了: 「cup」1件"))
 
     def test_cleanup_removes_only_owned_container_after_transport_exit(self):
         worker = interactive.RemoteWorker(argparse.Namespace(host="dgx-spark"))
@@ -351,6 +578,60 @@ class InteractionTests(unittest.TestCase):
             self.assertFalse(worker.close())
         self.assertEqual(remote.call_count, 2)
 
+    def start_worker(self, **options):
+        worker = interactive.RemoteWorker(
+            argparse.Namespace(
+                host="dgx-spark",
+                image="local/aharobot-sam31",
+                checkpoint="/srv/shared/models/sam3.1/sam3.1_multiplex.pt",
+                threshold=0.5,
+                **{"vlm": False, "no_vlm_match": False, **options},
+            )
+        )
+        results = [
+            Mock(stdout="/tmp/aharobot-sam31-1234\n"),
+            None,
+            None,
+            Mock(stdout="sha256:" + "a" * 64 + "\n"),
+            None,
+        ]
+        with (
+            patch.object(worker, "run", side_effect=results),
+            patch.object(interactive, "source_archive"),
+            patch.object(interactive.subprocess, "Popen") as popen,
+            patch.object(interactive.threading, "Thread"),
+            patch.object(worker, "receive", return_value={"type": "ready"}),
+            redirect_stdout(StringIO()),
+        ):
+            worker.start()
+        return popen.call_args.args[0][-1]
+
+    def test_vlm_mode_uses_host_network_and_passes_vlm_options(self):
+        plain = self.start_worker()
+        self.assertNotIn("--network", plain)
+        self.assertNotIn("--vlm", plain)
+        script = self.start_worker(
+            vlm=True,
+            vlm_url="http://127.0.0.1:11434",
+            vlm_model="qwen3-vl:30b",
+            candidate_threshold=0.3,
+        )
+        image_id = "sha256:" + "a" * 64
+        self.assertIn("--network host " + image_id, script)
+        self.assertIn("--vlm --vlm-url http://127.0.0.1:11434", script)
+        self.assertIn("--vlm-model qwen3-vl:30b --candidate-threshold 0.3", script)
+        self.assertNotIn("--no-match", script)
+        self.assertIn(
+            "--no-match",
+            self.start_worker(
+                vlm=True,
+                vlm_url="http://127.0.0.1:11434",
+                vlm_model="qwen3-vl:30b",
+                candidate_threshold=0.3,
+                no_vlm_match=True,
+            ),
+        )
+
     def test_container_runs_the_image_id_built_in_this_session(self):
         worker = interactive.RemoteWorker(
             argparse.Namespace(
@@ -358,6 +639,7 @@ class InteractionTests(unittest.TestCase):
                 image="local/aharobot-sam31",
                 checkpoint="/srv/shared/models/sam3.1/sam3.1_multiplex.pt",
                 threshold=0.5,
+                vlm=False,
             )
         )
         image_id = "sha256:" + "a" * 64
@@ -401,6 +683,132 @@ class InteractionTests(unittest.TestCase):
             worker.receive()
         with self.assertRaises(TimeoutError):
             worker.receive()
+
+
+FAKE_CAMERA = r"""
+import json, sys
+from pathlib import Path
+
+def send(message, payload=b""):
+    out = sys.stdout.buffer
+    out.write(json.dumps(dict(message, bytes=len(payload))).encode() + b"\n" + payload)
+    out.flush()
+
+send({"type": "ready", "device": "Fake (serial 1)"})
+send({"type": "preview"}, b"JPEG1")
+for line in sys.stdin:
+    output = Path(json.loads(line)["capture"])
+    if output.name == "bad":
+        send({"type": "error", "message": "output already exists"})
+    else:
+        output.mkdir()
+        send({"type": "captured", "output": str(output)})
+    send({"type": "preview"}, b"JPEG2")
+"""
+
+
+class CameraStreamTests(unittest.TestCase):
+    def start_camera(self):
+        args = argparse.Namespace(preview_port=0)
+        camera = interactive.CameraStream(args)
+        self.addCleanup(camera.close)
+        with patch.object(
+            camera, "command", return_value=[sys.executable, "-c", FAKE_CAMERA]
+        ):
+            self.assertEqual(camera.start(timeout=10), "Fake (serial 1)")
+        return camera
+
+    def test_camera_command_runs_the_serve_mode_as_root_on_macos(self):
+        args = argparse.Namespace(
+            width=640, height=480, fps=15, warmup_frames=30, serial="123"
+        )
+        with patch.object(interactive.platform, "system", return_value="Darwin"):
+            command = interactive.CameraStream(args).command()
+        self.assertEqual(command[:2], ["sudo", "-n"])
+        self.assertIn("--serve", command)
+        self.assertEqual(command[-2:], ["--serial", "123"])
+
+    def test_capture_requests_get_answers_and_preview_is_served(self):
+        from urllib.request import urlopen
+
+        camera = self.start_camera()
+        with tempfile.TemporaryDirectory() as directory:
+            camera.capture(Path(directory) / "capture")
+            self.assertTrue((Path(directory) / "capture").is_dir())
+            with self.assertRaisesRegex(interactive.CaptureError, "already exists"):
+                camera.capture(Path(directory) / "bad")
+        self.assertEqual(camera.frame, b"JPEG2")
+        camera.set_status("「cup」を推論中…")
+        with urlopen(camera.url + "status", timeout=5) as response:
+            self.assertEqual(json.load(response)["status"], "「cup」を推論中…")
+        with tempfile.TemporaryDirectory() as directory:
+            overlay = Path(directory) / "overlay.png"
+            overlay.write_bytes(b"PNG")
+            camera.show_result(overlay, "「cup」1件（0001）")
+            with urlopen(camera.url + "status", timeout=5) as response:
+                status = json.load(response)
+            self.assertEqual(
+                (status["result"], status["result_label"]), (1, "「cup」1件（0001）")
+            )
+            with urlopen(camera.url + "result.png?v=1", timeout=5) as response:
+                self.assertEqual(response.read(), b"PNG")
+        with urlopen(camera.url, timeout=5) as response:
+            self.assertIn("/stream", response.read().decode())
+        with urlopen(camera.url + "stream", timeout=5) as response:
+            self.assertEqual(response.readline(), b"--frame\r\n")
+            self.assertEqual(response.readline(), b"Content-Type: image/jpeg\r\n")
+
+    def test_stopped_camera_process_is_a_capture_error(self):
+        camera = self.start_camera()
+        camera.process.kill()
+        camera.process.wait(timeout=10)
+        with self.assertRaises(interactive.CaptureError):
+            camera.capture(Path("unused"))
+
+
+class CameraServeTests(unittest.TestCase):
+    def test_serve_saves_a_pair_per_request_and_streams_previews(self):
+        import queue
+
+        spec = importlib.util.spec_from_file_location(
+            "sam31_capture", ROOT / "tools/perception/macos/sam31/capture_realsense.py"
+        )
+        capture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(capture)
+        rgb = np.zeros((4, 6, 3), dtype=np.uint8)
+        depth = np.full((4, 6), 1.0, dtype=np.float32)
+        depth[0, 0] = np.nan
+        pipeline = Mock()
+        args = argparse.Namespace(width=6, height=4, fps=15, warmup_frames=2)
+        out = BytesIO()
+        with tempfile.TemporaryDirectory() as directory:
+            requests = queue.Queue()
+            for line in (
+                json.dumps({"capture": str(Path(directory) / "0001/capture")}),
+                json.dumps({"capture": directory}),
+                None,
+            ):
+                requests.put(line)
+            with patch.object(capture, "_load_realsense"), patch.object(
+                capture, "start_pipeline", return_value=(pipeline, Mock())
+            ), patch.object(
+                capture, "read_pair", return_value=(rgb, depth, {"frame": 1})
+            ), patch.object(capture, "_device_label", return_value="Fake"):
+                self.assertEqual(capture.serve(args, requests, out), 0)
+            saved = np.load(Path(directory) / "0001/capture/rgbd.npz")
+            self.assertEqual(saved["rgb"].shape, (4, 6, 3))
+        pipeline.stop.assert_called_once()
+        stream = BytesIO(out.getvalue())
+        messages = []
+        while line := stream.readline():
+            message = json.loads(line)
+            payload = stream.read(message["bytes"])
+            messages.append((message["type"], payload))
+        self.assertEqual(
+            [kind for kind, _ in messages],
+            ["ready", "captured", "preview", "error", "preview"],
+        )
+        self.assertTrue(messages[2][1].startswith(b"\xff\xd8"))
 
 
 if __name__ == "__main__":

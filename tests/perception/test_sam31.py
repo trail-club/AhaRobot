@@ -60,6 +60,22 @@ class ResultTests(unittest.TestCase):
         np.testing.assert_array_equal(overlay, self.rgb)
         self.assertEqual(objects, [])
 
+    def test_overlay_hatches_interior_and_outlines_mask(self):
+        rgb = np.full((30, 30, 3), 100, dtype=np.uint8)
+        depth = np.ones((30, 30), dtype=np.float32)
+        mask = np.zeros((1, 30, 30), bool)
+        mask[0, 5:25, 5:25] = True
+        outputs = {"out_binary_masks": mask, "out_probs": [0.9]}
+        _, overlay, _ = make_result(rgb, depth, outputs, 0.5)
+        color = overlay[5, 5]  # outline pixel
+        np.testing.assert_array_equal(overlay[:5], rgb[:5])
+        np.testing.assert_array_equal(overlay[24, 15], color)
+        inside = overlay[8:22, 8:22].reshape(-1, 3)
+        is_stripe = (inside == color).all(axis=1)
+        self.assertTrue(is_stripe.any())
+        self.assertTrue((~is_stripe).any())
+        self.assertFalse((inside[~is_stripe] == rgb[0, 0]).all(axis=1).any())
+
     def test_threshold_and_fully_occluded_masks_are_removed(self):
         outputs = {
             "out_binary_masks": np.ones((3, 2, 3), bool),
