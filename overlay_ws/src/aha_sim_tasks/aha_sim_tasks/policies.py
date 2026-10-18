@@ -115,6 +115,10 @@ class ScriptedPolicy:
 
 
 def policy_factory(name: str):
+    if name == "codex":
+        from .codex_policy import CodexPolicy
+
+        return CodexPolicy
     if name == "ground_truth_ik":
         from .ground_truth_ik import GroundTruthIKPolicy
 
@@ -125,7 +129,7 @@ def policy_factory(name: str):
         return NoopPolicy
     if ":" not in name:
         raise ValueError(
-            "policy must be scripted, noop, ground_truth_ik, or module:factory"
+            "policy must be scripted, noop, codex, ground_truth_ik, or module:factory"
         )
     module, factory = name.rsplit(":", 1)
     factory = getattr(importlib.import_module(module), factory)

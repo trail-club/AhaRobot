@@ -24,6 +24,7 @@ ros2 run aha_sim_tasks evaluate --task all --policy scripted --episodes 2 \
 | `--no-cameras` | カメラセンサ・描画・画像観測を無効化し、CPUのみで評価 |
 | `--no-headless` | Gazeboの3D画面を表示 |
 | `--camera-view` | 頭部・左右手首のRGB画像を別窓で表示。カメラとGUI環境が必要 |
+| `--record-video` | 3視点のRGB動画とAction・判断メモをH.264 MP4へ保存。内蔵カメラが必要 |
 | `--policy noop` | 無操作でタイムアウトを確認 |
 
 既定では頭部RGB-D・左右手首RGBカメラを描画する。headlessでもEGLの描画環境が必要で、
@@ -38,6 +39,14 @@ ros2 run aha_sim_tasks evaluate --task place_apple --policy scripted \
 JSONレポートに成功率・判定条件・各試行の状態と測定値を記録し、ログを
 `<レポート名>_episodes/` に保存する。全試行成功時の終了コードは0、それ以外は1。
 状態は `success`、`timeout`、`wall_timeout`、`error` のいずれか。
+
+`--record-video` は各episodeの `episode.mp4` に頭部・左右手首のRGBを横並びで保存する。
+10 fpsのシミュレーション時間で再生し、step間の動作を記録する。推論中のpause時間は動画に含めず、
+最後に結果を1秒表示する。経過時間・各画像のstamp・現在のActionを表示し、
+Codexでは `situation` と `decision_note` も重ねる。
+`video_frames.jsonl` に動画frameとセンサstamp・decision番号の対応、`video.json` に形式・長さを保存し、
+評価JSONにも動画の情報を記録する。例外時も、それまでの動画を終了処理で保存する。
+OpenCVのH.264 encoderが必要で、利用できなければpolicy実行前にエラーにする。
 
 ## 成功条件と制限
 
@@ -73,6 +82,40 @@ appleは自由剛体で、衝突・摩擦・重力によって把持や落下が
 | policyの読み込み・生成・`reset` | 120秒 | `--policy-startup-timeout` |
 | `act` 1回 | 30秒 | `--policy-timeout` |
 | カメラの受信・利用可能な画像組の待機 | 10秒 | `--camera-timeout` |
+
+## Codexによるpolicy評価
+
+`codex` は各stepでCodex CLIを呼び、`gpt-6.1-sol`・reasoning effort `medium` で
+次のActionと短い状況説明・判断理由を生成する。
+開発コンテナ内で `codex` がPATH上にあり、`codex login status` で認証済みであることが必要。
+CLIの画像添付・構造化出力は [OpenAI公式ドキュメント](https://learn.chatgpt.com/docs/developer-commands?surface=cli)を参照。
+
+```bash
+ros2 run aha_sim_tasks evaluate --task place_apple --policy codex \
+  --episodes 1 --step-duration 2 --policy-timeout 150 --wall-timeout 1800 \
+  --camera-timeout 30 --record-video --output /tmp/aha-evaluation/codex-place.json
+```
+
+step開始時の関節位置・速度、odom、時刻・指示、頭部・左右手首のRGB画像、
+各画像のCameraInfoとbase_linkからのTFを渡す。
+頭部深度は16列×12行以下の画素位置・距離のグリッドにしてプロンプトへ含め、
+無効値は `null` とする。元の深度配列もログへ保存する。
+Gazeboの物体真値・接触数・評価値は渡さず、scripted policyへのフォールバックも行わない。
+各呼び出しは独立したCLIセッションで、直近8回のAction・状況説明・判断理由を渡す。
+
+`--step-duration` はActionを適用するシミュレーション秒数で、0.1秒の正の倍数を指定する。
+Codexの既定は2秒。推論中はGazeboをpauseし、Actionの適用中だけ1 msのphysicsを100回ずつ進める。
+各100 msで同じActionを再配信するため、ベース指令がcontrollerの0.5秒の期限で失効することを防ぐ。
+成功判定は従来と同じphysicsの観測に基づき、保持時間・タスク期限は推論待ち時間を含まない。
+実時間の `--wall-timeout` と `--policy-timeout` は有効で、CLI自体の呼び出し期限は120秒。
+他のpolicyも `--step-duration` を使えるが、`ground_truth_ik` は連続実行のみ対応する。
+他のpolicyの既定は0（連続実行）。Codexでは3台の内蔵カメラが必須。
+
+各episodeの `codex_steps/decisions.jsonl` と `policy.log` に、step番号・時刻・モデル・
+推論時間・Action・`situation`・`decision_note` を記録する。
+`codex_steps/0001/` などには入力画像・深度配列・観測JSON・プロンプト・出力JSON・CLIログを保存する。
+不正なAction、CLI失敗、期限超過はepisodeを `error` とする。
+このpolicyはカメラと関節指令による実験用で、タスクの成功を保証しない。
 
 <a id="pick-with-ground-truth-ik"></a>
 

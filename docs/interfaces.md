@@ -51,6 +51,13 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 | --- | --- | --- |
 | 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
 | 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
+| step実行時のGazebo制御 | `/world/task_tables/control` | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+
+`--step-duration` 使用時は評価側だけがworld controlを呼び、推論中にpauseし、
+Actionを100 msごとのphysics実行に適用する。policyのObservation / Action型やROS topicは共通。
+Codexへの観測変換・判断ログと実行方法は [policy評価](../overlay_ws/src/aha_sim_tasks/README.md#codexによるpolicy評価)を参照。
+評価側の全カメラのRGB・深度・CameraInfo購読はbridgeと同じreliable（履歴10）とし、
+pauseや動画記録の負荷がある場合も同一stampの組を受け取る。
 
 `/evaluation/state` は1つのJSONに `schema_version: 1`、`frame_id: "world"`、
 `stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
@@ -154,7 +161,8 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `sim.launch.py use_perception:=true` またはタスク評価の既定設定で
 `camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
 シミュレーションの頭部3topicはRELIABLE / VOLATILE / KEEP_LAST(10)、
-手首の画像・CameraInfoはsensor-data QoS（BEST_EFFORT / VOLATILE / KEEP_LAST(5)）。
+手首の画像・CameraInfoはreliable（RELIABLE / VOLATILE / KEEP_LAST(10)）。
+既存のsensor-data QoSの購読とも互換性がある。
 `sim.launch.py cameras:=false` / 評価の `--no-cameras` は全カメラセンサを除く。
 
 ## 頭部の注視

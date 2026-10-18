@@ -23,6 +23,7 @@ class PolicyProcess:
         *,
         startup_timeout=120,
         action_timeout=30,
+        step_duration=0,
     ):
         same_domain = domain_id == int(os.environ.get("ROS_DOMAIN_ID", "0"))
         if same_domain != (name == "ground_truth_ik"):
@@ -51,6 +52,7 @@ class PolicyProcess:
                 "ROS_LOG_DIR": str(directory / "policy_ros_logs"),
                 "ROS_HOME": str(directory / "policy_ros_home"),
                 "GZ_SIM_LOG_PATH": str(directory / "policy_gz_logs"),
+                "AHA_POLICY_STEP_DURATION": str(step_duration),
             }
         )
         try:
