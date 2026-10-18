@@ -126,6 +126,28 @@ move_groupは、この入力の関節限界の外 `limit_tolerance`（既定1e-6
 slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
 LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
 
+## 固定地図のnavigation（シミュレーションのみ）
+
+[localized_nav.launch.py](../overlay_ws/src/aha_navigation/README.md#固定地図での移動シミュレーションのみ)はSLAMの代わりに
+map_serverが `/map`、AMCLが `map → odom` を配信する。SLAMと同時に起動しない。
+Nav2は `/diff_drive_controller/odom` を読み、`/diff_drive_controller/cmd_vel`（TwistStamped）へ送信するため、
+teleopなどから同時に速度指令を送らない。ゴールは `/navigate_to_pose`（`nav2_msgs/action/NavigateToPose`、frame `map`）。
+
+## サブゴールタスクの実行
+
+[aha_tasks](../overlay_ws/src/aha_tasks/README.md)の `task_runner` が提供する。runnerはロボット1台につき1つ。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| タスクの状態 | `/aha/tasks/status` | `std_msgs/msg/String`（JSON） |
+| 実行の操作 | `/aha/tasks/command` | `aha_msgs/srv/TaskCommand` |
+| 地点の表示（frame `map`） | `/aha/tasks/locations` | `visualization_msgs/msg/MarkerArray` |
+| Web GUI（`task_monitor`） | `http://localhost:8765/` | HTTP |
+
+topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
+形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
+GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
+
 ## 頭部カメラ
 
 | Topic | 型 |
@@ -197,5 +219,5 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 ## 独自型
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
-`SetNavGoal`、`PickObject` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
+`SetNavGoal`、`PickObject`、`TaskCommand` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

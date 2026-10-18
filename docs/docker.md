@@ -26,6 +26,12 @@ LinuxでNoVNCを使うには `--novnc`、GPUを無効にするには `--no-gpu` 
 macOS / LinuxのNoVNCでは、GUIを起動するコンテナ内シェルで `export DISPLAY=display:0` を実行する。
 WSL2の表示先は自動設定される。
 
+コンテナ内のWebサーバーは、Linuxでは同じportで開ける。
+macOSではhost networkがDocker DesktopのVM内に閉じるため、ホストで `make forward` を実行し、`http://localhost:18765/` を開く。
+[タスクのWeb GUI](../overlay_ws/src/aha_tasks/README.md)の待ち受けアドレスは環境変数 `AHA_GUI_HOST` で、
+コンテナ起動時にLinuxは `127.0.0.1`、macOSは転送のため `0.0.0.0`（VM外には公開されない）に設定される。
+転送するportは `FORWARD_PORT`（既定8765）、ホスト側は `1<port>`。転送用コンテナは `make down` で停止する。WSL2では未確認。
+
 ### 3. ビルド・シミュレーション起動（コンテナ内）
 
 ```bash
@@ -58,6 +64,7 @@ RVizも別ターミナルで `make shell` と同じsetupの読み込み後、`ro
 | `make ws-build` | 起動済みコンテナで `aha_bringup` までビルド |
 | `make sim` | 起動済みコンテナでシミュレーション起動 |
 | `make clean` | workspaceのbuild / install / logを削除 |
+| `make forward` | macOSでコンテナ内のportをホストへ転送 |
 | `make test` | [PR前の動作確認](../AGENTS.md#動作確認) |
 
 ## 問題の切り分け

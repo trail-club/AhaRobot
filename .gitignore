@@ -37,3 +37,5 @@ tools/servo/*.csv
 temp/
 /artifacts/perception/
 /.cache-sam31/
+
+overlay_ws/bags/
