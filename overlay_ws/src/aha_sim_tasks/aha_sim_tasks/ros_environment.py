@@ -7,6 +7,7 @@ from collections import deque
 from functools import partial
 from types import MappingProxyType
 
+from aha_gazebo.model import LIMIT_TOLERANCE
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
@@ -23,7 +24,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from .api import (
     Action,
     CameraObservation,
-    clamp_joint_roundoff,
+    clamp_joint_near_limits,
     CONTROLLER_JOINTS,
     GRIPPER_JOINTS,
     GroundTruth,
@@ -353,7 +354,7 @@ class RosEnvironment(Node):
             joint_message = JointState(
                 name=list(positions),
                 position=[
-                    clamp_joint_roundoff(name, value)
+                    clamp_joint_near_limits(name, value, LIMIT_TOLERANCE)
                     for name, value in positions.items()
                 ],
             )
