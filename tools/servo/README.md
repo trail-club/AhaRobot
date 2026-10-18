@@ -31,6 +31,8 @@ python3 tools/servo/motor_check.py --port /dev/ttyUSB0 --baud 921600
 | `init_arm.py` | AstraArmControllerの原点初期化。サーボEEPROM・ESP32 LittleFSへ書き込む |
 | `check_zero.py` | PIDを設定せずトルクを入れる静置テスト。終了時にトルクOFF |
 | `motion_test.py` | joint0 / joint1の往復試験。ソフトウェアリミット・誤差監視付き |
+| `view_urdf.py` | URDFのゼロ姿勢と、指定関節を+方向に回した姿勢を表示する。実機へは接続しない |
+| `wrist_dir_test.py` | wristを1関節ずつ+方向へ指令して戻し、グリッパを開いて戻す |
 
 ID4–11は対向駆動のため、通常操作は関節単位で行う。
 `nudge_check.py` はトルク・速度・移動量を制限した単体の連動確認用。
@@ -57,10 +59,9 @@ teleopは `?` でヘルプ、spaceで停止、`0` でトルクOFF、`q` で終�
 
 ## AstraArmController用の検証スクリプト
 
-`init_arm.py` / `check_zero.py` / `motion_test.py` はAstraArmControllerファーム用で、
+`init_arm.py` / `check_zero.py` / `motion_test.py` / `wrist_dir_test.py` はAstraArmControllerファーム用で、
 サーボバスを直接操作する透過ブリッジ用ツールとは接続条件が異なる。
-現在は `~/aharobot/AhaRobot/upstream/astra_controller` から `ArmController` を読み込むため、
-配置が異なる場合は各スクリプトの `REPO` を使用環境に合わせる。
+`ArmController` はリポジトリ内の `upstream/astra_controller` から読み込む。
 ポートは位置引数で指定し、ボーレートは `ArmController` の設定を使用する。numpyとpyserialが必要。
 
 ```bash
@@ -80,6 +81,24 @@ python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 `check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
 保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。
 
+### URDFゼロ姿勢・正方向の確認
+
+[腕ごとの符号・可動域のパッチ](../../patches/README.md#astra_controller用パッチ)を当てた `ArmController` を前提とする。
+`<side>` は `left` / `right`。値の根拠は [検証記録](../../docs/context/motor.md#上位機の符号と可動域)を参照。
+
+```bash
+# URDFを表示し、指定した関節を+方向に回した姿勢を見せる（要 libgl1 libglu1-mesa）
+uv run --with yourdfpy --with "pyglet<2" tools/servo/view_urdf.py --arm l --joints 2,3,4,5,6
+
+# PIDなしでトルクを入れ、手で+方向に押して値が増えるかを見る（joint0 / joint1）
+python3 tools/servo/check_zero.py <port> 30 <side>
+
+# wristを1関節ずつ+30°指令して戻し、グリッパを片顎15 mm開いて戻す（既定は10° / 5 mm）
+python3 tools/servo/wrist_dir_test.py <port> <side> 30 15
+```
+
+`wrist_dir_test.py` はjoint0 / joint1にPIDを入れないため、腕は支えるか下ろした状態で実行する。
+終了・Ctrl+C・例外のいずれでもトルクをOFFにする。
 ## ROS経由の両腕操作
 
 AstraArmControllerファームの `arm_node` が `/joint_states` を出している場合は、

@@ -34,5 +34,6 @@ overlay_ws/evaluation-results*
 docs/personal/
 
 tools/servo/*.csv
+temp/
 /artifacts/perception/
 /.cache-sam31/
