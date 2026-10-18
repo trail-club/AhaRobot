@@ -213,6 +213,7 @@ def test_episode_bounds_unusable_camera_bundles(
         (["--head-image-topic", "/head"], False),
         (["--no-cameras", "--head-image-topic", "/head"], False),
         (["--policy", "ground_truth_ik", "--task", "pick_apple"], False),
+        (["--policy", "codex"], True),
     ],
 )
 def test_cameras_default_follows_head_image_topic(
@@ -240,6 +241,8 @@ def test_cameras_default_follows_head_image_topic(
     )
     assert runner.main() == 0
     assert seen[0].cameras is cameras
+    assert seen[0].step_duration == (2.0 if seen[0].policy == "codex" else 0.0)
+    assert seen[0].policy_timeout == (150.0 if seen[0].policy == "codex" else 30.0)
     assert (seen[0].ros_domain_id == seen[0].policy_ros_domain_id) is (
         seen[0].policy == "ground_truth_ik"
     )
@@ -261,6 +264,16 @@ def test_cameras_default_follows_head_image_topic(
             "/head",
         ],
         ["--policy", "ground_truth_ik"],
+        ["--policy", "codex", "--no-cameras"],
+        ["--record-video", "--no-cameras"],
+        ["--record-video", "--head-image-topic", "/head"],
+        ["--policy", "codex", "--step-duration", "0"],
+        ["--policy", "codex", "--policy-timeout", "30"],
+        ["--policy", "codex", "--policy-timeout", "120"],
+        ["--step-duration", "nan"],
+        ["--step-duration", "-1"],
+        ["--step-duration", "0.15"],
+        ["--policy", "ground_truth_ik", "--task", "pick_apple", "--step-duration", "2"],
     ],
 )
 def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):

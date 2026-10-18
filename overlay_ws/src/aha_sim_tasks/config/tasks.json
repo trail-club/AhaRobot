@@ -23,7 +23,7 @@
     "hold_time": 2.0,
     "min_height": 0.24,
     "object_target": "destination_position",
-    "xy_tolerance": 0.08,
+    "xy_tolerance": "table_half_size",
     "z_tolerance": 0.02,
     "max_object_speed": 0.03
   }
