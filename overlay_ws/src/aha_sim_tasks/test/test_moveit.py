@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("rclpy")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from aha_gazebo.model import LIMIT_MARGIN  # noqa: E402
 from aha_sim_tasks.api import GroundTruth, JOINT_LIMITS, Observation  # noqa: E402
 from aha_sim_tasks import ground_truth_ik  # noqa: E402
 from aha_sim_tasks.moveit_client import (  # noqa: E402
@@ -209,11 +210,15 @@ def test_ik_failure_does_not_send_a_controller_goal():
         client.inverse((100, 0, 0, 0, 0, 0, 1), observation().joint_positions)
 
 
-def test_full_start_state_clamps_only_physics_limit_drift():
-    state = robot_state({**observation().joint_positions, "joint_r1": -1e-14})
+def test_full_start_state_clamps_up_to_the_physics_limits():
+    joints = observation().joint_positions
+    state = robot_state(
+        {**joints, "joint_r1": -LIMIT_MARGIN - 1e-11, "joint_l1": -LIMIT_MARGIN - 1e-3}
+    )
     values = dict(zip(state.joint_state.name, state.joint_state.position))
     assert state.is_diff is False
     assert values["joint_r1"] == 0
+    assert values["joint_l1"] == -LIMIT_MARGIN - 1e-3
     assert values.keys() == JOINT_LIMITS.keys()
 
 

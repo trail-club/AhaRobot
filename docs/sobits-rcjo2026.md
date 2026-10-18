@@ -22,4 +22,6 @@ Xacroは起動時にSDFへ展開し、[preset](../overlay_ws/src/aha_gazebo/conf
 チェックサム・world名・モデル参照を検証する。worldの形状は変更しない。
 [出典・ライセンス](../dependencies/THIRD_PARTY.md)を参照。
 
+タスクの実行は [aha_tasks](../overlay_ws/src/aha_tasks/README.md) のlaunchがGazebo・Nav2も起動するため、上記とは別に起動する。
+
 ![Gazebo上のSOBITS Japan Open 2026 worldとAhaRobot](images/sobits-rcjo2026.png)

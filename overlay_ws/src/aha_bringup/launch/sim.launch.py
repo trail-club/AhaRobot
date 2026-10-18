@@ -3,7 +3,8 @@
 Starts:
   - Gazebo Harmonic with the requested world
   - robot_state_publisher (from xacro, sim:=true)
-  - spawn AhaRobot into Gazebo
+  - spawn AhaRobot into Gazebo from the same xacro output (physics joint
+    limits widened and lifts holding, see aha_gazebo.model)
   - ros_gz_bridge for /clock
   - controller_manager spawners:
         joint_state_broadcaster, diff_drive_controller,
@@ -29,7 +30,6 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
-    Command,
     AndSubstitution,
     NotSubstitution,
     EqualsSubstitution,
@@ -42,6 +42,9 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+import xacro
+
+from aha_gazebo.model import LIMIT_TOLERANCE, gazebo_model
 from aha_gazebo.world import SPAWN_COORDINATES, load_preset, validate_spawn
 
 
@@ -116,43 +119,67 @@ def _validate_manip_rviz(context):
     return []
 
 
+def _robot(context):
+    # One xacro run for both: robot_state_publisher (and through it
+    # ros2_control and MoveIt) gets the URDF, Gazebo the model with widened
+    # limits and holding lifts (aha_gazebo.model).
+    description = xacro.process_file(
+        str(
+            Path(get_package_share_directory("aha_description"))
+            / "urdf"
+            / "aha_robot.urdf.xacro"
+        ),
+        mappings={
+            "sim": "true",
+            "cameras": LaunchConfiguration("cameras").perform(context),
+        },
+    ).toxml()
+    return [
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            parameters=[
+                {
+                    "robot_description": description,
+                    "use_sim_time": ParameterValue(
+                        LaunchConfiguration("use_sim_time"), value_type=bool
+                    ),
+                }
+            ],
+            output="screen",
+        ),
+        Node(
+            package="ros_gz_sim",
+            executable="create",
+            parameters=[{"gz_robot_description": gazebo_model(description)}],
+            arguments=[
+                "-name",
+                LaunchConfiguration("robot_name"),
+                "-param",
+                "gz_robot_description",
+                "-x",
+                LaunchConfiguration("spawn_x"),
+                "-y",
+                LaunchConfiguration("spawn_y"),
+                "-z",
+                LaunchConfiguration("spawn_z"),
+                "-Y",
+                LaunchConfiguration("spawn_yaw"),
+            ],
+            output="screen",
+        ),
+    ]
+
+
 def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    xacro_path = PathJoinSubstitution(
-        [
-            FindPackageShare("aha_description"),
-            "urdf",
-            "aha_robot.urdf.xacro",
-        ]
-    )
     gazebo_launch = PathJoinSubstitution(
         [
             FindPackageShare("aha_gazebo"),
             "launch",
             "gazebo.launch.py",
         ]
-    )
-
-    robot_description = {
-        "robot_description": ParameterValue(
-            Command(
-                [
-                    "xacro ",
-                    xacro_path,
-                    " sim:=true cameras:=",
-                    LaunchConfiguration("cameras"),
-                ]
-            ),
-            value_type=str,
-        ),
-    }
-
-    rsp = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        parameters=[robot_description, {"use_sim_time": use_sim_time}],
-        output="screen",
     )
 
     gz = IncludeLaunchDescription(
@@ -162,26 +189,6 @@ def generate_launch_description():
             "world_path": LaunchConfiguration("world_path"),
             "headless": LaunchConfiguration("headless"),
         }.items(),
-    )
-
-    spawn = Node(
-        package="ros_gz_sim",
-        executable="create",
-        arguments=[
-            "-name",
-            LaunchConfiguration("robot_name"),
-            "-topic",
-            "robot_description",
-            "-x",
-            LaunchConfiguration("spawn_x"),
-            "-y",
-            LaunchConfiguration("spawn_y"),
-            "-z",
-            LaunchConfiguration("spawn_z"),
-            "-Y",
-            LaunchConfiguration("spawn_yaw"),
-        ],
-        output="screen",
     )
 
     clock_bridge = Node(
@@ -247,6 +254,7 @@ def generate_launch_description():
         "joint_states_topic": LaunchConfiguration("manip_joint_states_topic"),
         "cameras": LaunchConfiguration("cameras"),
         "rviz": LaunchConfiguration("manip_rviz"),
+        "limit_tolerance": str(LIMIT_TOLERANCE),
         # use_perception already bridges the cameras.
         "camera_bridge": AndSubstitution(
             LaunchConfiguration("cameras"),
@@ -346,9 +354,8 @@ def generate_launch_description():
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
             gz,
-            rsp,
             clock_bridge,
-            spawn,
+            OpaqueFunction(function=_robot),
             jsb,
             load_rest,
             *subsystems,

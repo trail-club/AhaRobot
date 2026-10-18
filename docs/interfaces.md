@@ -51,6 +51,13 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 | --- | --- | --- |
 | 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
 | 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
+| step実行時のGazebo制御 | `/world/task_tables/control` | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+
+`--step-duration` 使用時は評価側だけがworld controlを呼び、推論中にpauseし、
+Actionを100 msごとのphysics実行に適用する。policyのObservation / Action型やROS topicは共通。
+Codexへの観測変換・判断ログと実行方法は [policy評価](../overlay_ws/src/aha_sim_tasks/README.md#codexによるpolicy評価)を参照。
+評価側の全カメラのRGB・深度・CameraInfo購読はbridgeと同じreliable（履歴10）とし、
+pauseや動画記録の負荷がある場合も同一stampの組を受け取る。
 
 `/evaluation/state` は1つのJSONに `schema_version: 1`、`frame_id: "world"`、
 `stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
@@ -74,7 +81,8 @@ world poseの座標はworld、通常のpolicyのodom座標は `odom`。
 真値IK評価では、評価側がphysics関節位置と同じstampの
 `/evaluation/joint_states`（`sensor_msgs/msg/JointState`、20 Hz）を配信する。
 MoveItの状態入力はこのtopicへremapする。
-MoveItへ渡す状態のみ、関節下限・上限から1e-6 m / rad以内の数値誤差を境界へ補正する。
+MoveItへ渡す状態のみ、関節下限・上限の外にあるGazeboの物理限界（0.005 m / rad外側）と
+その数値誤差までの値を境界へ補正する。
 IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
 真値policyの観測・実行・制約は
 [Pick with ground-truth IK](../overlay_ws/src/aha_sim_tasks/README.md#pick-with-ground-truth-ik) を参照。
@@ -101,6 +109,7 @@ IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
 状態入力は既定で `/joint_states`。`manip_joint_states_topic` で変更できる。
 move_groupとRVizは、この入力の関節限界の外 `limit_tolerance`（既定1e-6 m / rad）以内の値を限界へ補正した
 `/aha/manipulation/joint_states` を読む。
+`sim.launch.py` はGazeboの物理限界までを補正する値（`aha_gazebo.model.LIMIT_TOLERANCE`）を渡す。
 実行先は `/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory`。
 同じcontrollerへのtopic指令とMoveItのaction実行を同時に行わない。
 
@@ -116,6 +125,28 @@ move_groupとRVizは、この入力の関節限界の外 `limit_tolerance`（既
 
 slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
 LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
+
+## 固定地図のnavigation（シミュレーションのみ）
+
+[localized_nav.launch.py](../overlay_ws/src/aha_navigation/README.md#固定地図での移動シミュレーションのみ)はSLAMの代わりに
+map_serverが `/map`、AMCLが `map → odom` を配信する。SLAMと同時に起動しない。
+Nav2は `/diff_drive_controller/odom` を読み、`/diff_drive_controller/cmd_vel`（TwistStamped）へ送信するため、
+teleopなどから同時に速度指令を送らない。ゴールは `/navigate_to_pose`（`nav2_msgs/action/NavigateToPose`、frame `map`）。
+
+## サブゴールタスクの実行
+
+[aha_tasks](../overlay_ws/src/aha_tasks/README.md)の `task_runner` が提供する。runnerはロボット1台につき1つ。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| タスクの状態 | `/aha/tasks/status` | `std_msgs/msg/String`（JSON） |
+| 実行の操作 | `/aha/tasks/command` | `aha_msgs/srv/TaskCommand` |
+| 地点の表示（frame `map`） | `/aha/tasks/locations` | `visualization_msgs/msg/MarkerArray` |
+| Web GUI（`task_monitor`） | `http://localhost:8765/` | HTTP |
+
+topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
+形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
+GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 
 ## 頭部カメラ
 
@@ -159,7 +190,8 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `sim.launch.py use_perception:=true` またはタスク評価の既定設定で
 `camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
 シミュレーションの頭部3topicはRELIABLE / VOLATILE / KEEP_LAST(10)、
-手首の画像・CameraInfoはsensor-data QoS（BEST_EFFORT / VOLATILE / KEEP_LAST(5)）。
+手首の画像・CameraInfoはreliable（RELIABLE / VOLATILE / KEEP_LAST(10)）。
+既存のsensor-data QoSの購読とも互換性がある。
 `sim.launch.py cameras:=false` / 評価の `--no-cameras` は全カメラセンサを除く。
 
 ## 頭部の注視
@@ -186,5 +218,5 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 ## 独自型
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
-`SetNavGoal`、`PickObject` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
+`SetNavGoal`、`PickObject`、`TaskCommand` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

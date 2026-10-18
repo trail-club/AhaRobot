@@ -97,9 +97,11 @@ def start_container(
     use_novnc: bool,
     use_gpu: bool,
     use_wsl_novnc: bool,
+    gui_host: str,
 ) -> None:
     env = {
         "DISPLAY": display,
+        "AHA_GUI_HOST": gui_host,
         "ROS_DOMAIN_ID": str(ros_domain_id),
         "USER_ID": str(os.getuid()),
         "GROUP_ID": str(os.getgid()),
@@ -222,6 +224,9 @@ def main() -> int:
         use_novnc=use_novnc,
         use_gpu=use_gpu,
         use_wsl_novnc=use_wsl_novnc,
+        # Docker Desktop keeps the host network inside its VM; `make forward`
+        # reaches web servers there through the bridge, not via loopback.
+        gui_host="0.0.0.0" if is_darwin else "127.0.0.1",
     )
 
     setup_x11_auth(display, use_novnc=use_novnc, is_wsl=is_wsl)

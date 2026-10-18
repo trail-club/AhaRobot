@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("rclpy")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from aha_gazebo.model import LIMIT_MARGIN  # noqa: E402
 from builtin_interfaces.msg import Time  # noqa: E402
 from aha_sim_tasks.api import Action, CONTROLLER_JOINTS, GRIPPER_JOINTS, JOINT_LIMITS  # noqa: E402
 from aha_sim_tasks.ros_environment import RosEnvironment  # noqa: E402
@@ -415,16 +416,19 @@ def test_camera_liveness_tolerates_dropped_frames_without_weakening_state_checks
     assert RosEnvironment.stale_sources(node) == {"joints": 3, "camera:head": 11}
 
 
-def test_physics_roundoff_is_bounded_for_moveit_but_not_observation():
+def test_physics_limits_are_bounded_for_moveit_but_not_observation():
     node = scoring_environment()
     node.truth_enabled = True
     node.truth_joints = Publisher()
     positions = {name: 0.0 for name in JOINT_LIMITS}
-    positions["joint_r1"] = -1e-14
-    positions["joint_l1"] = -0.001  # Meaningful excursions must remain visible.
+    positions["joint_r1"] = -LIMIT_MARGIN - 1e-11  # At the physics limit.
+    positions["joint_r2"] = 1.57 + 1e-14
+    # Excursions past the physics limit must remain visible.
+    positions["joint_l1"] = -LIMIT_MARGIN - 0.001
     RosEnvironment.on_state(node, truth_sample(joint_positions=positions))
     message = node.truth_joints.messages[-1]
     monitored = dict(zip(message.name, message.position))
     assert monitored["joint_r1"] == 0
-    assert node.positions["joint_r1"] == -1e-14
-    assert monitored["joint_l1"] == node.positions["joint_l1"] == -0.001
+    assert monitored["joint_r2"] == 1.57
+    assert node.positions["joint_r1"] == -LIMIT_MARGIN - 1e-11
+    assert monitored["joint_l1"] == node.positions["joint_l1"] == -LIMIT_MARGIN - 0.001

@@ -12,6 +12,7 @@
   <build_depend>nlohmann-json-dev</build_depend>
   <exec_depend>aha_bringup</exec_depend>
   <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_gazebo</exec_depend>
   <exec_depend>aha_perception</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>controller_manager_msgs</exec_depend>
@@ -28,6 +29,11 @@
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>gz_transport_vendor</exec_depend>
+  <exec_depend>gz_msgs_vendor</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
@@ -36,5 +42,6 @@
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>python3-pytest</test_depend>
   <test_depend>aha_description</test_depend>
+  <test_depend>aha_gazebo</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

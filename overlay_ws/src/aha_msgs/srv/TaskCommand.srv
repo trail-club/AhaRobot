@@ -1,0 +1,9 @@
+# Control a subgoal task runner (aha_tasks). Owner: task / integration.
+
+string command        # start | retry | skip | rewind | abort
+string[] subgoals     # start: ids to execute (others use their mock state); empty = all
+string on_failure     # start: pause | retry | skip | abort; empty = runner default
+string target         # rewind: subgoal id to resume from; empty = previous executed one
+---
+bool    accepted
+string  message

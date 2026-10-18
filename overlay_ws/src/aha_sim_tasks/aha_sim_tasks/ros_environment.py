@@ -7,13 +7,14 @@ from collections import deque
 from functools import partial
 from types import MappingProxyType
 
+from aha_gazebo.model import LIMIT_TOLERANCE
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from message_filters import Subscriber, TimeSynchronizer
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image, JointState
 from std_msgs.msg import Float64MultiArray, String
@@ -23,7 +24,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from .api import (
     Action,
     CameraObservation,
-    clamp_joint_roundoff,
+    clamp_joint_near_limits,
     CONTROLLER_JOINTS,
     GRIPPER_JOINTS,
     GroundTruth,
@@ -49,6 +50,7 @@ class RosEnvironment(Node):
         cameras=False,
         camera_timeout=10.0,
         ground_truth=False,
+        video_recorder=None,
     ):
         if ground_truth and (cameras or head_image_topic):
             raise ValueError("Ground-truth IK does not consume sensor observations")
@@ -66,6 +68,8 @@ class RosEnvironment(Node):
         self.cameras_enabled = cameras
         self.camera_timeout = camera_timeout
         self.camera_samples = {}
+        self.camera_raw_stamps = {}
+        self.video_recorder = video_recorder
         self.camera_filters = []
         self.world = None
         self.received = {}
@@ -132,13 +136,19 @@ class RosEnvironment(Node):
                     (CameraInfo, "/camera/right_wrist/camera_info"),
                 ),
             }.items():
+                # Images use reliable streams in the camera bridge.
+                # Best-effort readers can lose different frames from each stream
+                # during a physics burst, leaving no exact pair after pausing.
+                camera_qos = QoSProfile(depth=10)
                 subscribers = [
-                    Subscriber(
-                        self, message_type, topic, qos_profile=qos_profile_sensor_data
-                    )
+                    Subscriber(self, message_type, topic, qos_profile=camera_qos)
                     for message_type, topic in topics
                 ]
-                synchronizer = TimeSynchronizer(subscribers, queue_size=5)
+                for subscriber, (_, topic) in zip(subscribers, topics):
+                    subscriber.registerCallback(
+                        partial(self.on_camera_component, topic)
+                    )
+                synchronizer = TimeSynchronizer(subscribers, queue_size=10)
                 synchronizer.registerCallback(partial(self.on_camera, name))
                 self.camera_filters.append((subscribers, synchronizer))
                 self.required.add("camera:" + name)
@@ -194,6 +204,13 @@ class RosEnvironment(Node):
         samples.append((image, camera_info, depth_image))
         self.mark("camera:" + name)
 
+    def on_camera_component(self, topic, message):
+        self.camera_raw_stamps[topic] = (
+            Time.from_msg(message.header.stamp).nanoseconds * 1e-9
+        )
+        if self.video_recorder is not None:
+            self.video_recorder.image(topic, message)
+
     def camera_observations(self):
         if not self.cameras_enabled:
             return {}
@@ -239,6 +256,29 @@ class RosEnvironment(Node):
 
     def observation_ready(self):
         return self.camera_observations() is not None
+
+    def camera_diagnostics(self):
+        """Explain unavailable timestamped camera observations at a paused boundary."""
+        now = self.get_clock().now().nanoseconds * 1e-9
+        result = {"sim_time": now, "raw_stamps": self.camera_raw_stamps, "cameras": {}}
+        for name, samples in self.camera_samples.items():
+            latest = []
+            for image, _, _ in list(samples)[-3:]:
+                stamp = Time.from_msg(image.header.stamp)
+                data = {
+                    "stamp": stamp.nanoseconds * 1e-9,
+                    "age": now - stamp.nanoseconds * 1e-9,
+                }
+                try:
+                    self.tf_buffer.lookup_transform(
+                        "base_link", image.header.frame_id, stamp
+                    )
+                    data["tf"] = "available"
+                except TransformException as error:
+                    data["tf"] = str(error)
+                latest.append(data)
+            result["cameras"][name] = latest
+        return result
 
     def on_state(self, message):
         sample = json.loads(message.data)
@@ -314,7 +354,7 @@ class RosEnvironment(Node):
             joint_message = JointState(
                 name=list(positions),
                 position=[
-                    clamp_joint_roundoff(name, value)
+                    clamp_joint_near_limits(name, value, LIMIT_TOLERANCE)
                     for name, value in positions.items()
                 ],
             )
