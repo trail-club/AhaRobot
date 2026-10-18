@@ -71,6 +71,13 @@ $PY report.py --summary                 # 全写真のレポートと index.html
 
 結果は `results/*.json` に上書きし、マスクや全写真のレポートは `.cache-sam31/sam31_dinov2/` に出す。
 
+DGX のコンテナと作業フォルダは終了時に消す。VPN が切れていて消せなかった場合は、DGX で残りを確かめて消す。
+
+```bash
+docker ps -a --filter name=aharobot-exp- && ls -d /tmp/aharobot-exp-*   # 残りの確認
+docker rm -f <コンテナ名> && rm -rf /tmp/aharobot-exp-<ID>               # 削除
+```
+
 ## ファイル
 
 | ファイル | 内容 |

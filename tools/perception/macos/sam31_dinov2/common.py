@@ -225,9 +225,9 @@ def retry(run, attempts=60):
     raise RuntimeError("DGX is not reachable over SSH")
 
 
-def ssh(script, *, user=DGX_USER, **kwargs):
+def ssh(script, *, user=DGX_USER, attempts=60, **kwargs):
     """Run a remote shell script, retrying while the VPN/SSH link is down."""
-    for _ in range(60):
+    for _ in range(attempts):
         result = subprocess.run(interactive.ssh_command(dgx(user), script), **kwargs)
         if result.returncode != 255:  # 255 = ssh itself failed to connect
             return result
@@ -268,7 +268,7 @@ def run_in_container(work_dir, script, *, user=DGX_USER):
                 env={**os.environ, "COPYFILE_DISABLE": "1"},
             )
         )
-        ssh(
+        started = ssh(
             f"docker run -d --name {name} --gpus all --network host --shm-size=2g"
             f" --user $(id -u):$(id -g) -e HOME=/tmp -v {quoted}:/work"
             f" -v {CHECKPOINT_DIR}:/ckpt:ro -v $HOME/.cache/aharobot-sam31:/cache"
@@ -276,8 +276,11 @@ def run_in_container(work_dir, script, *, user=DGX_USER):
             f" --entrypoint sh {IMAGE} -c"
             f" 'python -u /work/{script} /work > /work/run.out 2> /work/err.log'",
             user=user,
-            check=True,
+            capture_output=True,
+            text=True,
         )
+        if started.returncode != 0:
+            raise RuntimeError(f"docker run failed on the DGX:\n{started.stderr}")
         print(f"[exp] {script} running on the DGX ({remote})", flush=True)
         if wait_for_container(name, user) != "0":
             err = ssh(
@@ -293,11 +296,19 @@ def run_in_container(work_dir, script, *, user=DGX_USER):
             )
         )
     finally:
-        # Also on failure or Ctrl+C, so no container or work directory is left behind.
+        # Also on failure or Ctrl+C; retry only briefly so Ctrl+C without VPN exits soon.
         try:
-            ssh(f"docker rm -f {name} >/dev/null 2>&1; rm -rf {quoted}", user=user)
+            ssh(
+                f"docker rm -f {name} >/dev/null 2>&1; rm -rf {quoted}",
+                user=user,
+                attempts=2,
+            )
         except RuntimeError:
-            print(f"[exp] could not clean up {name} / {remote} on the DGX", flush=True)
+            print(
+                f"[exp] could not clean up the DGX; remove {name} and {remote}"
+                " later (see README)",
+                flush=True,
+            )
 
 
 def wait_for_container(name, user):

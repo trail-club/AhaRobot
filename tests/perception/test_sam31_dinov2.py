@@ -86,6 +86,42 @@ class ContainerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "gone"):
             self.inspect((1, "", "Error: No such object: c"))
 
+    def run_container(self, cleanup_reachable=True):
+        """run_in_container whose `docker run` fails; returns (error, cleanup calls)."""
+        calls = []
+
+        def ssh(script, **kwargs):
+            calls.append((script, kwargs))
+            if script.startswith("mktemp"):
+                return subprocess.CompletedProcess([], 0, "/tmp/aharobot-exp-abc123\n")
+            if script.startswith("docker run"):
+                return subprocess.CompletedProcess([], 125, "", "no such image")
+            if not cleanup_reachable:
+                raise RuntimeError("DGX is not reachable over SSH")
+            return subprocess.CompletedProcess([], 0)
+
+        with (
+            tempfile.TemporaryDirectory() as work,
+            patch.object(common, "ssh", side_effect=ssh),
+            patch.object(common, "retry"),
+            patch("builtins.print"),
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                common.run_in_container(work, "dino.py", user="u")
+        return caught.exception, [c for c in calls if "docker rm -f" in c[0]]
+
+    def test_docker_run_failure_is_a_runtime_error_and_is_cleaned_up(self):
+        error, cleanup = self.run_container()
+        self.assertIn("no such image", str(error))
+        self.assertEqual(len(cleanup), 1)
+        self.assertIn("aharobot-exp-abc123", cleanup[0][0])
+        self.assertEqual(cleanup[0][1]["attempts"], 2)
+
+    def test_unreachable_cleanup_keeps_the_original_error(self):
+        error, cleanup = self.run_container(cleanup_reachable=False)
+        self.assertIn("docker run failed", str(error))
+        self.assertEqual(len(cleanup), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
