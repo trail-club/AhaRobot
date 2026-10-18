@@ -2,8 +2,10 @@
 
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(
     0,
@@ -61,6 +63,28 @@ class PhraseTests(unittest.TestCase):
             self.assertEqual(
                 dino.reference_phrase("mug", None, library=library), "ceramic mug"
             )
+
+
+class ContainerTests(unittest.TestCase):
+    def inspect(self, *outputs):
+        results = [
+            subprocess.CompletedProcess([], code, out, err)
+            for code, out, err in outputs
+        ]
+        with (
+            patch.object(common, "ssh", side_effect=results),
+            patch.object(common.time, "sleep"),
+        ):
+            return common.wait_for_container("c", "u")
+
+    def test_exit_code_once_the_container_stops(self):
+        self.assertEqual(
+            self.inspect((0, "running 0\n", ""), (0, "exited 1\n", "")), "1"
+        )
+
+    def test_a_missing_container_raises_instead_of_waiting_forever(self):
+        with self.assertRaisesRegex(RuntimeError, "gone"):
+            self.inspect((1, "", "Error: No such object: c"))
 
 
 if __name__ == "__main__":

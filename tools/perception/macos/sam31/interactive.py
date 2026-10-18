@@ -74,6 +74,11 @@ def configure_ssh(args, read=None):
 
 
 def ssh_command(args, script):
+    return [*ssh_options(args), "--", args.host, script]
+
+
+def ssh_options(args):
+    """`ssh` and its options, without the host."""
     command = ["ssh", *SSH_OPTIONS]
     if getattr(args, "port", None) is not None:
         command += ["-p", str(args.port)]
@@ -81,7 +86,7 @@ def ssh_command(args, script):
         command += ["-l", args.user]
     if getattr(args, "identity_file", None):
         command += ["-i", str(args.identity_file), "-o", "IdentitiesOnly=yes"]
-    return [*command, "--", args.host, script]
+    return command
 
 
 @contextlib.contextmanager
@@ -90,19 +95,32 @@ def vlm_tunnel(args):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    base = ssh_command(args, "")[:-3]  # drop "--", host, script
     tunnel = subprocess.Popen(
-        [*base, "-N", "-L", f"{port}:127.0.0.1:11434", "--", args.host]
+        [
+            *ssh_options(args),
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-N",
+            "-L",
+            f"{port}:127.0.0.1:11434",
+            "--",
+            args.host,
+        ]
     )
     try:
         for _ in range(100):
+            if tunnel.poll() is not None:
+                raise RuntimeError("DGXのVLMへのSSHトンネルを開始できません")
             with contextlib.suppress(OSError):
                 socket.create_connection(("127.0.0.1", port), timeout=1).close()
                 break
             time.sleep(0.1)
+        else:
+            raise RuntimeError("DGXのVLMへのSSHトンネルが10秒以内につながりません")
         yield f"http://127.0.0.1:{port}"
     finally:
         tunnel.terminate()
+        tunnel.wait()
 
 
 def source_archive(destination):

@@ -204,7 +204,7 @@ class WorkerTests(unittest.TestCase):
             "stream = protocol_stream()\n"
             "os.write(1, b'native diagnostic\\n')\n"
             "print('python diagnostic', flush=True)\n"
-            "stream.write('{\"type\": \"ready\"}\\n')\n"
+            'stream.write(\'{"type": "ready"}\\n\')\n'
             "stream.flush()\n"
         )
         result = subprocess.run(
@@ -255,12 +255,56 @@ class SshConnectionTests(unittest.TestCase):
         self.assertNotIn("-l", command)
         reader.assert_not_called()
 
+    def vlm_tunnel(self, poll=None, connect=None):
+        """Enter vlm_tunnel with a fake ssh; returns (url or exception, Popen mock)."""
+        args = argparse.Namespace(host="dgx", user="u", port=2222, identity_file=None)
+        tunnel = Mock(poll=Mock(return_value=poll))
+        with (
+            patch.object(interactive.subprocess, "Popen", return_value=tunnel) as popen,
+            patch.object(
+                interactive.socket,
+                "create_connection",
+                side_effect=connect or OSError("refused"),
+            ),
+            patch.object(interactive.time, "sleep"),
+        ):
+            try:
+                with interactive.vlm_tunnel(args) as url:
+                    result = url
+            except RuntimeError as exc:
+                result = exc
+        return result, popen, tunnel
+
+    def test_vlm_tunnel_forwards_to_ollama_and_reaps_ssh(self):
+        url, popen, tunnel = self.vlm_tunnel(connect=lambda *a, **k: Mock())
+        command = popen.call_args.args[0]
+        self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
+        self.assertIn("ExitOnForwardFailure=yes", command)
+        self.assertEqual(command[-2:], ["--", "dgx"])
+        self.assertTrue(command[command.index("-L") + 1].endswith(":127.0.0.1:11434"))
+        tunnel.terminate.assert_called_once()
+        tunnel.wait.assert_called_once()
+
+    def test_vlm_tunnel_raises_when_ssh_exits(self):
+        error, _, tunnel = self.vlm_tunnel(poll=255)
+        self.assertIsInstance(error, RuntimeError)
+        self.assertIn("開始できません", str(error))
+        tunnel.wait.assert_called_once()
+
+    def test_vlm_tunnel_raises_when_port_never_opens(self):
+        error, _, tunnel = self.vlm_tunnel()
+        self.assertIsInstance(error, RuntimeError)
+        self.assertIn("10秒以内", str(error))
+        tunnel.wait.assert_called_once()
+
     def test_username_prompt_ctrl_c_exits_before_remote_or_camera_setup(self):
-        with patch.dict(interactive.os.environ, {}, clear=True), patch(
-            "builtins.input", side_effect=KeyboardInterrupt()
-        ), patch.object(interactive, "RemoteWorker") as factory, patch.object(
-            interactive.subprocess, "run"
-        ) as run, redirect_stdout(StringIO()):
+        with (
+            patch.dict(interactive.os.environ, {}, clear=True),
+            patch("builtins.input", side_effect=KeyboardInterrupt()),
+            patch.object(interactive, "RemoteWorker") as factory,
+            patch.object(interactive.subprocess, "run") as run,
+            redirect_stdout(StringIO()),
+        ):
             self.assertEqual(interactive.main([]), 130)
         factory.assert_not_called()
         run.assert_not_called()
@@ -275,9 +319,12 @@ class SshConnectionTests(unittest.TestCase):
         worker = interactive.RemoteWorker(args)
         worker.container_requested = True
         errors = StringIO()
-        with patch.object(
-            worker, "run", side_effect=subprocess.CalledProcessError(255, "ssh")
-        ), patch("sys.stderr", errors):
+        with (
+            patch.object(
+                worker, "run", side_effect=subprocess.CalledProcessError(255, "ssh")
+            ),
+            patch("sys.stderr", errors),
+        ):
             self.assertFalse(worker.close())
         self.assertIn("-l taro.yamada", errors.getvalue())
         self.assertIn("-p 2222", errors.getvalue())
@@ -459,15 +506,23 @@ class InteractionTests(unittest.TestCase):
         args = argparse.Namespace(no_open=True)
         reader = Mock(side_effect=["", "bottle", "", "cup", EOFError()])
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(
-                interactive,
-                "capture_frame",
-                side_effect=[subprocess.CalledProcessError(1, "capture"), None, None],
-            ) as capture, patch.object(
-                interactive,
-                "unpack_result",
-                return_value={"objects": [], "inference_seconds": 0.1},
-            ), redirect_stdout(StringIO()):
+            with (
+                patch.object(
+                    interactive,
+                    "capture_frame",
+                    side_effect=[
+                        subprocess.CalledProcessError(1, "capture"),
+                        None,
+                        None,
+                    ],
+                ) as capture,
+                patch.object(
+                    interactive,
+                    "unpack_result",
+                    return_value={"objects": [], "inference_seconds": 0.1},
+                ),
+                redirect_stdout(StringIO()),
+            ):
                 with self.assertRaises(EOFError):
                     interactive.interact(args, worker, Path(directory), reader)
         self.assertEqual(capture.call_count, 3)
@@ -486,24 +541,29 @@ class InteractionTests(unittest.TestCase):
         reader = Mock(side_effect=["bottle", "", "", EOFError()])
         errors = StringIO()
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(interactive, "capture_frame"), patch(
-                "sys.stderr", errors
-            ), redirect_stdout(StringIO()):
+            with (
+                patch.object(interactive, "capture_frame"),
+                patch("sys.stderr", errors),
+                redirect_stdout(StringIO()),
+            ):
                 with self.assertRaises(EOFError):
                     interactive.interact(args, worker, Path(directory), reader)
         self.assertEqual(worker.predict.call_count, 3)
         self.assertEqual(errors.getvalue().count("Result transfer failed"), 3)
 
     def test_ctrl_c_always_cleans_up_after_partial_start(self):
-        with patch.object(interactive.subprocess, "run"), patch.object(
-            interactive, "RemoteWorker"
-        ) as factory, patch.object(interactive, "CameraStream") as camera_factory:
+        with (
+            patch.object(interactive.subprocess, "run"),
+            patch.object(interactive, "RemoteWorker") as factory,
+            patch.object(interactive, "CameraStream") as camera_factory,
+        ):
             worker = factory.return_value
             worker.start.side_effect = KeyboardInterrupt()
             worker.close.return_value = True
             camera_factory.return_value.url = "http://127.0.0.1:8765/"
-            with tempfile.TemporaryDirectory() as directory, redirect_stdout(
-                StringIO()
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                redirect_stdout(StringIO()),
             ):
                 self.assertEqual(
                     interactive.main(
@@ -523,13 +583,16 @@ class InteractionTests(unittest.TestCase):
         reader = Mock(side_effect=["cup", "", EOFError()])
         errors = StringIO()
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(
-                interactive, "capture_frame"
-            ) as capture_frame, patch.object(
-                interactive,
-                "unpack_result",
-                return_value={"objects": [{}], "inference_seconds": 0.1},
-            ), patch("sys.stderr", errors), redirect_stdout(StringIO()):
+            with (
+                patch.object(interactive, "capture_frame") as capture_frame,
+                patch.object(
+                    interactive,
+                    "unpack_result",
+                    return_value={"objects": [{}], "inference_seconds": 0.1},
+                ),
+                patch("sys.stderr", errors),
+                redirect_stdout(StringIO()),
+            ):
                 with self.assertRaises(EOFError):
                     interactive.interact(
                         args, worker, Path(directory), reader, camera=camera
@@ -789,11 +852,16 @@ class CameraServeTests(unittest.TestCase):
                 None,
             ):
                 requests.put(line)
-            with patch.object(capture, "_load_realsense"), patch.object(
-                capture, "start_pipeline", return_value=(pipeline, Mock())
-            ), patch.object(
-                capture, "read_pair", return_value=(rgb, depth, {"frame": 1})
-            ), patch.object(capture, "_device_label", return_value="Fake"):
+            with (
+                patch.object(capture, "_load_realsense"),
+                patch.object(
+                    capture, "start_pipeline", return_value=(pipeline, Mock())
+                ),
+                patch.object(
+                    capture, "read_pair", return_value=(rgb, depth, {"frame": 1})
+                ),
+                patch.object(capture, "_device_label", return_value="Fake"),
+            ):
                 self.assertEqual(capture.serve(args, requests, out), 0)
             saved = np.load(Path(directory) / "0001/capture/rgbd.npz")
             self.assertEqual(saved["rgb"].shape, (4, 6, 3))

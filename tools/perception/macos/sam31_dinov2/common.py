@@ -257,51 +257,64 @@ def run_in_container(work_dir, script, *, user=DGX_USER):
     if not remote.startswith("/tmp/aharobot-exp-"):
         raise RuntimeError(f"unexpected remote directory {remote!r}")
     quoted = shlex.quote(remote)
-    retry(
-        lambda: piped(
-            ["tar", "--no-xattrs", "-C", str(work_dir), "-cf", "-", "."],
-            interactive.ssh_command(
-                dgx(user), f"tar -xf - -C {quoted} && chmod -R a+rwX {quoted}"
-            ),
-            env={**os.environ, "COPYFILE_DISABLE": "1"},
-        )
-    )
     name = "aharobot-exp-" + remote.rsplit("-", 1)[1]
-    ssh(
-        f"docker run -d --name {name} --gpus all --network host --shm-size=2g"
-        f" --user $(id -u):$(id -g) -e HOME=/tmp -v {quoted}:/work"
-        f" -v {CHECKPOINT_DIR}:/ckpt:ro -v $HOME/.cache/aharobot-sam31:/cache"
-        " -e TRITON_CACHE_DIR=/cache/triton -e HF_HOME=/cache/huggingface"
-        f" --entrypoint sh {IMAGE} -c"
-        f" 'python -u /work/{script} /work > /work/run.out 2> /work/err.log'",
-        user=user,
-        check=True,
-    )
-    print(f"[exp] {script} running on the DGX ({remote})", flush=True)
+    try:
+        retry(
+            lambda: piped(
+                ["tar", "--no-xattrs", "-C", str(work_dir), "-cf", "-", "."],
+                interactive.ssh_command(
+                    dgx(user), f"tar -xf - -C {quoted} && chmod -R a+rwX {quoted}"
+                ),
+                env={**os.environ, "COPYFILE_DISABLE": "1"},
+            )
+        )
+        ssh(
+            f"docker run -d --name {name} --gpus all --network host --shm-size=2g"
+            f" --user $(id -u):$(id -g) -e HOME=/tmp -v {quoted}:/work"
+            f" -v {CHECKPOINT_DIR}:/ckpt:ro -v $HOME/.cache/aharobot-sam31:/cache"
+            " -e TRITON_CACHE_DIR=/cache/triton -e HF_HOME=/cache/huggingface"
+            f" --entrypoint sh {IMAGE} -c"
+            f" 'python -u /work/{script} /work > /work/run.out 2> /work/err.log'",
+            user=user,
+            check=True,
+        )
+        print(f"[exp] {script} running on the DGX ({remote})", flush=True)
+        if wait_for_container(name, user) != "0":
+            err = ssh(
+                f"tail -30 {quoted}/err.log", user=user, capture_output=True, text=True
+            )
+            raise RuntimeError(f"{script} failed on the DGX:\n{err.stdout}")
+        out = work_dir / "out"
+        out.mkdir(exist_ok=True)
+        retry(
+            lambda: piped(
+                interactive.ssh_command(dgx(user), f"tar -C {quoted}/out -cf - ."),
+                ["tar", "-C", str(out), "-xf", "-"],
+            )
+        )
+    finally:
+        # Also on failure or Ctrl+C, so no container or work directory is left behind.
+        try:
+            ssh(f"docker rm -f {name} >/dev/null 2>&1; rm -rf {quoted}", user=user)
+        except RuntimeError:
+            print(f"[exp] could not clean up {name} / {remote} on the DGX", flush=True)
+
+
+def wait_for_container(name, user):
+    """Exit code of a detached container once it stops; raises if it is gone."""
     while True:
-        state = ssh(
+        result = ssh(
             f"docker inspect -f '{{{{.State.Status}}}} {{{{.State.ExitCode}}}}' {name}",
             user=user,
             capture_output=True,
             text=True,
-        ).stdout.split()
-        if state and state[0] != "running":
-            break
+        )
+        state = result.stdout.split()
+        if result.returncode != 0 or len(state) != 2:
+            raise RuntimeError(f"container {name} is gone on the DGX: {result.stderr}")
+        if state[0] != "running":
+            return state[1]
         time.sleep(15)
-    if state[1:] != ["0"]:
-        err = ssh(
-            f"tail -30 {quoted}/err.log", user=user, capture_output=True, text=True
-        )
-        raise RuntimeError(f"{script} failed on the DGX:\n{err.stdout}")
-    out = work_dir / "out"
-    out.mkdir(exist_ok=True)
-    retry(
-        lambda: piped(
-            interactive.ssh_command(dgx(user), f"tar -C {quoted}/out -cf - ."),
-            ["tar", "-C", str(out), "-xf", "-"],
-        )
-    )
-    ssh(f"docker rm {name} >/dev/null; rm -rf {quoted}", user=user)
 
 
 @contextlib.contextmanager
@@ -395,7 +408,7 @@ def mark(ok):
 
 def outcome(e, seconds=None, digits=1):
     """○/× and found/wrong/missed counts of an `evaluate` result, with the time."""
-    text = f'{mark(e["correct"])} 見つけた{e["found"]}/誤り{e["wrong"]}/見逃し{e["missed"]}'
+    text = f"{mark(e['correct'])} 見つけた{e['found']}/誤り{e['wrong']}/見逃し{e['missed']}"
     return text if seconds is None else f"{text}・{seconds:.{digits}f}秒"
 
 
