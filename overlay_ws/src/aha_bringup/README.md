@@ -9,6 +9,7 @@ xacro output as `robot_description`: joint position limits are 0.005 m / rad wid
 hold up to 10 kN, so joints commanded to a URDF limit keep following commands.
 robot_state_publisher, ros2_control and MoveIt use the URDF limits;
 MoveIt's state input moves positions up to the physics limits onto them (`limit_tolerance` of aha_manipulation).
+`initial_lift` sets both lift joints' initial position in metres (default `0.0`).
 `cameras:=false` omits the simulated head and wrist camera sensors.
 To bridge their images and calibration, use `use_perception:=true`; camera topics
 and display options are described in [aha_perception](../aha_perception/README.md).

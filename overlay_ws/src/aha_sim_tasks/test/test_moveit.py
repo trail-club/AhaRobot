@@ -102,7 +102,7 @@ def test_pick_waits_for_two_contacts_and_routes_arm_to_moveit(policy):
     assert len(policy.client.goals) == 2
     assert policy.client.attached == observation().ground_truth.object_position
     assert policy.client.target[:3] == pytest.approx((0.562, -0.426, 0.29))
-    assert action.joint_positions["joint_r7r"] == 0.035
+    assert action.joint_positions["joint_r7r"] == policy.settings["grasp_position"]
     assert not set(ARM_JOINTS) & action.joint_positions.keys()
 
 

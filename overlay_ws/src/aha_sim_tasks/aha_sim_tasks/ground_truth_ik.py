@@ -18,8 +18,8 @@ def yaw(pose):
 
 class GroundTruthIKPolicy:
     def reset(self, task_id, instruction):
-        if task_id != "pick_apple":
-            raise ValueError("ground_truth_ik supports pick_apple only")
+        if task_id not in ("pick_apple", "pick_object"):
+            raise ValueError("ground_truth_ik supports pick_object or pick_apple only")
         self.scene = load_scene()
         self.settings = self.scene["scripted"]
         self.config = self.scene["ground_truth_ik"]
@@ -157,7 +157,7 @@ class GroundTruthIKPolicy:
             opening = closed
             if truth.finger_contacts == 2 and age > 1:
                 self.client.attach_apple(
-                    root, joints, truth.object_position, self.scene["apple_radius"]
+                    root, joints, truth.object_position, self.scene["object"]["size"]
                 )
                 self._advance(
                     "lift",

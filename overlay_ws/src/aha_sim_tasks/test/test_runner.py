@@ -296,3 +296,87 @@ def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):
     with pytest.raises(SystemExit) as exit_info:
         runner.main()
     assert exit_info.value.code == 2
+
+
+def test_suite_records_policy_independent_scenes_and_object_results(
+    monkeypatch, tmp_path
+):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    sampled = []
+
+    def launch(command, **kwargs):
+        configuration = Path(command[command.index("--scene-config") + 1])
+        scene = json.loads(configuration.read_text())
+        sampled.append(scene)
+        output = Path(command[command.index("--output") + 1])
+        output.write_text(json.dumps({"status": "success", "metrics": {}}))
+        return SimpleNamespace(wait=lambda **kwargs: 0)
+
+    monkeypatch.setattr(runner.subprocess, "Popen", launch)
+    monkeypatch.setattr(runner, "stop_group", lambda *args, **kwargs: None)
+    scenes = []
+    for policy in ("scripted", "noop"):
+        output = tmp_path / f"{policy}.json"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "evaluate",
+                "--task",
+                "place_object",
+                "--objects",
+                "apple",
+                "soup_can",
+                "--episodes",
+                "2",
+                "--seed",
+                "14",
+                "--randomize",
+                "--distractors",
+                "1",
+                "--policy",
+                policy,
+                "--no-cameras",
+                "--output",
+                str(output),
+            ],
+        )
+        sampled.clear()
+        assert runner.main() == 0
+        report = json.loads(output.read_text())
+        assert report["summary"]["episodes"] == 4
+        assert report["by_object"]["soup_can"]["success_rate"] == 1
+        assert [entry["seed"] for entry in report["episodes"]] == [14, 15, 14, 15]
+        assert "tomato soup can" in report["episodes"][2]["task"]["instruction"]
+        scenes.append(list(sampled))
+    assert scenes[0] == scenes[1]
+    snapshot = Path(report["episodes"][2]["scene"])
+    original = json.loads(snapshot.read_text())
+    sampled.clear()
+    replay_output = tmp_path / "replay.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--task",
+            "place_object",
+            "--scene-config",
+            str(snapshot),
+            "--policy",
+            "noop",
+            "--no-cameras",
+            "--output",
+            str(replay_output),
+        ],
+    )
+    assert runner.main() == 0
+    assert sampled == [original]
+    replay = json.loads(replay_output.read_text())
+    assert replay["replay_scene"]
+    assert replay["objects"] == ["soup_can"]
+    assert replay["seed"] == 14
+    assert replay["distractors"] == 1
+    assert "object_points" not in replay["episodes"][0]["task"]["parameters"]

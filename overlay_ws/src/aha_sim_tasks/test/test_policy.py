@@ -100,7 +100,7 @@ def test_scripted_pick_accepts_finger_stopped_by_object_contact():
         "Pick.",
         {
             "joint_r1": 0.05,
-            "joint_r7r": 0.045,
+            "joint_r7r": 0.035,
             "joint_r7l": -0.035,
         },
         {},
@@ -108,4 +108,7 @@ def test_scripted_pick_accepts_finger_stopped_by_object_contact():
     )
     policy.act(observation)
     assert policy.phase == "lift"
-    assert policy.act(observation).joint_positions["joint_r1"] == 0.18
+    assert (
+        policy.act(observation).joint_positions["joint_r1"]
+        == policy.settings["transport_lift"]
+    )

@@ -24,6 +24,7 @@ class PolicyProcess:
         startup_timeout=120,
         action_timeout=30,
         step_duration=0,
+        scene_config=None,
     ):
         same_domain = domain_id == int(os.environ.get("ROS_DOMAIN_ID", "0"))
         if same_domain != (name == "ground_truth_ik"):
@@ -44,6 +45,9 @@ class PolicyProcess:
         self.connection, child = socket.socketpair()
         self.connection.setblocking(False)
         environment = dict(os.environ)
+        environment.pop("AHA_SCENE_CONFIG", None)
+        if scene_config is not None and name in ("scripted", "ground_truth_ik"):
+            environment["AHA_SCENE_CONFIG"] = str(scene_config)
         environment.update(
             {
                 "ROS_DOMAIN_ID": str(domain_id),

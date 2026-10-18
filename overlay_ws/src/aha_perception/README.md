@@ -51,9 +51,12 @@ URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より�
 ros2 launch aha_bringup sim.launch.py use_perception:=true
 ```
 
-手首カメラは `link_l6` / `link_r6` に固定した仮想取付位置から
-グリッパの把持中心へ向き、水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
-取付位置と光学特性は実機で校正していない。カメラのvisualに質量やcollisionは追加していない。
+手首カメラは既存の `link_l6` / `link_r6` メッシュに含まれるカメラのレンズ位置に置く。
+[Astra.STEP](../../../upstream/Astra_Hardwares/Astra/Astra.STEP) の `Camera` 部品の配置に基づき、
+カメラ原点は手首座標で `(0.026, 0, 0.101)` m、pitchは−60°、レンズ前面はカメラの前方16 mm。
+腕を前方に伸ばした姿勢ではグリッパの上側から前方・下向き30°を見て、
+水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
+取付位置と光学特性は実機で校正していない。既存メッシュのカメラを使い、別のvisual・質量・collisionは追加しない。
 手首カメラの画像はRVizのImage表示で `/camera/left_wrist/image_raw` または
 `/camera/right_wrist/image_raw` を選択して確認できる。
 `cameras:=false` はカメラセンサを除くため、画像を使う場合は付けない。

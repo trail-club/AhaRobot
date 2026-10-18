@@ -40,6 +40,7 @@ class EvaluationSystem : public gz::sim::System,
   {
     this->configured = true;
     this->truthEnabled = sdf->Get<bool>("ground_truth", false).first;
+    this->destinationName = sdf->Get<std::string>("destination_model", "").first;
     for (const auto &[key, value] : {
         std::pair{"robot_model", &this->robotName},
         std::pair{"object_model", &this->objectName},
@@ -78,8 +79,7 @@ class EvaluationSystem : public gz::sim::System,
         std::pair{this->robotName + "/" + this->leftFingerName, this->leftFinger}})
       if (entity == kNullEntity)
         missing.push_back(path);
-    const auto collisions = ecm.ChildrenByComponents(
-        this->object, components::Collision(), components::Name(this->objectCollisionName));
+    const auto collisions = ecm.ChildrenByComponents(this->object, components::Collision());
     if (collisions.empty())
       missing.push_back(this->objectName + "/" + this->objectLinkName + "/" + this->objectCollisionName);
     this->rightCollisions.clear();
@@ -92,6 +92,29 @@ class EvaluationSystem : public gz::sim::System,
         ids->insert(entity);
       if (link != kNullEntity && ids->empty())
         missing.push_back(this->robotName + "/" + name + " (no collision entities)");
+    }
+    this->destinationCollisions.clear();
+    if (!this->destinationName.empty())
+    {
+      const auto destination = ecm.EntityByComponents(
+          components::Model(), components::Name(this->destinationName));
+      if (destination == kNullEntity)
+      {
+        missing.push_back(this->destinationName);
+      }
+      else
+      {
+        const auto top = Model(destination).LinkByName(ecm, "top");
+        if (top == kNullEntity)
+          missing.push_back(this->destinationName + "/top");
+        else
+        {
+          for (const auto entity : ecm.ChildrenByComponents(top, components::Collision()))
+            this->destinationCollisions.insert(entity);
+          if (this->destinationCollisions.empty())
+            missing.push_back(this->destinationName + "/top (no collision entities)");
+        }
+      }
     }
     if (!missing.empty())
     {
@@ -109,6 +132,7 @@ class EvaluationSystem : public gz::sim::System,
       return;
     }
     this->collision = collisions.front();
+    this->objectCollisions = collisions;
     if (this->truthEnabled)
     {
       for (const auto entity : ecm.ChildrenByComponents(this->robot, components::Joint()))
@@ -119,8 +143,9 @@ class EvaluationSystem : public gz::sim::System,
       }
     }
     // The Physics system fills and clears this component on every step.
-    if (!ecm.Component<components::ContactSensorData>(this->collision))
-      ecm.CreateComponent(this->collision, components::ContactSensorData());
+    for (const auto entity : this->objectCollisions)
+      if (!ecm.Component<components::ContactSensorData>(entity))
+        ecm.CreateComponent(entity, components::ContactSensorData());
     this->lastPublish = info.simTime;
     gzmsg << "[aha_task_evaluation] Resolved object and both finger collision sets\n";
   }
@@ -133,12 +158,30 @@ class EvaluationSystem : public gz::sim::System,
     if (info.simTime < this->lastPublish)
     {
       this->contactWindow.TakeCount();
+      this->destinationContact = false;
+      this->simultaneousGrasp = false;
       this->lastPublish = info.simTime;
     }
-    const auto *contacts = ecm.Component<gz::sim::components::ContactSensorData>(this->collision);
-    if (contacts)
-      this->contactWindow.Add(contacts->Data(), this->collision,
+    unsigned int stepMask = 0;
+    for (const auto entity : this->objectCollisions)
+    {
+      const auto *contacts = ecm.Component<gz::sim::components::ContactSensorData>(entity);
+      if (!contacts)
+        continue;
+      this->contactWindow.Add(contacts->Data(), entity,
                              this->rightCollisions, this->leftCollisions);
+      stepMask |= FingerContactMask(contacts->Data(), entity,
+                                   this->rightCollisions, this->leftCollisions);
+      for (const auto &contact : contacts->Data().contact())
+      {
+        const auto first = contact.collision1().id();
+        const auto second = contact.collision2().id();
+        if ((first == entity && this->destinationCollisions.count(second)) ||
+            (second == entity && this->destinationCollisions.count(first)))
+          this->destinationContact = true;
+      }
+    }
+    this->simultaneousGrasp = this->simultaneousGrasp || stepMask == 3u;
     if (info.simTime - this->lastPublish < std::chrono::milliseconds(50))
       return;
     const auto stamp = [](auto time)
@@ -151,10 +194,14 @@ class EvaluationSystem : public gz::sim::System,
     const auto objectPose = gz::sim::worldPose(this->object, ecm);
     const auto end = stamp(info.simTime);
     nlohmann::json sample = {
-        {"schema_version", 1}, {"frame_id", "world"}, {"stamp", end},
+        {"schema_version", 2}, {"frame_id", "world"}, {"stamp", end},
         {"contact_window_start", stamp(this->lastPublish)},
         {"robot_pose", {robotPose.Pos().X(), robotPose.Pos().Y(), robotPose.Rot().Yaw()}},
         {"object_position", {objectPose.Pos().X(), objectPose.Pos().Y(), objectPose.Pos().Z()}},
+        {"object_orientation", {objectPose.Rot().X(), objectPose.Rot().Y(),
+                                objectPose.Rot().Z(), objectPose.Rot().W()}},
+        {"destination_contact", this->destinationContact},
+        {"simultaneous_grasp", this->simultaneousGrasp},
         {"finger_contacts", this->contactWindow.TakeCount()}};
     if (this->truthEnabled)
     {
@@ -179,6 +226,8 @@ class EvaluationSystem : public gz::sim::System,
     clock.mutable_sim()->set_nsec(end.at("nanosec").get<int32_t>());
     this->clockPublisher.Publish(clock);
     this->lastPublish = info.simTime;
+    this->destinationContact = false;
+    this->simultaneousGrasp = false;
   }
 
  private:
@@ -192,6 +241,11 @@ class EvaluationSystem : public gz::sim::System,
   std::vector<std::pair<std::string, gz::sim::Entity>> joints;
   std::string robotName, objectName, objectLinkName, objectCollisionName;
   std::string rightFingerName, leftFingerName;
+  std::string destinationName;
+  std::vector<gz::sim::Entity> objectCollisions;
+  std::unordered_set<gz::sim::Entity> destinationCollisions;
+  bool destinationContact = false;
+  bool simultaneousGrasp = false;
   std::vector<std::string> lastMissing;
   std::chrono::steady_clock::time_point lastDiagnostic{};
   gz::sim::Entity robot = gz::sim::kNullEntity;

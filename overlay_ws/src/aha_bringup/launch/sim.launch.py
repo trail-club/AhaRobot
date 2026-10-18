@@ -120,6 +120,10 @@ def _robot(context):
         mappings={
             "sim": "true",
             "cameras": LaunchConfiguration("cameras").perform(context),
+            "camera_rgb_noise_stddev": LaunchConfiguration(
+                "camera_rgb_noise_stddev"
+            ).perform(context),
+            "initial_lift": LaunchConfiguration("initial_lift").perform(context),
         },
     ).toxml()
     return [
@@ -176,6 +180,7 @@ def generate_launch_description():
             "world": LaunchConfiguration("world"),
             "world_path": LaunchConfiguration("world_path"),
             "headless": LaunchConfiguration("headless"),
+            "gz_args": LaunchConfiguration("gz_args"),
         }.items(),
     )
 
@@ -288,7 +293,10 @@ def generate_launch_description():
             OpaqueFunction(function=_validate_spawn),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument("gz_args", default_value=""),
             DeclareLaunchArgument("cameras", default_value="true"),
+            DeclareLaunchArgument("camera_rgb_noise_stddev", default_value="0.003"),
+            DeclareLaunchArgument("initial_lift", default_value="0.0"),
             DeclareLaunchArgument(
                 "robot_name",
                 default_value="aha_robot",

@@ -255,22 +255,22 @@ class MoveItClient:
         request = scene_request()
         diff = request.scene
         for name, location in (
-            ("source_table", scene["source_position"]),
-            ("destination_table", scene["destination_position"]),
+            ("source_table", scene["source_table_position"]),
+            ("destination_table", scene["destination_table_position"]),
             ("apple", apple),
         ):
             if name == "apple" and self.attached:
                 continue
             if name == "apple":
                 shape = SolidPrimitive(
-                    type=SolidPrimitive.SPHERE, dimensions=[scene["apple_radius"]]
+                    type=SolidPrimitive.BOX, dimensions=scene["object"]["size"]
                 )
                 center = tuple(location)
             else:
                 shape = SolidPrimitive(
                     type=SolidPrimitive.BOX, dimensions=scene["table_size"]
                 )
-                center = (*location[:2], scene["table_size"][2] / 2)
+                center = tuple(location)
             diff.world.collision_objects.append(
                 collision_object(
                     name, FRAME, shape, relative_pose(root, (*center, 0, 0, 0, 1))
@@ -300,13 +300,17 @@ class MoveItClient:
             matrix.entry_values[j].enabled[i] = True
         return matrix
 
-    def attach_apple(self, root, joints, apple, radius):
+    def attach_apple(self, root, joints, apple, size):
         """Attach collision geometry in MoveIt only; Gazebo grasp stays physical."""
         tip = world_pose(root, self.forward(joints))
         obj = collision_object(
             "apple",
             TIP,
-            SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[radius]),
+            (
+                SolidPrimitive(type=SolidPrimitive.BOX, dimensions=size)
+                if isinstance(size, (list, tuple))
+                else SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[size])
+            ),
             relative_pose(tip, (*apple, 0, 0, 0, 1)),
         )
         request = scene_request()

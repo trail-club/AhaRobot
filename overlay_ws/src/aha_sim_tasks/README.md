@@ -15,12 +15,16 @@ ros2 run aha_sim_tasks evaluate --task all --policy scripted --episodes 2 \
 ```
 
 各試行でロボット・controller・物体を含むシミュレータを新しく起動し、終了時に関連プロセスを停止する。
-全タスクは2台の机とappleを共有する。配置とpolicy設定は
+全タスクは2台の机とYCB物体を共有する。配置とpolicy設定は
 [scene.json](config/scene.json)、world構成は [worlds/](worlds/) にある。
 
 | オプション | 用途 |
 | --- | --- |
-| `--task pick_apple` | タスクを個別に選択。`--list-tasks` で判定条件を表示 |
+| `--task pick_object` | 接近・把持・配置を選択。`--list-tasks` で判定条件を表示 |
+| `--objects apple orange soup_can gelatin_box` | 対象物体。`all` は全4種。既定はapple |
+| `--randomize --seed 100` | 物体の位置・yaw、ロボット初期姿勢、照明を試行ごとに変更 |
+| `--distractors 2` | 対象とは別種のYCB物体を追加（0～3個） |
+| `--scene-config /absolute/path/scene.json` | 配置・物理・センサ設定を指定。保存済みsceneの再利用にも使用 |
 | `--no-cameras` | カメラセンサ・描画・画像観測を無効化し、CPUのみで評価 |
 | `--no-headless` | Gazeboの3D画面を表示 |
 | `--camera-view` | 頭部・左右手首のRGB画像を別窓で表示。カメラとGUI環境が必要 |
@@ -55,27 +59,65 @@ OpenCVのH.264 encoderが必要で、利用できなければpolicy実行前に�
 
 | タスク | 成功条件 | 保持 | 期限 |
 | --- | --- | --- | --- |
-| `approach_apple` | 接近目標との平面距離が0.04以内、初期方向とのyaw差が0.08以内、速度0.02 m/s以下 | 1秒 | 45秒 |
-| `pick_apple` | 右の両指がappleに接触し、apple中心の床からの高さが0.24以上 | 1秒 | 60秒 |
-| `place_apple` | 両指で接触して高さ0.24以上に持ち上げた後、接触なし・apple中心のx/yが緑の机の天板内（端を含む）、配置目標とのz差が0.02以内・速度0.03 m/s以下 | 2秒 | 90秒 |
+| `approach_object` | 接近目標との平面距離0.04以内、目標yawとの差0.08以内、速度0.02 m/s以下 | 1秒 | 60秒 |
+| `pick_object` | 同じphysics stepで両指が対象に接触し、回転後の衝突メッシュの最下点が元の天板から0.10以上離れる | 1秒 | 90秒 |
+| `place_object` | 上記の把持・持ち上げを1秒保持した後、指接触なし・物体全体が配置先の天板内・配置先天板との接触あり・底面の高さ差0.015以内・速度0.03 m/s以下・角速度0.15 rad/s以下 | 2秒 | 120秒 |
 
-配置のx/y範囲は `scene.json` の `destination_position` と `table_size` から決まり、
-現在は机の中心からx方向に±0.12、y方向に±0.14。appleの半径による端からの余白は設けない。
-`tasks.json` の `xy_tolerance: "table_half_size"` は机の半幅へ解決される。
-独自タスクでは数値で共通の許容誤差、または `[x, y]` で軸ごとの許容誤差を指定できる。
+`approach_apple` / `pick_apple` / `place_apple` はapple専用の互換名。
+`--task all` は3つの汎用タスクを実行する。判定の境界は、衝突メッシュの全頂点を現在の姿勢でworld座標へ変換して求める。
+物体が回転しても、実形状の底面・投影範囲を使って判定する。
+`xy_tolerance: "table_half_size"` は机の半幅へ解決し、数値または `[x, y]` も指定できる。
 
 <a id="grasp-model"></a>
 
 判定はGazeboの姿勢・接触・時刻を同じサンプルで受け取り、policyの完了申告には依存しない。
-接触数は直前50 msにappleへ触れた右指の種類数（0～2）で、両指が同時に触れたことは要求しない。
-解放には窓全体で接触がないことが必要。重複・逆順のサンプルは保持時間を進めず、
-0.5秒を超える受信間隔で保持をやり直す。
+指接触数は直前50 msの窓内の和集合で、把持にはさらに同じphysics stepでの両指接触を要求する。
+物体の全collisionを集計する。解放には窓全体で指接触がないことが必要。
+重複・逆順のサンプルは保持時間を進めず、0.5秒を超える受信間隔で保持をやり直す。
 
-appleは自由剛体で、衝突・摩擦・重力によって把持や落下が決まる。評価処理は物体を固定・移動しない。
-形状・摩擦・駆動応答は実機に合わせて校正していない。
+物体は自由剛体で、衝突・摩擦・重力によって把持や落下が決まる。評価処理は物体を固定・移動しない。
+[objects.json](config/objects.json) は既存の `tmc_wrs_gz_worlds` のYCBモデルを参照する。
+元のmesh・質量・慣性を使い、物体のscaleは変更しない。モデルの原点は衝突形状の中心へ移し、
+visual・collision・重心の相対関係を保つ。資源とライセンスは
+[THIRD_PARTY](../../../dependencies/THIRD_PARTY.md)を参照。
 
-`scripted` は関節位置と車輪odom、固定の配置設定を使って接近・把持・配置する。
-ライブの物体位置は参照せず、初期方向に沿う前進のみ対応する。横移動・後退が必要な配置はエラーになる。
+机は幅0.50 m・奥行0.60 m・天板高0.74 mで、4本の脚にもcollisionを持つ。
+タスク起動時の左右liftは `initial_lift`（既定0.02 m）から開始する。
+Gazebo側の関節限界と昇降の保持力は [aha_bringup](../aha_bringup/README.md) の補正を使う。
+ロボットの `base_footprint` は床面（spawn z=0）から開始し、起動時の落下を小さくする。
+`scene.json` の `source_position` / `destination_position` のx/yが物体の目標位置で、
+zは天板高と物体寸法から計算する。机は `table_offset` 分だけ物体目標から離す。
+
+`scripted` は関節位置・車輪odomと、保存したepisodeの初期配置を使う診断用baseline。
+平面の位置・yawを合わせて接近・把持・配置する。ライブの物体真値は使わないが、
+サンプリングした配置を知っているため、レポートでは `sensors_and_known_episode_layout` と明記する。
+通常の独自policyとCodexへsceneファイルを環境変数で渡すことはない。
+
+## 再現可能な評価とセンサ設定
+
+```bash
+ros2 run aha_sim_tasks evaluate --task place_object --objects all --policy scripted \
+  --randomize --seed 100 --distractors 2 --episodes 20 --no-cameras \
+  --output /tmp/aha-evaluation/ycb.json
+```
+
+seedは試行ごとに1増え、同じ物体・試行番号はタスクやpolicyを変えても同じ条件になる。
+物体のxyは±0.025 m、yawは全周、ロボットのxyは±0.025 m・yawは±0.08 rad、照明も変える。
+机は固定し、物体が天板内に収まり、物体同士が重ならない配置を選ぶ。
+JSONに全体と物体別の成功率を保存する。各試行の `scene.json` は実際の配置・物理・センサ設定を含み、
+`state_samples.jsonl` は判定サンプルと測定値を記録する。保存sceneを `--scene-config` に指定すると、物体・clutter・seedを引き継いで配置を再利用する。
+`--randomize` を加えると再サンプリングする。Gazeboの乱数seedも設定するが、
+physics・描画・ROSの実行順による差までbit単位で保証するものではない。
+
+`sensors` はpolicy用頭部深度に加えるGaussian noiseの標準偏差（既定0.005 m）、
+欠測率（既定0.01）、Gazeboの頭部・手首RGB noise標準偏差（既定0.003、正規化輝度）を指定する。
+深度の乱数はseedとセンサstampで決まり、元のROS messageと校正・TFは変更しない。
+深度の欠測はNaN。Gazebo/ROSの生depth表示には、このpolicy用の追加noiseを反映しない。
+noiseを0にしたsceneで理想センサ条件も評価できる。
+標準bringupのRGB noiseは `camera_rgb_noise_stddev` で変更できる。
+
+机寸法・摩擦・noise・把持高さのオフセット・駆動応答はシミュレーション用の設定で、
+実機の到達範囲・摩擦・深度誤差への校正結果ではない。カメラ取付の設計値は既存のURDFを使う。
 
 観測停止、policyの例外・不正な指令は `error` となる。推論中も観測と判定を継続する。
 実時間の期限は次のとおり。遅い描画やモデルの読み込み・推論では対応する値を延ばす。
@@ -134,13 +176,13 @@ ros2 run aha_sim_tasks evaluate --task pick_apple --policy ground_truth_ik \
   --episodes 1 --output /tmp/aha-evaluation/ik-pick.json
 ```
 
-`pick_apple` 専用で、カメラ観測・センサ描画は無効。`--no-headless` で3D画面を表示できる。
+`pick_object`（互換名 `pick_apple`）専用で、カメラ観測・センサ描画は無効。`--no-headless` で3D画面を表示できる。
 Gazebo真値のロボット姿勢・関節位置・物体位置・指接触を使い、
 [MoveIt](../aha_manipulation/README.md)で右腕のIK・衝突検証・軌道実行を行う。
 ベースを停止してから物体の上方・中心へ腕を動かし、両指の接触後に持ち上げる。
 腕の段階遷移は実行成功と真値の到達判定を待ち、失敗や期限超過はエラーにする。
 
-planning sceneには両机とappleを登録する。指との接触を許可し、把持後はappleの衝突形状を
+planning sceneには両机の天板と対象物体のbounding boxを登録する。指との接触を許可し、把持後は対象物体の衝突形状を
 MoveIt側だけで腕に追従させる。固定シーンの静止物体と初期方向に沿う接近を前提とし、
 未知の障害物検出・配置は対応しない。高さ・許容誤差・段階期限は `scene.json` の `ground_truth_ik` にある。
 
@@ -199,4 +241,5 @@ policy側を省略すると評価側+1（232の次は0）になる。他のROS�
 既存の判定方式（`approach`・`pick`・`place`）は `config/tasks.json` に追加して使う。
 新しい判定方式は [evaluation.py](aha_sim_tasks/evaluation.py)に実装し、対応するpolicyも用意する。
 単体テストはリポジトリの [make test](../../../AGENTS.md#動作確認)、
-物理接触を含む検証は上記の評価コマンドを使う。`noop` はタスク期限で失敗し、終了コード1となる。
+`colcon test --packages-select aha_sim_tasks` は全4種の静置・押し動作・自由落下も検証する。
+ロボットの把持・配置は上記の評価コマンドを使う。`noop` はタスク期限で失敗し、終了コード1となる。

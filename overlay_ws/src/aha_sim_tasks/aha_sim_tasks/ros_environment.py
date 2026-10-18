@@ -51,6 +51,8 @@ class RosEnvironment(Node):
         camera_timeout=10.0,
         ground_truth=False,
         video_recorder=None,
+        sensor_model=None,
+        sensor_seed=0,
     ):
         if ground_truth and (cameras or head_image_topic):
             raise ValueError("Ground-truth IK does not consume sensor observations")
@@ -67,6 +69,8 @@ class RosEnvironment(Node):
         self.image = None
         self.cameras_enabled = cameras
         self.camera_timeout = camera_timeout
+        self.sensor_model = sensor_model or {}
+        self.sensor_seed = sensor_seed
         self.camera_samples = {}
         self.camera_raw_stamps = {}
         self.video_recorder = video_recorder
@@ -190,6 +194,10 @@ class RosEnvironment(Node):
         self.mark("image")
 
     def on_camera(self, name, image, camera_info, depth_image=None):
+        if depth_image is not None and getattr(self, "sensor_model", {}):
+            from .sensor_noise import noisy_depth
+
+            depth_image = noisy_depth(depth_image, self.sensor_model, self.sensor_seed)
         messages = [image, camera_info]
         if depth_image is not None:
             messages.append(depth_image)
@@ -282,18 +290,32 @@ class RosEnvironment(Node):
 
     def on_state(self, message):
         sample = json.loads(message.data)
-        if sample["schema_version"] != 1 or sample["frame_id"] != "world":
+        if sample["schema_version"] not in (1, 2) or sample["frame_id"] != "world":
             raise ValueError("Unsupported evaluation state schema or frame")
         stamp = sample["stamp"]
         sim_time = stamp["sec"] + stamp["nanosec"] * 1e-9
         position = tuple(sample["object_position"])
         robot_pose = tuple(sample["robot_pose"])
         contacts = sample["finger_contacts"]
+        orientation = tuple(sample.get("object_orientation", (0, 0, 0, 1)))
+        destination_contact = sample.get("destination_contact", False)
+        simultaneous = sample.get("simultaneous_grasp", contacts == 2)
+        if (
+            sample["schema_version"] == 2
+            and not {"object_orientation", "destination_contact", "simultaneous_grasp"}
+            <= sample.keys()
+        ):
+            raise ValueError("Incomplete evaluation state")
         if (
             len(position) != 3
             or len(robot_pose) != 3
             or type(contacts) is not int
             or not 0 <= contacts <= 2
+            or len(orientation) != 4
+            or not all(math.isfinite(v) for v in orientation)
+            or abs(sum(v * v for v in orientation) - 1) > 1e-3
+            or type(destination_contact) is not bool
+            or type(simultaneous) is not bool
             or not all(
                 math.isfinite(value) for value in (sim_time, *position, *robot_pose)
             )
@@ -328,6 +350,13 @@ class RosEnvironment(Node):
                 speed = math.dist(position, previous_position) / (
                     sim_time - previous_time
                 )
+        angular_speed = math.inf
+        previous_orientation = getattr(self, "previous_orientation", None)
+        if previous_orientation is not None:
+            previous_time, previous_q = previous_orientation
+            cosine = min(1.0, abs(sum(a * b for a, b in zip(previous_q, orientation))))
+            angular_speed = 2 * math.acos(cosine) / (sim_time - previous_time)
+        self.previous_orientation = (sim_time, orientation)
         self.previous_object = (sim_time, position)
         robot_xy = robot_pose[:2]
         robot_speed = math.inf
@@ -345,6 +374,10 @@ class RosEnvironment(Node):
             speed,
             contacts,
             robot_speed,
+            orientation,
+            destination_contact,
+            angular_speed,
+            simultaneous,
         )
         if truth is not None:
             self.ground_truth = truth

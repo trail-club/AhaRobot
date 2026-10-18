@@ -19,10 +19,14 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="pos_joint" params="name">
+  <xacro:macro name="pos_joint" params="name initial:=0.0">
     <joint name="${name}">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <xacro:if value="${float(initial) > 0.0}">
+          <param name="initial_value">${initial}</param>
+        </xacro:if>
+      </state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
@@ -54,8 +58,8 @@
       <xacro:vel_joint name="right_wheel_joint"/>
 
       <!-- Lift (left + right; treated as 2 DoF for now) -->
-      <xacro:pos_joint name="joint_l1"/>
-      <xacro:pos_joint name="joint_r1"/>
+      <xacro:pos_joint name="joint_l1" initial="$(arg initial_lift)"/>
+      <xacro:pos_joint name="joint_r1" initial="$(arg initial_lift)"/>
 
       <!-- Left arm -->
       <xacro:pos_joint name="joint_l2"/>
