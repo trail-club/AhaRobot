@@ -21,6 +21,7 @@ def test_scene_coordinate_changes_reach_world_targets_and_policy(tmp_path, monke
     scene = load_scene(PACKAGE / "config/scene.json")
     scene["source_position"][0] += 0.2
     scene["destination_position"][0] += 0.3
+    scene["table_size"][:2] = [0.3, 0.4]
     scene["robot_spawn"]["x"] += 0.1
     scene["entities"]["object_model"] = "renamed_fruit"
     scene["entities"]["object_link"] = "fruit_body"
@@ -40,11 +41,16 @@ def test_scene_coordinate_changes_reach_world_targets_and_policy(tmp_path, monke
     assert {key: plugin.findtext(key) for key in scene["entities"]} == scene["entities"]
     destination = world.findtext("world/model[@name='destination_table']/pose").split()
     assert [float(v) for v in destination[:2]] == scene["destination_position"][:2]
+    size = world.findtext(
+        "world/model[@name='destination_table']/link/collision/geometry/box/size"
+    )
+    assert [float(v) for v in size.split()] == scene["table_size"]
     tasks = load_tasks(PACKAGE / "config/tasks.json", scene)
     assert (
         tasks["place_apple"].parameters["object_target"]
         == scene["destination_position"]
     )
+    assert tasks["place_apple"].parameters["xy_tolerance"] == [0.15, 0.2]
     assert tasks["approach_apple"].parameters["robot_target"][:2] == pytest.approx(
         [0.69, 0]
     )
