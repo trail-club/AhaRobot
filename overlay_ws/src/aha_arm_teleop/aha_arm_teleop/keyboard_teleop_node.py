@@ -15,8 +15,14 @@ import rclpy.qos
 import sensor_msgs.msg
 import std_msgs.msg
 from astra_controller_interfaces.msg import JointCommand
+from rclpy.executors import SingleThreadedExecutor
 
 from .logic import HELP, Teleop
+
+# 1 周で処理するコールバックの上限。/joint_states は 1 腕あたり関節とグリッパの
+# 2 本の発行元があり、両腕で約 360 本/秒届く。1 周 1 本だとループ周期と
+# ほぼ同じ数しか捌けず、どちらかの発行元の実位置が数百 ms 古くなる。
+SPIN_PER_TICK = 10
 
 
 class KeyboardTeleopNode(rclpy.node.Node):
@@ -65,8 +71,9 @@ class KeyboardTeleopNode(rclpy.node.Node):
         self._last_draw = 0.0
 
     def _on_joint_states(self, msg: sensor_msgs.msg.JointState) -> None:
+        now = time.time()
         for name, position in zip(msg.name, msg.position):
-            self.teleop.update_feedback(name, position)
+            self.teleop.update_feedback(name, position, now)
 
     def publish(self, outputs) -> None:
         for command in outputs.commands:
@@ -111,6 +118,8 @@ def main(args=None) -> None:
 
     rclpy.init(args=args)
     node = KeyboardTeleopNode()
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
     if not sys.stdin.isatty():
         node.destroy_node()
         rclpy.shutdown()
@@ -127,7 +136,8 @@ def main(args=None) -> None:
     try:
         tty.setcbreak(fd)
         while rclpy.ok() and not node.teleop.quit:
-            rclpy.spin_once(node, timeout_sec=0.0)
+            for _ in range(SPIN_PER_TICK):
+                executor.spin_once(timeout_sec=0.0)
             now = time.time()
             dt, last = now - last, now
             keys = _drain_keys(select)
@@ -142,7 +152,8 @@ def main(args=None) -> None:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
         node.release()
         # トルク OFF が送られる前にプロセスが終わらないように、1 回だけ回す。
-        rclpy.spin_once(node, timeout_sec=0.05)
+        executor.spin_once(timeout_sec=0.05)
+        executor.remove_node(node)
         node.destroy_node()
         rclpy.shutdown()
         print("\n両腕トルクOFF。終了しました。")
