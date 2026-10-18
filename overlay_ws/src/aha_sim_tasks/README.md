@@ -83,7 +83,7 @@ visual・collision・重心の相対関係を保つ。資源とライセンス�
 
 机は幅0.50 m・奥行0.60 m・天板高0.74 mで、4本の脚にもcollisionを持つ。
 タスク起動時の左右liftは `initial_lift`（既定0.02 m）から開始する。
-初期落下によって下限の外へ出て動かなくなる問題を避け、物理の関節限界は変更しない。
+Gazebo側の関節限界と昇降の保持力は [aha_bringup](../aha_bringup/README.md) の補正を使う。
 ロボットの `base_footprint` は床面（spawn z=0）から開始し、起動時の落下を小さくする。
 `scene.json` の `source_position` / `destination_position` のx/yが物体の目標位置で、
 zは天板高と物体寸法から計算する。机は `table_offset` 分だけ物体目標から離す。

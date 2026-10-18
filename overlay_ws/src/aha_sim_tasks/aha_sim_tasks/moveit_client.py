@@ -2,6 +2,7 @@
 
 import math
 
+from aha_gazebo.model import LIMIT_TOLERANCE
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose
@@ -28,7 +29,7 @@ from rclpy.executors import SingleThreadedExecutor
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 
-from .api import JOINT_LIMITS, clamp_joint_roundoff
+from .api import JOINT_LIMITS, clamp_joint_near_limits
 
 ARM_JOINTS = tuple(f"joint_r{i}" for i in range(1, 7))
 FRAME = "base_footprint"
@@ -91,8 +92,12 @@ def pose_values(pose):
 
 
 def robot_state(joints):
-    # Physics can report tiny limit excursions; every service gets a full state.
-    values = {name: clamp_joint_roundoff(name, value) for name, value in joints.items()}
+    # Physics can report joints up to its limits outside the URDF ones;
+    # every service gets a full state.
+    values = {
+        name: clamp_joint_near_limits(name, value, LIMIT_TOLERANCE)
+        for name, value in joints.items()
+    }
     return RobotState(
         joint_state=JointState(name=list(values), position=list(values.values())),
         is_diff=False,
