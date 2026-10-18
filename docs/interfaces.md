@@ -162,7 +162,8 @@ TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固�
 両カメラは640×480、15 Hz。画像とCameraInfoは同じ時刻・optical frameを持つ。
 TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `{left,right}_wrist_camera_optical_frame`（固定joint）で、robot_state_publisherが配信する。
-仮想取付位置・光学特性・表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
+既存の手首カメラ部品のCAD配置に合わせ、グリッパ上側のレンズ位置を使う。
+取付位置・光学特性・表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
 実機のURDFには手首カメラはない。
 
 `sim.launch.py use_perception:=true` またはタスク評価の既定設定で
