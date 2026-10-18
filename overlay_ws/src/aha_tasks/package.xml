@@ -1,13 +1,14 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>aha_tasks</name>
-  <version>0.1.0</version>
-  <description>Labelled navigation flows for RoboCup tasks in simulation.</description>
+  <version>0.2.0</version>
+  <description>Subgoal task framework, web monitor and RoboCup task definitions.</description>
   <maintainer email="dev@trail-club.local">trail-club</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <exec_depend>aha_bringup</exec_depend>
+  <exec_depend>aha_msgs</exec_depend>
   <exec_depend>aha_navigation</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
@@ -17,7 +18,7 @@
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
-  <test_depend>ament_cmake_pytest</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

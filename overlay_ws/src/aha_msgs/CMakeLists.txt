@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/DetectedObject.msg
   msg/DetectedObjectArray.msg
   srv/SetNavGoal.srv
+  srv/TaskCommand.srv
   action/PickObject.action
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs builtin_interfaces
 )

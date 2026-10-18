@@ -1,72 +1,110 @@
 # aha_tasks
 
-SOBITS RCJO2026でHuman Robot Interaction Challengeの移動フローを実行する。
-Nav2 actionを利用し、到着地点での対話・認識・操作はログに `SKIPPED` を出して通過する。
-`aha_sim_tasks` のpolicy評価とは独立した、通常のシミュレーション用パッケージ。
+タスクをサブゴールに分けて実行・可視化する共通基盤と、RoboCup@Homeのタスク定義。
+
+| 構成 | 内容 |
+| --- | --- |
+| `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
+| `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
+| `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
+| `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
+| `config/<task>.json` | タスク定義 |
+| `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUIを起動 |
+
+ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)を参照。
 
 ## 起動
 
-[開発コンテナ](../../../docs/docker.md)で実行する。
-このlaunchがGazebo・ロボット・Nav2・タスクをまとめて起動するため、別のsim / SLAMと重ねて起動しない。
+[開発コンテナ](../../../docs/docker.md)で実行する。別のsim / SLAMと同時に起動しない。
 
 ```bash
 cd /app/overlay_ws
 colcon build --symlink-install --packages-up-to aha_tasks
 source install/setup.bash
-export DISPLAY=display:0  # macOS / LinuxのNoVNC
-ros2 launch aha_tasks human_interaction.launch.py
-# GUIなし: ros2 launch aha_tasks human_interaction.launch.py headless:=true
+ros2 launch aha_tasks task.launch.py task:=human_interaction
 ```
 
-初期位置は `(-2.0, 1.5, yaw=0.0)` に固定し、AMCLの初期姿勢と一致させる。
-カメラは無効。LiDAR、map_server、AMCL、Nav2は有効。
-Nav2がACTIVEになってから開始し、各ゴールの成功を待って次へ進む。
-拒否・失敗・キャンセル時は後続工程を実行しない。起動待ちの上限は `startup_timeout:=300.0`、
-各移動の上限は `goal_timeout:=600.0`（いずれも実時間の秒数）。タイムアウト・Ctrl+Cでは実行中のゴールをキャンセルする。
-完了・失敗時はlaunch全体を終了する。結果は `COMPLETED` / `FAILED` またはエラーログとrunnerの終了コードで確認する。
+GUIは `http://localhost:8765/`（macOSは [`make forward`](../../../docs/docker.md#2-guiに接続する)）。
+Nav2がACTIVEになると待機状態になり、GUIから実行する。runnerが終了するとlaunch全体が終了する。
+ロボットの初期位置（Gazeboのspawn、AMCLの初期姿勢）はタスク定義の `initial_state` の `robot.location`。
 
-## フローと地点の変更
+| 引数 | 既定 | 内容 |
+| --- | --- | --- |
+| `task` | 必須 | `config/` のタスク名、またはJSONのパス |
+| `headless` | `false` | Gazebo GUIを起動しない |
+| `gui_port` | `8765` | Web GUIのport |
+| `subgoals` | 全て | 既定の選択 |
+| `on_failure` | `pause` | 失敗時のポリシー |
+| `max_retries` | `1` | ポリシー `retry` の再実行回数 |
+| `startup_timeout` / `goal_timeout` | `300.0` / `600.0` | Nav2の起動待ちと各移動の上限（実時間の秒） |
 
-[設定](config/human_interaction.json)に地点 `[x, y, yaw]`（m、rad、`map` frame）と実行順を定義する。
-地図の座標はGazeboのworld座標に合わせてある。家具の中心ではなく、ロボットが立つ位置を指定する。
+## 実行の仕組み
 
-| ラベル | 用途 |
+- **部分実行**: 選択外のサブゴールは実行せず、スキルの期待状態と `mock` をタスクの記憶へ適用する。未実装のスキルも同様に通過する。
+- **状態の同期**: スキルの実行前に、記憶上の `robot.location` と実際の位置が異なればNav2で移動する。
+- **ロールバック**: 失敗するとタスクの記憶とロボットの位置をそのサブゴールの開始前へ戻す。人やドアなどは手で戻す。
+- **失敗時のポリシー**: `pause` は停止してGUIで再試行・巻き戻し・スキップ・中断を選ぶ。`retry` は `max_retries` 回まで再実行、`skip` は `mock` を仮定して続行、`abort` は終了する。
+
+経過時間は制限時間と並べて表示するが、採点・時間切れの判定はしない。
+
+![1人目の客を部分実行したWeb GUI](../../../docs/images/aha-tasks-web-gui.png)
+
+## タスク定義
+
+[human_interaction.json](config/human_interaction.json) を参照。未知のキー・地点、不正な値は起動時にエラーになる。
+
+| キー | 内容 |
 | --- | --- |
-| `waiting` | Study Room内の客の到着待ち位置 |
-| `entrance` | 入口の内側、ドア前 |
-| `study_chair_left` | Study Roomの `chair_left` の手前。1人目を案内 |
-| `study_chair_right` | Study Roomの `chair_right` の手前。2人目を案内 |
-| `host` | Study Room内のホストとの合流を代用する固定位置 |
-| `bag_drop` | Living Room / Laundry Area内の荷物置き場を代用する固定位置 |
+| `task` / `title` / `rulebook` / `time_limit` | 識別子、表示名、ルールの出典、制限時間（秒） |
+| `locations` | `map` frameの地点 `[x, y, yaw]`（m、rad） |
+| `initial_state` | 開始時のタスクの記憶 |
+| `skills` | スキル名と実装 `"module:Class"`。`null` は未実装 |
+| `subgoals` | 実行順のサブゴール。`id`、`title`、`group`、`skill`、`params`、`mock`、`points`、`note` |
 
-移動順は `waiting → entrance → study_chair_left → waiting → entrance → study_chair_right → host → bag_drop`。
-ドアベル・開扉・挨拶・名前/飲み物の聴取・注視・客の特徴説明・着席案内・紹介・荷物の受渡しはスキップする。
-人物追従は `bag_drop` への通常のnavigationで代用する。人や荷物のモデルは追加しない。
-SOBITSの入口ドアは閉じた配置のまま、内側の地点に到着するだけで通過しない。
-
-別設定は `task_config:=/absolute/path/task.json` で指定する。
-各stepは一意な `id` と、`navigate`（既存地点のラベル）または `skip`（理由）のどちらか一方を持つ。
-未知の地点、不正な座標、未対応の工程は起動時にエラーにする。
-設定内容だけを確認する場合は、ROS・Gazeboなしでリポジトリ直下から実行できる。
+選択は `,` 区切りで、id（`guest1.ask`）、glob（`guest1.*`）、範囲（`guest1.find..guest1.seat`、片側省略可）を組み合わせる。
+ROSなしで定義と選択を確認できる。
 
 ```bash
-PYTHONPATH=overlay_ws/src/aha_tasks python3 overlay_ws/src/aha_tasks/scripts/human_interaction \
-  --config overlay_ws/src/aha_tasks/config/human_interaction.json --dry-run
+# リポジトリ直下
+PYTHONPATH=overlay_ws/src/aha_tasks python3 overlay_ws/src/aha_tasks/scripts/task_runner \
+  --config overlay_ws/src/aha_tasks/config/human_interaction.json --dry-run --subgoals 'guest2.*'
 ```
 
-地点名と向きは `/aha/tasks/locations` のMarkerArrayに配信する。
-起動中の別コンテナシェルで以下を実行すると、地図とラベルを表示できる。
+## スキルの追加
+
+`aha_tasks.core.Skill` を継承し、タスク定義の `skills` に登録する。
+インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation` を使える。
+
+```python
+from aha_tasks.core import Skill, SkillResult
+
+
+class AskNameAndDrink(Skill):
+    @classmethod
+    def validate(cls, params, spec):  # 起動時。不正ならValueError
+        ...
+
+    def ready(self):  # 依存するserverを待つ
+        ...
+
+    def execute(self, ctx):  # ctx.params / memory / cancelled / log
+        guest = ctx.params["guest"]
+        return SkillResult(True, "", {f"{guest}.name": name, f"{guest}.drink": drink})
+```
+
+成功時の `outputs` はタスクの記憶へ追加され、後続が `ctx.memory` から読む。
+`expected(params)` は成功後とmock時に記憶へ追加する状態。ロボットを動かすスキルは `robot.location` を出力する。
+`execute` はタスク用threadで呼ばれる。`ctx.cancelled` を監視し、中断時は速やかに戻る。
+
+## Human Robot Interaction Challenge
+
+[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を25サブゴールに分ける。
+`points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
+実装済みのスキルは `navigate` のみ。
+
+客席・ホスト・荷物置き場は固定の代替地点。入口のドアは閉じたままで、ロボットは内側の `entrance` まで移動する。
+人・荷物のモデルは配置しない。地点は `/aha/tasks/locations` に配信し、RVizで表示できる。
 
 ```bash
 rviz2 -d "$(ros2 pkg prefix --share aha_navigation)/rviz/nav.rviz" --ros-args -p use_sim_time:=true
 ```
-
-地図の作成方法・対象範囲は [aha_navigation](../aha_navigation/README.md)を参照。
-
-## ルールとの対応
-
-参照は [公式ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)
-（確認日2026-10-11、2027 Rev-1 / 2026-08-31のドラフト）。
-2人の客を順に迎えて席へ案内し、双方を紹介し、2人目の荷物をホスト経由で運ぶ流れを移動のみで再現する。
-競技の成功判定や制限時間の採点は行わない。固定の客席・ホスト・荷物置き場はデモ用の代替であり、
-実際の人の検出や追従、動的な空席選択には対応しない。
