@@ -99,3 +99,7 @@ python3 tools/servo/wrist_dir_test.py <port> <side> 30 15
 
 `wrist_dir_test.py` はjoint0 / joint1にPIDを入れないため、腕は支えるか下ろした状態で実行する。
 終了・Ctrl+C・例外のいずれでもトルクをOFFにする。
+## ROS経由の両腕操作
+
+AstraArmControllerファームの `arm_node` が `/joint_states` を出している場合は、
+シリアルを直接操作せず [両腕キーボード教示](../../docs/arm-keyboard-teleop.md) を使う。

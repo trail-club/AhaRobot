@@ -16,6 +16,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_navigation` | シミュレーションのSLAM（slam_toolbox）。[README](src/aha_navigation/README.md)を参照 |
 | `aha_manipulation` | [MoveIt 2右腕IK・経路計画・軌道実行](src/aha_manipulation/README.md) |
 | `aha_perception` | 頭部・手首カメラのbridge、頭部の点群・RViz表示・操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
+| `aha_arm_teleop` | 実機両腕のキーボード教示。`arm_node` の `joint_command` へ出す。[手順](../docs/arm-keyboard-teleop.md) |
 | `aha_servo` | STSサーボのJointTrajectoryブリッジとキャリブレーション。[README](src/aha_servo/README.md)を参照 |
 
 ## ビルド・起動
