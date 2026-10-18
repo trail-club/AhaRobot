@@ -46,6 +46,10 @@ def _launch_scene(context):
                 configuration,
                 cameras=LaunchConfiguration("cameras").perform(context).lower()
                 == "true",
+                ground_truth=LaunchConfiguration("ground_truth")
+                .perform(context)
+                .lower()
+                == "true",
             )
         )
     except Exception:
@@ -71,6 +75,8 @@ def _launch_scene(context):
                 "headless": LaunchConfiguration("headless"),
                 "cameras": LaunchConfiguration("cameras"),
                 "bridge_clock": "false",
+                "use_manip": LaunchConfiguration("ground_truth"),
+                "manip_joint_states_topic": "/evaluation/joint_states",
                 "activate_controllers_as_group": "true",
                 "robot_name": scene["entities"]["robot_model"],
                 **{
@@ -91,6 +97,9 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "camera_view", default_value="false", choices=["true", "false"]
+            ),
+            DeclareLaunchArgument(
+                "ground_truth", default_value="false", choices=["true", "false"]
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(

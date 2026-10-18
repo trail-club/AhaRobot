@@ -97,9 +97,10 @@ def test_cleanup_stops_detached_worker_even_after_parent_exits(
 
 
 @pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("stop_callback_error", [False, True])
 @pytest.mark.parametrize("camera_state", ["missing_tf", "recovered_tf", "disabled"])
 def test_episode_bounds_unusable_camera_bundles(
-    monkeypatch, tmp_path, pending, camera_state
+    monkeypatch, tmp_path, pending, camera_state, stop_callback_error
 ):
     rclpy = pytest.importorskip("rclpy")
     from aha_sim_tasks import ros_environment, runner
@@ -140,6 +141,8 @@ def test_episode_bounds_unusable_camera_bundles(
     def spin_once(environment, timeout_sec):
         nonlocal wall_time
         if stopped:
+            if stop_callback_error:
+                raise ValueError("invalid queued state")
             return
         wall_time += 0.25
         environment.world = WorldState(wall_time, (0, 0, 0), (0, 0, 0), 0, 0)
@@ -186,8 +189,12 @@ def test_episode_bounds_unusable_camera_bundles(
     assert runner.run_episode(args, task) == 1
     result = json.loads(args.output.read_text())
     if camera_state == "disabled":
-        assert result["status"] == "timeout"
-        assert "reason" not in result
+        if stop_callback_error:
+            assert result["status"] == "error"
+            assert "invalid queued state" in result["reason"]
+        else:
+            assert result["status"] == "timeout"
+            assert "reason" not in result
     else:
         assert result["status"] == "error"
         assert "Camera bundle" in result["reason"]
@@ -205,6 +212,8 @@ def test_episode_bounds_unusable_camera_bundles(
         (["--no-cameras"], False),
         (["--head-image-topic", "/head"], False),
         (["--no-cameras", "--head-image-topic", "/head"], False),
+        (["--policy", "ground_truth_ik", "--task", "pick_apple"], False),
+        (["--policy", "codex"], True),
     ],
 )
 def test_cameras_default_follows_head_image_topic(
@@ -232,6 +241,11 @@ def test_cameras_default_follows_head_image_topic(
     )
     assert runner.main() == 0
     assert seen[0].cameras is cameras
+    assert seen[0].step_duration == (2.0 if seen[0].policy == "codex" else 0.0)
+    assert seen[0].policy_timeout == (150.0 if seen[0].policy == "codex" else 30.0)
+    assert (seen[0].ros_domain_id == seen[0].policy_ros_domain_id) is (
+        seen[0].policy == "ground_truth_ik"
+    )
 
 
 @pytest.mark.parametrize(
@@ -240,6 +254,26 @@ def test_cameras_default_follows_head_image_topic(
         ["--cameras", "--head-image-topic", "/head"],
         ["--no-cameras", "--camera-view"],
         ["--head-image-topic", "/head", "--camera-view"],
+        ["--policy", "ground_truth_ik", "--task", "pick_apple", "--cameras"],
+        [
+            "--policy",
+            "ground_truth_ik",
+            "--task",
+            "pick_apple",
+            "--head-image-topic",
+            "/head",
+        ],
+        ["--policy", "ground_truth_ik"],
+        ["--policy", "codex", "--no-cameras"],
+        ["--record-video", "--no-cameras"],
+        ["--record-video", "--head-image-topic", "/head"],
+        ["--policy", "codex", "--step-duration", "0"],
+        ["--policy", "codex", "--policy-timeout", "30"],
+        ["--policy", "codex", "--policy-timeout", "120"],
+        ["--step-duration", "nan"],
+        ["--step-duration", "-1"],
+        ["--step-duration", "0.15"],
+        ["--policy", "ground_truth_ik", "--task", "pick_apple", "--step-duration", "2"],
     ],
 )
 def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):

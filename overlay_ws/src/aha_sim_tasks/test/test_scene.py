@@ -21,6 +21,7 @@ def test_scene_coordinate_changes_reach_world_targets_and_policy(tmp_path, monke
     scene = load_scene(PACKAGE / "config/scene.json")
     scene["source_position"][0] += 0.2
     scene["destination_position"][0] += 0.3
+    scene["table_size"][:2] = [0.3, 0.4]
     scene["robot_spawn"]["x"] += 0.1
     scene["entities"]["object_model"] = "renamed_fruit"
     scene["entities"]["object_link"] = "fruit_body"
@@ -40,11 +41,16 @@ def test_scene_coordinate_changes_reach_world_targets_and_policy(tmp_path, monke
     assert {key: plugin.findtext(key) for key in scene["entities"]} == scene["entities"]
     destination = world.findtext("world/model[@name='destination_table']/pose").split()
     assert [float(v) for v in destination[:2]] == scene["destination_position"][:2]
+    size = world.findtext(
+        "world/model[@name='destination_table']/link/collision/geometry/box/size"
+    )
+    assert [float(v) for v in size.split()] == scene["table_size"]
     tasks = load_tasks(PACKAGE / "config/tasks.json", scene)
     assert (
         tasks["place_apple"].parameters["object_target"]
         == scene["destination_position"]
     )
+    assert tasks["place_apple"].parameters["xy_tolerance"] == [0.15, 0.2]
     assert tasks["approach_apple"].parameters["robot_target"][:2] == pytest.approx(
         [0.69, 0]
     )
@@ -61,6 +67,24 @@ def test_scripted_scene_rejects_unreachable_straight_line_target():
     scene["source_position"][1] += 0.1
     with pytest.raises(ValueError, match="spawn heading"):
         scripted_distances(scene)
+
+
+@pytest.mark.parametrize("ground_truth", [True, False])
+def test_world_truth_publication_is_opt_in(ground_truth):
+    world = ET.fromstring(
+        expand_world(
+            PACKAGE / "worlds/task_tables.sdf.xacro",
+            PACKAGE / "config/scene.json",
+            cameras=False,
+            ground_truth=ground_truth,
+        )
+    )
+    assert (
+        world.findtext(
+            "world/plugin[@name='aha_sim_tasks::EvaluationSystem']/ground_truth"
+        )
+        == str(ground_truth).lower()
+    )
 
 
 def test_scripted_distances_respect_rotated_spawn_heading():

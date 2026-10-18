@@ -37,6 +37,10 @@ def load_tasks(path: Path, scene=None) -> dict[str, Task]:
             entry["robot_target"] = approach_target(scene)
         if entry.get("object_target") == "destination_position":
             entry["object_target"] = list(scene["destination_position"])
+        if entry.get("xy_tolerance") == "table_half_size":
+            entry["xy_tolerance"] = [size / 2 for size in scene["table_size"][:2]]
+        elif isinstance(entry.get("xy_tolerance"), (int, float)):
+            entry["xy_tolerance"] = [entry["xy_tolerance"]] * 2
         tasks[task_id] = Task(task_id=task_id, parameters=entry, **common)
     return tasks
 
@@ -115,11 +119,12 @@ class Evaluator:
         else:
             x, y, z = state.object_position
             tx, ty, tz = p["object_target"]
+            x_tolerance, y_tolerance = p["xy_tolerance"]
             satisfied = (
                 self.was_lifted
                 and state.finger_contacts == 0
-                and abs(x - tx) <= p["xy_tolerance"]
-                and abs(y - ty) <= p["xy_tolerance"]
+                and tx - x_tolerance <= x <= tx + x_tolerance
+                and ty - y_tolerance <= y <= ty + y_tolerance
                 and abs(z - tz) <= p["z_tolerance"]
                 and state.object_speed <= p["max_object_speed"]
             )

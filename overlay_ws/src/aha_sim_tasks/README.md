@@ -1,9 +1,10 @@
 # aha_sim_tasks
 
-Simple Gazebo Harmonic tasks with independent success checks and a Python policy
-interface. Run inside the [development container](../../../docs/docker.md).
+Gazebo Harmonicで接近・把持・配置を評価するパッケージ。
+Pythonのpolicyを実行し、物体位置と指の接触から独立して成功を判定する。
+[開発コンテナ](../../../docs/docker.md)内で使用する。
 
-## Evaluate the scripted policy
+## 実行
 
 ```bash
 cd /app/overlay_ws
@@ -13,124 +14,145 @@ ros2 run aha_sim_tasks evaluate --task all --policy scripted --episodes 2 \
   --output /tmp/aha-evaluation/results.json
 ```
 
-The runner starts a fresh simulator for **each episode**, including the robot,
-controllers, object, and contact state.
-The evaluation launch activates the command controllers as one group and waits
-for their active states before calling the policy.
-Simulation and scoring use ROS domain 87 by default (`--ros-domain-id` changes it).
-Each policy runs in a separate Python subprocess, using ROS domain 88 by default
-and a different Gazebo transport partition. `--policy-ros-domain-id` changes the
-worker domain; otherwise it is the evaluation domain plus one, wrapping 232 to 0.
-The two domains must differ and be unused by other ROS applications.
-Both Gazebo partitions are unique per episode.
-The scene publishes `/clock` at 20 Hz together with the scoring state so that
-clock traffic remains bounded on CPU-only hosts.
+各試行でロボット・controller・物体を含むシミュレータを新しく起動し、終了時に関連プロセスを停止する。
+全タスクは2台の机とappleを共有する。配置とpolicy設定は
+[scene.json](config/scene.json)、world構成は [worlds/](worlds/) にある。
 
-All tasks use the same two-table scene: a brown source table, green destination
-table, and apple. Entity names, object/table positions, robot spawn, and scripted
-gripper settings are defined in [config/scene.json](config/scene.json).
-The launch expands [worlds/task_tables.sdf.xacro](worlds/task_tables.sdf.xacro)
-from that configuration and passes the configured robot spawn explicitly.
-The default run renders the head RGB-D and both wrist RGB cameras with Ogre2.
-Headless runs use EGL and need a working rendering backend; GPU acceleration is
-recommended. Software rendering is supported but can substantially slow episodes.
-`--no-cameras` disables camera sensors, the rendering system, and camera
-observations for a CPU-only physics evaluation.
-Use `--no-headless` to display Gazebo.
+| オプション | 用途 |
+| --- | --- |
+| `--task pick_apple` | タスクを個別に選択。`--list-tasks` で判定条件を表示 |
+| `--no-cameras` | カメラセンサ・描画・画像観測を無効化し、CPUのみで評価 |
+| `--no-headless` | Gazeboの3D画面を表示 |
+| `--camera-view` | 頭部・左右手首のRGB画像を別窓で表示。カメラとGUI環境が必要 |
+| `--record-video` | 3視点のRGB動画とAction・判断メモをH.264 MP4へ保存。内蔵カメラが必要 |
+| `--policy noop` | 無操作でタイムアウトを確認 |
 
-To watch pick-and-place, run:
+既定では頭部RGB-D・左右手首RGBカメラを描画する。headlessでもEGLの描画環境が必要で、
+ソフトウェア描画では評価が遅くなる。GUIの設定は開発コンテナの手順を参照。
+配置動作を画面で確認する例：
 
 ```bash
 ros2 run aha_sim_tasks evaluate --task place_apple --policy scripted \
   --episodes 1 --no-headless --camera-view --output /tmp/aha-evaluation/watch.json
 ```
 
-`--camera-view` opens a separate Gazebo window with head and both wrist RGB
-feeds selected automatically. The viewer inherits the episode's Gazebo partition;
-an independently started `gz gui -s ImageDisplay` cannot discover these isolated
-topics. The image viewer also works with the default headless server when the
-3D window is not needed. It requires cameras and a working GUI display.
+JSONレポートに成功率・判定条件・各試行の状態と測定値を記録し、ログを
+`<レポート名>_episodes/` に保存する。全試行成功時の終了コードは0、それ以外は1。
+状態は `success`、`timeout`、`wall_timeout`、`error` のいずれか。
 
-The server and GUI windows stop at the end of an episode, before the next task starts.
-Cleanup also stops Gazebo processes that leave the original process group,
-identified by the episode's unique transport partition. Configure the
-container's display using the development-container GUI instructions linked above.
+`--record-video` は各episodeの `episode.mp4` に頭部・左右手首のRGBを横並びで保存する。
+10 fpsのシミュレーション時間で再生し、step間の動作を記録する。推論中のpause時間は動画に含めず、
+最後に結果を1秒表示する。経過時間・各画像のstamp・現在のActionを表示し、
+Codexでは `situation` と `decision_note` も重ねる。
+`video_frames.jsonl` に動画frameとセンサstamp・decision番号の対応、`video.json` に形式・長さを保存し、
+評価JSONにも動画の情報を記録する。例外時も、それまでの動画を終了処理で保存する。
+OpenCVのH.264 encoderが必要で、利用できなければpolicy実行前にエラーにする。
 
-`--task pick_apple` selects one task. `--list-tasks` prints the installed definitions.
-The JSON report records each task's criteria, episode status, final measurements,
-errors, artifact directory, and overall success rate. Logs and individual results
-are stored beside the report under `<report-stem>_episodes/`. Exit code is zero
-only when every requested episode succeeds; failure returns 1. A `noop` policy
-is available to exercise the timeout path.
+## 成功条件と制限
 
-## Tasks and success criteria
+[タスク定義](config/tasks.json)に従い、次の条件を保持時間中すべて満たすと成功する。
+距離はm、角度はrad、保持時間とタスク期限はシミュレーション時間。
 
-Definitions are in [config/tasks.json](config/tasks.json). All distances are metres,
-angles radians, and task deadlines/hold durations use **simulation time**.
-Scoring uses Gazebo world poses and measured finger contacts, independently of the
-policy. Poses, contact count, and simulation timestamp arrive in one atomic
-`/evaluation/state` sample. A policy's completion claim cannot produce success. Duplicate or
-out-of-order samples cannot advance a hold; a gap over 0.5 s in state samples
-restarts it.
-
-| Task | Every scoring sample satisfies this for the hold duration | Hold | Deadline |
+| タスク | 成功条件 | 保持 | 期限 |
 | --- | --- | --- | --- |
-| `approach_apple` | Robot world x/y within 0.04 m of the source approach target derived from the scene and gripper offset, yaw within 0.08 rad of the spawn heading, base speed at most 0.02 m/s | 1 s | 45 s |
-| `pick_apple` | The contact window includes both right-gripper fingers and the apple's center is at least 0.24 m above the floor | 1 s | 60 s |
-| `place_apple` | Previously lifted to 0.24 m with both fingers in a contact window; now contact windows are empty, center within 0.08 m in x and y and 0.02 m in z of the configured destination position, speed at most 0.03 m/s | 2 s | 90 s |
+| `approach_apple` | 接近目標との平面距離が0.04以内、初期方向とのyaw差が0.08以内、速度0.02 m/s以下 | 1秒 | 45秒 |
+| `pick_apple` | 右の両指がappleに接触し、apple中心の床からの高さが0.24以上 | 1秒 | 60秒 |
+| `place_apple` | 両指で接触して高さ0.24以上に持ち上げた後、接触なし・apple中心のx/yが緑の机の天板内（端を含む）、配置目標とのz差が0.02以内・速度0.03 m/s以下 | 2秒 | 90秒 |
 
-Startup has a 90 s wall deadline. Missing/stale observations cause an error;
-`--wall-timeout` (default 240 s after startup) also bounds slow or paused
-simulations. Policy import, construction, and `reset` have a separate 120 s wall
-deadline (`--policy-startup-timeout`); each `act` call has a 30 s wall deadline
-(`--policy-timeout`). Increase these for models with longer loading or inference.
-The evaluator continues receiving ROS updates and scoring while inference runs;
-at most one policy call is outstanding. Worker errors, crashes, invalid commands,
-and policy timeouts fail the episode with status `error`.
-The parent process also bounds the entire episode. Simulator and policy processes
-are stopped on completion or error, including descendants in either partition.
+配置のx/y範囲は `scene.json` の `destination_position` と `table_size` から決まり、
+現在は机の中心からx方向に±0.12、y方向に±0.14。appleの半径による端からの余白は設けない。
+`tasks.json` の `xy_tolerance: "table_half_size"` は机の半幅へ解決される。
+独自タスクでは数値で共通の許容誤差、または `[x, y]` で軸ごとの許容誤差を指定できる。
 
-The scripted policy opens the right gripper, raises the lift, approaches using
-wheel odometry with heading correction, lowers and closes the gripper, then
-lifts. It aims the head down and right toward the tables and right gripper;
-`scripted.head_pan` and `scripted.head_tilt` in `config/scene.json` set the angles
-in radians. A level head sees only the gray background above the low tables.
-For placement it drives to the destination, lowers, opens, and withdraws
-the gripper by raising the lift. It reads proprioception and odometry and derives
-waypoints from static scene geometry and the configured gripper offset; it never
-reads live world state. This baseline drives straight along the spawn heading.
-Scene targets requiring lateral motion or backward driving fail explicitly;
-they need a policy supporting those motions. `--list-tasks` displays resolved
-numeric scoring targets.
+<a id="grasp-model"></a>
 
-## Grasp model
+判定はGazeboの姿勢・接触・時刻を同じサンプルで受け取り、policyの完了申告には依存しない。
+接触数は直前50 msにappleへ触れた右指の種類数（0～2）で、両指が同時に触れたことは要求しない。
+解放には窓全体で接触がないことが必要。重複・逆順のサンプルは保持時間を進めず、
+0.5秒を超える受信間隔で保持をやり直す。
 
-The apple is a free rigid body. Finger collisions, friction, controller motion,
-and gravity determine whether it is lifted, slips, or falls when the fingers open.
-The world loads `aha_task_evaluation`, a passive Gazebo system that requests the
-apple collision's contact data from the physics engine. At each physics step it
-collects the distinct right-gripper fingers touching the apple. Every 50 ms it
-publishes their union (0, 1, or 2) together with end-of-window poses and a timestamp,
-then clears the contact window. Thus a single solver step without contact does
-not erase evidence from the same window; no evidence carries into the next one.
-Two fingers means each touched at least once during that window, rather than
-necessarily touching on the same physics step. Release requires an entire window
-with no finger contact, followed by the task's release hold duration. Table contact and
-multiple contact points on a single finger do not count as a two-finger grasp.
-The system never attaches the object or changes its motion.
-Unresolved model/link/collision paths are logged on first failure, whenever the
-missing set changes, and every 5 wall seconds while resolution keeps failing.
+appleは自由剛体で、衝突・摩擦・重力によって把持や落下が決まる。評価処理は物体を固定・移動しない。
+形状・摩擦・駆動応答は実機に合わせて校正していない。
 
-The world uses primitive table/apple geometry and the upstream robot collision
-meshes. Apple friction is set to 1.0; geometry, friction, and actuator response
-have not been calibrated against real hardware. Contact-based scoring verifies
-simulated holding and release, rather than real robot grasp quality.
+`scripted` は関節位置と車輪odom、固定の配置設定を使って接近・把持・配置する。
+ライブの物体位置は参照せず、初期方向に沿う前進のみ対応する。横移動・後退が必要な配置はエラーになる。
 
-## Connect another policy
+観測停止、policyの例外・不正な指令は `error` となる。推論中も観測と判定を継続する。
+実時間の期限は次のとおり。遅い描画やモデルの読み込み・推論では対応する値を延ばす。
 
-`--policy my_package.my_policy:create_policy` imports and calls a factory only in
-the policy worker. Built-in policies use the same worker boundary. The returned
-object implements this interface from [api.py](aha_sim_tasks/api.py):
+| 対象 | 既定の期限 | オプション |
+| --- | --- | --- |
+| シミュレータの準備 | 90秒 | 固定 |
+| 準備後の試行 | 240秒 | `--wall-timeout` |
+| policyの読み込み・生成・`reset` | 120秒 | `--policy-startup-timeout` |
+| `act` 1回 | 30秒（`codex` は150秒） | `--policy-timeout` |
+| カメラの受信・利用可能な画像組の待機 | 10秒 | `--camera-timeout` |
+
+## Codexによるpolicy評価
+
+`codex` は各stepでCodex CLIを呼び、`gpt-6.1-sol`・reasoning effort `medium` で
+次のActionと短い状況説明・判断理由を生成する。
+開発コンテナ内で `codex` がPATH上にあり、`codex login status` で認証済みであることが必要。
+CLIの画像添付・構造化出力は [OpenAI公式ドキュメント](https://learn.chatgpt.com/docs/developer-commands?surface=cli)を参照。
+
+```bash
+ros2 run aha_sim_tasks evaluate --task place_apple --policy codex \
+  --episodes 1 --wall-timeout 1800 \
+  --camera-timeout 30 --record-video --output /tmp/aha-evaluation/codex-place.json
+```
+
+step開始時の関節位置・速度、odom、時刻・指示、頭部・左右手首のRGB画像、
+各画像のCameraInfoとbase_linkからのTFを渡す。
+頭部深度は16列×12行以下の画素位置・距離のグリッドにしてプロンプトへ含め、
+無効値は `null` とする。元の深度配列もログへ保存する。
+Gazeboの物体真値・接触数・評価値は渡さず、scripted policyへのフォールバックも行わない。
+各呼び出しは独立したCLIセッションで、直近8回のAction・状況説明・判断理由を渡す。
+
+`--step-duration` はActionを適用するシミュレーション秒数で、0.1秒の正の倍数を指定する。
+Codexの既定は2秒。推論中はGazeboをpauseし、Actionの適用中だけ1 msのphysicsを100回ずつ進める。
+各100 msで同じActionを再配信するため、ベース指令がcontrollerの0.5秒の期限で失効することを防ぐ。
+成功判定は従来と同じphysicsの観測に基づき、保持時間・タスク期限は推論待ち時間を含まない。
+実時間の `--wall-timeout` と `--policy-timeout` は有効で、CLI自体の呼び出し期限は120秒。
+Codexの `--policy-timeout` の既定は150秒で、120秒以下の指定はエラーとする。
+他のpolicyも `--step-duration` を使えるが、`ground_truth_ik` は連続実行のみ対応する。
+他のpolicyの既定は0（連続実行）。Codexでは3台の内蔵カメラが必須。
+
+各episodeの `codex_steps/decisions.jsonl` と `policy.log` に、step番号・時刻・モデル・
+推論時間・Action・`situation`・`decision_note` を記録する。
+`codex_steps/0001/` などには入力画像・深度配列・観測JSON・プロンプト・出力JSON・CLIログを保存する。
+不正なAction、CLI失敗、期限超過はepisodeを `error` とする。
+このpolicyはカメラと関節指令による実験用で、タスクの成功を保証しない。
+
+<a id="pick-with-ground-truth-ik"></a>
+
+## 真値IKによる把持
+
+ビルド・setupの読み込み後に実行する。
+
+```bash
+ros2 run aha_sim_tasks evaluate --task pick_apple --policy ground_truth_ik \
+  --episodes 1 --output /tmp/aha-evaluation/ik-pick.json
+```
+
+`pick_apple` 専用で、カメラ観測・センサ描画は無効。`--no-headless` で3D画面を表示できる。
+Gazebo真値のロボット姿勢・関節位置・物体位置・指接触を使い、
+[MoveIt](../aha_manipulation/README.md)で右腕のIK・衝突検証・軌道実行を行う。
+ベースを停止してから物体の上方・中心へ腕を動かし、両指の接触後に持ち上げる。
+腕の段階遷移は実行成功と真値の到達判定を待ち、失敗や期限超過はエラーにする。
+
+planning sceneには両机とappleを登録する。指との接触を許可し、把持後はappleの衝突形状を
+MoveIt側だけで腕に追従させる。固定シーンの静止物体と初期方向に沿う接近を前提とし、
+未知の障害物検出・配置は対応しない。高さ・許容誤差・段階期限は `scene.json` の `ground_truth_ik` にある。
+
+このpolicyだけ評価と同じROS domainを使い、`--policy-ros-domain-id` は `--ros-domain-id` と同じ値にする。
+真値のデータ形式とMoveItの状態入力は [ROSインターフェース](../../../docs/interfaces.md#タスク評価)を参照。
+レポートの `observation_source` は `gazebo_ground_truth` となる。
+
+## 独自policyの接続
+
+`--policy my_package.my_policy:create_policy` で、Pythonパス上のfactoryを指定する。
+試行ごとに別プロセスで生成し、`reset` 後に最大10 Hz（実時間）で `act` を呼ぶ。
+型と関節名・制限は [api.py](aha_sim_tasks/api.py)を参照。
 
 ```python
 from aha_sim_tasks.api import Action, Observation
@@ -141,95 +163,40 @@ class MyPolicy:
         self.instruction = instruction
 
     def act(self, observation: Observation) -> Action:
-        return Action(linear_velocity=0.0, joint_positions={"joint_r1": 0.18})
+        return Action(joint_positions={"joint_r1": 0.18})
 
 
 def create_policy():
     return MyPolicy()
 ```
 
-Place the module on the runner's Python path, which the worker inherits. Each
-episode creates and resets a new policy. `act` runs at up to 10 Hz in wall time.
-Observation fields are simulation time, task ID, language instruction, joint positions/velocities,
-wheel odometry `(x, y, yaw)` in `odom`, `cameras`, and optional `head_image`. Joint mappings
-are read-only snapshots. Object/world poses, finger contacts, and score are absent
-from policy observations.
+通常の `Observation` は時刻、タスクID・指示、関節位置・速度、odomのx/y/yaw、カメラを含む。
+関節・カメラの辞書は読み取り専用で、物体の真値・接触数・スコアは渡さず、`ground_truth` は `None`。
+真値IKでは `ground_truth` に姿勢・物体位置・接触数を渡し、関節位置と時刻も同じphysicsサンプルを使う。
+odomはworld x/y/yaw、関節速度は空となり、センサtopic・TFは購読しない。
 
-Only these observation fields cross a private IPC socket; the worker returns an
-`Action`, validated by the evaluator before publishing controller commands.
-Joint mappings remain read-only snapshots, and optional images retain their
-`sensor_msgs/msg/Image` type after serialization. Policy stdout/stderr and
-tracebacks are written to `policy.log` in the episode's artifact directory.
-The worker has no evaluator Python frames or evaluator-owned `RosEnvironment`
-object, and its default ROS/Gazebo connections cannot discover evaluation topics.
-No ROS topics are bridged into its domain: ROS-based policy components must receive their input
-from `Observation` and return commands through `Action`.
+`cameras` のキーは `head`、`left_wrist`、`right_wrist`。各要素はRGB画像、CameraInfo、
+画像時刻の `base_link` → optical frameのTF、頭部のみの位置合わせ済み深度（32FC1、m）を持つ。
+3視点の時刻差は0.1秒以内、画像の遅れは0.5秒以内（clock受信遅れによる0.1秒の先行は許容）。
+関節・odomは最新値で、画像時刻とは同期しない。`head_image` は頭部RGB画像を指す。
+`--no-cameras` では `cameras` は空、`head_image` は `None`。
+外部画像は `--head-image-topic /your/image/topic` で指定し、内蔵カメラとは併用できない。
+この場合は最新画像だけを渡し、校正・TFの組み合わせは行わない。
+カメラ構成は [aha_perception](../aha_perception/README.md#シミュレーション)を参照。
 
-This separation prevents accidental use of privileged state by team-owned
-policies. It is not a security sandbox: the processes share the host and
-filesystem, and policy code could deliberately join the evaluation transports.
+`Action` はベースの並進・旋回速度と関節位置を指定する。省略した速度は0、関節は直前の指令値
+（初回は測定値）を保持する。位置軌道は2秒で、未到達なら3秒後に再送する。
+速度制限は0.3 m/s・0.5 rad/s。関節制限外、未知の関節名、非有限値はエラーになる。
 
-By default, `observation.cameras` is a read-only mapping with keys `head`,
-`left_wrist`, and `right_wrist`. Each `CameraObservation` contains:
+通常policyのROS domainは評価と分け、Gazebo partitionも試行ごとに分離する。
+既定のdomainは評価87、policy88。`--ros-domain-id` と `--policy-ros-domain-id` で変更でき、
+policy側を省略すると評価側+1（232の次は0）になる。他のROSアプリと重複させない。
+観測と指令はIPCで交換し、policyの標準出力・例外は `policy.log` に保存する。
+この分離は真値の誤用を防ぐためのもので、セキュリティ上の隔離ではない。
 
-- `image`: RGB `sensor_msgs/msg/Image` with its simulation timestamp and optical frame.
-- `camera_info`: matching `sensor_msgs/msg/CameraInfo` with intrinsics.
-- `base_transform`: `geometry_msgs/msg/TransformStamped` from `base_link` to that
-  optical frame, looked up at the image timestamp.
-- `depth_image`: aligned `32FC1` depth in metres for the head; `None` for the wrists.
+## タスク追加と検証
 
-RGB, calibration, and head depth are paired by exact timestamp and optical frame.
-Each view retains up to 10 paired samples to tolerate delayed TF delivery.
-Policy calls use the newest compatible bundle whose views all have timestamped
-transforms, camera timestamps differ by at most 0.1 s, and images are no more
-than 0.5 s behind the simulation clock (up to 0.1 s ahead is allowed for clock
-transport delay).
-Joint states and odometry remain the latest snapshots, rather than samples
-synchronized to image exposure. Camera liveness has a 10 s wall deadline
-(`--camera-timeout` changes it), allowing dropped frames on slow renderers while
-the simulation-time age/skew limits still prevent stale images reaching a policy.
-Joint, odometry, and scoring-state liveness retain their 2 s wall deadline.
-A stopped required camera stream, or no usable complete camera bundle for that
-deadline after startup, fails the episode with status `error`, including when
-images keep arriving but TF is missing. The bundle deadline is checked while
-policy inference is pending and resets whenever a usable bundle is available.
-`head_image` aliases `cameras["head"].image` for existing policies. All camera
-messages cross the same private IPC boundary; evaluation topics remain excluded.
-Camera streams and simulated mounts are described in
-[aha_perception](../aha_perception/README.md#シミュレーション).
-
-With `--no-cameras`, `cameras` is empty and `head_image` is `None`.
-For a legacy external image publisher in the evaluation ROS domain, use
-`--head-image-topic /your/image/topic` (built-in cameras are turned off
-automatically; combining it with `--cameras` is an error); the latest Image becomes
-`head_image`, without calibration or transform pairing. The runner waits for
-that stream and treats a stopped stream as an error.
-
-Actions command base linear/angular velocity and named position targets for the
-arms, lifts, head, and grippers. Positions use the existing controller joint
-names. Omitted joint targets hold their previous command (initially the measured
-position); omitted base velocities are zero.
-
-If a joint target remains unreached, the adapter reissues its trajectory after
-3 s of simulation time. Each position trajectory has a 2 s duration.
-Commands outside joint limits or base limits (0.3 m/s, 0.5 rad/s), unknown joints, and non-finite values fail the
-episode. A result has status `success`, `timeout`, `wall_timeout`, or `error`.
-
-Add a JSON task entry to reuse an existing criterion (`approach`, `pick`, `place`).
-New criteria are implemented in [evaluation.py](aha_sim_tasks/evaluation.py);
-scene geometry and baseline settings belong in `config/scene.json`, with world
-structure in `worlds/`. The bundled scripted policy
-supports the three listed tasks; another task needs a corresponding policy.
-
-## Checks
-
-The package's unit tests run through the repository's `make test` / colcon checks.
-The evaluation command above runs the robot, controllers, physical contacts,
-and success checks in Gazebo. A failure baseline can be run with:
-
-```bash
-ros2 run aha_sim_tasks evaluate --task pick_apple --policy noop \
-  --output /tmp/aha-evaluation/noop.json
-```
-
-This is expected to return 1 with a simulation-time timeout and zero successes.
+既存の判定方式（`approach`・`pick`・`place`）は `config/tasks.json` に追加して使う。
+新しい判定方式は [evaluation.py](aha_sim_tasks/evaluation.py)に実装し、対応するpolicyも用意する。
+単体テストはリポジトリの [make test](../../../AGENTS.md#動作確認)、
+物理接触を含む検証は上記の評価コマンドを使う。`noop` はタスク期限で失敗し、終了コード1となる。

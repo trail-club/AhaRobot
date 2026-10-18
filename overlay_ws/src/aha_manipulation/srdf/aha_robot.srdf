@@ -1,0 +1,61 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="aha_robot">
+  <group name="right_arm">
+    <chain base_link="base_footprint" tip_link="link_ree" />
+  </group>
+  <group name="right_hand">
+    <joint name="joint_r7l" />
+    <joint name="joint_r7r" />
+  </group>
+  <end_effector name="right_hand" parent_link="link_ree" group="right_hand" parent_group="right_arm" />
+  <group_state name="ready" group="right_arm">
+    <joint name="joint_r1" value="0.18" />
+    <joint name="joint_r2" value="0" />
+    <joint name="joint_r3" value="0" />
+    <joint name="joint_r4" value="0" />
+    <joint name="joint_r5" value="0" />
+    <joint name="joint_r6" value="0" />
+  </group_state>
+  <disable_collisions link1="base_link" link2="link_l1" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="link_r1" reason="Adjacent" />
+  <disable_collisions link1="link_l1" link2="link_l2" reason="Adjacent" />
+  <disable_collisions link1="link_l1" link2="link_r1" reason="Never" />
+  <disable_collisions link1="link_l1" link2="link_r2" reason="Never" />
+  <disable_collisions link1="link_l1" link2="link_r3" reason="Never" />
+  <disable_collisions link1="link_l1" link2="link_r4" reason="Never" />
+  <disable_collisions link1="link_l1" link2="link_r5" reason="Never" />
+  <disable_collisions link1="link_l2" link2="link_l3" reason="Adjacent" />
+  <disable_collisions link1="link_l2" link2="link_r1" reason="Never" />
+  <disable_collisions link1="link_l2" link2="link_r2" reason="Never" />
+  <disable_collisions link1="link_l3" link2="link_l4" reason="Adjacent" />
+  <disable_collisions link1="link_l3" link2="link_l5" reason="Never" />
+  <disable_collisions link1="link_l3" link2="link_r1" reason="Never" />
+  <disable_collisions link1="link_l4" link2="link_l5" reason="Adjacent" />
+  <disable_collisions link1="link_l4" link2="link_r1" reason="Never" />
+  <disable_collisions link1="link_l5" link2="link_l6" reason="Adjacent" />
+  <disable_collisions link1="link_l5" link2="link_l7l" reason="Never" />
+  <disable_collisions link1="link_l5" link2="link_l7r" reason="Never" />
+  <disable_collisions link1="link_l5" link2="link_r1" reason="Never" />
+  <disable_collisions link1="link_l6" link2="link_l7l" reason="Adjacent" />
+  <disable_collisions link1="link_l6" link2="link_l7r" reason="Adjacent" />
+  <disable_collisions link1="link_l7l" link2="link_l7r" reason="Never" />
+  <disable_collisions link1="link_r1" link2="link_r2" reason="Adjacent" />
+  <disable_collisions link1="link_r2" link2="link_r3" reason="Adjacent" />
+  <disable_collisions link1="link_r2" link2="link_r4" reason="Never" />
+  <disable_collisions link1="link_r3" link2="link_r4" reason="Adjacent" />
+  <disable_collisions link1="link_r3" link2="link_r5" reason="Never" />
+  <disable_collisions link1="link_r4" link2="link_r5" reason="Adjacent" />
+  <disable_collisions link1="link_r4" link2="link_r7l" reason="Never" />
+  <disable_collisions link1="link_r5" link2="link_r6" reason="Adjacent" />
+  <disable_collisions link1="link_r5" link2="link_r7l" reason="Never" />
+  <disable_collisions link1="link_r5" link2="link_r7r" reason="Never" />
+  <disable_collisions link1="link_r6" link2="link_r7l" reason="Adjacent" />
+  <disable_collisions link1="link_r6" link2="link_r7r" reason="Adjacent" />
+  <disable_collisions link1="link_r7l" link2="link_r7r" reason="Never" />
+  <disable_collisions link1="base_footprint" link2="base_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="left_wheel_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="right_wheel_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="caster_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="link_head_pan" reason="Adjacent" />
+  <disable_collisions link1="link_head_pan" link2="link_head_tilt" reason="Adjacent" />
+</robot>

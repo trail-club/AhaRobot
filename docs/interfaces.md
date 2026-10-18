@@ -32,6 +32,7 @@
 
 軌道の `<controller>` は `left_arm_controller` / `right_arm_controller` / `lift_controller` /
 `head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
+`lift_controller` は部分関節goalも受け付け、指定しない軸を保持する。
 グリッパは同ファイルの2関節の順序で位置を指定する。
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 
@@ -40,9 +41,9 @@
 ## タスク評価
 
 [aha_sim_tasks](../overlay_ws/src/aha_sim_tasks/README.md) はepisodeごとに独立したGazebo partitionで
-シミュレーションを起動する。評価用とpolicy用のROS domainは別々だが、それぞれ全episode共通。
+シミュレーションを起動する。通常のpolicyと評価用のROS domainは別々だが、それぞれ全episode共通。
 policyは別プロセス・別Gazebo partitionで動き、
-観測とActionだけをIPCで交換する。既存controllerへの指令は評価側のROS adapterが配信するため、
+通常は観測とActionだけをIPCで交換する。既存controllerへの指令は評価側のROS adapterが配信するため、
 標準シミュレーションのtopic / frameは変更しない。評価用topicをpolicy側のdomainへbridgeしない。
 domain設定・policy API・分離の保証範囲はパッケージのREADMEを参照。
 
@@ -50,26 +51,63 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 | --- | --- | --- |
 | 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
 | 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
+| step実行時のGazebo制御 | `/world/task_tables/control` | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+
+`--step-duration` 使用時は評価側だけがworld controlを呼び、推論中にpauseし、
+Actionを100 msごとのphysics実行に適用する。policyのObservation / Action型やROS topicは共通。
+Codexへの観測変換・判断ログと実行方法は [policy評価](../overlay_ws/src/aha_sim_tasks/README.md#codexによるpolicy評価)を参照。
+評価側の全カメラのRGB・深度・CameraInfo購読はbridgeと同じreliable（履歴10）とし、
+pauseや動画記録の負荷がある場合も同一stampの組を受け取る。
 
 `/evaluation/state` は1つのJSONに `schema_version: 1`、`frame_id: "world"`、
 `stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
 `robot_pose`（world x / y / yaw）、`object_position`（world x / y / z）、
 `finger_contacts`（0 / 1 / 2）を持つ。poseと接触数を別topicから組み合わせない。
+`environment.launch.py ground_truth:=true` のときだけ、同じサンプルに
+`ground_truth.robot_world_pose`（URDF rootの `base_footprint` のworld姿勢、x / y / z / qx / qy / qz / qw）と
+`ground_truth.joint_positions`（Gazebo physicsの関節名→位置、m / rad）を追加する。
+既定は `false` で、通常の評価stateにこの追加情報はない。
 指接触数は直前の50 ms窓内にappleへ接触した右グリッパの指の数。
 窓内の和集合とholdの意味は [Grasp model](../overlay_ws/src/aha_sim_tasks/README.md#grasp-model) を参照。
 姿勢・時刻は窓の終端で、成功判定はこのstateの `stamp` を使う。
 重複・逆順のstateは速度履歴とfreshnessも更新しない。
 pickは2本の接触と持ち上げ、placeのreleaseは0本の接触で判定する。
-この観測系は物体の運動を変更しない。policyには `/joint_states`、車輪odom、シミュレーション時刻、
+この観測系は物体の運動を変更しない。通常のpolicyには `/joint_states`、車輪odom、シミュレーション時刻、
 タスクID・言語指示を渡す。既定では頭部RGB-D・左右の手首RGBカメラを描画し、画像・校正・画像時刻のbase_linkからのTFを
 policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは
 `--head-image-topic` の指定時のみsensor-data QoSで購読する。このとき内蔵カメラは無効になり、
 `--cameras` との併用はエラーになる。
-world poseの座標はworld、policyのodom座標は `odom`。
+world poseの座標はworld、通常のpolicyのodom座標は `odom`。
+真値IK評価では、評価側がphysics関節位置と同じstampの
+`/evaluation/joint_states`（`sensor_msgs/msg/JointState`、20 Hz）を配信する。
+MoveItの状態入力はこのtopicへremapする。
+MoveItへ渡す状態のみ、関節下限・上限から1e-6 m / rad以内の数値誤差を境界へ補正する。
+IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
+真値policyの観測・実行・制約は
+[Pick with ground-truth IK](../overlay_ws/src/aha_sim_tasks/README.md#pick-with-ground-truth-ik) を参照。
 評価はcontrollerの速度・関節位置指令を発行する。
 評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。
 標準launchの `bridge_clock` は既定で `true`。
 
+## MoveIt
+
+`sim.launch.py use_manip:=true` で [aha_manipulation](../overlay_ws/src/aha_manipulation/README.md) が起動する。
+モデルframeは `base_footprint`、右腕groupは `right_arm`、IK/FKのtipは `link_ree`。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| IK | `/compute_ik` | `moveit_msgs/srv/GetPositionIK` |
+| FK | `/compute_fk` | `moveit_msgs/srv/GetPositionFK` |
+| 計画・軌道実行 | `/move_action` | `moveit_msgs/action/MoveGroup` |
+| Planning sceneの取得・更新 | `/get_planning_scene` / `/apply_planning_scene` | `moveit_msgs/srv/GetPlanningScene` / `ApplyPlanningScene` |
+| 監視用planning scene | `/monitored_planning_scene` | `moveit_msgs/msg/PlanningScene` |
+| MoveIt用の関節状態 | `/aha/manipulation/joint_states` | `sensor_msgs/msg/JointState` |
+
+状態入力は既定で `/joint_states`。`manip_joint_states_topic` で変更できる。
+move_groupは、この入力の関節限界の外 `limit_tolerance`（既定1e-6 m / rad）以内の値を限界へ補正した
+`/aha/manipulation/joint_states` を読む。
+実行先は `/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory`。
+同じcontrollerへのtopic指令とMoveItのaction実行を同時に行わない。
 
 ## SLAM（シミュレーションのみ）
 
@@ -148,7 +186,8 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `sim.launch.py use_perception:=true` またはタスク評価の既定設定で
 `camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
 シミュレーションの頭部3topicはRELIABLE / VOLATILE / KEEP_LAST(10)、
-手首の画像・CameraInfoはsensor-data QoS（BEST_EFFORT / VOLATILE / KEEP_LAST(5)）。
+手首の画像・CameraInfoはreliable（RELIABLE / VOLATILE / KEEP_LAST(10)）。
+既存のsensor-data QoSの購読とも互換性がある。
 `sim.launch.py cameras:=false` / 評価の `--no-cameras` は全カメラセンサを除く。
 
 ## 頭部の注視

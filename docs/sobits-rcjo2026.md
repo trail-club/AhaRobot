@@ -16,7 +16,7 @@
 | `cameras:=false` | 頭部・左右の手首カメラのセンサを除く。既定は `true` |
 | `use_perception:=true` | 頭部・手首カメラのbridge、頭部の点群、RVizを起動。`rviz:=false` でRVizと操作パネルを除く。[aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照 |
 | `use_nav:=true` | シミュレーション専用2D LiDARの `/scan` bridgeとslam_toolboxを起動。[aha_navigation](../overlay_ws/src/aha_navigation/README.md)を参照 |
-| `use_manip` | 既定は `false`。現在のlaunchはスタブ |
+| `use_manip:=true` | MoveIt 2の右腕IK・経路計画・controller接続を起動。既定は `false`。[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md)を参照 |
 
 Xacroは起動時にSDFへ展開し、[preset](../overlay_ws/src/aha_gazebo/config/rcjo2026.json)の
 チェックサム・world名・モデル参照を検証する。worldの形状は変更しない。

@@ -60,7 +60,9 @@ def launch_task(context):
     spec = load_spec(config)
     if LOCATION not in spec.initial_state:
         raise ValueError(f"{config}: initial_state needs {LOCATION} as the spawn pose")
-    x, y, yaw = (str(float(v)) for v in resolve_pose(spec, spec.initial_state[LOCATION]))
+    x, y, yaw = (
+        str(float(v)) for v in resolve_pose(spec, spec.initial_state[LOCATION])
+    )
     runner = Node(
         package="aha_tasks",
         executable="task_runner",
@@ -82,7 +84,11 @@ def launch_task(context):
                 "spawn_yaw": yaw,
             },
         ),
-        include("aha_navigation", "localized_nav.launch.py", {"initial_pose": f"{x},{y},{yaw}"}),
+        include(
+            "aha_navigation",
+            "localized_nav.launch.py",
+            {"initial_pose": f"{x},{y},{yaw}"},
+        ),
         RegisterEventHandler(OnProcessExit(target_action=runner, on_exit=task_exited)),
         runner,
     ]
@@ -96,7 +102,10 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("gui_port", default_value="8765"),
-            *(DeclareLaunchArgument(k, default_value=v) for k, v in RUNNER_OPTIONS.items()),
+            *(
+                DeclareLaunchArgument(k, default_value=v)
+                for k, v in RUNNER_OPTIONS.items()
+            ),
             OpaqueFunction(function=launch_task),
             Node(
                 package="aha_tasks",

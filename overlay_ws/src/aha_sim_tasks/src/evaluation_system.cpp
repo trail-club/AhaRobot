@@ -16,6 +16,8 @@
 #include <gz/sim/Util.hh>
 #include <gz/sim/components/Collision.hh>
 #include <gz/sim/components/ContactSensorData.hh>
+#include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/JointPosition.hh>
 #include <gz/sim/components/Model.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/transport/Node.hh>
@@ -37,6 +39,7 @@ class EvaluationSystem : public gz::sim::System,
                  gz::sim::EntityComponentManager &, gz::sim::EventManager &) override
   {
     this->configured = true;
+    this->truthEnabled = sdf->Get<bool>("ground_truth", false).first;
     for (const auto &[key, value] : {
         std::pair{"robot_model", &this->robotName},
         std::pair{"object_model", &this->objectName},
@@ -106,6 +109,15 @@ class EvaluationSystem : public gz::sim::System,
       return;
     }
     this->collision = collisions.front();
+    if (this->truthEnabled)
+    {
+      for (const auto entity : ecm.ChildrenByComponents(this->robot, components::Joint()))
+      {
+        this->joints.emplace_back(ecm.Component<components::Name>(entity)->Data(), entity);
+        if (!ecm.Component<components::JointPosition>(entity))
+          ecm.CreateComponent(entity, components::JointPosition());
+      }
+    }
     // The Physics system fills and clears this component on every step.
     if (!ecm.Component<components::ContactSensorData>(this->collision))
       ecm.CreateComponent(this->collision, components::ContactSensorData());
@@ -138,12 +150,26 @@ class EvaluationSystem : public gz::sim::System,
     const auto robotPose = gz::sim::worldPose(this->robot, ecm);
     const auto objectPose = gz::sim::worldPose(this->object, ecm);
     const auto end = stamp(info.simTime);
-    const nlohmann::json sample = {
+    nlohmann::json sample = {
         {"schema_version", 1}, {"frame_id", "world"}, {"stamp", end},
         {"contact_window_start", stamp(this->lastPublish)},
         {"robot_pose", {robotPose.Pos().X(), robotPose.Pos().Y(), robotPose.Rot().Yaw()}},
         {"object_position", {objectPose.Pos().X(), objectPose.Pos().Y(), objectPose.Pos().Z()}},
         {"finger_contacts", this->contactWindow.TakeCount()}};
+    if (this->truthEnabled)
+    {
+      nlohmann::json positions = nlohmann::json::object();
+      for (const auto &[name, entity] : this->joints)
+      {
+        const auto *position = ecm.Component<gz::sim::components::JointPosition>(entity);
+        if (position && !position->Data().empty())
+          positions[name] = position->Data().front();
+      }
+      sample["ground_truth"] = {
+          {"robot_world_pose", {robotPose.Pos().X(), robotPose.Pos().Y(), robotPose.Pos().Z(),
+             robotPose.Rot().X(), robotPose.Rot().Y(), robotPose.Rot().Z(), robotPose.Rot().W()}},
+          {"joint_positions", positions}};
+    }
     gz::msgs::StringMsg state;
     state.set_data(sample.dump());
     this->statePublisher.Publish(state);
@@ -162,6 +188,8 @@ class EvaluationSystem : public gz::sim::System,
   gz::transport::Node::Publisher clockPublisher =
       this->node.Advertise<gz::msgs::Clock>("/evaluation/clock");
   bool configured = false;
+  bool truthEnabled = false;
+  std::vector<std::pair<std::string, gz::sim::Entity>> joints;
   std::string robotName, objectName, objectLinkName, objectCollisionName;
   std::string rightFingerName, leftFingerName;
   std::vector<std::string> lastMissing;
