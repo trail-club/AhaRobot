@@ -63,6 +63,24 @@ def test_scripted_scene_rejects_unreachable_straight_line_target():
         scripted_distances(scene)
 
 
+@pytest.mark.parametrize("ground_truth", [True, False])
+def test_world_truth_publication_is_opt_in(ground_truth):
+    world = ET.fromstring(
+        expand_world(
+            PACKAGE / "worlds/task_tables.sdf.xacro",
+            PACKAGE / "config/scene.json",
+            cameras=False,
+            ground_truth=ground_truth,
+        )
+    )
+    assert (
+        world.findtext(
+            "world/plugin[@name='aha_sim_tasks::EvaluationSystem']/ground_truth"
+        )
+        == str(ground_truth).lower()
+    )
+
+
 def test_scripted_distances_respect_rotated_spawn_heading():
     scene = deepcopy(load_scene(PACKAGE / "config/scene.json"))
     scene["robot_spawn"]["yaw"] = math.pi / 2

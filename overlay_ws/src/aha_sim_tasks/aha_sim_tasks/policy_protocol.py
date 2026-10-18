@@ -2,9 +2,10 @@
 
 import base64
 import json
+from dataclasses import asdict
 from types import MappingProxyType
 
-from .api import Action, CameraObservation, Observation
+from .api import Action, CameraObservation, GroundTruth, Observation
 
 
 def encode(message):
@@ -52,7 +53,7 @@ def observation_message(observation):
         and (head is None or observation.head_image is not head.image)
         else None
     )
-    return {
+    result = {
         "op": "act",
         "observation": {
             "sim_time": observation.sim_time,
@@ -65,6 +66,9 @@ def observation_message(observation):
             "cameras": cameras,
         },
     }
+    if observation.ground_truth is not None:
+        result["observation"]["ground_truth"] = asdict(observation.ground_truth)
+    return result
 
 
 def decode_observation(message):
@@ -88,6 +92,7 @@ def decode_observation(message):
         image = _decode_ros(image, Image) if image is not None else None
     if image is None and "head" in cameras:
         image = cameras["head"].image
+    truth = message.get("ground_truth")
     return Observation(
         sim_time=message["sim_time"],
         task_id=message["task_id"],
@@ -97,6 +102,15 @@ def decode_observation(message):
         odometry=tuple(message["odometry"]),
         head_image=image,
         cameras=MappingProxyType(cameras),
+        ground_truth=(
+            GroundTruth(
+                tuple(truth["robot_world_pose"]),
+                tuple(truth["object_position"]),
+                truth["finger_contacts"],
+            )
+            if truth is not None
+            else None
+        ),
     )
 
 

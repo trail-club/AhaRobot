@@ -64,6 +64,8 @@ def run_episode(args, task):
                     "headless:=" + ("true" if args.headless else "false"),
                     "cameras:=" + ("true" if args.cameras else "false"),
                     "camera_view:=" + ("true" if args.camera_view else "false"),
+                    "ground_truth:="
+                    + ("true" if args.policy == "ground_truth_ik" else "false"),
                 ],
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -74,6 +76,7 @@ def run_episode(args, task):
                 args.head_image_topic,
                 cameras=args.cameras,
                 camera_timeout=args.camera_timeout,
+                ground_truth=args.policy == "ground_truth_ik",
             )
             deadline = time.monotonic() + 90
             while not node.ready():
@@ -145,8 +148,16 @@ def run_episode(args, task):
                 result["metrics"] = evaluator.metrics
             if node is not None:
                 if rclpy.ok():
-                    node.stop()
-                    rclpy.spin_once(node, timeout_sec=0.1)
+                    try:
+                        node.stop()
+                        rclpy.spin_once(node, timeout_sec=0.1)
+                    except Exception as error:
+                        # A malformed state callback may still be pending. Keep
+                        # its original failure report and complete all cleanup.
+                        result.setdefault(
+                            "reason", f"Shutdown error: {type(error).__name__}: {error}"
+                        )
+                        result["status"] = "error"
                 node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()
@@ -169,7 +180,11 @@ def main():
     )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=["all", *tasks], default="all")
-    parser.add_argument("--policy", default="scripted")
+    parser.add_argument(
+        "--policy",
+        default="scripted",
+        help="scripted, noop, ground_truth_ik, or module:factory",
+    )
     parser.add_argument(
         "--episodes",
         type=int,
@@ -218,7 +233,7 @@ def main():
     parser.add_argument(
         "--policy-ros-domain-id",
         type=int,
-        help="Worker ROS domain (0..232); defaults to evaluation domain + 1, wrapping to 0",
+        help="Worker domain (0..232): ground_truth_ik shares the evaluation domain; other policies default to evaluation + 1, wrapping to 0",
     )
     parser.add_argument(
         "--policy-timeout",
@@ -237,7 +252,14 @@ def main():
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.cameras is None:
-        args.cameras = not args.head_image_topic
+        args.cameras = not args.head_image_topic and args.policy != "ground_truth_ik"
+    if args.policy == "ground_truth_ik":
+        if args.task != "pick_apple":
+            parser.error("ground_truth_ik supports --task pick_apple only")
+        if args.cameras or args.head_image_topic or args.camera_view:
+            parser.error(
+                "ground_truth_ik uses Gazebo truth only; camera options are unavailable"
+            )
     if args.camera_view and not args.cameras:
         parser.error("--camera-view requires cameras; remove --no-cameras")
     if args.cameras and args.head_image_topic:
@@ -246,12 +268,19 @@ def main():
             "built-in cameras supply head_image"
         )
     if args.policy_ros_domain_id is None:
-        args.policy_ros_domain_id = (args.ros_domain_id + 1) % 233
+        args.policy_ros_domain_id = (
+            args.ros_domain_id
+            if args.policy == "ground_truth_ik"
+            else (args.ros_domain_id + 1) % 233
+        )
     if (
         args.episodes < 1
         or not 0 <= args.ros_domain_id <= 232
         or not 0 <= args.policy_ros_domain_id <= 232
-        or args.policy_ros_domain_id == args.ros_domain_id
+        or (
+            (args.policy_ros_domain_id == args.ros_domain_id)
+            != (args.policy == "ground_truth_ik")
+        )
         or any(
             not 0 < timeout < float("inf")
             for timeout in (
@@ -263,7 +292,7 @@ def main():
         )
     ):
         parser.error(
-            "episodes and timeouts must be positive; ROS domains must be distinct and in 0..232"
+            "episodes and timeouts must be positive; ROS domains must be in 0..232; ground_truth_ik shares the evaluation domain, other policies require a distinct domain"
         )
     if args.list_tasks:
         print(
@@ -279,6 +308,9 @@ def main():
     selected = list(tasks) if args.task == "all" else [args.task]
     report = {
         "policy": args.policy,
+        "observation_source": (
+            "gazebo_ground_truth" if args.policy == "ground_truth_ik" else "sensors"
+        ),
         "ros_domain_id": args.ros_domain_id,
         "policy_ros_domain_id": args.policy_ros_domain_id,
         "cameras": args.cameras,

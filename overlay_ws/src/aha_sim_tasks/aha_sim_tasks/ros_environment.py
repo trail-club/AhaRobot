@@ -23,8 +23,10 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from .api import (
     Action,
     CameraObservation,
+    clamp_joint_roundoff,
     CONTROLLER_JOINTS,
     GRIPPER_JOINTS,
+    GroundTruth,
     JOINT_LIMITS,
     Observation,
 )
@@ -40,13 +42,23 @@ def yaw(quaternion):
 
 class RosEnvironment(Node):
     def __init__(
-        self, task, head_image_topic="", *, cameras=False, camera_timeout=10.0
+        self,
+        task,
+        head_image_topic="",
+        *,
+        cameras=False,
+        camera_timeout=10.0,
+        ground_truth=False,
     ):
+        if ground_truth and (cameras or head_image_topic):
+            raise ValueError("Ground-truth IK does not consume sensor observations")
         super().__init__(
             "task_evaluator",
             parameter_overrides=[Parameter("use_sim_time", value=True)],
         )
         self.task = task
+        self.truth_enabled = ground_truth
+        self.ground_truth = None
         self.positions = {}
         self.velocities = {}
         self.odom = None
@@ -80,21 +92,26 @@ class RosEnvironment(Node):
             name: self.create_publisher(Float64MultiArray, f"/{name}/commands", 10)
             for name in GRIPPER_JOINTS
         }
-        self.create_subscription(
-            JointState, "/joint_states", self.on_joints, qos_profile_sensor_data
-        )
-        self.create_subscription(
-            Odometry,
-            "/diff_drive_controller/odom",
-            self.on_odom,
-            qos_profile_sensor_data,
-        )
+        if ground_truth:
+            self.truth_joints = self.create_publisher(
+                JointState, "/evaluation/joint_states", 10
+            )
+        if not ground_truth:
+            self.create_subscription(
+                JointState, "/joint_states", self.on_joints, qos_profile_sensor_data
+            )
+            self.create_subscription(
+                Odometry,
+                "/diff_drive_controller/odom",
+                self.on_odom,
+                qos_profile_sensor_data,
+            )
         self.create_subscription(String, "/evaluation/state", self.on_state, 10)
         if head_image_topic:
             self.create_subscription(
                 Image, head_image_topic, self.on_image, qos_profile_sensor_data
             )
-        self.required = {"joints", "odom", "state"}
+        self.required = {"state"} if ground_truth else {"joints", "odom", "state"}
         if head_image_topic:
             self.required.add("image")
         if cameras:
@@ -245,6 +262,25 @@ class RosEnvironment(Node):
         # Reject delayed/duplicate samples before changing any speed history.
         if self.world is not None and sim_time <= self.world.sim_time:
             return
+        truth = None
+        if getattr(self, "truth_enabled", False):
+            payload = sample.get("ground_truth")
+            if payload is None:
+                raise ValueError("Gazebo ground truth is missing")
+            pose = tuple(payload["robot_world_pose"])
+            positions = payload["joint_positions"]
+            if (
+                len(pose) != 7
+                or not all(
+                    math.isfinite(value) for value in (*pose, *positions.values())
+                )
+                or abs(sum(value * value for value in pose[3:]) - 1) > 1e-3
+            ):
+                raise ValueError("Invalid Gazebo ground truth")
+            # Physics may not have filled the newly requested joint components yet.
+            if not JOINT_LIMITS.keys() <= positions.keys():
+                return
+            truth = GroundTruth(pose, position, contacts)
         speed = math.inf
         if self.previous_object is not None:
             previous_time, previous_position = self.previous_object
@@ -270,6 +306,21 @@ class RosEnvironment(Node):
             contacts,
             robot_speed,
         )
+        if truth is not None:
+            self.ground_truth = truth
+            self.positions = dict(positions)
+            self.velocities = {}
+            self.odom = robot_pose
+            joint_message = JointState(
+                name=list(positions),
+                position=[
+                    clamp_joint_roundoff(name, value)
+                    for name, value in positions.items()
+                ],
+            )
+            joint_message.header.stamp.sec = stamp["sec"]
+            joint_message.header.stamp.nanosec = stamp["nanosec"]
+            self.truth_joints.publish(joint_message)
         self.mark("state")
 
     def ready(self):
@@ -313,7 +364,9 @@ class RosEnvironment(Node):
                 "Camera images or their timestamped transforms are unavailable"
             )
         return Observation(
-            self.get_clock().now().nanoseconds * 1e-9,
+            self.world.sim_time
+            if self.truth_enabled
+            else self.get_clock().now().nanoseconds * 1e-9,
             self.task.task_id,
             self.task.instruction,
             MappingProxyType(dict(self.positions)),
@@ -321,6 +374,7 @@ class RosEnvironment(Node):
             self.odom,
             cameras["head"].image if cameras else self.image,
             MappingProxyType(cameras),
+            self.ground_truth,
         )
 
     def apply(self, action):

@@ -115,12 +115,18 @@ class ScriptedPolicy:
 
 
 def policy_factory(name: str):
+    if name == "ground_truth_ik":
+        from .ground_truth_ik import GroundTruthIKPolicy
+
+        return GroundTruthIKPolicy
     if name == "scripted":
         return ScriptedPolicy
     if name == "noop":
         return NoopPolicy
     if ":" not in name:
-        raise ValueError("policy must be scripted, noop, or module:factory")
+        raise ValueError(
+            "policy must be scripted, noop, ground_truth_ik, or module:factory"
+        )
     module, factory = name.rsplit(":", 1)
     factory = getattr(importlib.import_module(module), factory)
     if not callable(factory):
