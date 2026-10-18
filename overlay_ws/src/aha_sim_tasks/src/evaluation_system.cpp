@@ -93,6 +93,29 @@ class EvaluationSystem : public gz::sim::System,
       if (link != kNullEntity && ids->empty())
         missing.push_back(this->robotName + "/" + name + " (no collision entities)");
     }
+    this->destinationCollisions.clear();
+    if (!this->destinationName.empty())
+    {
+      const auto destination = ecm.EntityByComponents(
+          components::Model(), components::Name(this->destinationName));
+      if (destination == kNullEntity)
+      {
+        missing.push_back(this->destinationName);
+      }
+      else
+      {
+        const auto top = Model(destination).LinkByName(ecm, "top");
+        if (top == kNullEntity)
+          missing.push_back(this->destinationName + "/top");
+        else
+        {
+          for (const auto entity : ecm.ChildrenByComponents(top, components::Collision()))
+            this->destinationCollisions.insert(entity);
+          if (this->destinationCollisions.empty())
+            missing.push_back(this->destinationName + "/top (no collision entities)");
+        }
+      }
+    }
     if (!missing.empty())
     {
       const auto now = std::chrono::steady_clock::now();
@@ -110,19 +133,6 @@ class EvaluationSystem : public gz::sim::System,
     }
     this->collision = collisions.front();
     this->objectCollisions = collisions;
-    if (!this->destinationName.empty())
-    {
-      const auto destination = ecm.EntityByComponents(
-          components::Model(), components::Name(this->destinationName));
-      const auto top = Model(destination).LinkByName(ecm, "top");
-      for (const auto entity : ecm.ChildrenByComponents(top, components::Collision()))
-        this->destinationCollisions.insert(entity);
-      if (this->destinationCollisions.empty())
-      {
-        this->collision = kNullEntity;
-        return;
-      }
-    }
     if (this->truthEnabled)
     {
       for (const auto entity : ecm.ChildrenByComponents(this->robot, components::Joint()))
