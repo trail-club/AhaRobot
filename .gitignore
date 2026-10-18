@@ -32,3 +32,4 @@ overlay_ws/evaluation-results*
 docs/personal/
 
 tools/servo/*.csv
+tools/servo/output/

@@ -42,6 +42,12 @@ test:
 	bash tools/perception/macos/test.sh
 	docker exec $(CONTAINER) bash -lc \
 		"cd /app/overlay_ws && colcon build --symlink-install && source install/setup.bash && colcon test --packages-skip astra_description astra_controller astra_controller_interfaces sobits_gazebo_worlds tmc_wrs_gz_worlds --event-handlers console_direct+ && colcon test-result --verbose"
+	$(MAKE) test-servo
+
+.PHONY: test-servo
+test-servo:
+	docker exec $(CONTAINER) bash -lc \
+		"source /app/overlay_ws/install/setup.bash && cd /app/tools/servo && ROS_DOMAIN_ID=97 python3 -m unittest generate_trajectory_test record_joint_states_test plot_joint_states_test send_trajectory_test trajectory_guard_test -v"
 
 .PHONY: sim
 sim:

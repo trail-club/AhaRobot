@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       > /etc/apt/sources.list.d/gazebo-stable.list \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
-      git make sudo terminator xauth \
+      git make sudo terminator xauth fonts-noto-cjk python3-matplotlib \
       python3-pip python3-colcon-common-extensions python3-rosdep python3-vcstool \
       iputils-ping telnet x11-apps mesa-utils \
       '~nros-jazzy-rqt*' \
