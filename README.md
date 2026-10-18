@@ -25,6 +25,7 @@ worldと初期位置の変更は
 - [開発ルール](AGENTS.md)
 - [ROSパッケージ・制限](overlay_ws/README.md)
 - [ROSインターフェース](docs/interfaces.md)
+- [両腕キーボード教示](docs/arm-keyboard-teleop.md) — 実機の両腕を `arm_node` 経由でキー操作する
 - [submoduleの更新](docs/upstream-workflow.md)
 - [ライセンス・出典](dependencies/THIRD_PARTY.md)
 - [補助資料](docs/context/README.md) — 実機実験・CAD・検証結果

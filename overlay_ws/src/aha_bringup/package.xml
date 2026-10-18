@@ -9,6 +9,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_arm_teleop</exec_depend>
+  <exec_depend>astra_controller</exec_depend>
   <exec_depend>aha_gazebo</exec_depend>
   <exec_depend>aha_navigation</exec_depend>
   <exec_depend>aha_manipulation</exec_depend>

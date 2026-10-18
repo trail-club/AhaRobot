@@ -79,3 +79,8 @@ python3 tools/servo/motion_test.py 0 10 8 2 /dev/ttyUSB0
 根拠は [初期化前のサーボ設定とグリッパの解釈](../../docs/context/motor.md#初期化前のサーボ設定とグリッパの解釈)を参照。
 `check_zero.py` / `motion_test.py` のCSVは実行ディレクトリへ保存される。
 保存済みの初期化前設定と実機試験の確認範囲は [検証記録](../../docs/context/motor.md#astraarmcontrollerの初期化と閉ループ試験)を参照。
+
+## ROS経由の両腕操作
+
+AstraArmControllerファームの `arm_node` が `/joint_states` を出している場合は、
+シリアルを直接操作せず [両腕キーボード教示](../../docs/arm-keyboard-teleop.md) を使う。
