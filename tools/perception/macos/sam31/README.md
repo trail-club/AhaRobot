@@ -115,6 +115,8 @@ bash tools/perception/macos/sam31/reference.sh --user <Unixユーザー名> --na
 | `reference.json` | 全ての向きの `view.json` をまとめたもの |
 | `phrase.json` | SAM 3.1に渡す種類の言葉と、決めた方法（`vlm`：Qwen、`user`：`--phrase`） |
 
+参照画像を使った検出は [sam31_dinov2](../sam31_dinov2/README.md) を参照する。
+
 ## 保存結果
 
 `.cache-sam31/results/interactive/<実行日時-ID>/<連番>/` に保存する（Git対象外）。

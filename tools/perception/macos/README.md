@@ -4,6 +4,7 @@
 | --- | --- |
 | [pointcloud/](pointcloud/README.md) | RGB-DをROSへ配信し、RVizで点群変換を確認 |
 | [sam31/](sam31/README.md) | RealSenseで撮影し、DGX SparkのSAM 3.1で対話推論 |
+| [sam31_dinov2/](sam31_dinov2/README.md) | 参照画像とDINOv2で、SAM 3.1の候補から指定の物を見つける |
 
 両ツールはPython環境とRealSense SDKを共用する。カメラを同時には使用しない。
 SDKの準備は `bootstrap_realsense.py` が行い、初回起動時に専用venvへビルドする。

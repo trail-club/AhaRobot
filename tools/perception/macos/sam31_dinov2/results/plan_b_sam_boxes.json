@@ -1,0 +1,1477 @@
+[
+ {
+  "key": "01",
+  "variant": "box",
+  "text": null,
+  "seconds": 1.19,
+  "detections": [
+   {
+    "score": 0.867,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "01",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "01",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.723,
+    "bbox": [
+     453,
+     191,
+     640,
+     443
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "02",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.879,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "key": "02",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.524,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "key": "02",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.992,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.601,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   }
+  ]
+ },
+ {
+  "key": "03",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.871,
+    "bbox": [
+     77,
+     131,
+     249,
+     423
+    ]
+   }
+  ]
+ },
+ {
+  "key": "03",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.746,
+    "bbox": [
+     339,
+     301,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   }
+  ]
+ },
+ {
+  "key": "03",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   },
+   {
+    "score": 0.594,
+    "bbox": [
+     339,
+     300,
+     442,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "key": "04",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.926,
+    "bbox": [
+     74,
+     0,
+     276,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "key": "04",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.762,
+    "bbox": [
+     361,
+     95,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     74,
+     0,
+     276,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "key": "04",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.559,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     74,
+     0,
+     276,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "key": "05",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.945,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "05",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.739,
+    "bbox": [
+     368,
+     393,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "05",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.617,
+    "bbox": [
+     368,
+     393,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.59,
+    "bbox": [
+     551,
+     176,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "key": "06",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.35,
+  "detections": [
+   {
+    "score": 0.84,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "key": "06",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.91,
+    "bbox": [
+     362,
+     163,
+     454,
+     317
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "key": "06",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.785,
+    "bbox": [
+     362,
+     163,
+     454,
+     317
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "key": "07",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.35,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     191,
+     131,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "key": "07",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.91,
+    "bbox": [
+     365,
+     278,
+     457,
+     430
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     191,
+     131,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "key": "07",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.613,
+    "bbox": [
+     365,
+     278,
+     457,
+     430
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     191,
+     131,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "key": "08",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.957,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.535,
+    "bbox": [
+     332,
+     180,
+     433,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "key": "08",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.899,
+    "bbox": [
+     332,
+     180,
+     433,
+     330
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   }
+  ]
+ },
+ {
+  "key": "08",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.773,
+    "bbox": [
+     332,
+     180,
+     433,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "key": "09",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     104,
+     43,
+     291,
+     394
+    ]
+   },
+   {
+    "score": 0.531,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   }
+  ]
+ },
+ {
+  "key": "09",
+  "variant": "box+generic",
+  "text": "red snack container",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.636,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     104,
+     43,
+     291,
+     394
+    ]
+   }
+  ]
+ },
+ {
+  "key": "09",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     104,
+     43,
+     291,
+     394
+    ]
+   },
+   {
+    "score": 0.746,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   }
+  ]
+ },
+ {
+  "key": "10",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     148,
+     56,
+     294,
+     389
+    ]
+   }
+  ]
+ },
+ {
+  "key": "10",
+  "variant": "box+generic",
+  "text": "red snack container",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.597,
+    "bbox": [
+     336,
+     221,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     148,
+     56,
+     294,
+     389
+    ]
+   }
+  ]
+ },
+ {
+  "key": "10",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     148,
+     56,
+     294,
+     389
+    ]
+   },
+   {
+    "score": 0.714,
+    "bbox": [
+     336,
+     221,
+     425,
+     370
+    ]
+   }
+  ]
+ },
+ {
+  "key": "11",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.57,
+    "bbox": [
+     482,
+     112,
+     640,
+     352
+    ]
+   },
+   {
+    "score": 0.531,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "key": "11",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.992,
+    "bbox": [
+     16,
+     62,
+     213,
+     396
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   },
+   {
+    "score": 0.848,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   }
+  ]
+ },
+ {
+  "key": "11",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.704,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.554,
+    "bbox": [
+     482,
+     111,
+     640,
+     352
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     16,
+     62,
+     213,
+     396
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "key": "12",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.515,
+    "bbox": [
+     475,
+     148,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     328,
+     44,
+     428,
+     341
+    ]
+   },
+   {
+    "score": 0.5,
+    "bbox": [
+     205,
+     218,
+     295,
+     371
+    ]
+   }
+  ]
+ },
+ {
+  "key": "12",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   },
+   {
+    "score": 0.89,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   }
+  ]
+ },
+ {
+  "key": "12",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.71,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.575,
+    "bbox": [
+     475,
+     148,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "key": "13",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.773,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "key": "13",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.992,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.688,
+    "bbox": [
+     425,
+     0,
+     585,
+     256
+    ]
+   },
+   {
+    "score": 0.899,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   }
+  ]
+ },
+ {
+  "key": "13",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.543,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.992,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.515,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "key": "14",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     456,
+     29,
+     559,
+     325
+    ]
+   }
+  ]
+ },
+ {
+  "key": "14",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     456,
+     29,
+     559,
+     325
+    ]
+   },
+   {
+    "score": 0.875,
+    "bbox": [
+     262,
+     239,
+     360,
+     385
+    ]
+   }
+  ]
+ },
+ {
+  "key": "14",
+  "variant": "box+prompt",
+  "text": "pringles",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.71,
+    "bbox": [
+     262,
+     239,
+     360,
+     385
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     456,
+     29,
+     559,
+     325
+    ]
+   },
+   {
+    "score": 0.714,
+    "bbox": [
+     329,
+     145,
+     475,
+     362
+    ]
+   }
+  ]
+ },
+ {
+  "key": "15",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.961,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.625,
+    "bbox": [
+     25,
+     27,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.531,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "key": "15",
+  "variant": "box+generic",
+  "text": "soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.773,
+    "bbox": [
+     475,
+     149,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.848,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "key": "15",
+  "variant": "box+prompt",
+  "text": "campbell's soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.957,
+    "bbox": [
+     328,
+     44,
+     428,
+     341
+    ]
+   }
+  ]
+ },
+ {
+  "key": "16",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.688,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   }
+  ]
+ },
+ {
+  "key": "16",
+  "variant": "box+generic",
+  "text": "soup can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.766,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.668,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "key": "16",
+  "variant": "box+prompt",
+  "text": "campbell's soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.961,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "key": "17",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "key": "17",
+  "variant": "box+generic",
+  "text": "plastic wipe container",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.992,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "key": "18",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.773,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "key": "18",
+  "variant": "box+generic",
+  "text": "red snack can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.992,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.688,
+    "bbox": [
+     425,
+     0,
+     585,
+     256
+    ]
+   },
+   {
+    "score": 0.899,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   }
+  ]
+ },
+ {
+  "key": "19",
+  "variant": "box",
+  "text": null,
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.855,
+    "bbox": [
+     392,
+     306,
+     602,
+     410
+    ]
+   }
+  ]
+ },
+ {
+  "key": "19",
+  "variant": "box+generic",
+  "text": "yellow banana",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     392,
+     306,
+     602,
+     410
+    ]
+   }
+  ]
+ },
+ {
+  "key": "19",
+  "variant": "box+prompt",
+  "text": "banana",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.988,
+    "bbox": [
+     392,
+     306,
+     602,
+     410
+    ]
+   }
+  ]
+ }
+]
