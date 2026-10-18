@@ -11,9 +11,10 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
 | `aha_bringup` | [ロボット生成とcontrollerの起動](src/aha_bringup/README.md) |
 | `aha_sim_tasks` | [タスク・policy評価](src/aha_sim_tasks/README.md)、approach / pick / pick-and-place |
+| `aha_tasks` | [サブゴール単位のタスク実行基盤とWeb GUI](src/aha_tasks/README.md)、タスク定義 |
 | `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
 | `aha_msgs` | msg / srv / action定義 |
-| `aha_navigation` | シミュレーションのSLAM（slam_toolbox）。[README](src/aha_navigation/README.md)を参照 |
+| `aha_navigation` | シミュレーションのSLAM、固定地図・AMCL・Nav2。[README](src/aha_navigation/README.md)を参照 |
 | `aha_manipulation` | [MoveIt 2右腕IK・経路計画・軌道実行](src/aha_manipulation/README.md) |
 | `aha_perception` | 頭部・手首カメラのbridge、頭部の点群・RViz表示・操作UI。実行手順は[README](src/aha_perception/README.md)を参照 |
 | `aha_arm_teleop` | 実機両腕のキーボード教示。`arm_node` の `joint_command` へ出す。[手順](../docs/arm-keyboard-teleop.md) |
@@ -57,6 +58,6 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 - 昇降は左右2軸として記述しているが、実機は共通軸。
 - Gazeboのセンサは頭部RGB-Dカメラ、左右の手首RGBカメラ、シミュレーション専用の2D LiDAR。
   手首カメラは仮想取付位置で、実機のURDFには手首カメラとLiDARはない。
-- Nav2の統合は未実装。SLAMとMoveItの動作確認はシミュレーションのみ。
+- SLAM・Nav2・MoveItの動作確認はシミュレーションのみ。
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。
   実機の頭部は `aha_servo` のブリッジで動かす。
