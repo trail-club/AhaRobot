@@ -80,7 +80,7 @@ appleは自由剛体で、衝突・摩擦・重力によって把持や落下が
 | シミュレータの準備 | 90秒 | 固定 |
 | 準備後の試行 | 240秒 | `--wall-timeout` |
 | policyの読み込み・生成・`reset` | 120秒 | `--policy-startup-timeout` |
-| `act` 1回 | 30秒 | `--policy-timeout` |
+| `act` 1回 | 30秒（`codex` は150秒） | `--policy-timeout` |
 | カメラの受信・利用可能な画像組の待機 | 10秒 | `--camera-timeout` |
 
 ## Codexによるpolicy評価
@@ -92,7 +92,7 @@ CLIの画像添付・構造化出力は [OpenAI公式ドキュメント](https:/
 
 ```bash
 ros2 run aha_sim_tasks evaluate --task place_apple --policy codex \
-  --episodes 1 --step-duration 2 --policy-timeout 150 --wall-timeout 1800 \
+  --episodes 1 --wall-timeout 1800 \
   --camera-timeout 30 --record-video --output /tmp/aha-evaluation/codex-place.json
 ```
 
@@ -108,6 +108,7 @@ Codexの既定は2秒。推論中はGazeboをpauseし、Actionの適用中だけ
 各100 msで同じActionを再配信するため、ベース指令がcontrollerの0.5秒の期限で失効することを防ぐ。
 成功判定は従来と同じphysicsの観測に基づき、保持時間・タスク期限は推論待ち時間を含まない。
 実時間の `--wall-timeout` と `--policy-timeout` は有効で、CLI自体の呼び出し期限は120秒。
+Codexの `--policy-timeout` の既定は150秒で、120秒以下の指定はエラーとする。
 他のpolicyも `--step-duration` を使えるが、`ground_truth_ik` は連続実行のみ対応する。
 他のpolicyの既定は0（連続実行）。Codexでは3台の内蔵カメラが必須。
 

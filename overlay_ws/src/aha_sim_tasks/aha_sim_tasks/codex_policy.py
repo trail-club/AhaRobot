@@ -17,6 +17,7 @@ from .images import image_array
 
 MODEL = "gpt-6.1-sol"
 REASONING_EFFORT = "medium"
+CLI_TIMEOUT = 120
 CAMERAS = ("head", "left_wrist", "right_wrist")
 RESPONSE_SCHEMA = {
     "type": "object",
@@ -237,7 +238,7 @@ class CodexPolicy:
                 text=True,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=120,
+                timeout=CLI_TIMEOUT,
                 check=False,
             )
         if completed.returncode:

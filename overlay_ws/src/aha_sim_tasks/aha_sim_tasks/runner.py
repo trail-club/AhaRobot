@@ -14,6 +14,7 @@ import uuid
 
 from ament_index_python.packages import get_package_share_directory
 
+from .codex_policy import CLI_TIMEOUT as CODEX_CLI_TIMEOUT
 from .evaluation import Evaluator, load_tasks
 from .policy_process import PolicyProcess
 from .processes import policy_partition, stop_group
@@ -288,8 +289,8 @@ def main():
     parser.add_argument(
         "--policy-timeout",
         type=float,
-        default=30,
-        help="Wall seconds allowed for each policy.act call",
+        help="Wall seconds allowed for each policy.act call. "
+        "Default: 150 for codex (its CLI call allows 120), 30 for other policies",
     )
     parser.add_argument(
         "--policy-startup-timeout",
@@ -309,6 +310,13 @@ def main():
     args = parser.parse_args()
     if args.step_duration is None:
         args.step_duration = 2.0 if args.policy == "codex" else 0.0
+    if args.policy_timeout is None:
+        args.policy_timeout = 150.0 if args.policy == "codex" else 30.0
+    elif args.policy == "codex" and args.policy_timeout <= CODEX_CLI_TIMEOUT:
+        parser.error(
+            f"codex requires --policy-timeout above {CODEX_CLI_TIMEOUT} seconds, "
+            "the Codex CLI call limit"
+        )
     if (
         not math.isfinite(args.step_duration)
         or args.step_duration < 0
