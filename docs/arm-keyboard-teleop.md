@@ -31,13 +31,15 @@
 ## 起動
 
 開発コンテナの中で、`astra_controller_interfaces` と `astra_controller` と overlay をビルドして source する。
-
+コンテナに入ったシェルでは先に `export ROS_DOMAIN_ID=0` する（未設定だと `ros2 topic` などが落ちる）。
 ```bash
 cd /app/overlay_ws
+
 colcon build --symlink-install \
   --paths src/aha_arm_teleop src/aha_bringup \
-  --paths ../upstream/astra_controller_interfaces ../upstream/astra_controller
-source install/setup.bash
+          ../upstream/astra_controller_interfaces ../upstream/astra_controller
+
+source /app/overlay_ws/install/setup.bash
 ```
 
 `astra_controller` は `simple_cap` に依存している。腕ノードだけ欲しいホストで
@@ -49,7 +51,7 @@ source install/setup.bash
 ```bash
 ros2 launch aha_bringup arms.launch.py
 ```
-
+`ros2 run aha_bringup teleop_arms.sh` は、現状 `teleop_arms.sh` がインストールされないため使えない。（Tong: 1018）
 このマシンのように片腕だけ、または `/dev/ttyUSB0` のときは名前を渡す。
 
 ```bash
@@ -108,8 +110,50 @@ ros2 topic hz /joint_states
 ros2 topic echo /joint_states --field name --once
 ```
 
-左の `w` で `joint_l2` が減る方向へ動き、右の `W` で `joint_r2` が同じ向きに動く。`q` で両腕の `/arm/torque_enable` に 0 が行く。
+左の `w` で `joint_l2` の値が減り、右の `W` でも `joint_r2` の値が減る。
+URDF の正方向は両腕で同じ向きに定義されているので、物理的には鏡映にならない
+（`w` で左腕は内側、`W` で右腕は外側へ動く）。
 
 ## 実機
 
 2026-10-11、コンテナ `aharobot_aha_project_1` の中から右腕が動いた。`arms.launch.py` を `use_left:=false right_device:=/dev/ttyUSB0` で上げ、別の `docker exec -it` で `keyboard_teleop`（`sides:=['right']`）を打った。左腕は同じ日に、コンテナの外の WSL 上のキーボードで各関節が動いた。左右を同時には上げていない。本番機で udev 名 `/dev/tty_puppet_left` と `/dev/tty_puppet_right` が出るなら、launch の初期値のままでよい。イメージを新しく作るときは `python3-serial` が要る。`arm_node` はそれを import する。
+
+## 2026-10-18 の検証
+
+### 確認したこと
+
+Windows + WSL2（Docker Desktop）の開発コンテナで、符号パッチ（`patches/astra_controller-trail-club-ver1004.patch`）を当てた `arm_node` を使い、左腕だけ・右腕だけ・両腕同時の順に確認した。
+
+- 両腕とも全 6 関節で、キーを押したときの `/joint_states` の増減と URDF の正方向が一致した。
+  `w e r t u`（右腕は大文字）はどれも値を減らす向き、`h` / `H` はグリッパを開く向きに動く。
+- 両腕同時では左右のキーが互いに干渉せず、`space` / `0` / `q` が両腕に効いた。
+- 2 つのキーを同時に押し続ける操作は確認できない。端末のオートリピートは最後に押したキーだけで、`w` と `W` は Shift を共有する。
+
+### 手順で本文と違ったところ
+
+| 現象 | 原因 | 今回の対処 |
+| --- | --- | --- |
+| `colcon build` で 2 パッケージしかビルドされない | `--paths` を 2 回書くと最後の 1 つだけが効く | `--paths` を 1 つにまとめた |
+| 教示側のシェルで setup が見つからない | `source /app/install/setup.bash` はパスが違う | `/app/overlay_ws/install/setup.bash` を使った |
+| `ros2 run aha_bringup teleop_arms.sh` が使えない | `teleop_arms.sh` がインストールされていない | `ros2 run aha_arm_teleop keyboard_teleop` を使った |
+| `arm_node` がシリアルを開けない（`Permission denied`） | コンテナの `trail` が `dialout` に入っていない | `sudo usermod -aG dialout trail` のあと `newgrp dialout` |
+| `ros2 topic` などの CLI が `ValueError` で落ちる | `ROS_DOMAIN_ID` 未設定で compose が空文字を渡す | 各シェルで `export ROS_DOMAIN_ID=0` |
+
+### グリッパの押しっぱなしが滑らかでない問題
+
+`h` / `y` を押し続けると、グリッパが進んでは止まり、約 2 秒ごとに 1.6 mm ほど逆向きに戻った。教示ノードの表示が間欠的に「この向きは停止中」になった。左右とも同じだった。
+
+原因は教示ノード側にあった。`arm_node` とファームは関係しない。
+
+- 教示ノードはメインループ 1 周で `/joint_states` を 1 本しか処理していなかった。`/joint_states` には 1 腕あたり関節とグリッパの 2 本の発行元があり、届く本数がループ周期とほぼ同じだったため、片方の発行元のメッセージが取りこぼされ、グリッパの実位置が数百 ms 古いままになっていた。
+- 古い実位置を基準に目標が lead（80 step）で止まり、実位置が動かないので「動かない」と判定され、目標が古い実位置へ戻された。これが逆向きの戻りだった。
+- 別の問題として、押しっぱなしの増分 `rate * dt` を毎回整数に切り捨てていたため、速度が `rate` ではなくループ頻度で決まり、開く向きと閉じる向きで約 2 倍違っていた。
+
+`aha_arm_teleop` を次のように直した。
+
+- メインループ 1 周で、たまっているコールバックを最大 10 本まで処理する。
+- 実位置が 0.1 秒より古いときは、押しっぱなしでも目標を進めず、「動かない」判定もしない。
+- 押しっぱなしの増分は端数を残して積み上げ、指令するときに丸める。速度は向きによらず `rate`（既定 250 step/秒）になる。以前より速く感じることがある。
+
+ロジックの確認は `overlay_ws/src/aha_arm_teleop/test/test_feedback_timing.py` にある。
+修正後、両腕でグリッパと joint0 の押しっぱなしを確認し、止まりや逆向きの戻りは出なかった。
