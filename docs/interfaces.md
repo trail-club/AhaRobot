@@ -249,10 +249,10 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `furniture` / `furniture_level` は家具の設定（パラメータ `furniture_config`、[家具の設定](../overlay_ws/src/aha_perception/README.md#家具の設定)）で
 その面が対応した家具の名前と段（1が設定の一番下の段）。対応しない面・設定なしでは空 / 0。
 対応には `tracking_frame` から設定のframeへのTFを使い、TFがない間は対応しない。
-`planes/cloud` は平面ごとに色分けしたインライア点。
+`planes/cloud` は面のID（`Surface.id`）ごとに色分けしたインライア点（追跡前の平面は灰色）。
 `planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
-`place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）、
-中心の球（ns `center`、1位は緑）、順位（ns `rank`）を、障害物ごとに箱（ns `obstacle`）を出す。
+`place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）と
+中心の球（ns `center`）を、障害物ごとに箱（ns `obstacle`）を出す。順位は出さない（試す順は呼び出し側が決める）。
 `furniture/markers` は起動時に1回、設定のframeで段ごとに家具の外形の長方形（ns `level`）と `<名前> <段>` の文字（ns `label`）を出す。
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
@@ -313,4 +313,5 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、`PickObject`、`TaskCommand` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
 `DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ) が使う）。
+置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

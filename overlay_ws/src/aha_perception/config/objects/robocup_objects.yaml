@@ -1,6 +1,7 @@
 # Object list: labels, categories and sizes of the objects the robot knows
 # (aha_perception.object_list). Used by sim_object_detector.py (Gazebo model
-# name -> label, size of the detection).
+# name -> label, size of the detection) and by the place test bed
+# (tests/ros/aha_test_orchestration: category of a label for the decision).
 #
 # size: x, y footprint and z height (m). shape: box | cylinder (diameter x).
 # models: fnmatch patterns of the Gazebo model names detected as the label;
@@ -26,6 +27,8 @@ objects:
   # snack
   - {label: pringles, category: snack, shape: cylinder, size: [0.075, 0.075, 0.23]}
   - {label: cookies, category: snack, shape: box, size: [0.06, 0.10, 0.15]}
+  - {label: chocolate jello, category: snack, shape: box, size: [0.04, 0.09, 0.08]}
+  - {label: strawberry jello, category: snack, shape: box, size: [0.04, 0.09, 0.08]}
   # cleaning supplies
   - {label: cleanser, category: cleaning supplies, shape: cylinder, size: [0.07, 0.07, 0.20]}
   - {label: sponge, category: cleaning supplies, shape: box, size: [0.09, 0.06, 0.04]}
