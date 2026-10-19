@@ -2,7 +2,8 @@
 
 Starts:
   - Gazebo Harmonic with the requested world
-  - robot_state_publisher (from xacro, sim:=true)
+  - robot_state_publisher (from xacro, sim:=true; robot_xacro:= replaces
+        aha_description's aha_robot.urdf.xacro, e.g. for a test bed)
   - spawn AhaRobot into Gazebo from the same xacro output (physics joint
     limits widened and lifts holding, see aha_gazebo.model)
   - ros_gz_bridge for /clock
@@ -121,16 +122,20 @@ def _validate_manip_rviz(context):
     return []
 
 
+def _default_xacro():
+    return str(
+        Path(get_package_share_directory("aha_description"))
+        / "urdf"
+        / "aha_robot.urdf.xacro"
+    )
+
+
 def _robot(context):
     # One xacro run for both: robot_state_publisher (and through it
     # ros2_control and MoveIt) gets the URDF, Gazebo the model with widened
     # limits and holding lifts (aha_gazebo.model).
     description = xacro.process_file(
-        str(
-            Path(get_package_share_directory("aha_description"))
-            / "urdf"
-            / "aha_robot.urdf.xacro"
-        ),
+        LaunchConfiguration("robot_xacro", default=_default_xacro()).perform(context),
         mappings={
             "sim": "true",
             "cameras": LaunchConfiguration("cameras").perform(context),
@@ -356,6 +361,12 @@ def generate_launch_description():
             DeclareLaunchArgument("cameras", default_value="true"),
             DeclareLaunchArgument("camera_rgb_noise_stddev", default_value="0.003"),
             DeclareLaunchArgument("initial_lift", default_value="0.0"),
+            DeclareLaunchArgument(
+                "robot_xacro",
+                default_value=_default_xacro(),
+                description="Robot xacro (sim, cameras, camera_rgb_noise_stddev and "
+                "initial_lift are passed); default aha_description's aha_robot.urdf.xacro",
+            ),
             DeclareLaunchArgument(
                 "robot_name",
                 default_value="aha_robot",

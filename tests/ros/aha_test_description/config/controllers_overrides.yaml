@@ -1,0 +1,9 @@
+# Test only: merged over aha_description/config/controllers.yaml at build time
+# (scripts/merge_controllers.py) into the installed config/controllers.yaml.
+lift_controller:
+  ros__parameters:
+    # Abort action goals the lift does not reach (e.g. stuck on its stop in Gazebo).
+    constraints:
+      goal_time: 1.0
+      joint_l1: {goal: 0.01}
+      joint_r1: {goal: 0.01}
