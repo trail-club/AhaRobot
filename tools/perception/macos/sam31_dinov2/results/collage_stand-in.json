@@ -1,0 +1,5416 @@
+[
+ {
+  "target": "1011-01",
+  "variant": "none+can",
+  "seconds": 1.25,
+  "detections": [
+   {
+    "score": 0.953,
+    "bbox": [
+     453,
+     191,
+     640,
+     442
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     211,
+     416,
+     363,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "none+soup can",
+  "seconds": 0.39,
+  "detections": []
+ },
+ {
+  "target": "1011-01",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.43,
+  "detections": [
+   {
+    "score": 0.922,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "front+notext",
+  "seconds": 0.45,
+  "detections": [
+   {
+    "score": 0.636,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   },
+   {
+    "score": 0.515,
+    "bbox": [
+     452,
+     190,
+     640,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "front+can",
+  "seconds": 0.46,
+  "detections": [
+   {
+    "score": 0.918,
+    "bbox": [
+     211,
+     416,
+     363,
+     480
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   },
+   {
+    "score": 0.906,
+    "bbox": [
+     453,
+     191,
+     640,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "front+soup can",
+  "seconds": 0.46,
+  "detections": [
+   {
+    "score": 0.625,
+    "bbox": [
+     210,
+     415,
+     363,
+     480
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   },
+   {
+    "score": 0.824,
+    "bbox": [
+     453,
+     191,
+     640,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.45,
+  "detections": [
+   {
+    "score": 0.961,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "all+notext",
+  "seconds": 0.43,
+  "detections": [
+   {
+    "score": 0.508,
+    "bbox": [
+     0,
+     83,
+     99,
+     479
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "all+can",
+  "seconds": 0.45,
+  "detections": [
+   {
+    "score": 0.89,
+    "bbox": [
+     210,
+     416,
+     363,
+     480
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     0,
+     83,
+     98,
+     479
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     452,
+     191,
+     640,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "all+soup can",
+  "seconds": 0.49,
+  "detections": [
+   {
+    "score": 0.586,
+    "bbox": [
+     210,
+     416,
+     363,
+     480
+    ]
+   },
+   {
+    "score": 0.938,
+    "bbox": [
+     0,
+     83,
+     98,
+     479
+    ]
+   },
+   {
+    "score": 0.871,
+    "bbox": [
+     452,
+     191,
+     640,
+     444
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-01",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.47,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.918,
+    "bbox": [
+     505,
+     0,
+     640,
+     56
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "none+soup can",
+  "seconds": 0.35,
+  "detections": []
+ },
+ {
+  "target": "1011-02",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.766,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.554,
+    "bbox": [
+     16,
+     0,
+     242,
+     245
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.887,
+    "bbox": [
+     502,
+     0,
+     640,
+     56
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.91,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.945,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.613,
+    "bbox": [
+     501,
+     0,
+     640,
+     56
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.695,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.961,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.554,
+    "bbox": [
+     327,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.656,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "all+can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     327,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     503,
+     0,
+     640,
+     56
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.961,
+    "bbox": [
+     327,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "score": 0.801,
+    "bbox": [
+     503,
+     0,
+     640,
+     56
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-02",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.867,
+    "bbox": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     16,
+     0,
+     242,
+     244
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.739,
+    "bbox": [
+     590,
+     0,
+     640,
+     96
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     115,
+     0,
+     303,
+     272
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-03",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.808,
+    "bbox": [
+     397,
+     153,
+     526,
+     310
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     115,
+     0,
+     303,
+     272
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.594,
+    "bbox": [
+     115,
+     0,
+     304,
+     273
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     115,
+     0,
+     303,
+     272
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   },
+   {
+    "score": 0.742,
+    "bbox": [
+     589,
+     0,
+     640,
+     96
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.906,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   },
+   {
+    "score": 0.942,
+    "bbox": [
+     114,
+     0,
+     303,
+     272
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.949,
+    "bbox": [
+     114,
+     0,
+     303,
+     272
+    ]
+   },
+   {
+    "score": 0.789,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.621,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   },
+   {
+    "score": 0.625,
+    "bbox": [
+     115,
+     0,
+     303,
+     273
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     115,
+     0,
+     302,
+     272
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   },
+   {
+    "score": 0.675,
+    "bbox": [
+     589,
+     0,
+     640,
+     96
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     115,
+     0,
+     302,
+     272
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-03",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     115,
+     0,
+     302,
+     272
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     397,
+     152,
+     527,
+     310
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     476,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     185,
+     0,
+     365,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "none+soup can",
+  "seconds": 0.33,
+  "detections": []
+ },
+ {
+  "target": "1011-04",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.895,
+    "bbox": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     185,
+     0,
+     365,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "front+notext",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.578,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   },
+   {
+    "score": 0.554,
+    "bbox": [
+     476,
+     151,
+     635,
+     348
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "front+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     476,
+     151,
+     635,
+     348
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.938,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     476,
+     151,
+     635,
+     348
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.965,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     476,
+     151,
+     635,
+     348
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "all+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.801,
+    "bbox": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.64,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "all+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     184,
+     0,
+     366,
+     316
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-04",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.965,
+    "bbox": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     185,
+     0,
+     366,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   },
+   {
+    "score": 0.828,
+    "bbox": [
+     482,
+     30,
+     640,
+     242
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     339,
+     301,
+     442,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-05",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.801,
+    "bbox": [
+     339,
+     301,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.922,
+    "bbox": [
+     77,
+     131,
+     249,
+     423
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.613,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     339,
+     300,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   },
+   {
+    "score": 0.836,
+    "bbox": [
+     481,
+     30,
+     640,
+     243
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "front+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.863,
+    "bbox": [
+     339,
+     300,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   },
+   {
+    "score": 0.633,
+    "bbox": [
+     480,
+     29,
+     640,
+     243
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.734,
+    "bbox": [
+     339,
+     300,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     77,
+     131,
+     250,
+     423
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.652,
+    "bbox": [
+     77,
+     131,
+     251,
+     424
+    ]
+   },
+   {
+    "score": 0.683,
+    "bbox": [
+     482,
+     30,
+     640,
+     243
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     338,
+     301,
+     442,
+     443
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     77,
+     131,
+     251,
+     424
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     481,
+     30,
+     640,
+     243
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.942,
+    "bbox": [
+     338,
+     301,
+     443,
+     443
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     77,
+     131,
+     251,
+     424
+    ]
+   },
+   {
+    "score": 0.82,
+    "bbox": [
+     481,
+     30,
+     640,
+     243
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-05",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     77,
+     131,
+     251,
+     423
+    ]
+   },
+   {
+    "score": 0.762,
+    "bbox": [
+     338,
+     301,
+     442,
+     443
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.773,
+    "bbox": [
+     591,
+     0,
+     640,
+     53
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     74,
+     0,
+     276,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-06",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.36,
+  "detections": [
+   {
+    "score": 0.934,
+    "bbox": [
+     361,
+     95,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     74,
+     0,
+     276,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "front+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.504,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.524,
+    "bbox": [
+     73,
+     0,
+     277,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     74,
+     0,
+     277,
+     234
+    ]
+   },
+   {
+    "score": 0.816,
+    "bbox": [
+     588,
+     0,
+     640,
+     54
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.883,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.758,
+    "bbox": [
+     73,
+     0,
+     277,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.938,
+    "bbox": [
+     74,
+     0,
+     277,
+     234
+    ]
+   },
+   {
+    "score": 0.867,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.704,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.566,
+    "bbox": [
+     73,
+     0,
+     277,
+     235
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     73,
+     0,
+     277,
+     234
+    ]
+   },
+   {
+    "score": 0.739,
+    "bbox": [
+     589,
+     0,
+     640,
+     54
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.546,
+    "bbox": [
+     589,
+     0,
+     640,
+     54
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     73,
+     0,
+     277,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-06",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.949,
+    "bbox": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     73,
+     0,
+     277,
+     234
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     398,
+     186,
+     536,
+     378
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     33,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-07",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.887,
+    "bbox": [
+     398,
+     186,
+     536,
+     378
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     34,
+     0,
+     296,
+     329
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.594,
+    "bbox": [
+     34,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "front+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     34,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.949,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.961,
+    "bbox": [
+     33,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.871,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     34,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.61,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.613,
+    "bbox": [
+     34,
+     0,
+     298,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.988,
+    "bbox": [
+     34,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     33,
+     0,
+     297,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-07",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     34,
+     0,
+     297,
+     330
+    ]
+   },
+   {
+    "score": 0.918,
+    "bbox": [
+     398,
+     186,
+     536,
+     379
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.848,
+    "bbox": [
+     551,
+     0,
+     640,
+     98
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     33,
+     0,
+     257,
+     283
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "none+soup can",
+  "seconds": 0.35,
+  "detections": []
+ },
+ {
+  "target": "1011-08",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.883,
+    "bbox": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "score": 0.914,
+    "bbox": [
+     33,
+     0,
+     257,
+     282
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": []
+ },
+ {
+  "target": "1011-08",
+  "variant": "front+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     349,
+     135,
+     473,
+     314
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     34,
+     0,
+     257,
+     283
+    ]
+   },
+   {
+    "score": 0.852,
+    "bbox": [
+     549,
+     0,
+     640,
+     99
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.902,
+    "bbox": [
+     349,
+     135,
+     473,
+     314
+    ]
+   },
+   {
+    "score": 0.793,
+    "bbox": [
+     33,
+     0,
+     257,
+     283
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.86,
+    "bbox": [
+     349,
+     135,
+     473,
+     314
+    ]
+   },
+   {
+    "score": 0.93,
+    "bbox": [
+     33,
+     0,
+     257,
+     283
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.613,
+    "bbox": [
+     350,
+     135,
+     473,
+     314
+    ]
+   },
+   {
+    "score": 0.524,
+    "bbox": [
+     35,
+     0,
+     257,
+     283
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     33,
+     0,
+     257,
+     283
+    ]
+   },
+   {
+    "score": 0.82,
+    "bbox": [
+     550,
+     0,
+     640,
+     98
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "score": 0.899,
+    "bbox": [
+     32,
+     0,
+     257,
+     283
+    ]
+   },
+   {
+    "score": 0.629,
+    "bbox": [
+     541,
+     0,
+     640,
+     98
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-08",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.93,
+    "bbox": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "score": 0.961,
+    "bbox": [
+     33,
+     0,
+     257,
+     283
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     368,
+     393,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.793,
+    "bbox": [
+     551,
+     176,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-09",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.726,
+    "bbox": [
+     369,
+     394,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.875,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.531,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.773,
+    "bbox": [
+     549,
+     176,
+     640,
+     381
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     199,
+     212,
+     333,
+     480
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     368,
+     394,
+     465,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.871,
+    "bbox": [
+     368,
+     394,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.582,
+    "bbox": [
+     549,
+     176,
+     640,
+     381
+    ]
+   },
+   {
+    "score": 0.938,
+    "bbox": [
+     199,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.66,
+    "bbox": [
+     368,
+     394,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "all+notext",
+  "seconds": 0.37,
+  "detections": []
+ },
+ {
+  "target": "1011-09",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     368,
+     393,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   },
+   {
+    "score": 0.89,
+    "bbox": [
+     549,
+     176,
+     640,
+     380
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.902,
+    "bbox": [
+     368,
+     393,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.957,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   },
+   {
+    "score": 0.758,
+    "bbox": [
+     549,
+     176,
+     640,
+     381
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-09",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.48,
+  "detections": [
+   {
+    "score": 0.688,
+    "bbox": [
+     368,
+     394,
+     465,
+     480
+    ]
+   },
+   {
+    "score": 0.957,
+    "bbox": [
+     200,
+     212,
+     333,
+     480
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "none+can",
+  "seconds": 1.22,
+  "detections": [
+   {
+    "score": 0.73,
+    "bbox": [
+     502,
+     0,
+     631,
+     176
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     361,
+     163,
+     454,
+     317
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "none+soup can",
+  "seconds": 0.47,
+  "detections": []
+ },
+ {
+  "target": "1011-10",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.965,
+    "bbox": [
+     362,
+     163,
+     454,
+     317
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.582,
+    "bbox": [
+     361,
+     163,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.625,
+    "bbox": [
+     167,
+     0,
+     327,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "front+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     361,
+     163,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     167,
+     0,
+     327,
+     328
+    ]
+   },
+   {
+    "score": 0.734,
+    "bbox": [
+     502,
+     0,
+     632,
+     176
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "front+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.922,
+    "bbox": [
+     361,
+     163,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.86,
+    "bbox": [
+     167,
+     0,
+     327,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.934,
+    "bbox": [
+     361,
+     163,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.945,
+    "bbox": [
+     167,
+     0,
+     327,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.597,
+    "bbox": [
+     361,
+     164,
+     454,
+     318
+    ]
+   },
+   {
+    "score": 0.64,
+    "bbox": [
+     167,
+     0,
+     327,
+     329
+    ]
+   },
+   {
+    "score": 0.586,
+    "bbox": [
+     502,
+     0,
+     636,
+     176
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "all+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     361,
+     164,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   },
+   {
+    "score": 0.739,
+    "bbox": [
+     502,
+     0,
+     636,
+     176
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "all+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     361,
+     164,
+     455,
+     318
+    ]
+   },
+   {
+    "score": 0.961,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   },
+   {
+    "score": 0.64,
+    "bbox": [
+     502,
+     0,
+     637,
+     177
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-10",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.945,
+    "bbox": [
+     361,
+     164,
+     454,
+     318
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     167,
+     0,
+     326,
+     328
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "none+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.723,
+    "bbox": [
+     479,
+     125,
+     598,
+     292
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     365,
+     278,
+     457,
+     430
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     191,
+     131,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-11",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.926,
+    "bbox": [
+     365,
+     279,
+     457,
+     430
+    ]
+   },
+   {
+    "score": 0.938,
+    "bbox": [
+     191,
+     131,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.575,
+    "bbox": [
+     365,
+     278,
+     458,
+     431
+    ]
+   },
+   {
+    "score": 0.683,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     365,
+     278,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   },
+   {
+    "score": 0.836,
+    "bbox": [
+     479,
+     125,
+     598,
+     292
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "front+soup can",
+  "seconds": 0.41,
+  "detections": [
+   {
+    "score": 0.89,
+    "bbox": [
+     365,
+     278,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.918,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   },
+   {
+    "score": 0.691,
+    "bbox": [
+     479,
+     125,
+     598,
+     292
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.875,
+    "bbox": [
+     365,
+     278,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.942,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "all+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.575,
+    "bbox": [
+     190,
+     130,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     365,
+     279,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     479,
+     125,
+     598,
+     291
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.949,
+    "bbox": [
+     364,
+     279,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     479,
+     125,
+     598,
+     291
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-11",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.515,
+    "bbox": [
+     479,
+     125,
+     599,
+     292
+    ]
+   },
+   {
+    "score": 0.899,
+    "bbox": [
+     365,
+     279,
+     457,
+     431
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     191,
+     130,
+     330,
+     446
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.899,
+    "bbox": [
+     445,
+     26,
+     570,
+     198
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     332,
+     180,
+     433,
+     330
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-12",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     332,
+     180,
+     433,
+     330
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     120,
+     20,
+     306,
+     382
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "front+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.66,
+    "bbox": [
+     332,
+     180,
+     434,
+     331
+    ]
+   },
+   {
+    "score": 0.664,
+    "bbox": [
+     120,
+     20,
+     307,
+     383
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     332,
+     180,
+     434,
+     331
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.895,
+    "bbox": [
+     445,
+     26,
+     570,
+     199
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "front+soup can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.914,
+    "bbox": [
+     332,
+     180,
+     434,
+     331
+    ]
+   },
+   {
+    "score": 0.844,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.563,
+    "bbox": [
+     444,
+     25,
+     570,
+     199
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.945,
+    "bbox": [
+     332,
+     180,
+     434,
+     330
+    ]
+   },
+   {
+    "score": 0.938,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.66,
+    "bbox": [
+     332,
+     180,
+     434,
+     331
+    ]
+   },
+   {
+    "score": 0.664,
+    "bbox": [
+     120,
+     20,
+     307,
+     384
+    ]
+   },
+   {
+    "score": 0.5,
+    "bbox": [
+     445,
+     26,
+     569,
+     199
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     332,
+     180,
+     434,
+     331
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     445,
+     26,
+     569,
+     199
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "all+soup can",
+  "seconds": 0.42,
+  "detections": [
+   {
+    "score": 0.957,
+    "bbox": [
+     332,
+     180,
+     433,
+     331
+    ]
+   },
+   {
+    "score": 0.945,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   },
+   {
+    "score": 0.706,
+    "bbox": [
+     445,
+     25,
+     569,
+     199
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-12",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.945,
+    "bbox": [
+     332,
+     180,
+     433,
+     331
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     120,
+     20,
+     306,
+     383
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     104,
+     43,
+     291,
+     394
+    ]
+   },
+   {
+    "score": 0.852,
+    "bbox": [
+     448,
+     48,
+     578,
+     222
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "none+soup can",
+  "seconds": 0.35,
+  "detections": []
+ },
+ {
+  "target": "1011-13",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.949,
+    "bbox": [
+     104,
+     43,
+     290,
+     393
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.578,
+    "bbox": [
+     316,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.625,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     316,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     448,
+     48,
+     578,
+     222
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "front+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.918,
+    "bbox": [
+     316,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.848,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   },
+   {
+    "score": 0.621,
+    "bbox": [
+     448,
+     48,
+     578,
+     222
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.918,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.906,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.515,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.551,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   },
+   {
+    "score": 0.906,
+    "bbox": [
+     448,
+     48,
+     578,
+     222
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.945,
+    "bbox": [
+     317,
+     201,
+     420,
+     352
+    ]
+   },
+   {
+    "score": 0.914,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   },
+   {
+    "score": 0.762,
+    "bbox": [
+     448,
+     48,
+     578,
+     222
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-13",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.934,
+    "bbox": [
+     317,
+     201,
+     420,
+     351
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     104,
+     43,
+     291,
+     393
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.855,
+    "bbox": [
+     485,
+     88,
+     605,
+     256
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     148,
+     56,
+     294,
+     388
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     336,
+     221,
+     425,
+     370
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "none+soup can",
+  "seconds": 0.35,
+  "detections": []
+ },
+ {
+  "target": "1011-14",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.938,
+    "bbox": [
+     148,
+     56,
+     294,
+     388
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     336,
+     222,
+     425,
+     369
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "front+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.582,
+    "bbox": [
+     335,
+     221,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.66,
+    "bbox": [
+     148,
+     56,
+     295,
+     389
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     335,
+     221,
+     426,
+     370
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     148,
+     56,
+     295,
+     389
+    ]
+   },
+   {
+    "score": 0.848,
+    "bbox": [
+     484,
+     87,
+     605,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "front+soup can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.91,
+    "bbox": [
+     335,
+     222,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.871,
+    "bbox": [
+     147,
+     56,
+     295,
+     389
+    ]
+   },
+   {
+    "score": 0.68,
+    "bbox": [
+     484,
+     87,
+     606,
+     257
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.906,
+    "bbox": [
+     335,
+     222,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.906,
+    "bbox": [
+     148,
+     56,
+     295,
+     389
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.582,
+    "bbox": [
+     147,
+     56,
+     295,
+     388
+    ]
+   },
+   {
+    "score": 0.563,
+    "bbox": [
+     484,
+     87,
+     606,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     335,
+     221,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     148,
+     56,
+     295,
+     388
+    ]
+   },
+   {
+    "score": 0.922,
+    "bbox": [
+     485,
+     87,
+     606,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.953,
+    "bbox": [
+     335,
+     221,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     148,
+     56,
+     295,
+     388
+    ]
+   },
+   {
+    "score": 0.879,
+    "bbox": [
+     485,
+     87,
+     606,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-14",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.934,
+    "bbox": [
+     336,
+     222,
+     425,
+     370
+    ]
+   },
+   {
+    "score": 0.957,
+    "bbox": [
+     148,
+     56,
+     295,
+     388
+    ]
+   },
+   {
+    "score": 0.566,
+    "bbox": [
+     484,
+     87,
+     606,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "none+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.902,
+    "bbox": [
+     482,
+     112,
+     640,
+     352
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-15",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.89,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.73,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   },
+   {
+    "score": 0.906,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "front+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.546,
+    "bbox": [
+     214,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.519,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   },
+   {
+    "score": 0.605,
+    "bbox": [
+     16,
+     62,
+     213,
+     395
+    ]
+   },
+   {
+    "score": 0.519,
+    "bbox": [
+     483,
+     110,
+     640,
+     352
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     214,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.887,
+    "bbox": [
+     483,
+     110,
+     640,
+     352
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "front+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.875,
+    "bbox": [
+     214,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.801,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.688,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   },
+   {
+    "score": 0.566,
+    "bbox": [
+     483,
+     110,
+     640,
+     352
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.879,
+    "bbox": [
+     214,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.836,
+    "bbox": [
+     16,
+     62,
+     212,
+     395
+    ]
+   },
+   {
+    "score": 0.605,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "all+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.508,
+    "bbox": [
+     340,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "all+can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     215,
+     204,
+     312,
+     347
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     16,
+     62,
+     213,
+     396
+    ]
+   },
+   {
+    "score": 0.89,
+    "bbox": [
+     482,
+     110,
+     640,
+     352
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     340,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.914,
+    "bbox": [
+     215,
+     204,
+     312,
+     347
+    ]
+   },
+   {
+    "score": 0.84,
+    "bbox": [
+     16,
+     62,
+     213,
+     396
+    ]
+   },
+   {
+    "score": 0.656,
+    "bbox": [
+     339,
+     17,
+     449,
+     305
+    ]
+   },
+   {
+    "score": 0.57,
+    "bbox": [
+     482,
+     110,
+     640,
+     352
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-15",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.91,
+    "bbox": [
+     215,
+     204,
+     312,
+     346
+    ]
+   },
+   {
+    "score": 0.922,
+    "bbox": [
+     16,
+     62,
+     213,
+     396
+    ]
+   },
+   {
+    "score": 0.742,
+    "bbox": [
+     340,
+     17,
+     449,
+     305
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "none+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.969,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     475,
+     149,
+     640,
+     379
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     328,
+     44,
+     428,
+     341
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-16",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.926,
+    "bbox": [
+     205,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     328,
+     44,
+     428,
+     341
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "front+notext",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.559,
+    "bbox": [
+     204,
+     218,
+     296,
+     371
+    ]
+   },
+   {
+    "score": 0.531,
+    "bbox": [
+     299,
+     44,
+     428,
+     342
+    ]
+   },
+   {
+    "score": 0.648,
+    "bbox": [
+     25,
+     27,
+     183,
+     414
+    ]
+   },
+   {
+    "score": 0.706,
+    "bbox": [
+     475,
+     149,
+     640,
+     379
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.973,
+    "bbox": [
+     204,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     25,
+     28,
+     183,
+     414
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     474,
+     148,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     329,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "front+soup can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.887,
+    "bbox": [
+     204,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.816,
+    "bbox": [
+     329,
+     44,
+     428,
+     342
+    ]
+   },
+   {
+    "score": 0.867,
+    "bbox": [
+     25,
+     27,
+     183,
+     414
+    ]
+   },
+   {
+    "score": 0.734,
+    "bbox": [
+     474,
+     148,
+     640,
+     380
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.918,
+    "bbox": [
+     204,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     25,
+     28,
+     183,
+     414
+    ]
+   },
+   {
+    "score": 0.89,
+    "bbox": [
+     329,
+     44,
+     428,
+     341
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "all+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.566,
+    "bbox": [
+     25,
+     27,
+     184,
+     415
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     204,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.984,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.953,
+    "bbox": [
+     474,
+     149,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "all+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.926,
+    "bbox": [
+     204,
+     218,
+     296,
+     370
+    ]
+   },
+   {
+    "score": 0.914,
+    "bbox": [
+     25,
+     27,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.785,
+    "bbox": [
+     474,
+     149,
+     640,
+     380
+    ]
+   },
+   {
+    "score": 0.801,
+    "bbox": [
+     328,
+     44,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-16",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.93,
+    "bbox": [
+     204,
+     218,
+     295,
+     370
+    ]
+   },
+   {
+    "score": 0.965,
+    "bbox": [
+     25,
+     28,
+     184,
+     414
+    ]
+   },
+   {
+    "score": 0.938,
+    "bbox": [
+     329,
+     45,
+     428,
+     342
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "none+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.793,
+    "bbox": [
+     431,
+     0,
+     585,
+     256
+    ]
+   },
+   {
+    "score": 0.973,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.863,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-17",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.899,
+    "bbox": [
+     196,
+     121,
+     297,
+     285
+    ]
+   },
+   {
+    "score": 0.887,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "front+notext",
+  "seconds": 0.36,
+  "detections": []
+ },
+ {
+  "target": "1011-17",
+  "variant": "front+can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.977,
+    "bbox": [
+     195,
+     121,
+     296,
+     286
+    ]
+   },
+   {
+    "score": 0.969,
+    "bbox": [
+     30,
+     0,
+     210,
+     315
+    ]
+   },
+   {
+    "score": 0.895,
+    "bbox": [
+     289,
+     27,
+     452,
+     277
+    ]
+   },
+   {
+    "score": 0.73,
+    "bbox": [
+     431,
+     0,
+     585,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "front+soup can",
+  "seconds": 0.38,
+  "detections": [
+   {
+    "score": 0.867,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.71,
+    "bbox": [
+     29,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.648,
+    "bbox": [
+     288,
+     26,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.852,
+    "bbox": [
+     196,
+     121,
+     296,
+     286
+    ]
+   },
+   {
+    "score": 0.895,
+    "bbox": [
+     30,
+     0,
+     210,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "all+notext",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.605,
+    "bbox": [
+     195,
+     121,
+     298,
+     286
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.98,
+    "bbox": [
+     196,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.926,
+    "bbox": [
+     289,
+     26,
+     452,
+     277
+    ]
+   },
+   {
+    "score": 0.734,
+    "bbox": [
+     431,
+     0,
+     585,
+     256
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "all+soup can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.942,
+    "bbox": [
+     195,
+     121,
+     297,
+     286
+    ]
+   },
+   {
+    "score": 0.808,
+    "bbox": [
+     4,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "score": 0.762,
+    "bbox": [
+     289,
+     26,
+     452,
+     277
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-17",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.895,
+    "bbox": [
+     196,
+     121,
+     298,
+     286
+    ]
+   },
+   {
+    "score": 0.918,
+    "bbox": [
+     30,
+     0,
+     211,
+     315
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "none+can",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.984,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   },
+   {
+    "score": 0.93,
+    "bbox": [
+     329,
+     145,
+     475,
+     361
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     262,
+     239,
+     359,
+     385
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "none+soup can",
+  "seconds": 0.34,
+  "detections": []
+ },
+ {
+  "target": "1011-18",
+  "variant": "none+campbell's tomato soup",
+  "seconds": 0.37,
+  "detections": [
+   {
+    "score": 0.922,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.914,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   },
+   {
+    "score": 0.871,
+    "bbox": [
+     262,
+     239,
+     360,
+     385
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "front+notext",
+  "seconds": 0.38,
+  "detections": []
+ },
+ {
+  "target": "1011-18",
+  "variant": "front+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.879,
+    "bbox": [
+     329,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     261,
+     238,
+     360,
+     386
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     456,
+     29,
+     560,
+     326
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "front+soup can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.648,
+    "bbox": [
+     328,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.828,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.86,
+    "bbox": [
+     261,
+     238,
+     361,
+     386
+    ]
+   },
+   {
+    "score": 0.777,
+    "bbox": [
+     455,
+     29,
+     560,
+     326
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "front+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.528,
+    "bbox": [
+     328,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.808,
+    "bbox": [
+     261,
+     238,
+     361,
+     386
+    ]
+   },
+   {
+    "score": 0.934,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "all+notext",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.535,
+    "bbox": [
+     456,
+     29,
+     561,
+     325
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "all+can",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.914,
+    "bbox": [
+     329,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   },
+   {
+    "score": 0.98,
+    "bbox": [
+     104,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.977,
+    "bbox": [
+     262,
+     239,
+     360,
+     386
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "all+soup can",
+  "seconds": 0.4,
+  "detections": [
+   {
+    "score": 0.758,
+    "bbox": [
+     328,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.918,
+    "bbox": [
+     104,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.942,
+    "bbox": [
+     262,
+     238,
+     360,
+     386
+    ]
+   },
+   {
+    "score": 0.879,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   }
+  ]
+ },
+ {
+  "target": "1011-18",
+  "variant": "all+campbell's tomato soup",
+  "seconds": 0.39,
+  "detections": [
+   {
+    "score": 0.566,
+    "bbox": [
+     328,
+     145,
+     476,
+     362
+    ]
+   },
+   {
+    "score": 0.945,
+    "bbox": [
+     456,
+     29,
+     560,
+     325
+    ]
+   },
+   {
+    "score": 0.949,
+    "bbox": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "score": 0.828,
+    "bbox": [
+     262,
+     239,
+     360,
+     386
+    ]
+   }
+  ]
+ }
+]
