@@ -303,8 +303,10 @@ def clip_plane(plane, corners):
     hull clipped to a footprint: ``corners`` (N, 2), the footprint's xy in
     the plane's frame (e.g. ``Furniture.corners(margin)`` transformed), taken
     vertically onto the plane. Depth edge noise bleeds a board's hull past
-    its edges; the inliers stay. Unchanged if the plane is vertical or nothing
-    would remain (a wrong association)."""
+    its edges; the inliers and the centroid stay (it may lie outside the
+    clipped hull). Unchanged if the plane is vertical; None if
+    nothing would remain (the plane is off the footprint: a wrong
+    association)."""
     normal = np.asarray(plane.normal, dtype=np.float64)
     if abs(normal[2]) < 0.5:
         return plane
@@ -315,7 +317,7 @@ def clip_plane(plane, corners):
     clipped = clip_convex_polygons(np.asarray(plane.hull), polygon)
     area = polygon_area(clipped)
     if len(clipped) < 3 or area <= 0.0:
-        return plane
+        return None
     return dataclasses.replace(plane, hull=clipped, area=area)
 
 
@@ -420,7 +422,7 @@ def missing_message(
         text += f" (with surface_ids {wanted})"
     if known:
         return text + ": associated surfaces " + ", ".join(f"S{s}" for s in known)
-    return text + ": no surface associated with it yet"
+    return text + ": no surface associated with it now"
 
 
 @dataclass(frozen=True)

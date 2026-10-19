@@ -3,15 +3,18 @@
 
 geometry_msgs/Vector3      object_size      # x, y footprint and z height (m), all > 0
 string[]                   surface_labels   # empty = table and shelf (any label with surface_ids); also "floor", "other"
-geometry_msgs/PointStamped near             # empty frame_id = none; else sort by distance to it
+# Empty frame_id = none; else sort by distance to it. near and approach_from
+# are transformed with the TF at the detection stamp (their own stamps are
+# ignored), else the latest.
+geometry_msgs/PointStamped near
 uint32                     max_candidates   # 0 = default (10)
 # true: only supports (of surface_labels) whose height is within
 # height_tolerance of surface_height (m, z in base_footprint)
 bool                       restrict_height
 float32                    surface_height
 float32                    height_tolerance # m, <= 0 = default (0.03)
-# Boxes in base_footprint (pose = center, size = full extents; plane_id
-# ignored), e.g. the robot's arms and the held object: points in them or
+# Boxes in base_footprint at the detection's stamp (applied to its cloud as
+# given; pose = center, size = full extents; plane_id ignored), e.g. the robot's arms and the held object: points in them or
 # behind them seen from the camera are not used, and support under them (up
 # to the object height) is unobserved.
 PlaceObstacle[]            exclude_regions
@@ -34,7 +37,7 @@ geometry_msgs/PointStamped approach_from
 float32[]                  yaw_offsets
 ---
 uint8 STATUS_OK=0          # candidates found
-uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids, furniture) in the detection
+uint8 STATUS_NO_SURFACE=1  # no support matching the labels (height, surface ids, furniture) in the detection, or none with valid points
 uint8 STATUS_NO_SPACE=2    # supports seen, but no free spot for the size; or the object is taller than the room of the furniture level
 uint8 STATUS_ERROR=3       # no or old detection, bad arguments, unknown furniture or level, no TF (success false)
 
@@ -47,6 +50,8 @@ builtin_interfaces/Time    stamp            # depth image stamp of the detection
 # without its TF); empty frame_id without furniture or TF. Look at it when
 # the level is not observed.
 geometry_msgs/PointStamped view_point
-PlaceCandidate[]           candidates       # best first
-PlaneArray                 planes           # support planes considered (after the label, height and surface id filters)
-PlaceObstacle[]            obstacles        # objects on every horizontal support of the detection
+PlaceCandidate[]           candidates       # best first, base_footprint at stamp
+# Support planes considered (after the label, height, surface id and
+# furniture filters), with their Plane.id in the detection
+PlaneArray                 planes
+PlaceObstacle[]            obstacles        # objects on every horizontal support of the detection (not the floor)

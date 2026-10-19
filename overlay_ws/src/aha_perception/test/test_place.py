@@ -7,6 +7,7 @@ import pytest
 from aha_perception.place import (
     ExcludeBox,
     Orientation,
+    PlaceCloud,
     PlaceObstacle,
     PlaceOptions,
     PlaceStatus,
@@ -17,6 +18,7 @@ from aha_perception.place import (
     min_area_rectangle,
     veil_pixels,
 )
+from aha_perception.place import _bin_half as bin_half
 from aha_perception.planes import DepthNoiseModel, PlaneLabel
 from aha_perception.planes.segmentation import make_plane
 
@@ -316,6 +318,84 @@ def test_long_object_fits_only_along_its_length():
         orientation=Orientation((1.4, -5.0), (0.0, math.pi / 2)),
     )
     assert turned.candidates
+
+
+def test_bin_rectangle_holds_the_rectangle_at_any_yaw_of_the_bin():
+    step = math.radians(5.0)
+    for half in ((0.15, 0.03), (0.05, 0.05), (0.2, 0.01)):
+        grown = bin_half(half, step)
+        corners = np.array(
+            [[sx * half[0], sy * half[1]] for sx in (-1, 1) for sy in (-1, 1)]
+        )
+        for delta in np.linspace(-step / 2, step / 2, 11):
+            c, s = math.cos(delta), math.sin(delta)
+            turned = corners @ np.array([[c, s], [-s, c]])
+            assert (np.abs(turned) <= np.array(grown) + 1e-12).all()
+        # Not grown much more than needed: the corner moves r * step / 2.
+        assert grown[0] - half[0] <= math.hypot(*half) * step / 2 * 1.01
+
+
+def test_oriented_check_covers_the_yaw_within_the_bin():
+    # A 0.3 x 0.06 object between two walls along x, approached 2.4 deg off
+    # them (bin center 0): 0.3 sin(2.4 deg) + 0.06 cos(2.4 deg) = 0.073 m
+    # across. In a 0.07 m lane it fits only at the bin's center yaw, not at
+    # the yaw it is placed with; in a 0.08 m lane it fits.
+    size = (0.3, 0.06, 0.05)
+    origin = (1.4 - 5.0, -5.0 * math.tan(math.radians(2.4)))
+    options = PlaceOptions(edge_margin=0.0, obstacle_margin=0.0, resolution=0.005)
+
+    def lane_scene(lane):
+        def lane_only(p):
+            return np.abs(p[:, 1]) <= lane + 0.03
+
+        scene = Scene().add(
+            grid(1.0, 1.8, -0.1, 0.1, 0.75, keep=lane_only), PlaneLabel.TABLE
+        )
+        for side in (-1, 1):
+            scene.add(box_points(1.4, side * (lane + 0.02), 0.75, 0.8, 0.04, 0.08))
+        return scene.run(size, options=options, orientation=Orientation(origin))
+
+    assert lane_scene(0.035).candidates == []
+    assert lane_scene(0.04).candidates
+
+
+def test_known_board_above_blocks_taller_objects_when_it_is_not_detected():
+    scene = Scene().add(grid(*BOARD, 0.40), PlaneLabel.SHELF)
+    low = scene.run((0.06, 0.06, 0.15), ceilings={0: 0.20})
+    assert low.status == PlaceStatus.OK
+    tall = scene.run((0.06, 0.06, 0.25), ceilings={0: 0.20})
+    assert tall.status == PlaceStatus.NO_SPACE and tall.supports == [0]
+    assert tall.grids[0].overhead.all()
+    assert scene.run((0.06, 0.06, 0.25)).status == PlaceStatus.OK
+
+
+def test_support_without_valid_inliers_is_degenerate():
+    # The whole table is inside an exclude box (e.g. the arm right over it).
+    everything = ExcludeBox.of([1.4, 0.0, 0.75], np.eye(3), (2.0, 2.0, 0.2))
+    result = table_scene().run((0.06, 0.06, 0.1), exclude=[everything])
+    assert result.status == PlaceStatus.NO_SURFACE
+    assert result.supports == [] and result.degenerate == [0]
+
+
+def test_a_shared_cloud_gives_the_same_result():
+    scene = table_scene()
+    scene.add(box_points(1.3, 0.1, 0.75, 0.08, 0.08, 0.12))
+    hand = ExcludeBox.of([1.6, -0.1, 0.95], np.eye(3), (0.1, 0.1, 0.06))
+    points, depth = scene.cloud()
+    kwargs = {"exclude": [hand], "viewpoint": CAMERA}
+    cloud = PlaceCloud(points, depth, None, None, **kwargs)
+    boxes = scene.obstacles(**kwargs)
+    shared_boxes = find_place_obstacles(scene.planes, points, depth, cloud=cloud)
+    assert len(boxes) == len(shared_boxes) == 1
+    np.testing.assert_allclose(boxes[0].center, shared_boxes[0].center)
+    size = (0.06, 0.06, 0.1)
+    alone = scene.run(size, boxes=boxes, **kwargs)
+    shared = find_place_candidates(
+        scene.planes, points, depth, size, boxes=boxes, cloud=cloud
+    )
+    assert [c.position.tolist() for c in alone.candidates] == [
+        c.position.tolist() for c in shared.candidates
+    ]
 
 
 def test_flying_pixels_between_foreground_and_background():

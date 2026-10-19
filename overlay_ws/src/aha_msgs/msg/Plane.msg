@@ -2,7 +2,10 @@
 # Owner: perception squad. Consumers: manipulation.
 
 std_msgs/Header header          # frame_id = output frame (base_footprint, z up)
-uint32       id                 # index in the PlaneArray of the same detection
+# Index of the plane in its detection (/aha/perception/planes of that stamp;
+# GetPlaceCandidates keeps it for the subset it returns). In Surface.plane it
+# is the Surface.id instead.
+uint32       id
 string       label              # "floor" | "table" | "shelf" | "wall" | "other"
 
 # normal . p + offset = 0 in header.frame_id; horizontal planes point up.

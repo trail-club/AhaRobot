@@ -8,6 +8,7 @@ used by sensor_msgs/PointCloud2.
 from __future__ import annotations
 
 import colorsys
+import math
 from collections.abc import Sequence
 
 import numpy as np
@@ -134,6 +135,21 @@ def quaternion_from_z_axis(
     q = np.array([-d[1], d[0], 0.0, w])
     q /= np.linalg.norm(q)
     return tuple(float(v) for v in q)
+
+
+def quaternion_from_normal_yaw(
+    normal: Sequence[float], yaw: float = 0.0
+) -> tuple[float, float, float, float]:
+    """(x, y, z, w) of the frame with z along ``normal`` (not horizontal) and x
+    in the plane normal to it, heading ``yaw`` about +z (atan2 of its x y)."""
+    n = np.asarray(normal, dtype=np.float64)
+    n = n / np.linalg.norm(n)
+    if abs(n[2]) < 1e-6:
+        raise ValueError(f"normal {normal} is horizontal")
+    c, s = math.cos(yaw), math.sin(yaw)
+    x = np.array([c, s, -(c * n[0] + s * n[1]) / n[2]])
+    x /= np.linalg.norm(x)
+    return quaternion_from_matrix(np.column_stack([x, np.cross(n, x), n]))
 
 
 def quaternion_from_matrix(rotation: np.ndarray) -> tuple[float, float, float, float]:

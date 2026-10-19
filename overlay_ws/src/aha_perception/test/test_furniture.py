@@ -278,6 +278,6 @@ def test_clip_plane_cuts_the_bleeding_hull_to_the_footprint():
     assert hull[:, 1].max() == pytest.approx(0.07, abs=1e-6)
     np.testing.assert_allclose(hull[:, 2], 0.61, atol=1e-9)
     assert clipped.area < plane.area and len(clipped.inliers) == len(points)
-    # Nothing left (a wrong association): unchanged.
+    # Nothing left (a wrong association).
     far = board.corners(0.0) + [5.0, 0.0]
-    assert clip_plane(plane, far) is plane
+    assert clip_plane(plane, far) is None

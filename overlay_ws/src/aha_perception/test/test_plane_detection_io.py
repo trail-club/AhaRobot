@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 from conftest import CX, CY, FX, FY, render
@@ -15,6 +17,7 @@ from aha_perception.plane_detection_io import (
     plane_points,
     plane_text,
     quaternion_from_matrix,
+    quaternion_from_normal_yaw,
     quaternion_from_z_axis,
     seconds_to_stamp,
     stamp_to_seconds,
@@ -130,6 +133,24 @@ def test_quaternion_from_z_axis(direction):
     np.testing.assert_allclose(rotated, expected, atol=1e-9)
     # No rotation about z for an upright direction.
     assert quaternion_from_z_axis((0, 0, 2)) == (0.0, 0.0, 0.0, 1.0)
+
+
+@pytest.mark.parametrize("normal", [(0, 0, 1), (0.1, -0.05, 1.0), (-0.15, 0.1, 1.0)])
+@pytest.mark.parametrize("yaw", [0.0, 0.7, -2.5])
+def test_quaternion_from_normal_yaw(normal, yaw):
+    q = quaternion_from_normal_yaw(normal, yaw)
+    rotation = transform_to_matrix((0, 0, 0), q)[:3, :3]
+    n = np.asarray(normal, float) / np.linalg.norm(normal)
+    np.testing.assert_allclose(rotation[:, 2], n, atol=1e-9)
+    # x lies in the plane and heads the yaw.
+    assert rotation[:, 0] @ n == pytest.approx(0.0, abs=1e-9)
+    heading = math.atan2(rotation[1, 0], rotation[0, 0])
+    assert math.remainder(heading - yaw, 2 * math.pi) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_quaternion_from_normal_yaw_rejects_a_horizontal_normal():
+    with pytest.raises(ValueError):
+        quaternion_from_normal_yaw((1.0, 0.0, 0.0))
 
 
 @pytest.mark.parametrize(

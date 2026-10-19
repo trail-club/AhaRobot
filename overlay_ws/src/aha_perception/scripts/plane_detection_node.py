@@ -62,14 +62,20 @@ it and publishes the result on /aha/perception/place/markers (MarkerArray:
 DELETEALL, then per candidate a disc of the clearance radius (ns
 "clearance") and the center (ns "center"), per obstacle a box (ns
 "obstacle") and per request exclude region a box (ns "exclude"); no rank:
-a caller such as the place server tries the candidates in its own order). Detections older than max_detection_age seconds (wall clock)
-are not used. With surface_ids only the planes of the latest detection
+a caller such as the place server tries the candidates in its own order).
+Detections older than max_detection_age seconds (wall clock) are not used.
+The service has its own callback group (spin with a MultiThreadedExecutor,
+as main does), so TF and the image subscriptions keep running while it
+computes. With surface_ids only the planes of the latest detection
 assigned to those surfaces are supports (STATUS_NO_SURFACE if none is);
 status is STATUS_NO_SURFACE without supports, STATUS_NO_SPACE without
-candidates and STATUS_ERROR (success false) on errors. The request's
-clearance is passed to find_place_candidates, and its approach_from (in
-target_frame, latest TF) with yaw_offsets as the Orientation: the
-candidates are then oriented, the pose's yaw the object yaw checked.
+candidates and STATUS_ERROR (success false) on errors. The request's near
+and approach_from are transformed to target_frame with the TF at the
+detection stamp (else the latest), like the candidates, which are in
+target_frame at that stamp. The request's clearance is passed to
+find_place_candidates, and its approach_from with yaw_offsets as the
+Orientation: the candidates are then oriented, the pose's yaw the object
+yaw checked.
 
 Furniture (parameter furniture_config, a YAML of aha_perception.furniture;
 empty = none, nothing below happens): after every detection the tracked
@@ -80,8 +86,13 @@ there is no association (throttled warning). The result fills
 Surface.furniture / furniture_level, clips the hulls of the planes of those
 surfaces to the furniture footprint grown by furniture_clip_margin
 (furniture.clip_plane: depth edge noise bleeds a board's hull past its
-edges; the published planes, candidates and obstacles use the clipped
-hulls, the tracker the detected ones) and serves the request's furniture /
+edges; the published planes and the candidates use the clipped hulls, the
+tracker and the obstacles the detected ones, so that an object on a strip
+cut off by a config or TF error is still a box; a plane that the clip would
+leave empty is not associated in that detection, with a warning), caps the
+obstacle band and blocks the candidates under the board above the level
+(the level's room from the config minus the surface's height error) and
+serves the request's furniture /
 furniture_level: unknown furniture or level is STATUS_ERROR, an object
 taller than the room of the level(s) STATUS_NO_SPACE, a level without an
 associated surface in the latest detection STATUS_NO_SURFACE. view_point is
@@ -122,8 +133,9 @@ from geometry_msgs.msg import (
     Quaternion,
     Vector3,
 )
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -151,11 +163,13 @@ from aha_perception.furniture import (
 from aha_perception.place import (
     ExcludeBox,
     Orientation,
+    PlaceCloud,
     PlaceOptions,
     PlaceStatus,
     base_cloud,
     find_place_candidates,
     find_place_obstacles,
+    object_size_of,
 )
 from aha_perception.plane_detection_io import (
     POINT_DTYPE,
@@ -166,6 +180,7 @@ from aha_perception.plane_detection_io import (
     plane_points,
     plane_text,
     quaternion_from_matrix,
+    quaternion_from_normal_yaw,
     quaternion_from_z_axis,
     seconds_to_stamp,
     stamp_to_seconds,
@@ -208,6 +223,7 @@ PLACE_TEXT_OFFSET = 0.06
 WARN_PERIOD_S = 5.0
 SUMMARY_PERIOD_S = 10.0
 WORKER_JOIN_S = 3.0
+EXECUTOR_THREADS = 2  # the place service beside the subscriptions and TF
 
 CLOUD_FIELDS = [
     PointField(
@@ -374,13 +390,9 @@ def make_candidate_msg(header, candidate, surface_ids):
     pose = PoseStamped(header=header)
     pose.pose.position = to_point(candidate.position)
     oriented = math.isfinite(candidate.yaw)
-    if oriented:
-        # Supports are horizontal within a few degrees: the yaw about z.
-        half = candidate.yaw / 2
-        pose.pose.orientation = Quaternion(z=math.sin(half), w=math.cos(half))
-    else:
-        x, y, z, w = quaternion_from_z_axis(candidate.normal)
-        pose.pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
+    yaw = candidate.yaw if oriented else 0.0
+    x, y, z, w = quaternion_from_normal_yaw(candidate.normal, yaw)
+    pose.pose.orientation = Quaternion(x=x, y=y, z=z, w=w)
     return PlaceCandidateMsg(
         pose=pose,
         oriented=oriented,
@@ -428,10 +440,13 @@ def exclude_boxes(regions):
     boxes = []
     for region in regions:
         p, q = region.pose.position, region.pose.orientation
+        size = (region.size.x, region.size.y, region.size.z)
+        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w, *size)
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError("exclude region with a non-finite pose or size")
         if q.x == q.y == q.z == q.w == 0.0:
             q = Quaternion(w=1.0)
         matrix = transform_to_matrix((p.x, p.y, p.z), (q.x, q.y, q.z, q.w))
-        size = (region.size.x, region.size.y, region.size.z)
         boxes.append(ExcludeBox.of(matrix[:3, 3], matrix[:3, :3], size))
     return boxes
 
@@ -482,7 +497,7 @@ class Detection:
     """Latest detection kept for the place service."""
 
     stamp: object
-    planes: list
+    planes: list  # hulls clipped to the associated furniture footprints
     cloud: np.ndarray  # organized camera-frame cloud the planes index into
     camera_to_base: np.ndarray
     noise: DepthNoiseModel
@@ -491,6 +506,9 @@ class Detection:
     surfaces: list  # aha_perception.surfaces.Surface after this detection
     # Surface.id -> aha_perception.furniture.Match; None without association
     furniture: dict | None = None
+    # The planes as detected (hulls not clipped), for the obstacle boxes;
+    # None: same as planes.
+    detected_planes: list | None = None
 
 
 class PlaneDetection(Node):
@@ -591,6 +609,8 @@ class PlaneDetection(Node):
         self.stopping = False
         self.latest_lock = threading.Lock()
         self.latest = None
+        # Incremented by on_tf_jump: a detection started before is dropped.
+        self.reset_epoch = 0
 
         self.create_subscription(
             CameraInfo, info_topic, self.on_camera_info, qos_profile_sensor_data
@@ -618,8 +638,12 @@ class PlaneDetection(Node):
         self.place_marker_pub = self.create_publisher(
             MarkerArray, PLACE_MARKER_TOPIC, reliable
         )
+        # Own group: the subscriptions and TF keep running while it computes.
         self.create_service(
-            GetPlaceCandidates, PLACE_SERVICE, self.on_get_place_candidates
+            GetPlaceCandidates,
+            PLACE_SERVICE,
+            self.on_get_place_candidates,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
         # Clear markers left in RViz by a previous run.
         self.clear_markers()
@@ -664,10 +688,11 @@ class PlaneDetection(Node):
             self.pending = None
         with self.latest_lock:
             self.latest = None
+            self.reset_epoch += 1
+            self.clear_markers()
         with self.tracker_lock:
             self.tracker.reset()
             self.tracker_frame = None
-        self.clear_markers()
         self.get_logger().info(
             "/tf time went back (sim restart or reset): cleared the TF buffer "
             "and the surfaces"
@@ -808,7 +833,7 @@ class PlaneDetection(Node):
 
     def lookup_matrix(self, target, source, stamp=None):
         """(4x4 source -> target, None) at ``stamp`` (no wait) or else the
-        latest TF; (None, error) without one."""
+        latest TF (throttled warning); (None, error) without one."""
         if target == source:
             return np.eye(4), None
         error = None
@@ -819,6 +844,12 @@ class PlaneDetection(Node):
             except TransformException as e:
                 error = e
                 continue
+            if error is not None:
+                self.get_logger().warn(
+                    f"TF {target} <- {source} at the stamp unavailable, using "
+                    f"the latest: {error}",
+                    throttle_duration_sec=WARN_PERIOD_S,
+                )
             t, q = tf.transform.translation, tf.transform.rotation
             return transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w)), None
         return None, error
@@ -840,15 +871,19 @@ class PlaneDetection(Node):
         return associate_surfaces(self.furniture, surfaces, matrix, self.association)
 
     def clip_to_furniture(self, planes, surface_ids, furniture, stamp):
-        """The planes, those of surfaces on a furniture level with their hull
-        clipped to its footprint grown by ``furniture_clip_margin``
-        (furniture.clip_plane; target_frame <- config frame at the stamp)."""
+        """(planes, furniture): the planes of surfaces on a furniture level
+        with their hull clipped to its footprint grown by
+        ``furniture_clip_margin`` (furniture.clip_plane; target_frame <-
+        config frame at the stamp). A surface whose plane the clip would
+        leave empty (off the footprint: a wrong association) loses its
+        association in the returned copy of ``furniture``."""
         if not furniture or self.clip_margin < 0.0:
-            return planes
+            return planes, furniture
         matrix, _ = self.lookup_matrix(self.target_frame, self.furniture.frame, stamp)
         if matrix is None:
-            return planes
+            return planes, furniture
         out = []
+        kept = dict(furniture)
         for plane, surface_id in zip(planes, surface_ids):
             match = furniture.get(surface_id)
             item = self.furniture.get(match.furniture) if match else None
@@ -856,11 +891,22 @@ class PlaneDetection(Node):
                 corners = item.corners(self.clip_margin)
                 points = np.column_stack([corners, np.zeros(len(corners))])
                 xy = (points @ matrix[:3, :3].T + matrix[:3, 3])[:, :2]
-                plane = clip_plane(plane, xy)
+                clipped = clip_plane(plane, xy)
+                if clipped is None:
+                    kept.pop(surface_id, None)
+                    self.get_logger().warn(
+                        f"S{surface_id} is associated with {match.furniture} "
+                        f"level {match.level} but its plane is off the footprint: "
+                        "not associated in this detection",
+                        throttle_duration_sec=WARN_PERIOD_S,
+                    )
+                else:
+                    plane = clipped
             out.append(plane)
-        return out
+        return out, kept
 
     def process(self, msg):
+        epoch = self.reset_epoch
         info = self.camera_info
         if info is None:
             self.get_logger().warn(
@@ -903,12 +949,15 @@ class PlaneDetection(Node):
         detected_planes = detect_planes(cloud, self.method, options, self.params)
         planes = select_output_planes(detected_planes, options)
         detected = time.perf_counter()
+        if epoch != self.reset_epoch:
+            return  # TF reset while detecting: the frame is of the old time
         tracked = self.track_surfaces(
             msg.header.stamp, planes, cloud, camera_to_base, info, options.noise
         )
         surface_ids = tracked[1] if tracked else [0] * len(planes)
         furniture = self.associate_furniture(tracked, msg.header.stamp)
-        planes = self.clip_to_furniture(
+        detected_output = planes
+        planes, furniture = self.clip_to_furniture(
             planes, surface_ids, furniture, msg.header.stamp
         )
 
@@ -919,6 +968,8 @@ class PlaneDetection(Node):
         if self.stopping:
             return
         with self.latest_lock:
+            if epoch != self.reset_epoch:
+                return
             self.latest = Detection(
                 stamp=msg.header.stamp,
                 planes=planes,
@@ -929,14 +980,16 @@ class PlaneDetection(Node):
                 surface_ids=surface_ids,
                 surfaces=tracked[2] if tracked else [],
                 furniture=furniture,
+                detected_planes=detected_output,
             )
-        self.plane_pub.publish(make_plane_array(header, planes))
-        if tracked:
-            self.surface_pub.publish(
-                make_surface_array(tracked[0], tracked[2], furniture)
-            )
-        self.cloud_pub.publish(make_cloud(header, xyz, rgb))
-        self.marker_pub.publish(make_markers(header, planes, surface_ids))
+            # Under the lock, so a TF reset clears the markers after these.
+            self.plane_pub.publish(make_plane_array(header, planes))
+            if tracked:
+                self.surface_pub.publish(
+                    make_surface_array(tracked[0], tracked[2], furniture)
+                )
+            self.cloud_pub.publish(make_cloud(header, xyz, rgb))
+            self.marker_pub.publish(make_markers(header, planes, surface_ids))
 
         total_ms = (time.perf_counter() - start) * 1e3
         detect_ms = (detected - start) * 1e3
@@ -953,26 +1006,24 @@ class PlaneDetection(Node):
         self.get_logger().debug(text)
         self.get_logger().info(text, throttle_duration_sec=SUMMARY_PERIOD_S)
 
-    def near_in_target(self, near):
-        """``near`` (PointStamped) in target_frame with the latest TF, or None."""
-        p = (near.point.x, near.point.y, near.point.z)
-        if near.header.frame_id == self.target_frame:
-            return np.asarray(p, dtype=np.float64)
-        try:
-            tf = self.tf_buffer.lookup_transform(
-                self.target_frame, near.header.frame_id, Time()
-            )
-        except TransformException as e:
-            self.get_logger().warn(f"near point not transformed: {e}")
+    def point_in_target(self, point, stamp):
+        """``point`` (PointStamped) in target_frame with the TF at ``stamp``
+        (the detection's: target_frame then, where its cloud is), else the
+        latest; None without a TF."""
+        p = (point.point.x, point.point.y, point.point.z)
+        matrix, error = self.lookup_matrix(
+            self.target_frame, point.header.frame_id, stamp
+        )
+        if matrix is None:
+            self.get_logger().warn(f"request point not transformed: {error}")
             return None
-        t, q = tf.transform.translation, tf.transform.rotation
-        matrix = transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
         return transform_point(matrix, p)
 
     def level_ceilings(self, detection) -> dict:
-        """Plane index -> room above its furniture level (config: from the
-        level top to the bottom of the board above) for the planes associated
-        with a level that has a board above."""
+        """Plane index -> room above the plane under the board above its
+        furniture level (config: from the level top to the bottom of that
+        board, minus the plane's height above the level top) for the planes
+        associated with a level that has a board above."""
         if self.furniture is None or not detection.furniture:
             return {}
         out = {}
@@ -981,7 +1032,7 @@ class PlaneDetection(Node):
             furniture = self.furniture.get(match.furniture) if match else None
             level = furniture.level(match.level) if furniture else None
             if level is not None and level.max_object_height is not None:
-                out[i] = level.max_object_height
+                out[i] = level.max_object_height - match.height_error
         return out
 
     def furniture_view_point(self, furniture):
@@ -1013,23 +1064,33 @@ class PlaneDetection(Node):
             response.success = False
             response.status = GetPlaceCandidates.Response.STATUS_ERROR
             response.message = message
+            # Candidates of an earlier request are no answer to this one.
+            self.place_marker_pub.publish(
+                make_place_markers(Header(frame_id=self.target_frame), [])
+            )
             self.get_logger().warn(f"place candidates: {message}")
             return response
 
+        try:
+            size = object_size_of(
+                (request.object_size.x, request.object_size.y, request.object_size.z)
+            )
+        except ValueError as e:
+            return fail(str(e))
         furniture = None
         if request.furniture:
             furniture = resolve_request(
                 self.furniture,
                 request.furniture,
                 int(request.furniture_level),
-                float(request.object_size.z),
+                size[2],
             )
+            if furniture.status == PlaceStatus.ERROR:
+                return fail(furniture.message)
             if furniture.furniture is not None:
                 view_point = self.furniture_view_point(furniture)
                 if view_point is not None:
                     response.view_point = view_point
-            if furniture.status == PlaceStatus.ERROR:
-                return fail(furniture.message)
             if furniture.status is not None:
                 return self.no_candidates(response, furniture.status, furniture.message)
         elif request.furniture_level:
@@ -1045,32 +1106,37 @@ class PlaneDetection(Node):
                 f"latest detection is {age:.1f} s old "
                 f"(max_detection_age {self.max_detection_age:g} s)"
             )
-        size = (request.object_size.x, request.object_size.y, request.object_size.z)
         near = None
         if request.near.header.frame_id:
-            near = self.near_in_target(request.near)
+            near = self.point_in_target(request.near, detection.stamp)
             if near is None:
                 return fail(
                     f"no TF {self.target_frame} <- {request.near.header.frame_id}"
                 )
+            if not np.all(np.isfinite(near)):
+                return fail("near is not finite")
         orientation = None
         if request.approach_from.header.frame_id:
-            origin = self.near_in_target(request.approach_from)
+            origin = self.point_in_target(request.approach_from, detection.stamp)
             if origin is None:
                 return fail(
                     f"no TF {self.target_frame} <- "
                     f"{request.approach_from.header.frame_id}"
                 )
             offsets = tuple(float(v) for v in request.yaw_offsets) or (0.0,)
+            if not (np.all(np.isfinite(origin)) and all(map(math.isfinite, offsets))):
+                return fail("approach_from and yaw_offsets must be finite")
             orientation = Orientation((float(origin[0]), float(origin[1])), offsets)
         header = Header(stamp=detection.stamp, frame_id=self.target_frame)
         plane_indices = None
         wanted = None
         if furniture is not None:
             if detection.furniture is None:
+                tracking = self.tracker_frame or self.tracking_frame
                 return fail(
-                    f"surfaces not associated with the furniture (no TF "
-                    f"{self.furniture.frame} <- {self.tracker_frame or self.tracking_frame})"
+                    "surfaces not associated with the furniture in the latest "
+                    f"detection (no TF {tracking} <- {self.target_frame} to track "
+                    f"them or {self.furniture.frame} <- {tracking})"
                 )
             ids = requested_surfaces(
                 furniture,
@@ -1110,20 +1176,28 @@ class PlaneDetection(Node):
 
         start = time.perf_counter()
         points, depth = base_cloud(detection.cloud, detection.camera_to_base)
-        # Points behind the exclude boxes, seen from the camera, are edge noise.
-        viewpoint = detection.camera_to_base[:3, 3]
+        ceilings = self.level_ceilings(detection)
         try:
             exclude = exclude_boxes(request.exclude_regions)
-            # First: the candidates keep clear of these boxes too.
-            obstacles = find_place_obstacles(
-                detection.planes,
+            # Points behind the exclude boxes, seen from the camera, are edge
+            # noise; built once for both calls.
+            cloud = PlaceCloud(
                 points,
                 depth,
                 detection.noise,
                 self.place_options,
-                exclude=exclude,
-                viewpoint=viewpoint,
-                ceilings=self.level_ceilings(detection),
+                exclude,
+                viewpoint=detection.camera_to_base[:3, 3],
+            )
+            # First: the candidates keep clear of these boxes too.
+            obstacles = find_place_obstacles(
+                detection.detected_planes or detection.planes,
+                points,
+                depth,
+                detection.noise,
+                self.place_options,
+                ceilings=ceilings,
+                cloud=cloud,
             )
             result = find_place_candidates(
                 detection.planes,
@@ -1137,12 +1211,12 @@ class PlaneDetection(Node):
                 max_candidates=int(request.max_candidates) or None,
                 surface_height=surface_height,
                 height_tolerance=float(request.height_tolerance),
-                exclude=exclude,
-                viewpoint=viewpoint,
                 plane_indices=plane_indices,
                 clearance=float(request.clearance),
                 orientation=orientation,
                 boxes=obstacles,
+                ceilings=ceilings,
+                cloud=cloud,
             )
         except ValueError as e:
             return fail(str(e))
@@ -1164,6 +1238,10 @@ class PlaneDetection(Node):
         if request.clearance > 0.0:
             restriction += f", clearance {request.clearance:.2f} m"
         excluded = f", {len(exclude)} excluded boxes" if exclude else ""
+        if result.degenerate:
+            excluded += (
+                f", {len(result.degenerate)} matching planes without valid inliers"
+            )
         response.message = (
             f"{PlaceStatus(result.status).name}: {len(result.candidates)} candidates "
             f"on {len(result.supports)} support planes{restriction} "
@@ -1190,8 +1268,10 @@ def main():
         rclpy.logging.get_logger(NODE_NAME).fatal(str(e))
         rclpy.try_shutdown()
         return 1
+    executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:

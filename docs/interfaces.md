@@ -241,6 +241,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
 出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
+家具の段に対応した面の平面は、凸包を家具の設定の外形（`furniture_clip_margin` 広げた範囲）で切り取って出す（重心・高さは切り取る前の値で、凸包の外になることがある）。
 `surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。
 `Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
 視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
@@ -256,23 +257,29 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
 `object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
-`surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ最新のTFで `base_footprint` へ変換し、その点に近い順に並べる。
+`surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ検出の時刻のTF（なければ最新）で `base_footprint` へ変換し、その点に近い順に並べる（`approach_from` も同じ）。
 `restrict_height` がtrueなら、高さが `surface_height`（`base_footprint` のz）から `height_tolerance`（0以下は0.03 m）以内の支持面だけを使う。
-`exclude_regions`（`aha_msgs/PlaceObstacle` の箱、`base_footprint`、`plane_id` は無視）の中とカメラから見てその後ろの点は
+`exclude_regions`（`aha_msgs/PlaceObstacle` の箱、検出の時刻の `base_footprint` として扱う、`plane_id` は無視）の中とカメラから見てその後ろの点は
 候補にも障害物の箱にも使わず、その下の支持面（物体の高さまで）は見えていないものとする。
 `surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
 `furniture` が空でなければ、最新の検出でその家具の `furniture_level`（0は物体の高さが入るすべての段）に対応した面だけを支持面にする
 （`surface_ids` もあれば両方に含まれる面、ラベルの扱いは `surface_ids` と同じ）。
-`clearance`（m）は候補の物体の外接円と障害物の間に `obstacle_margin` に加えて空ける距離で、支持面の縁までの距離は変えない。
+`clearance`（m）は候補の物体の底面（外接円、`approach_from` があれば置く向きの長方形）と障害物の間に `obstacle_margin` に加えて空ける距離で、支持面の縁までの距離は変えない。
+`approach_from`（空なら外接円）と `yaw_offsets` は置く向きで、候補は `oriented` とその向きの `pose` を返す。
+`pose` の姿勢はz軸が面の法線、x軸が面内で `oriented` なら確かめた物体の向き、そうでなければ向き0（`base_footprint` のx方向）を向く。
 応答の `view_point` は要求した段の上面の中心（段0では段の高さの平均）を設定から求めて `tracking_frame` で表した点
 （TFがなければ `base_footprint`、家具の指定がないかTFがなければ `frame_id` が空）。段が見えていない場合に頭を向ける先に使う。
-候補の `pose` は `base_footprint`、`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
+候補の `pose` は検出の時刻（`stamp`）の `base_footprint` で、その後に台車が動いた場合は `stamp` のTFで変換する。
+`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
 `surface_id` はその面の `Surface.id`（まだIDがなければ0）、`planes` は候補を探した支持面、`stamp` は使った検出のDepthの時刻。
-`obstacles` は検出のすべての支持面（ラベル・高さ・IDの指定によらない、床を除く）の上の物体の箱（`aha_msgs/PlaceObstacle`、`base_footprint`）。
+`obstacles` は検出のすべての支持面（ラベル・高さ・IDの指定によらない、床を除く）の上の物体の箱（`aha_msgs/PlaceObstacle`、`base_footprint`）で、
+`plane_id` の支持面は `planes` に含まれないことがある（`/aha/perception/planes` の同じ時刻のメッセージにはある）。
+家具の段に対応した面の箱は切り取る前の凸包で作るため、`planes` の凸包から外にはみ出すことがある。
 検出がない・古い・引数やTFが不正、家具の設定がない・家具や段が設定にない場合は `success` がfalseで `status` が `STATUS_ERROR`。
-それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面や家具の段が最新の検出にない場合を含む）と `STATUS_NO_SURFACE`、
-置ける場所がない（物体の高さ `object_size.z` が段の上の空き（次の段の高さ − 板の厚さ − 段の高さ）を超える場合を含む）と
-`STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行う。
+それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面や家具の段が最新の検出にない場合、合う平面に有効な点が3点未満の場合を含む）と `STATUS_NO_SURFACE`、
+置ける場所がない（物体の高さ `object_size.z` が段の上の空き（次の段の高さ − 板の厚さ − 段の高さ）を超える場合を含む。
+家具を指定しない要求でも、段に対応した面では空きから面の高さの誤差を引いた高さを超える物体は置けない）と
+`STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
 ## 物体検出（シミュレーションのみ）

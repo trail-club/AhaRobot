@@ -23,11 +23,11 @@ basis (``axes``, ``centroid``) over the hull bounding box plus ``grid_margin``.
 - With an ``approach_origin`` (``Orientation``) the yaw is known instead: the
   object x axis points from the origin (e.g. the shoulder) to the spot, plus
   one of the ``yaw_offsets``. The footprint rectangle grown by the margins
-  must then hold no blocking cell (the blocked rasters dilated by the rotated
-  rectangle, per ``yaw_step`` bin of the yaws the cells need); a cell takes
-  the first offset that fits and the candidate carries that yaw. For a square
-  apple footprint this saves about a fifth of the circle's radius, for long
-  objects much more.
+  must then hold no blocking cell (checked per cell with the rectangle of its
+  ``Orientation.step`` yaw bin, grown so that it holds the rectangle at any
+  yaw of the bin); a cell takes the first offset that fits and the candidate
+  carries that yaw. For a square apple footprint this saves about a fifth of
+  the circle's radius, for long objects much more.
 
 Candidates are local clearance maxima, largest first (ties: closer to the
 support center; across planes: closer to the frame origin), or with ``near``
@@ -55,7 +55,8 @@ them on the line of sight (depth edge noise of their silhouettes), are
 dropped first, so an object touching the held object stays a separate box.
 For the candidates, cells whose column above the support (up to the object
 band top) meets an exclude box are unobserved as well. 17 boxes with a
-viewpoint added about 0.2 s on a full 640x480 cloud (uniform random points).
+viewpoint added about 0.2 s on a full 640x480 cloud (uniform random points);
+build a ``PlaceCloud`` once and pass it to both functions to do this once.
 
 ROS free (numpy / scipy only); the inputs are the planes of
 ``aha_perception.planes`` and the organized cloud they were detected in.
@@ -72,7 +73,6 @@ from enum import IntEnum
 import numpy as np
 from scipy.ndimage import (
     binary_closing,
-    binary_dilation,
     distance_transform_edt,
     label,
     maximum_filter,
@@ -100,7 +100,9 @@ class PlaceStatus(IntEnum):
     """Same values as the STATUS_* constants of aha_msgs/srv/GetPlaceCandidates."""
 
     OK = 0
-    NO_SURFACE = 1  # no support plane matches the labels (height, plane indices)
+    # No support plane matches the labels (height, plane indices), or those
+    # that do have fewer than 3 valid inliers (PlaceResult.degenerate).
+    NO_SURFACE = 1
     NO_SPACE = 2  # supports, but no placeable spot for the size
     ERROR = 3
 
@@ -282,8 +284,11 @@ class PlaceResult:
     candidates: list[PlaceCandidate]
     grids: list[PlaceGrid]
     radius: float  # circumscribed footprint radius (m)
-    supports: list[int] = field(default_factory=list)  # plane indices considered
+    supports: list[int] = field(default_factory=list)  # plane indices with a grid
     status: PlaceStatus = PlaceStatus.OK
+    # Matching supports left out: fewer than 3 valid inliers (excluded, flying
+    # pixels) or a degenerate hull.
+    degenerate: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -418,13 +423,63 @@ def _rect_kernel(axes, up, yaw: float, half: Sequence[float], res: float) -> np.
     )
 
 
+def _bin_half(half: Sequence[float], step: float) -> tuple[float, float]:
+    """Half extents grown so that the rectangle at a bin's center yaw holds the
+    rectangle turned by up to step / 2 (a point at distance d moves by at most
+    2 d sin(step / 4))."""
+    grow = 2.0 * math.hypot(half[0], half[1]) * math.sin(step / 4.0)
+    return (half[0] + grow, half[1] + grow)
+
+
+class _Window:
+    """Rectangle checks on a padded raster: whether a rectangle kernel centered
+    at a cell covers a True cell. The distance to the nearest True cell
+    decides most cells without looking at the kernel: none within the
+    inscribed half extent (always covered), none beyond the circumscribed
+    radius (never covered)."""
+
+    def __init__(self, padded: np.ndarray, half: Sequence[float], res: float):
+        self.padded = padded
+        self.any = bool(padded.any())
+        self.distance = distance_transform_edt(~padded) * res if self.any else None
+        self.inner = min(half)
+        self.outer = math.hypot(*half) + 1e-9
+
+    def meets(self, kernel: np.ndarray, cells: np.ndarray) -> np.ndarray:
+        """Per (N, 2) cell (padded indices) whether the kernel covers a True
+        cell."""
+        if not self.any:
+            return np.zeros(len(cells), dtype=bool)
+        d = self.distance[cells[:, 0], cells[:, 1]]
+        out = d <= self.inner
+        unsure = np.flatnonzero(~out & (d <= self.outer))
+        if len(unsure):
+            out[unsure] = _meets(self.padded, kernel, cells[unsure])
+        return out
+
+
+def _meets(padded: np.ndarray, kernel: np.ndarray, cells: np.ndarray) -> np.ndarray:
+    """Whether the kernel centered at each of (N, 2) ``cells`` (indices into
+    ``padded``) covers a True cell of it."""
+    offsets = np.argwhere(kernel) - kernel.shape[0] // 2
+    out = np.zeros(len(cells), dtype=bool)
+    chunk = max(1, 2_000_000 // max(len(offsets), 1))
+    for start in range(0, len(cells), chunk):
+        c = cells[start : start + chunk]
+        rows = c[:, 0, None] + offsets[None, :, 0]
+        cols = c[:, 1, None] + offsets[None, :, 1]
+        out[start : start + chunk] = padded[rows, cols].any(axis=1)
+    return out
+
+
 def _oriented_placeable(
     frame, support, blocked, size, options, clearance, orientation, up
 ) -> tuple[np.ndarray, np.ndarray]:
     """(placeable, yaw) rasters for the yaws of ``orientation``: a cell is
     placeable at the first offset whose rectangle, grown by edge_margin, holds
-    only support cells and, grown by obstacle_margin + clearance, no blocked
-    cell."""
+    only support cells (outside the grid counts as not support) and, grown by
+    obstacle_margin + clearance, no blocked cell. Each cell is checked with
+    the rectangle of its yaw bin, grown by ``_bin_half``."""
     shape, res = frame.shape, frame.resolution
     cells = np.indices(shape).reshape(2, -1).T
     points = frame.origin + (frame.lower + cells * res) @ frame.axes
@@ -433,14 +488,20 @@ def _oriented_placeable(
     )
     bins = max(int(round(math.pi / orientation.step)), 1)
     step = math.pi / bins
-    edge_half = (size[0] / 2 + options.edge_margin, size[1] / 2 + options.edge_margin)
+    edge_half = _bin_half(
+        (size[0] / 2 + options.edge_margin, size[1] / 2 + options.edge_margin), step
+    )
     grow = options.obstacle_margin + clearance
-    free_half = (size[0] / 2 + grow, size[1] / 2 + grow)
-    outside = ~support
+    free_half = _bin_half((size[0] / 2 + grow, size[1] / 2 + grow), step)
+    pad = max(
+        int(math.ceil(math.hypot(*half) / res)) for half in (edge_half, free_half)
+    )
+    outside = _Window(np.pad(~support, pad, constant_values=True), edge_half, res)
+    obstacles = _Window(np.pad(blocked, pad, constant_values=False), free_half, res)
     flat_support = support.reshape(-1)
     placeable = np.zeros(cells.shape[0], dtype=bool)
     yaw = np.full(cells.shape[0], np.nan)
-    fits: dict[int, np.ndarray] = {}
+    kernels: dict[int, tuple[np.ndarray, np.ndarray]] = {}
     for offset in orientation.offsets:
         todo = flat_support & ~placeable
         if not todo.any():
@@ -448,21 +509,21 @@ def _oriented_placeable(
         wanted = approach[todo] + offset
         # The rectangle is the same after half a turn.
         keys = np.round(np.mod(wanted, math.pi) / step).astype(int) % bins
-        for key in np.unique(keys):
-            if key not in fits:
-                angle = key * step
-                edge = _rect_kernel(frame.axes, up, angle, edge_half, res)
-                free = _rect_kernel(frame.axes, up, angle, free_half, res)
-                bad = binary_dilation(outside, edge, border_value=1)
-                if blocked.any():
-                    bad |= binary_dilation(blocked, free)
-                fits[key] = ~bad.reshape(-1)
         index = np.flatnonzero(todo)
         for key in np.unique(keys):
+            if key not in kernels:
+                angle = key * step
+                kernels[key] = (
+                    _rect_kernel(frame.axes, up, angle, edge_half, res),
+                    _rect_kernel(frame.axes, up, angle, free_half, res),
+                )
+            edge, free = kernels[key]
             hit = index[keys == key]
-            ok = hit[fits[key][hit]]
-            placeable[ok] = True
-            yaw[ok] = (approach[ok] + offset + math.pi) % (2 * math.pi) - math.pi
+            ok = ~outside.meets(edge, cells[hit] + pad)
+            ok[ok] = ~obstacles.meets(free, cells[hit[ok]] + pad)
+            hit = hit[ok]
+            placeable[hit] = True
+            yaw[hit] = (approach[hit] + offset + math.pi) % (2 * math.pi) - math.pi
     return placeable.reshape(shape), yaw.reshape(shape)
 
 
@@ -572,11 +633,20 @@ def veil_pixels(depth: np.ndarray, noise, options) -> np.ndarray:
     return out
 
 
-class _Cloud:
+class PlaceCloud:
     """Finite points of the organized cloud outside the exclude boxes and
-    without flying pixels, with their noise thresholds."""
+    without flying pixels, with their noise thresholds. Built by both
+    ``find_place_candidates`` and ``find_place_obstacles``, or once by the
+    caller from the same inputs and options and passed to both as ``cloud``.
+    """
 
-    def __init__(self, points, depth, noise, options, exclude=(), viewpoint=None):
+    def __init__(
+        self, points, depth, noise=None, options=None, exclude=(), viewpoint=None
+    ):
+        noise = noise or DepthNoiseModel()
+        options = options or PlaceOptions()
+        exclude = tuple(exclude)
+        self.exclude = exclude
         flat = np.asarray(points, dtype=np.float64).reshape(-1, 3)
         self.flat = flat
         finite = np.isfinite(flat[:, 2])
@@ -687,9 +757,10 @@ def _support_grid(
     options,
     up,
     exclude=(),
-    spacing=0.0,
+    extra_clearance=0.0,
     orientation=None,
     boxes=(),
+    ceiling=None,
 ):
     res = options.resolution
     inliers = np.asarray(plane.inliers, dtype=np.int64)
@@ -733,6 +804,9 @@ def _support_grid(
         polygon, area = convex_hull_2d(frame.uv(other.hull_points()))
         if area > 0.0:
             overhead |= convex_mask(polygon, u, v)
+    if ceiling is not None and size[2] > ceiling:
+        # The board above, known but maybe not detected, is too low.
+        overhead[:] = True
 
     blocked = obstacle | overhead
     edge = distance_transform_edt(support) * res - 0.5 * res
@@ -746,11 +820,11 @@ def _support_grid(
         placeable = (
             support
             & (edge >= radius + options.edge_margin)
-            & (free >= radius + options.obstacle_margin + spacing)
+            & (free >= radius + options.obstacle_margin + extra_clearance)
         )
     else:
         placeable, yaw = _oriented_placeable(
-            frame, support, blocked, size, options, spacing, orientation, up
+            frame, support, blocked, size, options, extra_clearance, orientation, up
         )
     return PlaceGrid(
         plane_index=index,
@@ -815,6 +889,14 @@ def _grid_candidates(grid, radius, near, limit, options, up) -> list[PlaceCandid
     return out
 
 
+def object_size_of(object_size) -> tuple[float, float, float]:
+    """(x, y, z) of a requested object size; ValueError unless 3 positive values."""
+    size = tuple(float(s) for s in object_size)
+    if len(size) != 3 or not all(np.isfinite(size)) or min(size) <= 0.0:
+        raise ValueError(f"object size must be 3 positive values, got {object_size}")
+    return size
+
+
 def find_place_candidates(
     planes: Sequence[Plane],
     points: np.ndarray,
@@ -834,6 +916,8 @@ def find_place_candidates(
     clearance: float = 0.0,
     orientation: Orientation | None = None,
     boxes: Sequence[PlaceObstacle] = (),
+    ceilings: dict | None = None,
+    cloud: PlaceCloud | None = None,
 ) -> PlaceResult:
     """Where an object of ``object_size`` (x, y footprint, z height; m) fits.
 
@@ -866,12 +950,15 @@ def find_place_candidates(
     its ``yaw``. ``boxes`` (from ``find_place_obstacles`` on the same cloud)
     block their footprints grown by ``options.candidate_box_padding`` too:
     a box covers the gap between touching objects, which the cells do not.
+    ``ceilings`` maps plane indices to the known room above them (m, e.g. the
+    board above from the furniture config): a taller object has no spot
+    there even if the board is not detected. ``cloud`` is the ``PlaceCloud``
+    of ``points``, ``depth``, ``noise``, ``exclude`` and ``viewpoint``
+    (built here without it).
     """
     options = options or PlaceOptions()
     noise = noise or DepthNoiseModel()
-    size = tuple(float(s) for s in object_size)
-    if len(size) != 3 or not all(np.isfinite(size)) or min(size) <= 0.0:
-        raise ValueError(f"object size must be 3 positive values, got {object_size}")
+    size = object_size_of(object_size)
     allowed = None if plane_indices is None else {int(i) for i in plane_indices}
     default = DEFAULT_SUPPORT_LABELS if allowed is None else SUPPORT_LABELS
     wanted = tuple(labels or ()) or default
@@ -908,9 +995,11 @@ def find_place_candidates(
             if abs(float(np.asarray(planes[i].centroid) @ up) - surface_height)
             <= tolerance
         ]
-    exclude = tuple(exclude)
-    cloud = _Cloud(points, depth, noise, options, exclude, viewpoint)
-    grids, ranked = [], []
+    if cloud is None:
+        cloud = PlaceCloud(points, depth, noise, options, exclude, viewpoint)
+    exclude = cloud.exclude
+    ceilings = ceilings or {}
+    grids, ranked, degenerate = [], [], []
     for i in supports:
         grid = _support_grid(
             planes[i],
@@ -925,8 +1014,10 @@ def find_place_candidates(
             clearance,
             orientation,
             [b for b in boxes if b.plane_index == i],
+            ceilings.get(i),
         )
         if grid is None:
+            degenerate.append(i)
             continue
         grids.append(grid)
         # Equal clearances (to the grid resolution) go to the plane nearest
@@ -948,7 +1039,8 @@ def find_place_candidates(
         status = PlaceStatus.NO_SPACE
     else:
         status = PlaceStatus.OK
-    return PlaceResult(candidates, grids, radius, supports, status)
+    supports = [i for i in supports if i not in degenerate]
+    return PlaceResult(candidates, grids, radius, supports, status, degenerate)
 
 
 def _band_top(index, frame, hull_mask, horizontal, options, up) -> float:
@@ -1059,6 +1151,7 @@ def find_place_obstacles(
     exclude: Sequence[ExcludeBox] = (),
     viewpoint: Sequence[float] | None = None,
     ceilings: dict | None = None,
+    cloud: PlaceCloud | None = None,
 ) -> list[PlaceObstacle]:
     """Boxes of what stands on the horizontal planes facing up whose label is
     in ``options.box_labels`` (inputs as ``find_place_candidates``).
@@ -1076,13 +1169,15 @@ def find_place_obstacles(
     ``obstacle_min_points`` points that touches the plane hull becomes a box:
     the minimum-area rectangle of its points on the plane and the
     ``box_height_percentile`` of their heights; components filling less than
-    ``box_min_fill`` of the rectangle are split into tiles.
+    ``box_min_fill`` of the rectangle are split into tiles. ``cloud`` as in
+    ``find_place_candidates``.
     """
     options = options or PlaceOptions()
     noise = noise or DepthNoiseModel()
     up = _unit(up)
     horizontal = _horizontal(planes, up, options)
-    cloud = _Cloud(points, depth, noise, options, tuple(exclude), viewpoint)
+    if cloud is None:
+        cloud = PlaceCloud(points, depth, noise, options, exclude, viewpoint)
     structure = np.zeros(len(cloud.flat), dtype=bool)
     for plane in planes:
         if PlaneLabel(plane.label).value in STRUCTURE_LABELS:

@@ -269,12 +269,10 @@ launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。�
 
 ### 置き場所の候補
 
-`object_size`（底面 x × y、高さ z、m）の物体を置ける机・棚板上の点を、余裕（clearance）の大きい順か `near` に近い順で返す。
-応答の `obstacles` は検出のすべての支持面（床を除く）の上の物体を衝突判定用の箱にしたもの。
-箱にする点の高さは、上に検出した棚板（支持面の3割以上を覆う面）か、家具の段に対応した面では設定の上の棚板の下面から、
+`object_size`（底面 x × y、高さ z、m）の物体を置ける机・棚板上の点を返す。要求・応答の各フィールドの意味と `status` は
+[ROSインターフェース](../../../docs/interfaces.md#平面検出)、方式は [place.py](aha_perception/place.py) を参照。
+障害物の箱にする点の高さは、上に検出した棚板（支持面の3割以上を覆う面）か、家具の段に対応した面では設定の上の棚板の下面から、
 `cap_margin`（0.05 m）下まで（上の棚板が断片的にしか見えず検出されないと、その前の縁が棚の入口の箱になった）。
-要求の `exclude_regions`（ロボットの腕と持っている物体などの箱）の中と、カメラから見てその後ろの点
-（輪郭のDepthのにじみ）は使わず、箱の下の支持面は見えていないものとする。
 
 ```bash
 ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCandidates \
@@ -284,11 +282,9 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
   "{object_size: {x: 0.06, y: 0.06, z: 0.12}, restrict_height: true, surface_height: 0.61}"
 ```
 
-`surface_labels`・`max_candidates`・`near` は省略できる。候補と障害物の箱は `/aha/perception/place/markers` に表示する。
-`restrict_height: true` では重心の高さが `surface_height` から `height_tolerance`（既定0.03 m）以内の支持面だけを使う。
-`surface_ids: [7]` を渡すと、最新の検出でその面に対応した平面だけを支持面にする（`surface_labels` を省くとラベルで絞らない）。
-最新の検出にない場合は `status` が `STATUS_NO_SURFACE` になる。候補の `surface_id` は支持面の面のID。
-`clearance: 0.05` は物体の周りの障害物との間を5 cm多く空ける（支持面の縁までの余裕は変えない）。
+候補と障害物の箱は `/aha/perception/place/markers` に表示する。
+前の検出で見た面に置くには、その面のID（[面の追跡](#面の追跡)）を `surface_ids` に渡す。
+持っている物体とロボットの腕は `exclude_regions` に渡すと、障害物にならない。
 似た物体の隣に置く場合は、その物体の位置を `near` に渡す（面の上の物体の種類は扱わない）。
 
 ### 家具の設定
@@ -311,7 +307,11 @@ furniture:
 - 面の重心を設定のframeへ変換し、`furniture_margin` だけ広げた外形の中にあり、段の高さとの差が `furniture_height_tolerance` 未満なら、最も近い段に対応させる。
   複数の家具の外形に入る場合は外形の中心が最も近い家具にする。床・壁のラベルの面は対応させない（床の高さの段は対応しない）。
 - 対応した面のその検出の平面は、凸包を家具の外形を `furniture_clip_margin` 広げた範囲で切り取る（Depthの縁のにじみで棚板の凸包が縁より手前・横へ数cm伸び、
-  planning sceneの上の棚板が腕の通り道に掛かった）。`/aha/perception/planes`、置き場所の候補、障害物の箱は切り取った凸包を、面の追跡は検出したままの凸包を使う。
+  planning sceneの上の棚板が腕の通り道に掛かった）。`/aha/perception/planes` と置き場所の候補は切り取った凸包を、
+  面の追跡と障害物の箱は検出したままの凸包を使う（設定やTFの誤差で切り落とした縁の上の物体も箱にする）。
+  切り取ると何も残らない平面（外形の外にある、誤った対応）は、その検出では対応させない（警告を出す）。
+- 上に棚板がある段に対応した面では、段の上の空きから面の高さの誤差（面の高さ − 段の高さ）を引いた高さを、
+  上の棚板が検出されていなくても障害物の箱の帯の上限に使い、それより高い物体の候補を出さない（家具を指定しない要求でも）。
 - 名前の重複、大きさ0以下、段の高さが増えない設定は起動時のエラーになる。
 
 ```bash
@@ -344,9 +344,12 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 - `target_frame` の原点が床でz軸が上、台車が水平であることを仮定する（高さ・ラベル・IMUのtilt）。
 - 出力は水平面と壁だけ。斜めの面、小さい垂直面、下を向く水平面（カメラより上の棚板の裏など）は出さない。
-- 置き場所は見えている支持面の上だけで、物体の陰など見えていない所は候補にしない。物体の向きは考慮せず、底面の外接円で判定する。`near` を渡すと候補の余裕は必要最小限のことがある。
+- 置き場所は見えている支持面の上だけで、物体の陰など見えていない所は候補にしない。`approach_from` がなければ物体の向きは考慮せず底面の外接円で、
+  あれば置く向きの長方形で判定する（向きは5°刻みで、刻みの中のどの向きでも収まるよう長方形を広げる）。`near` を渡すと候補の余裕は必要最小限のことがある。
 - 障害物の箱は見えている点だけから作る。接した物体は1個の箱になり、奥側が隠れた物体は見えている範囲だけになる。Depthの縁のにじみで底面は視線方向に長くなりやすい。箱の既定値は合成シーンの調整の対象外。
-- 厚さ約2 cm未満の物体（本など）は障害物にならず、厚さ1 cmでは平面のインライアに入ってその上が候補になる。棚の一番下の段は上の棚板に遮られ、手前の一部しか見えない（シミュレーションで確認）。
+- 厚さ約2 cm未満の物体（本など）は障害物にならず、厚さ1 cmでは平面のインライアに入ってその上が候補になる。
+  棚の一番下の段は上の棚板に遮られ、手前の一部しか見えない（シミュレーションで確認）。
+- 障害物の帯の下端は max(`obstacle_min_height`, `obstacle_k` × σ(Z)) で、既定のノイズでは3 m先で約5 cmになり、遠い低い物体（皿・ふた）は候補も箱も避けない。
 - 机（`table`）は高さ0.4–1.0 m・面積0.05 m²以上（`ClassifyOptions`）。範囲外の水平面（低い机、カウンター、小さい台）は棚板でなければ `other` になり、既定の支持面に入らない。
 - 面の追跡は `tracking_frame` の位置の誤差（odomのずれ）をそのまま受ける。戻ってきた面が前の凸包と重ならないほどずれると別のIDになる。
 - 家具の段への対応は設定の寸法と `tracking_frame` → 設定のframeのTFの誤差を受ける。重心のずれが `furniture_margin`、高さの差が `furniture_height_tolerance` を超えると対応しない。
@@ -363,4 +366,4 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --wi
   test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py
 ```
 
-`test/test_plane_detection_node.py`（ノードのメッセージ変換）はROSのメッセージが必要で、colconでだけ実行する。
+`test/test_plane_detection_node.py`（ノードのメッセージ変換）と `test/test_plane_detection_service.py`（置き場所のserviceの分岐）はrclpyとROSのメッセージが必要で、colconでだけ実行する。
