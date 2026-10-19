@@ -544,8 +544,8 @@ class PlaneDetection(Node):
         if self.stride < 1:
             raise ValueError(f"stride must be >= 1, got {self.stride}")
         self.place_options = PlaceOptions().for_input_stride(self.stride)
-        # Tuned on calibrated D435i noise, see
-        # tools/perception/plane_bench/results/tuning.md.
+        # Tuned on calibrated D435i noise with
+        # tools/perception/plane_bench/run_bench.py.
         merge = bool(self.declare_parameter("merge", True).value)
         self.noise_subpixel = float(
             self.declare_parameter("noise_subpixel", 0.12).value

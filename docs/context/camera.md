@@ -48,7 +48,8 @@ URDFのカメラ位置（設計値）と取り付け後の実際の位置との�
 フィルタなし・ありを各10フレーム（0.5 s間隔）、[capture_real.py](../../tools/perception/plane_bench/README.md) で記録した。
 接続・解像度・送信レートは上の記録と同じ（USB 2.0、640×480、`--fps 15`、`--rate 5`）。
 フレームは `tools/perception/plane_bench/real_frames/20261004-1816_desk_clutter_raw` と
-`20261004-1817_desk_clutter_filtered`、比較結果は `tools/perception/plane_bench/results/real.md`。
+`20261004-1817_desk_clutter_filtered`。比較は `run_real.py` で再現できる。
+2026-10-05にこのフレームから `calibrate_noise.py` で合成Depthのノイズのプリセット（`d435i_raw` / `d435i_filtered`）を求めた。
 
 ### 観測結果
 

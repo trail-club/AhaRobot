@@ -11,7 +11,7 @@ merged before and after the refinement.
 ``refine_k_high`` > ``refine_k`` adds hysteresis to the assignment
 (``refine.assign_seeded``); it is off by default because in the synthetic
 study it mostly added pixels across object and surface boundaries
-(tools/perception/plane_bench/results/tuning.md).
+(tools/perception/plane_bench/run_bench.py).
 """
 
 from __future__ import annotations

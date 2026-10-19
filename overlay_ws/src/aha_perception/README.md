@@ -250,7 +250,7 @@ launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。�
 | `furniture_margin` / `furniture_height_tolerance` | `0.10` / `0.05` | 面を家具の段に対応させる外形の広げ幅 / 段の高さとの差の上限（m） |
 | `furniture_clip_margin` | `0.02` | 家具の段に対応した平面の凸包を切り取る外形の広げ幅（m、負なら切り取らない） |
 
-`merge`・`noise_subpixel` の既定は較正したD435iのノイズで選んだ値で、ライブラリの既定（`merge=False`・0.08）とは異なる（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)）。
+`merge`・`noise_subpixel` の既定は較正したD435iのノイズで選んだ値で、ライブラリの既定（`merge=False`・0.08）とは異なる（[平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md)の `run_bench.py` で比較）。
 
 ### 面の追跡
 
@@ -265,7 +265,7 @@ launch引数は `method`・`target_frame`・`max_rate`・`furniture_config`。�
 - `level` は同じ所に重なった水平面（棚板など）の下からの順番（1から、重ならなければ0）。
 - `tracking_frame` のTFがない間は `target_frame` で追跡する（台車が動くと面も動く）。TFが来た時点と、シミュレーションの再起動で面を消す。
 
-対応付けの方法は [surfaces.py](aha_perception/surfaces.py)、合成シーンでの評価は [tracking.md](../../../tools/perception/plane_bench/results/tracking.md) を参照。
+対応付けの方法は [surfaces.py](aha_perception/surfaces.py)、合成シーンでの評価は[平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md)の `run_tracking.py` を参照。
 
 ### 置き場所の候補
 
@@ -353,7 +353,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - 机（`table`）は高さ0.4–1.0 m・面積0.05 m²以上（`ClassifyOptions`）。範囲外の水平面（低い机、カウンター、小さい台）は棚板でなければ `other` になり、既定の支持面に入らない。
 - 面の追跡は `tracking_frame` の位置の誤差（odomのずれ）をそのまま受ける。戻ってきた面が前の凸包と重ならないほどずれると別のIDになる。
 - 家具の段への対応は設定の寸法と `tracking_frame` → 設定のframeのTFの誤差を受ける。重心のずれが `furniture_margin`、高さの差が `furniture_height_tolerance` を超えると対応しない。
-- 既定値は合成シーンと較正したノイズで選んだ（[tuning.md](../../../tools/perception/plane_bench/results/tuning.md)、[place.md](../../../tools/perception/plane_bench/results/place.md)）。実機ではGTを使った評価をしていない。
+- 既定値は合成シーンと較正したノイズで選んだ（[平面検出ベンチマーク](../../../tools/perception/plane_bench/README.md)の `run_bench.py`・`run_place.py`）。実機ではGTを使った評価をしていない。
 
 ## テスト
 

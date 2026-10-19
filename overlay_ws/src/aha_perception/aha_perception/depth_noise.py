@@ -62,9 +62,9 @@ class NoiseParams:
     quantization: float = 0.0
 
 
-# Fitted to the real D435i captures by calibrate_noise.py; see
-# tools/perception/plane_bench/results/noise_calibration.md. ``focal`` is
-# replaced by the image fx.
+# Fitted to the real D435i captures by
+# tools/perception/plane_bench/calibrate_noise.py. ``focal`` is replaced by
+# the image fx.
 NOISE_PRESETS = {
     "default": NoiseParams(),
     "d435i_raw": NoiseParams(

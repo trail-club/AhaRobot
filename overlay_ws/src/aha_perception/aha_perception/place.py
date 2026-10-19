@@ -113,8 +113,8 @@ class PlaceOptions:
     (lengths in m).
 
     Candidate defaults were chosen on the synthetic place study
-    (tools/perception/plane_bench/results/place.md); the box_* / cap_* /
-    wall_k defaults were not part of it.
+    (tools/perception/plane_bench/run_place.py); the box_* / cap_* / wall_k
+    defaults were not part of it.
     """
 
     # Grid cell size and the extent added around the plane hull.

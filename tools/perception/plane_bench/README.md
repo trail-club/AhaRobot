@@ -4,16 +4,7 @@
 [`aha_perception.place`](../../../overlay_ws/src/aha_perception/aha_perception/place.py) の置き場所の候補、
 [`aha_perception.surfaces`](../../../overlay_ws/src/aha_perception/aha_perception/surfaces.py) の面の追跡を、
 合成シーンと実機で取得したDepthで評価する。ROSは不要で、ホストの uv で実行する（[取得](#取得)だけ開発コンテナ）。
-結果のまとめは `results/` の手で整理した資料を参照する。
-
-| 資料 | 内容 |
-| --- | --- |
-| [comparison.md](results/comparison.md) | 検出器の候補の比較 |
-| [tuning.md](results/tuning.md) | 検出器のノイズモデルと断片統合の比較（ノードの既定の根拠） |
-| [noise_calibration.md](results/noise_calibration.md) | Depthノイズのプリセットの較正 |
-| [real.md](results/real.md) | 実機フレームでの検出 |
-| [shelf.md](results/shelf.md) / [place.md](results/place.md) | 棚・置き場所の候補の評価 |
-| [tracking.md](results/tracking.md) | 動くカメラでの面の追跡（IDの安定性）の評価 |
+出力（既定は `results/`）はGit対象外で、スクリプトで作り直す。
 
 ## スクリプト
 
@@ -68,7 +59,6 @@ uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 \
 | `shelf_report.md` / `.csv` / `_planes.csv`、`shelf_*.png` | `run_shelf.py`：表、棚板 × フレーム、出力の水平面 |
 | `place_report.md` / `.csv` / `_invalid.csv`、`place_*.png` | `run_place.py`：表、シーン × プリセット × 大きさ × variant、無効な候補 |
 | `tracking_report.md` / `.csv` | `run_tracking.py`：表と実機フレーム、GTの面ごとの値 |
-| `comparison.md`・`tuning.md`・`shelf.md`・`place.md` など | 手で整理したまとめ（実行では更新しない） |
 
 時間は640×480の1フレームあたり。`cpu` はプロセスCPU時間、`wall` は経過時間。
 
@@ -115,6 +105,7 @@ docker exec -it aharobot_aha_project_1 bash -lc '
 
 `real_frames/<YYYYMMDD-HHMM>_<scene>/` は `frames.npz`（Depth mm・`camera_to_base`・時刻・内部パラメータ・頭の関節角）、
 `meta.json`、`color.jpg`（1フレーム目）を持つ。読み書きは [`real_frames.py`](real_frames.py) の `save_scene` / `load_scene` / `list_scenes`。
+`real_frames/` はGitで管理する（評価・較正の入力の3シーン）。新しく取得したシーンは、共有の入力にする場合だけコミットする。
 
 ### 評価
 
