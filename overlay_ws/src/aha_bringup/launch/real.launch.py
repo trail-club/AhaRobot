@@ -10,20 +10,20 @@ Starts:
     aha_description.frame for frame_config; the lifts and wheels are fixed
   - static TF odom -> base_footprint (identity: the frame does not move), so
     plane detection tracks surfaces in odom as on the mobile robot
+  - joint_state_publisher: /joint_states from /head_controller/joint_states
+    and the arms' /<side>/arm/joint_states; joints without a source read 0
   - arms:=true   aha_bringup arms.launch.py (left/right arm_node on
-                 left_device / right_device; record passed through)
+                 left_device / right_device and their trajectory bridges;
+                 trajectory_bridge and record passed through)
   - head:=servo  aha_servo servo_trajectory_bridge.py on head_port
                  head:=manual  aha_perception manual_head.py (no servos)
-                 head:=none    nothing; the head joints need another source
-                 The head state goes to /joint_states next to the arms'.
+                 head:=none    nothing (the head reads 0)
   - camera:=true aha_perception realsense.launch.py and pointcloud.launch.py
   - planes:=true aha_perception plane_detection.launch.py (furniture_config)
   - rviz:=true   aha_perception sim_view.launch.py (fixed frame
                  base_footprint, control panel and head look-at)
 
-Every joint state is published by the arms and the head on /joint_states;
-there is no joint_state_publisher filling in zeros. Do not run next to
-sim.launch.py on the same ROS_DOMAIN_ID.
+Do not run next to sim.launch.py on the same ROS_DOMAIN_ID.
 """
 
 from pathlib import Path
@@ -31,7 +31,11 @@ from pathlib import Path
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -40,6 +44,7 @@ from launch_ros.actions import Node
 from aha_description.frame import frame_robot, load_frame
 
 HEAD_STATES = "/head_controller/joint_states"  # aha_servo head.yaml controller_name
+ARM_STATES = ["/left/arm/joint_states", "/right/arm/joint_states"]  # arms.launch.py
 
 
 def _share(package: str) -> Path:
@@ -60,7 +65,9 @@ def robot_description(frame_config: str) -> str:
 
 
 def _robot(context):
-    description = robot_description(LaunchConfiguration("frame_config").perform(context))
+    description = robot_description(
+        LaunchConfiguration("frame_config").perform(context)
+    )
     return [
         Node(
             package="robot_state_publisher",
@@ -73,7 +80,6 @@ def _robot(context):
 
 def _head(context):
     head = LaunchConfiguration("head").perform(context)
-    remap = [(HEAD_STATES, "/joint_states")]
     if head == "servo":
         return [
             Node(
@@ -84,7 +90,6 @@ def _head(context):
                     str(_share("aha_servo") / "config" / "head.yaml"),
                     {"port": LaunchConfiguration("head_port").perform(context)},
                 ],
-                remappings=remap,
                 output="screen",
             )
         ]
@@ -94,7 +99,6 @@ def _head(context):
                 package="aha_perception",
                 executable="manual_head.py",
                 parameters=[str(_share("aha_perception") / "config" / "head.yaml")],
-                remappings=remap,
                 output="screen",
             )
         ]
@@ -109,6 +113,12 @@ def generate_launch_description():
         arguments=["--frame-id", "odom", "--child-frame-id", "base_footprint"],
         output="screen",
     )
+    joint_states = Node(
+        package="joint_state_publisher",
+        executable="joint_state_publisher",
+        parameters=[{"source_list": [HEAD_STATES, *ARM_STATES], "rate": 30}],
+        output="screen",
+    )
     arms = IncludeLaunchDescription(
         _launch("aha_bringup", "arms.launch.py"),
         launch_arguments={
@@ -116,6 +126,7 @@ def generate_launch_description():
             "right_device": LaunchConfiguration("right_device"),
             "use_left": LaunchConfiguration("use_left"),
             "use_right": LaunchConfiguration("use_right"),
+            "trajectory_bridge": LaunchConfiguration("trajectory_bridge"),
             "record": LaunchConfiguration("record"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("arms")),
@@ -159,6 +170,11 @@ def generate_launch_description():
             DeclareLaunchArgument("left_device", default_value="/dev/ttyUSB2"),
             DeclareLaunchArgument("right_device", default_value="/dev/ttyUSB0"),
             DeclareLaunchArgument(
+                "trajectory_bridge",
+                default_value="true",
+                description="Arm trajectory bridges (arms.launch.py)",
+            ),
+            DeclareLaunchArgument(
                 "record",
                 default_value="false",
                 description="rosbag of every topic (arms.launch.py)",
@@ -181,6 +197,7 @@ def generate_launch_description():
             DeclareLaunchArgument("rviz", default_value="true"),
             OpaqueFunction(function=_robot),
             odom,
+            joint_states,
             arms,
             OpaqueFunction(function=_head),
             camera,

@@ -36,9 +36,13 @@ def test_forearm_in_line_reads_zero_error():
 
 def test_outward_change_has_the_side_sign():
     assert calibrate.outward_error("left", 0.1, 0.1 + math.pi / 2) == pytest.approx(0.0)
-    assert calibrate.outward_error("right", 0.1, 0.1 - math.pi / 2) == pytest.approx(0.0)
+    assert calibrate.outward_error("right", 0.1, 0.1 - math.pi / 2) == pytest.approx(
+        0.0
+    )
     # A mirrored sign reads 180 deg off.
-    assert abs(calibrate.outward_error("left", 0.0, -math.pi / 2)) == pytest.approx(math.pi)
+    assert abs(calibrate.outward_error("left", 0.0, -math.pi / 2)) == pytest.approx(
+        math.pi
+    )
 
 
 def test_tilted_origin_is_rejected():

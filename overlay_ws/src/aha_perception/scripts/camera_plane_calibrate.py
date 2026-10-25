@@ -70,8 +70,11 @@ def set_camera(text: str, xyz, rpy) -> str:
     """Frame config text with ``camera: {xyz, rpy}`` set (replaced or added
     before ``arms:``)."""
     line = (
-        "camera: {xyz: [" + ", ".join(f"{v:.4f}" for v in xyz) + "], rpy: ["
-        + ", ".join(f"{v:.4f}" for v in rpy) + "]}"
+        "camera: {xyz: ["
+        + ", ".join(f"{v:.4f}" for v in xyz)
+        + "], rpy: ["
+        + ", ".join(f"{v:.4f}" for v in rpy)
+        + "]}"
     )
     pattern = re.compile(r"^camera:.*$", re.M)
     if pattern.search(text):
@@ -112,7 +115,9 @@ def collect(args):
     def lookup(target, source, stamp):
         for when in (Time.from_msg(stamp), Time()):
             try:
-                return matrix_of(buffer.lookup_transform(target, source, when).transform)
+                return matrix_of(
+                    buffer.lookup_transform(target, source, when).transform
+                )
             except TransformException:
                 continue
         return None
@@ -161,7 +166,9 @@ def collect(args):
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--reference", type=float, required=True, help="plane height, m")
+    parser.add_argument(
+        "--reference", type=float, required=True, help="plane height, m"
+    )
     parser.add_argument("--tolerance", type=float, default=0.08, help="m")
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--config", type=Path, help="frame YAML (for --write)")

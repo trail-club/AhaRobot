@@ -45,11 +45,27 @@ def test_description_is_the_frame_model(module, monkeypatch):
     assert float(base.get("xyz").split()[2]) > 0.3  # on the table
 
 
-def test_head_state_joins_the_joint_states(module, monkeypatch):
-    for head in ("servo", "manual"):
+def test_head_and_arm_states_are_the_joint_state_sources(module, monkeypatch):
+    monkeypatch.setattr(module, "Node", lambda **kwargs: SimpleNamespace(**kwargs))
+    entities = module.generate_launch_description().entities
+    (jsp,) = [
+        e for e in entities if getattr(e, "executable", None) == "joint_state_publisher"
+    ]
+    assert jsp.parameters[0]["source_list"] == [
+        "/head_controller/joint_states",
+        "/left/arm/joint_states",
+        "/right/arm/joint_states",
+    ]
+
+
+def test_head_modes(module, monkeypatch):
+    for head, executable in (
+        ("servo", "servo_trajectory_bridge.py"),
+        ("manual", "manual_head.py"),
+    ):
         context = context_with_defaults(module, head=head)
         (node,) = recorded_nodes(module, monkeypatch, module._head, context)
-        assert node.remappings == [(module.HEAD_STATES, "/joint_states")]
+        assert node.executable == executable and not hasattr(node, "remappings")
     context = context_with_defaults(module, head="none")
     assert recorded_nodes(module, monkeypatch, module._head, context) == []
 

@@ -78,8 +78,12 @@ CONFIG = {
     "extrusions": [
         {"name": "column", "from": [0, 0, 0], "to": [0, 0, 0.5]},
         {"name": "bar", "from": [0.03, -0.13, 0.015], "to": [0.03, 0.13, 0.015]},
-        {"name": "tower", "from": [0.045, 0.145, 0], "to": [0.045, 0.145, 0.32],
-         "section": [0.03, 0.12]},
+        {
+            "name": "tower",
+            "from": [0.045, 0.145, 0],
+            "to": [0.045, 0.145, 0.32],
+            "section": [0.03, 0.12],
+        },
     ],
 }
 
@@ -140,7 +144,9 @@ def test_extrusions_are_30_mm_bars_between_their_ends(robot):
     ):
         link = robot.find(f"link[@name='frame_{name}']")
         size = values(link.find("collision/geometry/box"), "size")
-        assert size == pytest.approx([np.linalg.norm(np.subtract(end, start)), 0.03, 0.03])
+        assert size == pytest.approx(
+            [np.linalg.norm(np.subtract(end, start)), 0.03, 0.03]
+        )
         T = transform(link.find("collision/origin"))
         half = size[0] / 2
         assert (T @ [-half, 0, 0, 1])[:3] == pytest.approx(start, abs=1e-9)
@@ -163,7 +169,9 @@ def test_profile_has_a_slot_per_module_and_face():
     strips = boxes[1:]
     assert len(strips) == 2 * (2 + 5)
     core = boxes[0][1]
-    assert core == pytest.approx((0.32, 0.03 - 2 * GROOVE_DEPTH, 0.12 - 2 * GROOVE_DEPTH))
+    assert core == pytest.approx(
+        (0.32, 0.03 - 2 * GROOVE_DEPTH, 0.12 - 2 * GROOVE_DEPTH)
+    )
     # Strips and slots cover each face exactly.
     wide = [b for b in strips if b[1][1] == pytest.approx(GROOVE_DEPTH) and b[0][1] > 0]
     assert sum(b[1][2] for b in wide) == pytest.approx(0.12 - 4 * 0.008)
@@ -184,13 +192,19 @@ def test_head_base_hangs_at_the_pan_joint(robot):
     link = robot.find("link[@name='frame_head_base']")
     mesh = link.find("visual/geometry/mesh")
     assert mesh.get("filename").endswith("meshes/head_base.stl")
-    assert values(link.find("visual/origin"), "xyz") == pytest.approx(CONFIG["head"]["pan_xyz"])
-    top = values(link.find("collision/origin"), "xyz")[2] + values(
-        link.find("collision/geometry/box"), "size"
-    )[2] / 2
+    assert values(link.find("visual/origin"), "xyz") == pytest.approx(
+        CONFIG["head"]["pan_xyz"]
+    )
+    top = (
+        values(link.find("collision/origin"), "xyz")[2]
+        + values(link.find("collision/geometry/box"), "size")[2] / 2
+    )
     assert top == pytest.approx(CONFIG["head"]["pan_xyz"][2] + 0.0976, abs=1e-4)
     config = dict(CONFIG, head=dict(CONFIG["head"], base=False))
-    assert ET.fromstring(frame_robot(URDF, config)).find("link[@name='frame_head_base']") is None
+    assert (
+        ET.fromstring(frame_robot(URDF, config)).find("link[@name='frame_head_base']")
+        is None
+    )
 
 
 def test_camera_mount_can_be_replaced():
@@ -210,6 +224,8 @@ def test_installed_config_loads():
 
 def test_unknown_arm_is_an_error(tmp_path):
     path = tmp_path / "frame.yaml"
-    path.write_text("base_height: 0.4\nhead: {pan_xyz: [0, 0, 0]}\narms: {middle: {}}\n")
+    path.write_text(
+        "base_height: 0.4\nhead: {pan_xyz: [0, 0, 0]}\narms: {middle: {}}\n"
+    )
     with pytest.raises(ValueError, match="unknown arm"):
         load_frame(path)

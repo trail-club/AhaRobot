@@ -64,7 +64,9 @@ def crop(triangles, origin):
     for triangle in triangles:
         center_x = sum(v[0] for v in triangle) / 3
         if min(v[2] for v in triangle) > HEAD_BASE_MIN_Z and center_x > HEAD_BASE_MIN_X:
-            out.append(tuple(tuple(v[i] - origin[i] for i in range(3)) for v in triangle))
+            out.append(
+                tuple(tuple(v[i] - origin[i] for i in range(3)) for v in triangle)
+            )
     return out
 
 

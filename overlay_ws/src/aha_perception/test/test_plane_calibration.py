@@ -71,7 +71,9 @@ def test_correction_recovers_the_true_camera(roll, pitch, dz):
 def test_a_right_model_needs_no_correction():
     model = pose(LOOK, [0.15, 0.03, 0.80])
     fix = correction(seen_plane(model, model, 0.0), model[:3, 3], 0.0)
-    assert (fix.roll, fix.pitch, fix.dz, fix.tilt_deg) == pytest.approx((0, 0, 0, 0), abs=1e-9)
+    assert (fix.roll, fix.pitch, fix.dz, fix.tilt_deg) == pytest.approx(
+        (0, 0, 0, 0), abs=1e-9
+    )
 
 
 def test_corrected_mount_moves_only_the_camera():
@@ -128,6 +130,9 @@ def test_set_camera_replaces_or_adds_the_entry():
     script = load_script()
     text = "base_height: 0.38\n\n# camera: design values\n\narms:\n  left: {}\n"
     added = script.set_camera(text, [0.05, 0.0, -0.01], [1.57, 0.0, 0.0])
-    assert "camera: {xyz: [0.0500, 0.0000, -0.0100], rpy: [1.5700, 0.0000, 0.0000]}\n\narms:" in added
+    assert (
+        "camera: {xyz: [0.0500, 0.0000, -0.0100], rpy: [1.5700, 0.0000, 0.0000]}\n\narms:"
+        in added
+    )
     replaced = script.set_camera(added, [0.06, 0.0, 0.0], [1.5, 0.0, 0.0])
     assert replaced.count("\ncamera:") == 1 and "xyz: [0.0600" in replaced
