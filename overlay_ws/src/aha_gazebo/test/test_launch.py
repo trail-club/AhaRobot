@@ -230,6 +230,71 @@ def test_standard_sim_preserves_explicit_pose(monkeypatch):
     assert context.launch_configurations["spawn_z"] == "0.1"
 
 
+def test_manipulation_accepts_states_up_to_the_physics_limits(monkeypatch):
+    from launch.actions import IncludeLaunchDescription
+
+    from aha_gazebo.model import LIMIT_MARGIN, LIMIT_TOLERANCE
+
+    module = load_launch("aha_bringup", "sim.launch.py")
+    monkeypatch.setattr(
+        module, "get_package_prefix", lambda package: "/install/" + package
+    )
+    context = LaunchContext()
+    (manip,) = [
+        action
+        for action in module.generate_launch_description().entities
+        if isinstance(action, IncludeLaunchDescription)
+        and "joint_states_topic" in dict(action.launch_arguments)
+    ]
+    arguments = dict(manip.launch_arguments)
+    tolerance = float(
+        perform_substitutions(
+            context, normalize_to_list_of_substitutions(arguments["limit_tolerance"])
+        )
+    )
+    assert tolerance == LIMIT_TOLERANCE
+    assert LIMIT_MARGIN < tolerance < LIMIT_MARGIN + 1e-3
+
+
+@pytest.mark.parametrize("cameras", ["true", "false"])
+def test_spawn_and_ros_description_keep_initial_lift_and_camera_settings(
+    monkeypatch, cameras
+):
+    from types import SimpleNamespace
+    import xml.etree.ElementTree as ET
+
+    from aha_gazebo.model import LIMIT_MARGIN
+
+    module = load_launch("aha_bringup", "sim.launch.py")
+    monkeypatch.setattr(module, "Node", lambda **kwargs: SimpleNamespace(**kwargs))
+    monkeypatch.setattr(
+        module, "get_package_share_directory", lambda package: str(SOURCE / package)
+    )
+    context = LaunchContext()
+    context.launch_configurations.update(
+        cameras=cameras,
+        camera_rgb_noise_stddev="0.012",
+        initial_lift="0.037",
+    )
+    rsp, spawn = module._robot(context)
+    urdf = ET.fromstring(rsp.parameters[0]["robot_description"])
+    model = ET.fromstring(spawn.parameters[0]["gz_robot_description"])
+    for root in (urdf, model):
+        for name in ("joint_l1", "joint_r1"):
+            initial = root.find(
+                f"ros2_control/joint[@name='{name}']/"
+                "state_interface[@name='position']/param[@name='initial_value']"
+            )
+            assert float(initial.text) == 0.037
+        noise = root.findall("gazebo/sensor/camera/noise/stddev")
+        assert len(noise) == (3 if cameras == "true" else 0)
+        assert all(float(value.text) == 0.012 for value in noise)
+    assert float(urdf.find("joint[@name='joint_r1']/limit").get("lower")) == 0
+    assert (
+        float(model.find("joint[@name='joint_r1']/limit").get("lower")) == -LIMIT_MARGIN
+    )
+
+
 def test_standard_clock_bridge_can_be_supplied_by_parent(monkeypatch):
     from launch_ros.actions import Node
 

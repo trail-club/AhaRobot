@@ -2,7 +2,7 @@
 
 頭部カメラ（Intel RealSense D435i）の実機での取り付け・接続・配信の確認を日付順に記録する。
 起動手順は [aha_perception](../../overlay_ws/src/aha_perception/README.md#実機の頭部とカメラ)、
-配信スクリプトは [カメラツール](../../tools/perception/macos/README.md)を参照。
+配信スクリプトは [カメラツール](../../tools/perception/macos/pointcloud/README.md)を参照。
 
 ## 2026-10-04 — D435iのUSB接続とrosbridge経由の配信レート
 

@@ -135,7 +135,9 @@ def create():
 def test_observation_serializer_excludes_extra_attributes():
     source = SimpleNamespace(**vars(observation()), world="privileged", score=1)
     message = observation_message(source)
-    assert set(message["observation"]) == set(Observation.__dataclass_fields__)
+    assert set(message["observation"]) == set(Observation.__dataclass_fields__) - {
+        "ground_truth"
+    }
     decoded = decode_observation(message["observation"])
     assert decoded == observation()
 
@@ -384,3 +386,20 @@ def create(): return Probe()
         executor.shutdown()
         node.destroy_node()
         context.shutdown()
+
+
+def test_privileged_moveit_worker_can_share_ros_domain(worker_environment):
+    pytest.importorskip("rclpy")
+    process = PolicyProcess(
+        "ground_truth_ik",
+        "pick_apple",
+        "Pick.",
+        EVALUATOR_DOMAIN,
+        worker_environment,
+        os.environ["GZ_PARTITION"],
+    )
+    try:
+        ready(process)
+        assert process.partition != os.environ["GZ_PARTITION"]
+    finally:
+        process.close()

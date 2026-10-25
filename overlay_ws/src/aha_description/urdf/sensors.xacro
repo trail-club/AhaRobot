@@ -40,43 +40,47 @@
   <xacro:property name="camera_mount_xyz" value="${camera_back_offset + camera_body_x/2} 0 0"/>
   <xacro:property name="camera_mount_rpy" value="${pi/2} 0 0"/>
 
-  <!-- Head camera stream, matching tools/perception/macos/stream_realsense.py -->
+  <!-- Head camera stream, matching tools/perception/macos/pointcloud/stream_realsense.py -->
   <xacro:property name="camera_width"  value="640"/>
   <xacro:property name="camera_height" value="480"/>
   <xacro:property name="camera_rate"   value="15"/>
   <!-- 69 deg, D435i color HFOV -->
   <xacro:property name="camera_hfov"   value="1.204"/>
 
-  <!-- Depth range and noise -->
+  <!-- Depth range; benchmark depth noise is applied by aha_sim_tasks to policy observations. -->
   <xacro:property name="camera_depth_near"         value="0.28"/>
   <xacro:property name="camera_depth_far"          value="10.0"/>
-  <xacro:property name="camera_depth_noise_stddev" value="0.005"/>
+  <xacro:property name="camera_rgb_noise_stddev" value="$(arg camera_rgb_noise_stddev)"/>
 
-  <!-- Virtual wrist mounts, outside the palm and finger meshes (max x < 0.09 m).
-       Both palms have the same local geometry. Look toward the grasp center
-       near (0.063, 0, 0.195), along +z with a small inward tilt.
-       These visual-only mounts add no collision geometry or payload mass. -->
+  <!-- The Camera component (including its bracket) is already part of both
+       upstream link_[lr]6.STL meshes. Use its CAD placement from
+       Astra_Hardwares/Astra/Astra.STEP instead of adding another camera body.
+       CAD link6 coordinates (X,Y,Z) map to wrist (60-Y, X, 28+Z), in mm.
+       The Camera origin is (0,34,73) mm, and its lens looks 30 degrees down
+       from wrist +z. Wrist +x points DOWN with the arm extended, so this
+       placement is above the grasp center (0.063, 0, 0.195).
+       The lens front is 16 mm along the camera's viewing axis. These are CAD
+       design values; optical calibration on the real robot is not available. -->
+  <xacro:property name="wrist_camera_mount_xyz" value="0.026 0 0.101"/>
+  <xacro:property name="wrist_camera_mount_pitch" value="${-pi/3}"/>
+  <xacro:property name="wrist_camera_lens_offset" value="0.016"/>
+
   <xacro:macro name="aha_wrist_camera" params="side parent">
-    <link name="${side}_wrist_camera_link">
-      <visual>
-        <geometry><box size="0.02 0.025 0.025"/></geometry>
-        <material name="camera_dark_grey"/>
-      </visual>
-    </link>
+    <link name="${side}_wrist_camera_link"/>
     <joint name="${side}_wrist_camera_joint" type="fixed">
       <parent link="${parent}"/>
       <child link="${side}_wrist_camera_link"/>
-      <origin xyz="0.115 0 0.045" rpy="0 -1.904 0"/>
+      <origin xyz="${wrist_camera_mount_xyz}" rpy="0 ${wrist_camera_mount_pitch} 0"/>
     </joint>
     <link name="${side}_wrist_camera_optical_frame"/>
     <joint name="${side}_wrist_camera_optical_joint" type="fixed">
       <parent link="${side}_wrist_camera_link"/>
       <child link="${side}_wrist_camera_optical_frame"/>
-      <origin xyz="0.011 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="${wrist_camera_lens_offset} 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
     <gazebo reference="${side}_wrist_camera_link">
       <sensor name="${side}_wrist_camera" type="camera">
-        <pose>0.011 0 0 0 0 0</pose>
+        <pose>${wrist_camera_lens_offset} 0 0 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>${camera_rate}</update_rate>
         <visualize>false</visualize>
@@ -91,6 +95,7 @@
             <format>R8G8B8</format>
           </image>
           <clip><near>0.02</near><far>3.0</far></clip>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>${camera_rgb_noise_stddev}</stddev></noise>
         </camera>
       </sensor>
     </gazebo>
@@ -148,7 +153,7 @@
             <noise>
               <type>gaussian</type>
               <mean>0.0</mean>
-              <stddev>${camera_depth_noise_stddev}</stddev>
+              <stddev>${camera_rgb_noise_stddev}</stddev>
             </noise>
           </camera>
         </sensor>

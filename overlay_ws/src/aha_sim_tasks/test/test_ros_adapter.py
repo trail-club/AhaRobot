@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("rclpy")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from aha_gazebo.model import LIMIT_MARGIN  # noqa: E402
 from builtin_interfaces.msg import Time  # noqa: E402
 from aha_sim_tasks.api import Action, CONTROLLER_JOINTS, GRIPPER_JOINTS, JOINT_LIMITS  # noqa: E402
 from aha_sim_tasks.ros_environment import RosEnvironment  # noqa: E402
@@ -185,6 +186,85 @@ def camera_environment():
     return node
 
 
+def truth_sample(t=1, **changes):
+    from std_msgs.msg import String
+
+    data = json.loads(sample(t, 2, 0.5).data)
+    data["ground_truth"] = {
+        "robot_world_pose": [0.5, 0, -0.009, 0, 0, 0, 1],
+        "joint_positions": {name: 0.1 for name in JOINT_LIMITS},
+        **changes,
+    }
+    return String(data=json.dumps(data))
+
+
+def test_truth_mode_uses_atomic_physics_positions_and_state_time():
+    node = scoring_environment()
+    node.truth_enabled = True
+    node.truth_joints = Publisher()
+    node.task = SimpleNamespace(task_id="pick_apple", instruction="Pick.")
+    node.camera_observations = lambda: {}
+    node.image = None
+    RosEnvironment.on_state(node, truth_sample())
+    observation = RosEnvironment.observation(node)
+    assert node.truth_joints.messages[-1].header.stamp.sec == 1
+    assert node.truth_joints.messages[-1].name == list(node.positions)
+    assert observation.sim_time == 1
+    assert observation.joint_positions["joint_r2"] == 0.1
+    assert observation.joint_velocities == {}
+    assert observation.ground_truth.robot_world_pose[2] == -0.009
+    assert observation.ground_truth.object_position == node.world.object_position
+    assert observation.ground_truth.finger_contacts == 2
+    RosEnvironment.on_state(node, truth_sample(0.9, joint_positions={}))
+    assert node.positions["joint_r2"] == 0.1
+    assert len(node.received) == 1
+
+
+def test_normal_policy_ignores_truth_even_if_present_in_state():
+    node = scoring_environment()
+    node.truth_enabled = False
+    node.ground_truth = None
+    node.positions = {"joint_r2": 0.7}
+    RosEnvironment.on_state(node, truth_sample())
+    assert node.positions == {"joint_r2": 0.7}
+    assert node.ground_truth is None
+
+
+@pytest.mark.parametrize(
+    "pose", [[0, 0], [0, 0, 0, 0, 0, 0, 0], [float("nan"), 0, 0, 0, 0, 0, 1]]
+)
+def test_invalid_truth_does_not_advance_scoring_or_freshness(pose):
+    node = scoring_environment()
+    node.truth_enabled = True
+    node.truth_joints = Publisher()
+    with pytest.raises(ValueError, match="Invalid Gazebo"):
+        RosEnvironment.on_state(node, truth_sample(robot_world_pose=pose))
+    assert node.world is None and node.received == []
+
+
+def test_unfilled_physics_joints_do_not_mark_truth_ready():
+    node = scoring_environment()
+    node.truth_enabled = True
+    node.truth_joints = Publisher()
+    RosEnvironment.on_state(node, truth_sample(joint_positions={"joint_r1": 0.1}))
+    assert node.world is None and node.received == []
+
+
+def test_truth_adapter_subscribes_to_no_joint_odometry_or_camera_sensors():
+    import rclpy
+
+    rclpy.init()
+    node = RosEnvironment(SimpleNamespace(), ground_truth=True)
+    try:
+        topics = {subscription.topic_name for subscription in node.subscriptions}
+        assert node.required == {"state"}
+        assert not topics & {"/joint_states", "/diff_drive_controller/odom"}
+        assert not any(topic.startswith("/camera/") for topic in topics)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
 def camera_sample(name, nanosec=0):
     from sensor_msgs.msg import CameraInfo, Image
 
@@ -334,3 +414,21 @@ def test_camera_liveness_tolerates_dropped_frames_without_weakening_state_checks
     assert RosEnvironment.stale_sources(node) == {"joints": 3}
     node.received["camera:head"] = 89
     assert RosEnvironment.stale_sources(node) == {"joints": 3, "camera:head": 11}
+
+
+def test_physics_limits_are_bounded_for_moveit_but_not_observation():
+    node = scoring_environment()
+    node.truth_enabled = True
+    node.truth_joints = Publisher()
+    positions = {name: 0.0 for name in JOINT_LIMITS}
+    positions["joint_r1"] = -LIMIT_MARGIN - 1e-11  # At the physics limit.
+    positions["joint_r2"] = 1.57 + 1e-14
+    # Excursions past the physics limit must remain visible.
+    positions["joint_l1"] = -LIMIT_MARGIN - 0.001
+    RosEnvironment.on_state(node, truth_sample(joint_positions=positions))
+    message = node.truth_joints.messages[-1]
+    monitored = dict(zip(message.name, message.position))
+    assert monitored["joint_r1"] == 0
+    assert monitored["joint_r2"] == 1.57
+    assert node.positions["joint_r1"] == -LIMIT_MARGIN - 1e-11
+    assert monitored["joint_l1"] == node.positions["joint_l1"] == -LIMIT_MARGIN - 0.001

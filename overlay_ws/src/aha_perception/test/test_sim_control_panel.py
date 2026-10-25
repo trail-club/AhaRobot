@@ -1,9 +1,10 @@
-"""sim_control_panel.py: base command and slider hold (no Qt window, no ROS transport)."""
+"""sim_control_panel.py: base, gripper and lift commands and slider hold (no Qt window, no ROS transport)."""
 
 import importlib.util
 import math
 import os
 import sys
+import types
 import unittest
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -59,6 +60,77 @@ class CommandHoldTest(unittest.TestCase):
         self.assertFalse(self.hold.active(self.TARGET, 100.5))
         self.hold.start((-0.5, 0.0), duration=1.0, now=101.0)
         self.assertTrue(self.hold.active(self.TARGET, 101.1))
+
+
+class HandCommandTest(unittest.TestCase):
+    def test_gripper_fingers_move_symmetrically(self):
+        msg = panel.gripper_command(0.03)
+        self.assertEqual(list(msg.data), [0.03, -0.03])
+
+    def test_gripper_opening_is_clamped(self):
+        self.assertEqual(list(panel.gripper_command(0.5).data), [0.06, -0.06])
+        self.assertEqual(list(panel.gripper_command(-0.01).data), [0.0, -0.0])
+
+    def test_hands_use_their_own_controllers_and_joints(self):
+        self.assertEqual(
+            panel.RIGHT_HAND,
+            (
+                "右手",
+                "/right_gripper_controller/commands",
+                ("joint_r7r", "joint_r7l"),
+                "joint_r1",
+            ),
+        )
+        self.assertEqual(
+            panel.LEFT_HAND,
+            (
+                "左手",
+                "/left_gripper_controller/commands",
+                ("joint_l7r", "joint_l7l"),
+                "joint_l1",
+            ),
+        )
+        self.assertEqual(panel.HANDS, (panel.RIGHT_HAND, panel.LEFT_HAND))
+
+    def test_lift_moves_only_the_given_lift(self):
+        for joint in ("joint_r1", "joint_l1"):
+            msg = panel.lift_trajectory(joint, 0.35, 2.5)
+            self.assertEqual(msg.joint_names, [joint])
+        msg = panel.lift_trajectory("joint_r1", 0.35, 2.5)
+        self.assertEqual(list(msg.points[0].positions), [0.35])
+        self.assertEqual(
+            (msg.points[0].time_from_start.sec, msg.points[0].time_from_start.nanosec),
+            (2, 500_000_000),
+        )
+        # Zero stamp: the controller starts the trajectory on receipt.
+        self.assertEqual((msg.header.stamp.sec, msg.header.stamp.nanosec), (0, 0))
+
+    def _hand(self, moving):
+        hand = panel.HandControls.__new__(panel.HandControls)
+        hand.lift_hold = panel.CommandHold(panel.LIFT_HOLD_TOLERANCE_M)
+        hand.lift_target = 0.6
+        if moving:
+            hand.lift_hold.start((0.6,), duration=5.0, now=0.0)
+        return hand
+
+    def test_lift_command_drops_the_moving_other_lift_target(self):
+        # The shared lift_controller stops the other lift where it is.
+        sender, moving, reached = self._hand(True), self._hand(True), self._hand(False)
+        panel.ControlPanel._on_lift_sent(
+            types.SimpleNamespace(hands=[sender, moving, reached]), sender
+        )
+        self.assertEqual(sender.lift_target, 0.6)
+        self.assertTrue(sender.lift_hold.active((0.1,), 1.0))
+        self.assertIsNone(moving.lift_target)
+        self.assertFalse(moving.lift_hold.active((0.1,), 1.0))
+        # A lift that already reached its target keeps showing it.
+        self.assertEqual(reached.lift_target, 0.6)
+
+    def test_lift_hold_uses_metres(self):
+        hold = panel.CommandHold(panel.LIFT_HOLD_TOLERANCE_M)
+        hold.start((0.4,), duration=1.0, now=0.0)
+        self.assertTrue(hold.active((0.38,), 0.5))
+        self.assertFalse(hold.active((0.395,), 0.6))
 
 
 if __name__ == "__main__":

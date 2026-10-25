@@ -1,8 +1,10 @@
 """Evaluate policies in isolated, freshly started Gazebo episodes."""
 
 import argparse
+from copy import deepcopy
 from dataclasses import asdict
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -13,9 +15,12 @@ import uuid
 
 from ament_index_python.packages import get_package_share_directory
 
-from .evaluation import Evaluator, load_tasks
+from .codex_policy import CLI_TIMEOUT as CODEX_CLI_TIMEOUT
+from .evaluation import Evaluator, TASK_ALIASES, load_tasks
+from .scene import load_scene, load_catalog, sample_scene, select_object
 from .policy_process import PolicyProcess
 from .processes import policy_partition, stop_group
+from .stepping import GazeboStepper, run_steps
 
 
 def write_json(path, value):
@@ -23,6 +28,13 @@ def write_json(path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
     temporary.replace(path)
+
+
+def task_description(task):
+    result = asdict(task)
+    if result["parameters"].pop("object_points", None) is not None:
+        result["geometry"] = "collision mesh vertices saved in scene.json"
+    return result
 
 
 def run_episode(args, task):
@@ -40,8 +52,15 @@ def run_episode(args, task):
     policy = None
     node = None
     evaluator = None
-    with (args.output.parent / "simulator.log").open("w") as log:
+    recorder = None
+    with (args.output.parent / "simulator.log").open("w") as log, (
+        args.output.parent / "state_samples.jsonl"
+    ).open("w") as trace:
         try:
+            if getattr(args, "record_video", False):
+                from .video import VideoRecorder
+
+                recorder = VideoRecorder(args.output.parent, task.task_id, args.policy)
             policy = PolicyProcess(
                 args.policy,
                 task.task_id,
@@ -51,6 +70,8 @@ def run_episode(args, task):
                 os.environ["GZ_PARTITION"],
                 startup_timeout=args.policy_startup_timeout,
                 action_timeout=args.policy_timeout,
+                step_duration=getattr(args, "step_duration", 0),
+                scene_config=getattr(args, "scene_config", None),
             )
             while not policy.ready:
                 policy.poll()
@@ -61,9 +82,16 @@ def run_episode(args, task):
                     "launch",
                     "aha_sim_tasks",
                     "environment.launch.py",
+                    *(
+                        ["scene_config:=" + str(args.scene_config)]
+                        if getattr(args, "scene_config", None)
+                        else []
+                    ),
                     "headless:=" + ("true" if args.headless else "false"),
                     "cameras:=" + ("true" if args.cameras else "false"),
                     "camera_view:=" + ("true" if args.camera_view else "false"),
+                    "ground_truth:="
+                    + ("true" if args.policy == "ground_truth_ik" else "false"),
                 ],
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -74,6 +102,10 @@ def run_episode(args, task):
                 args.head_image_topic,
                 cameras=args.cameras,
                 camera_timeout=args.camera_timeout,
+                ground_truth=args.policy == "ground_truth_ik",
+                video_recorder=recorder,
+                sensor_model=getattr(args, "sensor_model", None),
+                sensor_seed=getattr(args, "seed", 0),
             )
             deadline = time.monotonic() + 90
             while not node.ready():
@@ -87,66 +119,110 @@ def run_episode(args, task):
                         f"Simulation readiness timed out; missing observations: {sorted(missing)}; see simulator.log"
                     )
                 rclpy.spin_once(node, timeout_sec=0.1)
-            evaluator = Evaluator(task, node.world.sim_time)
-            episode_started = time.monotonic()
-            last_camera_bundle = episode_started
-            next_action = episode_started
-            previous_phase = None
-            while rclpy.ok():
-                rclpy.spin_once(node, timeout_sec=0.02)
-                if simulator.poll() is not None:
-                    raise RuntimeError("Simulator exited during the episode")
-                if not node.fresh():
-                    raise RuntimeError(
-                        f"Simulation observations stopped arriving: {node.stale_sources()}"
-                    )
-                observation_ready = node.observation_ready()
-                now = time.monotonic()
-                if observation_ready:
-                    last_camera_bundle = now
-                elif now - last_camera_bundle >= args.camera_timeout:
-                    raise RuntimeError(
-                        f"Camera bundle unavailable for {args.camera_timeout:g} wall seconds; "
-                        "synchronized images or their timestamped transforms are missing"
-                    )
-                action = policy.poll()
-                if action is not None:
-                    node.apply(action)
-                    if policy.phase != previous_phase:
-                        node.get_logger().info(f"Policy phase: {policy.phase}")
-                        previous_phase = policy.phase
-                    next_action = time.monotonic() + 0.1
-                if (
-                    abs(node.get_clock().now().nanoseconds * 1e-9 - node.world.sim_time)
-                    > 0.5
-                ):
-                    raise RuntimeError(
-                        "ROS simulation clock diverged from evaluation state timestamps"
-                    )
-                status = evaluator.update(node.world)
-                if status is not None:
-                    result["status"] = status
-                    break
-                if time.monotonic() - episode_started >= args.wall_timeout:
-                    result["status"] = "wall_timeout"
-                    break
-                if (
-                    policy.pending is None
-                    and time.monotonic() >= next_action
-                    and observation_ready
-                ):
-                    policy.act(node.observation())
+            stepper = None
+            if getattr(args, "step_duration", 0):
+                stepper = GazeboStepper()
+                stepper.pause()
+                # Consume messages already in flight when Gazebo paused.
+                settle_deadline = time.monotonic() + 0.2
+                while time.monotonic() < settle_deadline:
+                    rclpy.spin_once(node, timeout_sec=0.01)
+            evaluator = Evaluator(task, node.world.sim_time, trace=trace)
+            if recorder is not None:
+                recorder.start(node.world.sim_time)
+            if stepper is not None:
+                result["status"] = run_steps(
+                    args, node, policy, simulator, evaluator, stepper, recorder=recorder
+                )
             else:
-                raise RuntimeError("ROS context shut down during evaluation")
+                episode_started = time.monotonic()
+                last_camera_bundle = episode_started
+                next_action = episode_started
+                previous_phase = None
+                while rclpy.ok():
+                    rclpy.spin_once(node, timeout_sec=0.02)
+                    if recorder is not None:
+                        recorder.capture(node.world.sim_time)
+                    if simulator.poll() is not None:
+                        raise RuntimeError("Simulator exited during the episode")
+                    if not node.fresh():
+                        raise RuntimeError(
+                            f"Simulation observations stopped arriving: {node.stale_sources()}"
+                        )
+                    observation_ready = node.observation_ready()
+                    now = time.monotonic()
+                    if observation_ready:
+                        last_camera_bundle = now
+                    elif now - last_camera_bundle >= args.camera_timeout:
+                        raise RuntimeError(
+                            f"Camera bundle unavailable for {args.camera_timeout:g} wall seconds; "
+                            "synchronized images or their timestamped transforms are missing"
+                        )
+                    action = policy.poll()
+                    if action is not None:
+                        if recorder is not None:
+                            recorder.action(action, policy.phase)
+                        node.apply(action)
+                        if policy.phase != previous_phase:
+                            node.get_logger().info(f"Policy phase: {policy.phase}")
+                            previous_phase = policy.phase
+                        next_action = time.monotonic() + 0.1
+                    if (
+                        abs(
+                            node.get_clock().now().nanoseconds * 1e-9
+                            - node.world.sim_time
+                        )
+                        > 0.5
+                    ):
+                        raise RuntimeError(
+                            "ROS simulation clock diverged from evaluation state timestamps"
+                        )
+                    status = evaluator.update(node.world)
+                    if status is not None:
+                        result["status"] = status
+                        break
+                    if time.monotonic() - episode_started >= args.wall_timeout:
+                        result["status"] = "wall_timeout"
+                        break
+                    if (
+                        policy.pending is None
+                        and time.monotonic() >= next_action
+                        and observation_ready
+                    ):
+                        policy.act(node.observation())
+                else:
+                    raise RuntimeError("ROS context shut down during evaluation")
         except Exception as error:
             result["reason"] = f"{type(error).__name__}: {error}"
         finally:
             if evaluator is not None:
                 result["metrics"] = evaluator.metrics
+            if recorder is not None:
+                try:
+                    final_time = (
+                        node.world.sim_time
+                        if node is not None and node.world is not None
+                        else None
+                    )
+                    result["video"] = recorder.close(final_time, result["status"])
+                except Exception as error:
+                    result.setdefault(
+                        "reason",
+                        f"Video finalization error: {type(error).__name__}: {error}",
+                    )
+                    result["status"] = "error"
             if node is not None:
                 if rclpy.ok():
-                    node.stop()
-                    rclpy.spin_once(node, timeout_sec=0.1)
+                    try:
+                        node.stop()
+                        rclpy.spin_once(node, timeout_sec=0.1)
+                    except Exception as error:
+                        # A malformed state callback may still be pending. Keep
+                        # its original failure report and complete all cleanup.
+                        result.setdefault(
+                            "reason", f"Shutdown error: {type(error).__name__}: {error}"
+                        )
+                        result["status"] = "error"
                 node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()
@@ -169,7 +245,35 @@ def main():
     )
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=["all", *tasks], default="all")
-    parser.add_argument("--policy", default="scripted")
+    parser.add_argument(
+        "--scene-config",
+        type=Path,
+        default=Path(get_package_share_directory("aha_sim_tasks"))
+        / "config/scene.json",
+    )
+    parser.add_argument("--objects", nargs="+", choices=["all", *load_catalog()])
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="First episode seed; repeated across tasks and objects",
+    )
+    parser.add_argument(
+        "--randomize",
+        action="store_true",
+        help="Vary target pose, robot spawn, and lighting",
+    )
+    parser.add_argument(
+        "--distractors",
+        type=int,
+        default=None,
+        help="Number of other YCB objects on the source table (0..3)",
+    )
+    parser.add_argument(
+        "--policy",
+        default="scripted",
+        help="scripted, noop, codex, ground_truth_ik, or module:factory",
+    )
     parser.add_argument(
         "--episodes",
         type=int,
@@ -183,6 +287,11 @@ def main():
         "--camera-view",
         action="store_true",
         help="Open head and wrist image panels in the episode's Gazebo partition",
+    )
+    parser.add_argument(
+        "--record-video",
+        action="store_true",
+        help="Save a 10 fps simulation-time H.264 video with camera views and policy notes",
     )
     parser.add_argument(
         "--cameras",
@@ -218,13 +327,13 @@ def main():
     parser.add_argument(
         "--policy-ros-domain-id",
         type=int,
-        help="Worker ROS domain (0..232); defaults to evaluation domain + 1, wrapping to 0",
+        help="Worker domain (0..232): ground_truth_ik shares the evaluation domain; other policies default to evaluation + 1, wrapping to 0",
     )
     parser.add_argument(
         "--policy-timeout",
         type=float,
-        default=30,
-        help="Wall seconds allowed for each policy.act call",
+        help="Wall seconds allowed for each policy.act call. "
+        "Default: 150 for codex (its CLI call allows 120), 30 for other policies",
     )
     parser.add_argument(
         "--policy-startup-timeout",
@@ -232,26 +341,96 @@ def main():
         default=120,
         help="Wall seconds allowed for policy import, construction, and reset",
     )
+    parser.add_argument(
+        "--step-duration",
+        type=float,
+        help="Simulation seconds per action, in multiples of 0.1; inference is paused. "
+        "Default: 2 for codex, 0 (continuous) for other policies",
+    )
     parser.add_argument("--output", type=Path, default=Path("evaluation-results.json"))
     parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    base_scene = load_scene(args.scene_config)
+    args.objects = args.objects or [base_scene["object"]["id"]]
+    if args.seed is None:
+        args.seed = base_scene.get("seed", 0)
+    if args.distractors is None:
+        args.distractors = len(base_scene["distractors"])
+    if args.seed < 0 or not 0 <= args.distractors <= 3:
+        parser.error("seed must be nonnegative; distractors must be in 0..3")
+    if "all" in args.objects:
+        args.objects = list(load_catalog())
+    if args.task in TASK_ALIASES and args.objects != ["apple"]:
+        parser.error(
+            "legacy *_apple tasks require --objects apple; use *_object for other objects"
+        )
+    args.replay_scene = (
+        "seed" in base_scene
+        and not args.randomize
+        and args.objects == [base_scene["object"]["id"]]
+        and args.distractors == len(base_scene["distractors"])
+    )
+    args.sensor_model = base_scene["sensors"]
+    tasks = load_tasks(
+        Path(get_package_share_directory("aha_sim_tasks")) / "config/tasks.json",
+        select_object(deepcopy(base_scene), args.objects[0]),
+    )
+    if args.step_duration is None:
+        args.step_duration = 2.0 if args.policy == "codex" else 0.0
+    if args.policy_timeout is None:
+        args.policy_timeout = 150.0 if args.policy == "codex" else 30.0
+    elif args.policy == "codex" and args.policy_timeout <= CODEX_CLI_TIMEOUT:
+        parser.error(
+            f"codex requires --policy-timeout above {CODEX_CLI_TIMEOUT} seconds, "
+            "the Codex CLI call limit"
+        )
+    if (
+        not math.isfinite(args.step_duration)
+        or args.step_duration < 0
+        or abs(args.step_duration * 10 - round(args.step_duration * 10)) > 1e-6
+    ):
+        parser.error("--step-duration must be zero or a positive multiple of 0.1")
+    if args.policy == "ground_truth_ik" and args.step_duration:
+        parser.error("ground_truth_ik requires continuous simulation")
     if args.cameras is None:
-        args.cameras = not args.head_image_topic
+        args.cameras = not args.head_image_topic and args.policy != "ground_truth_ik"
+    if args.policy == "ground_truth_ik":
+        if args.task not in ("pick_apple", "pick_object"):
+            parser.error(
+                "ground_truth_ik supports --task pick_object or pick_apple only"
+            )
+        if args.cameras or args.head_image_topic or args.camera_view:
+            parser.error(
+                "ground_truth_ik uses Gazebo truth only; camera options are unavailable"
+            )
     if args.camera_view and not args.cameras:
         parser.error("--camera-view requires cameras; remove --no-cameras")
+    if args.record_video and not args.cameras:
+        parser.error("--record-video requires all built-in cameras")
     if args.cameras and args.head_image_topic:
         parser.error(
             "--head-image-topic cannot be combined with --cameras; "
             "built-in cameras supply head_image"
         )
+    if args.policy == "codex" and (not args.cameras or not args.step_duration):
+        parser.error(
+            "codex requires all built-in cameras and a positive --step-duration"
+        )
     if args.policy_ros_domain_id is None:
-        args.policy_ros_domain_id = (args.ros_domain_id + 1) % 233
+        args.policy_ros_domain_id = (
+            args.ros_domain_id
+            if args.policy == "ground_truth_ik"
+            else (args.ros_domain_id + 1) % 233
+        )
     if (
         args.episodes < 1
         or not 0 <= args.ros_domain_id <= 232
         or not 0 <= args.policy_ros_domain_id <= 232
-        or args.policy_ros_domain_id == args.ros_domain_id
+        or (
+            (args.policy_ros_domain_id == args.ros_domain_id)
+            != (args.policy == "ground_truth_ik")
+        )
         or any(
             not 0 < timeout < float("inf")
             for timeout in (
@@ -263,11 +442,13 @@ def main():
         )
     ):
         parser.error(
-            "episodes and timeouts must be positive; ROS domains must be distinct and in 0..232"
+            "episodes and timeouts must be positive; ROS domains must be in 0..232; ground_truth_ik shares the evaluation domain, other policies require a distinct domain"
         )
     if args.list_tasks:
         print(
-            json.dumps({name: asdict(task) for name, task in tasks.items()}, indent=2)
+            json.dumps(
+                {name: task_description(task) for name, task in tasks.items()}, indent=2
+            )
         )
         return 0
     args.output = args.output.resolve()
@@ -276,27 +457,70 @@ def main():
         if args.task == "all":
             parser.error("internal episode requires a single task")
         return run_episode(args, tasks[args.task])
-    selected = list(tasks) if args.task == "all" else [args.task]
+    selected = (
+        [name for name in tasks if name not in TASK_ALIASES]
+        if args.task == "all"
+        else [args.task]
+    )
     report = {
         "policy": args.policy,
+        "observation_source": (
+            "gazebo_ground_truth"
+            if args.policy == "ground_truth_ik"
+            else "sensors_and_known_episode_layout"
+            if args.policy == "scripted"
+            else "sensors"
+        ),
         "ros_domain_id": args.ros_domain_id,
         "policy_ros_domain_id": args.policy_ros_domain_id,
         "cameras": args.cameras,
         "camera_view": args.camera_view,
+        "record_video": args.record_video,
         "camera_timeout": args.camera_timeout,
-        "tasks": {name: asdict(tasks[name]) for name in selected},
+        "step_duration": args.step_duration,
+        "objects": args.objects,
+        "seed": args.seed,
+        "randomized": args.randomize
+        or (args.replay_scene and base_scene.get("randomized", False)),
+        "replay_scene": args.replay_scene,
+        "distractors": args.distractors,
+        "tasks": {name: task_description(tasks[name]) for name in selected},
         "episodes": [],
     }
+    if args.policy == "codex":
+        from .codex_policy import MODEL, REASONING_EFFORT
+
+        report.update(model=MODEL, reasoning_effort=REASONING_EFFORT)
     run_id = uuid.uuid4().hex
     for name in selected:
-        for index in range(1, args.episodes + 1):
+        for object_id, index in (
+            (obj, i) for obj in args.objects for i in range(1, args.episodes + 1)
+        ):
             directory = (
                 args.output.parent
                 / (args.output.stem + "_episodes")
                 / run_id
-                / f"{name}_{index:03d}"
+                / f"{name}_{object_id}_{index:03d}"
             )
             directory.mkdir(parents=True)
+            if args.replay_scene:
+                episode_scene = deepcopy(base_scene)
+                episode_scene["seed"] = args.seed + index - 1
+            else:
+                episode_scene = sample_scene(
+                    base_scene,
+                    object_id,
+                    seed=args.seed + index - 1,
+                    randomize=args.randomize,
+                    distractors=args.distractors,
+                )
+            scene_configuration = directory / "scene.json"
+            write_json(scene_configuration, episode_scene)
+            episode_task = load_tasks(
+                Path(get_package_share_directory("aha_sim_tasks"))
+                / "config/tasks.json",
+                episode_scene,
+            )[name]
             episode_result = directory / "result.json"
             environment = dict(os.environ)
             environment.update(
@@ -313,6 +537,12 @@ def main():
                 "-m",
                 "aha_sim_tasks.runner",
                 "--episode",
+                "--scene-config",
+                str(scene_configuration),
+                "--objects",
+                object_id,
+                "--seed",
+                str(episode_scene["seed"]),
                 "--task",
                 name,
                 "--policy",
@@ -335,7 +565,10 @@ def main():
                 "--cameras" if args.cameras else "--no-cameras",
                 "--camera-timeout",
                 str(args.camera_timeout),
+                "--step-duration",
+                str(args.step_duration),
                 *(["--camera-view"] if args.camera_view else []),
+                *(["--record-video"] if args.record_video else []),
             ]
             with (directory / "episode.log").open("w") as log:
                 process = subprocess.Popen(
@@ -369,7 +602,14 @@ def main():
                     "reason": "Episode process exited or exceeded its deadline; see episode.log",
                     "metrics": {},
                 }
-            result.update(episode=index, artifacts=str(directory))
+            result.update(
+                episode=index,
+                object_id=object_id,
+                seed=episode_scene["seed"],
+                scene=str(scene_configuration),
+                task=task_description(episode_task),
+                artifacts=str(directory),
+            )
             report["episodes"].append(result)
             successes = sum(
                 episode["status"] == "success" for episode in report["episodes"]
@@ -379,8 +619,23 @@ def main():
                 "episodes": len(report["episodes"]),
                 "success_rate": successes / len(report["episodes"]),
             }
+            report["by_object"] = {}
+            for obj in args.objects:
+                entries = [
+                    entry for entry in report["episodes"] if entry["object_id"] == obj
+                ]
+                if entries:
+                    count = sum(entry["status"] == "success" for entry in entries)
+                    report["by_object"][obj] = {
+                        "episodes": len(entries),
+                        "successes": count,
+                        "success_rate": count / len(entries),
+                    }
             write_json(args.output, report)
-            print(f"{name} episode {index}: {result['status']}", flush=True)
+            print(
+                f"{name} {object_id} seed {episode_scene['seed']}: {result['status']}",
+                flush=True,
+            )
     print(f"Results: {args.output}")
     return 0 if report["summary"]["success_rate"] == 1 else 1
 

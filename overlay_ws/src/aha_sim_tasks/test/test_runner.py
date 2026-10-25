@@ -97,9 +97,10 @@ def test_cleanup_stops_detached_worker_even_after_parent_exits(
 
 
 @pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("stop_callback_error", [False, True])
 @pytest.mark.parametrize("camera_state", ["missing_tf", "recovered_tf", "disabled"])
 def test_episode_bounds_unusable_camera_bundles(
-    monkeypatch, tmp_path, pending, camera_state
+    monkeypatch, tmp_path, pending, camera_state, stop_callback_error
 ):
     rclpy = pytest.importorskip("rclpy")
     from aha_sim_tasks import ros_environment, runner
@@ -140,6 +141,8 @@ def test_episode_bounds_unusable_camera_bundles(
     def spin_once(environment, timeout_sec):
         nonlocal wall_time
         if stopped:
+            if stop_callback_error:
+                raise ValueError("invalid queued state")
             return
         wall_time += 0.25
         environment.world = WorldState(wall_time, (0, 0, 0), (0, 0, 0), 0, 0)
@@ -186,8 +189,12 @@ def test_episode_bounds_unusable_camera_bundles(
     assert runner.run_episode(args, task) == 1
     result = json.loads(args.output.read_text())
     if camera_state == "disabled":
-        assert result["status"] == "timeout"
-        assert "reason" not in result
+        if stop_callback_error:
+            assert result["status"] == "error"
+            assert "invalid queued state" in result["reason"]
+        else:
+            assert result["status"] == "timeout"
+            assert "reason" not in result
     else:
         assert result["status"] == "error"
         assert "Camera bundle" in result["reason"]
@@ -205,6 +212,8 @@ def test_episode_bounds_unusable_camera_bundles(
         (["--no-cameras"], False),
         (["--head-image-topic", "/head"], False),
         (["--no-cameras", "--head-image-topic", "/head"], False),
+        (["--policy", "ground_truth_ik", "--task", "pick_apple"], False),
+        (["--policy", "codex"], True),
     ],
 )
 def test_cameras_default_follows_head_image_topic(
@@ -232,6 +241,11 @@ def test_cameras_default_follows_head_image_topic(
     )
     assert runner.main() == 0
     assert seen[0].cameras is cameras
+    assert seen[0].step_duration == (2.0 if seen[0].policy == "codex" else 0.0)
+    assert seen[0].policy_timeout == (150.0 if seen[0].policy == "codex" else 30.0)
+    assert (seen[0].ros_domain_id == seen[0].policy_ros_domain_id) is (
+        seen[0].policy == "ground_truth_ik"
+    )
 
 
 @pytest.mark.parametrize(
@@ -240,6 +254,26 @@ def test_cameras_default_follows_head_image_topic(
         ["--cameras", "--head-image-topic", "/head"],
         ["--no-cameras", "--camera-view"],
         ["--head-image-topic", "/head", "--camera-view"],
+        ["--policy", "ground_truth_ik", "--task", "pick_apple", "--cameras"],
+        [
+            "--policy",
+            "ground_truth_ik",
+            "--task",
+            "pick_apple",
+            "--head-image-topic",
+            "/head",
+        ],
+        ["--policy", "ground_truth_ik"],
+        ["--policy", "codex", "--no-cameras"],
+        ["--record-video", "--no-cameras"],
+        ["--record-video", "--head-image-topic", "/head"],
+        ["--policy", "codex", "--step-duration", "0"],
+        ["--policy", "codex", "--policy-timeout", "30"],
+        ["--policy", "codex", "--policy-timeout", "120"],
+        ["--step-duration", "nan"],
+        ["--step-duration", "-1"],
+        ["--step-duration", "0.15"],
+        ["--policy", "ground_truth_ik", "--task", "pick_apple", "--step-duration", "2"],
     ],
 )
 def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):
@@ -262,3 +296,87 @@ def test_incompatible_camera_options_are_rejected(monkeypatch, tmp_path, flags):
     with pytest.raises(SystemExit) as exit_info:
         runner.main()
     assert exit_info.value.code == 2
+
+
+def test_suite_records_policy_independent_scenes_and_object_results(
+    monkeypatch, tmp_path
+):
+    pytest.importorskip("rclpy")
+    from aha_sim_tasks import runner
+
+    sampled = []
+
+    def launch(command, **kwargs):
+        configuration = Path(command[command.index("--scene-config") + 1])
+        scene = json.loads(configuration.read_text())
+        sampled.append(scene)
+        output = Path(command[command.index("--output") + 1])
+        output.write_text(json.dumps({"status": "success", "metrics": {}}))
+        return SimpleNamespace(wait=lambda **kwargs: 0)
+
+    monkeypatch.setattr(runner.subprocess, "Popen", launch)
+    monkeypatch.setattr(runner, "stop_group", lambda *args, **kwargs: None)
+    scenes = []
+    for policy in ("scripted", "noop"):
+        output = tmp_path / f"{policy}.json"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "evaluate",
+                "--task",
+                "place_object",
+                "--objects",
+                "apple",
+                "soup_can",
+                "--episodes",
+                "2",
+                "--seed",
+                "14",
+                "--randomize",
+                "--distractors",
+                "1",
+                "--policy",
+                policy,
+                "--no-cameras",
+                "--output",
+                str(output),
+            ],
+        )
+        sampled.clear()
+        assert runner.main() == 0
+        report = json.loads(output.read_text())
+        assert report["summary"]["episodes"] == 4
+        assert report["by_object"]["soup_can"]["success_rate"] == 1
+        assert [entry["seed"] for entry in report["episodes"]] == [14, 15, 14, 15]
+        assert "tomato soup can" in report["episodes"][2]["task"]["instruction"]
+        scenes.append(list(sampled))
+    assert scenes[0] == scenes[1]
+    snapshot = Path(report["episodes"][2]["scene"])
+    original = json.loads(snapshot.read_text())
+    sampled.clear()
+    replay_output = tmp_path / "replay.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--task",
+            "place_object",
+            "--scene-config",
+            str(snapshot),
+            "--policy",
+            "noop",
+            "--no-cameras",
+            "--output",
+            str(replay_output),
+        ],
+    )
+    assert runner.main() == 0
+    assert sampled == [original]
+    replay = json.loads(replay_output.read_text())
+    assert replay["replay_scene"]
+    assert replay["objects"] == ["soup_can"]
+    assert replay["seed"] == 14
+    assert replay["distractors"] == 1
+    assert "object_points" not in replay["episodes"][0]["task"]["parameters"]

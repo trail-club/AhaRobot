@@ -23,11 +23,19 @@ class PolicyProcess:
         *,
         startup_timeout=120,
         action_timeout=30,
+        step_duration=0,
+        scene_config=None,
     ):
-        if domain_id == int(os.environ.get("ROS_DOMAIN_ID", "0")):
-            raise ValueError("Policy and evaluator ROS domains must differ")
+        same_domain = domain_id == int(os.environ.get("ROS_DOMAIN_ID", "0"))
+        if same_domain != (name == "ground_truth_ik"):
+            raise ValueError(
+                "Policy and evaluator ROS domains must differ, except ground_truth_ik must share the evaluator domain"
+            )
         self.partition = policy_partition(partition)
         self.action_timeout = action_timeout
+        # The MoveIt worker can spend up to four seconds accepting/cancelling
+        # an outstanding goal before tearing down its ROS context.
+        self.shutdown_timeout = 5.0 if name == "ground_truth_ik" else 0.2
         self.ready = False
         self.pending = None
         self.phase = None
@@ -37,6 +45,9 @@ class PolicyProcess:
         self.connection, child = socket.socketpair()
         self.connection.setblocking(False)
         environment = dict(os.environ)
+        environment.pop("AHA_SCENE_CONFIG", None)
+        if scene_config is not None and name in ("scripted", "ground_truth_ik"):
+            environment["AHA_SCENE_CONFIG"] = str(scene_config)
         environment.update(
             {
                 "ROS_DOMAIN_ID": str(domain_id),
@@ -45,6 +56,7 @@ class PolicyProcess:
                 "ROS_LOG_DIR": str(directory / "policy_ros_logs"),
                 "ROS_HOME": str(directory / "policy_ros_home"),
                 "GZ_SIM_LOG_PATH": str(directory / "policy_gz_logs"),
+                "AHA_POLICY_STEP_DURATION": str(step_duration),
             }
         )
         try:
@@ -143,7 +155,7 @@ class PolicyProcess:
         try:
             # An idle worker exits on IPC EOF without interrupting user code.
             try:
-                self.process.wait(timeout=0.2)
+                self.process.wait(timeout=self.shutdown_timeout)
             except subprocess.TimeoutExpired:
                 pass
             stop_group(self.process, self.partition, timeout=1)

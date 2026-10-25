@@ -7,20 +7,35 @@
     "right_finger_link": "link_r7r",
     "left_finger_link": "link_r7l"
   },
-  "robot_spawn": {"x": 0.0, "y": 0.0, "z": 0.05, "yaw": 0.0},
-  "source_position": [0.962, -0.426, 0.16],
-  "destination_position": [1.362, -0.426, 0.16],
-  "apple_radius": 0.04,
-  "table_size": [0.24, 0.28, 0.12],
+  "robot_spawn": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0},
+  "source_position": [0.962, -0.426],
+  "destination_position": [1.762, -0.426],
+  "object_id": "apple",
+  "table_size": [0.50, 0.60, 0.04],
+  "table_height": 0.74,
+  "table_offset": [0.16, -0.18],
+  "spawn_clearance": 0.002,
+  "approach_yaw": 0.0,
+  "initial_lift": 0.02,
+  "physics": {"object_friction": 0.8, "table_friction": 0.6},
+  "lighting": {"intensity": 0.8, "direction": [-0.5, 0.1, -0.9]},
+  "sensors": {"depth_noise_stddev": 0.005, "depth_dropout": 0.01, "rgb_noise_stddev": 0.003},
+  "randomization": {"object_xy": 0.025, "robot_xy": 0.025, "robot_yaw": 0.08, "light_intensity": [0.65, 0.95]},
+  "ground_truth_ik": {
+    "arm_reach": 0.08,
+    "pregrasp_height": 0.13,
+    "lift_height": 0.13,
+    "position_tolerance": 0.006,
+    "max_lateral_error": 0.04,
+    "phase_timeout": 30.0
+  },
   "scripted": {
     "head_pan": 0.6,
     "head_tilt": 1.0,
     "gripper_offset": [0.472, -0.426],
+    "grasp_zero_height": 0.11,
     "open_position": 0.06,
-    "grasp_position": 0.035,
     "open_tolerance": 0.005,
-    "closed_tolerance": 0.012,
-    "pick_lift": 0.05,
-    "transport_lift": 0.18
+    "finger_stall_velocity": 0.005
   }
 }

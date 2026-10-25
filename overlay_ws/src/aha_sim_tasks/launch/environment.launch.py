@@ -35,7 +35,7 @@ def _launch_scene(context):
     ):
         raise ValueError("camera_view:=true requires cameras:=true")
     share = Path(get_package_share_directory("aha_sim_tasks"))
-    configuration = share / "config/scene.json"
+    configuration = Path(LaunchConfiguration("scene_config").perform(context))
     scene = load_scene(configuration)
     temporary = TemporaryDirectory(prefix="aha-task-scene-")
     world = Path(temporary.name) / "task_tables.sdf"
@@ -45,6 +45,10 @@ def _launch_scene(context):
                 share / "worlds/task_tables.sdf.xacro",
                 configuration,
                 cameras=LaunchConfiguration("cameras").perform(context).lower()
+                == "true",
+                ground_truth=LaunchConfiguration("ground_truth")
+                .perform(context)
+                .lower()
                 == "true",
             )
         )
@@ -57,6 +61,12 @@ def _launch_scene(context):
         return []
 
     return [
+        SetEnvironmentVariable(
+            "GZ_SIM_RESOURCE_PATH",
+            str(Path(get_package_share_directory("tmc_wrs_gz_worlds")) / "models")
+            + os.pathsep
+            + context.environment.get("GZ_SIM_RESOURCE_PATH", ""),
+        ),
         RegisterEventHandler(
             OnShutdown(on_shutdown=[OpaqueFunction(function=cleanup)])
         ),
@@ -69,10 +79,15 @@ def _launch_scene(context):
             launch_arguments={
                 "world_path": str(world),
                 "headless": LaunchConfiguration("headless"),
+                "gz_args": "--seed " + str(scene.get("seed", 0)),
                 "cameras": LaunchConfiguration("cameras"),
                 "bridge_clock": "false",
+                "use_manip": LaunchConfiguration("ground_truth"),
+                "manip_joint_states_topic": "/evaluation/joint_states",
                 "activate_controllers_as_group": "true",
                 "robot_name": scene["entities"]["robot_model"],
+                "camera_rgb_noise_stddev": str(scene["sensors"]["rgb_noise_stddev"]),
+                "initial_lift": str(scene.get("initial_lift", 0.02)),
                 **{
                     "spawn_" + key: str(value)
                     for key, value in scene["robot_spawn"].items()
@@ -87,10 +102,19 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("headless", default_value="true"),
             DeclareLaunchArgument(
+                "scene_config",
+                default_value=PathJoinSubstitution(
+                    [FindPackageShare("aha_sim_tasks"), "config", "scene.json"]
+                ),
+            ),
+            DeclareLaunchArgument(
                 "cameras", default_value="true", choices=["true", "false"]
             ),
             DeclareLaunchArgument(
                 "camera_view", default_value="false", choices=["true", "false"]
+            ),
+            DeclareLaunchArgument(
+                "ground_truth", default_value="false", choices=["true", "false"]
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(

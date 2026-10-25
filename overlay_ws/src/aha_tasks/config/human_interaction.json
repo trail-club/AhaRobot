@@ -1,0 +1,68 @@
+{
+  "task": "human_interaction",
+  "title": "Human Robot Interaction Challenge",
+  "rulebook": {
+    "name": "RoboCup@Home",
+    "version": "2027 Rev-1",
+    "section": "5.1",
+    "revision": "2026-10-14",
+    "url": "https://robocupathome.github.io/RuleBook/rulebook/master.pdf"
+  },
+  "time_limit": 420,
+  "locations": {
+    "spawn": [-2.0, 1.5, 0.0],
+    "waiting": [1.25, 1.6, 3.141593],
+    "entrance": [-4.2, 1.5, 3.141593],
+    "study_chair_left": [1.75, 2.5, 1.570796],
+    "study_chair_right": [0.75, 2.5, 1.570796],
+    "host": [2.7, 1.8, 1.570796],
+    "bag_drop": [2.8, -1.8, -1.570796]
+  },
+  "initial_state": {"robot.location": "spawn"},
+  "skills": {
+    "navigate": "aha_tasks.skills:Navigate",
+    "detect_doorbell": null,
+    "open_door": null,
+    "find_person": null,
+    "ask_name_and_drink": null,
+    "memorize_person": null,
+    "describe_person": null,
+    "receive_object": null,
+    "offer_seat": null,
+    "locate_guests": null,
+    "introduce_guests": null,
+    "request_guidance": null,
+    "follow_person": null,
+    "place_object": null
+  },
+  "subgoals": [
+    {"id": "guest1.wait", "group": "1人目の客", "title": "開始位置で客を待つ", "skill": "navigate", "params": {"location": "waiting"}},
+    {"id": "guest1.doorbell", "group": "1人目の客", "title": "ドアベルを検出する", "skill": "detect_doorbell", "points": 30, "note": "開始位置で待機中に即座に反応する。省略して入口へ向かってもよい"},
+    {"id": "guest1.go_to_door", "group": "1人目の客", "title": "入口へ移動する", "skill": "navigate", "params": {"location": "entrance"}},
+    {"id": "guest1.open_door", "group": "1人目の客", "title": "入口のドアを開ける", "skill": "open_door", "points": 200, "note": "ドアを閉じた配置を要求した場合のみ"},
+    {"id": "guest1.find", "group": "1人目の客", "title": "客を見つけて向き合う", "skill": "find_person", "params": {"role": "guest1"}, "note": "客を前へ呼び寄せてはいけない"},
+    {"id": "guest1.ask", "group": "1人目の客", "title": "名前と好きな飲み物を聞く", "skill": "ask_name_and_drink", "params": {"guest": "guest1"}, "points": 80, "mock": {"guest1.name": "Charlie", "guest1.drink": "green tea"}, "note": "会話中は客を注視し続ける（50）。確認・訂正の質問をしない（2×15）"},
+    {"id": "guest1.memorize", "group": "1人目の客", "title": "客の外見を記憶する", "skill": "memorize_person", "params": {"guest": "guest1"}, "mock": {"guest1.appearance": ["glasses", "red shirt"]}, "note": "紹介時の識別と2人目への説明に使う"},
+    {"id": "guest1.guide", "group": "1人目の客", "title": "客をリビングへ案内する", "skill": "navigate", "params": {"location": "study_chair_left"}, "points": 15, "note": "進行方向または目的地を見る"},
+    {"id": "guest1.seat", "group": "1人目の客", "title": "空席を示して座ってもらう", "skill": "offer_seat", "params": {"guest": "guest1"}, "points": 100, "mock": {"guest1.seat": "chair_left"}},
+
+    {"id": "guest2.wait", "group": "2人目の客", "title": "開始位置へ戻り客を待つ", "skill": "navigate", "params": {"location": "waiting"}},
+    {"id": "guest2.doorbell", "group": "2人目の客", "title": "ドアベルを検出する", "skill": "detect_doorbell", "points": 30},
+    {"id": "guest2.go_to_door", "group": "2人目の客", "title": "入口へ移動する", "skill": "navigate", "params": {"location": "entrance"}},
+    {"id": "guest2.open_door", "group": "2人目の客", "title": "入口のドアを開ける", "skill": "open_door", "points": 200},
+    {"id": "guest2.find", "group": "2人目の客", "title": "客を見つけて向き合う", "skill": "find_person", "params": {"role": "guest2"}},
+    {"id": "guest2.ask", "group": "2人目の客", "title": "名前と好きな飲み物を聞く", "skill": "ask_name_and_drink", "params": {"guest": "guest2"}, "points": 80, "mock": {"guest2.name": "Emma", "guest2.drink": "orange juice"}},
+    {"id": "guest2.describe_guest1", "group": "2人目の客", "title": "1人目の外見を2人目へ伝える", "skill": "describe_person", "params": {"subject": "guest1", "listener": "guest2"}, "points": 80, "note": "正しい特徴 4×+20、誤った特徴 4×−20"},
+    {"id": "guest2.receive_bag", "group": "2人目の客", "title": "荷物を手渡しで受け取る", "skill": "receive_object", "params": {"object": "bag"}, "points": 50, "mock": {"robot.holding": "bag"}, "note": "受け取り準備を明示し、手から10 cm以内に保持する"},
+    {"id": "guest2.guide", "group": "2人目の客", "title": "客をリビングへ案内する", "skill": "navigate", "params": {"location": "study_chair_right"}, "points": 15},
+    {"id": "guest2.seat", "group": "2人目の客", "title": "空席を示して座ってもらう", "skill": "offer_seat", "params": {"guest": "guest2"}, "points": 100, "mock": {"guest2.seat": "chair_right"}},
+
+    {"id": "introduce.locate", "group": "紹介", "title": "着席した2人を識別する", "skill": "locate_guests", "params": {"guests": ["guest1", "guest2"]}, "note": "着席後に席を入れ替えることがある"},
+    {"id": "introduce.guests", "group": "紹介", "title": "互いを紹介する", "skill": "introduce_guests", "params": {"guests": ["guest1", "guest2"]}, "points": 220, "note": "一方を見ながら他方の名前と飲み物を言う（4×30、2×50）"},
+
+    {"id": "bag.go_to_host", "group": "荷物の運搬", "title": "ホストのところへ行く", "skill": "navigate", "params": {"location": "host"}},
+    {"id": "bag.ask_guidance", "group": "荷物の運搬", "title": "荷物があることを伝え案内を頼む", "skill": "request_guidance", "params": {"person": "host"}},
+    {"id": "bag.follow_host", "group": "荷物の運搬", "title": "ホストに追従する", "skill": "follow_person", "params": {"person": "host"}, "points": 200, "mock": {"robot.location": "bag_drop"}, "note": "見失い時の支援・待機要求・接触誘導は減点"},
+    {"id": "bag.drop", "group": "荷物の運搬", "title": "指示された場所で荷物を床に置く", "skill": "place_object", "params": {"object": "bag", "surface": "floor"}, "points": 50, "mock": {"robot.holding": null}}
+  ]
+}

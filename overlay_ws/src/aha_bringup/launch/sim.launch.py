@@ -3,7 +3,8 @@
 Starts:
   - Gazebo Harmonic with the requested world
   - robot_state_publisher (from xacro, sim:=true)
-  - spawn AhaRobot into Gazebo
+  - spawn AhaRobot into Gazebo from the same xacro output (physics joint
+    limits widened and lifts holding, see aha_gazebo.model)
   - ros_gz_bridge for /clock
   - controller_manager spawners:
         joint_state_broadcaster, diff_drive_controller,
@@ -19,6 +20,7 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
@@ -28,8 +30,8 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
-    Command,
     AndSubstitution,
+    NotSubstitution,
     EqualsSubstitution,
     IfElseSubstitution,
     EnvironmentVariable,
@@ -40,6 +42,9 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+import xacro
+
+from aha_gazebo.model import LIMIT_TOLERANCE, gazebo_model
 from aha_gazebo.world import SPAWN_COORDINATES, load_preset, validate_spawn
 
 
@@ -104,16 +109,75 @@ def _validate_spawn(context):
     return []
 
 
+def _validate_manip_rviz(context):
+    # Without use_manip the view would silently not start.
+    if (
+        LaunchConfiguration("manip_rviz").perform(context) == "true"
+        and LaunchConfiguration("use_manip").perform(context) != "true"
+    ):
+        raise ValueError("manip_rviz:=true requires use_manip:=true")
+    return []
+
+
+def _robot(context):
+    # One xacro run for both: robot_state_publisher (and through it
+    # ros2_control and MoveIt) gets the URDF, Gazebo the model with widened
+    # limits and holding lifts (aha_gazebo.model).
+    description = xacro.process_file(
+        str(
+            Path(get_package_share_directory("aha_description"))
+            / "urdf"
+            / "aha_robot.urdf.xacro"
+        ),
+        mappings={
+            "sim": "true",
+            "cameras": LaunchConfiguration("cameras").perform(context),
+            "camera_rgb_noise_stddev": LaunchConfiguration(
+                "camera_rgb_noise_stddev"
+            ).perform(context),
+            "initial_lift": LaunchConfiguration("initial_lift").perform(context),
+        },
+    ).toxml()
+    return [
+        Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            parameters=[
+                {
+                    "robot_description": description,
+                    "use_sim_time": ParameterValue(
+                        LaunchConfiguration("use_sim_time"), value_type=bool
+                    ),
+                }
+            ],
+            output="screen",
+        ),
+        Node(
+            package="ros_gz_sim",
+            executable="create",
+            parameters=[{"gz_robot_description": gazebo_model(description)}],
+            arguments=[
+                "-name",
+                LaunchConfiguration("robot_name"),
+                "-param",
+                "gz_robot_description",
+                "-x",
+                LaunchConfiguration("spawn_x"),
+                "-y",
+                LaunchConfiguration("spawn_y"),
+                "-z",
+                LaunchConfiguration("spawn_z"),
+                "-Y",
+                LaunchConfiguration("spawn_yaw"),
+            ],
+            output="screen",
+        ),
+    ]
+
+
 def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    xacro_path = PathJoinSubstitution(
-        [
-            FindPackageShare("aha_description"),
-            "urdf",
-            "aha_robot.urdf.xacro",
-        ]
-    )
     gazebo_launch = PathJoinSubstitution(
         [
             FindPackageShare("aha_gazebo"),
@@ -122,54 +186,14 @@ def generate_launch_description():
         ]
     )
 
-    robot_description = {
-        "robot_description": ParameterValue(
-            Command(
-                [
-                    "xacro ",
-                    xacro_path,
-                    " sim:=true cameras:=",
-                    LaunchConfiguration("cameras"),
-                ]
-            ),
-            value_type=str,
-        ),
-    }
-
-    rsp = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        parameters=[robot_description, {"use_sim_time": use_sim_time}],
-        output="screen",
-    )
-
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gazebo_launch),
         launch_arguments={
             "world": LaunchConfiguration("world"),
             "world_path": LaunchConfiguration("world_path"),
             "headless": LaunchConfiguration("headless"),
+            "gz_args": LaunchConfiguration("gz_args"),
         }.items(),
-    )
-
-    spawn = Node(
-        package="ros_gz_sim",
-        executable="create",
-        arguments=[
-            "-name",
-            LaunchConfiguration("robot_name"),
-            "-topic",
-            "robot_description",
-            "-x",
-            LaunchConfiguration("spawn_x"),
-            "-y",
-            LaunchConfiguration("spawn_y"),
-            "-z",
-            LaunchConfiguration("spawn_z"),
-            "-Y",
-            LaunchConfiguration("spawn_yaw"),
-        ],
-        output="screen",
     )
 
     clock_bridge = Node(
@@ -231,23 +255,60 @@ def generate_launch_description():
     ]
 
     # Optional per-squad subsystems. Default off — bringup is minimal.
+    manip_arguments = {
+        "joint_states_topic": LaunchConfiguration("manip_joint_states_topic"),
+        "cameras": LaunchConfiguration("cameras"),
+        "rviz": LaunchConfiguration("manip_rviz"),
+        "limit_tolerance": str(LIMIT_TOLERANCE),
+        # use_perception already bridges the cameras.
+        "camera_bridge": AndSubstitution(
+            LaunchConfiguration("cameras"),
+            NotSubstitution(LaunchConfiguration("use_perception")),
+        ),
+    }
+    perception_arguments = {
+        # The manipulation view has its own panel (base, head, hands); two
+        # panels would send separate base and head commands.
+        "control_panel": IfElseSubstitution(
+            LaunchConfiguration("manip_rviz"),
+            "false",
+            LaunchConfiguration("control_panel", default="true"),
+        ),
+    }
     subsystems = [
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                PathJoinSubstitution(
-                    [
-                        FindPackageShare(package),
-                        "launch",
-                        filename,
-                    ]
+        # Scoped: an include sets its arguments as launch configurations,
+        # which would otherwise reach the following includes (manip's rviz
+        # turned off perception's view).
+        GroupAction(
+            [
+                IncludeLaunchDescription(
+                    PythonLaunchDescriptionSource(
+                        PathJoinSubstitution(
+                            [
+                                FindPackageShare(package),
+                                "launch",
+                                filename,
+                            ]
+                        )
+                    ),
+                    launch_arguments={
+                        "use_sim_time": use_sim_time,
+                        **arguments,
+                    }.items(),
                 )
-            ),
+            ],
             condition=IfCondition(LaunchConfiguration(argument)),
+            scoped=True,
         )
-        for package, filename, argument in (
-            ("aha_navigation", "nav.launch.py", "use_nav"),
-            ("aha_manipulation", "manip.launch.py", "use_manip"),
-            ("aha_perception", "perception.launch.py", "use_perception"),
+        for package, filename, argument, arguments in (
+            ("aha_navigation", "nav.launch.py", "use_nav", {}),
+            ("aha_manipulation", "manip.launch.py", "use_manip", manip_arguments),
+            (
+                "aha_perception",
+                "perception.launch.py",
+                "use_perception",
+                perception_arguments,
+            ),
         )
     ]
 
@@ -267,7 +328,10 @@ def generate_launch_description():
             OpaqueFunction(function=_validate_spawn),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("headless", default_value="false"),
+            DeclareLaunchArgument("gz_args", default_value=""),
             DeclareLaunchArgument("cameras", default_value="true"),
+            DeclareLaunchArgument("camera_rgb_noise_stddev", default_value="0.003"),
+            DeclareLaunchArgument("initial_lift", default_value="0.0"),
             DeclareLaunchArgument(
                 "robot_name",
                 default_value="aha_robot",
@@ -285,12 +349,21 @@ def generate_launch_description():
                 description="Load command controllers and activate them in one switch",
             ),
             DeclareLaunchArgument("use_manip", default_value="false"),
+            DeclareLaunchArgument(
+                "manip_joint_states_topic", default_value="/joint_states"
+            ),
+            DeclareLaunchArgument(
+                "manip_rviz",
+                default_value="false",
+                choices=["true", "false"],
+                description="With use_manip, start the RViz manipulation view",
+            ),
+            OpaqueFunction(function=_validate_manip_rviz),
             DeclareLaunchArgument("use_perception", default_value="false"),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_path),
             gz,
-            rsp,
             clock_bridge,
-            spawn,
+            OpaqueFunction(function=_robot),
             jsb,
             load_rest,
             *subsystems,

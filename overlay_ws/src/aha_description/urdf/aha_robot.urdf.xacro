@@ -23,6 +23,8 @@
 
   <xacro:arg name="sim" default="true"/>
   <xacro:arg name="cameras" default="$(arg sim)"/>
+  <xacro:arg name="camera_rgb_noise_stddev" default="0.003"/>
+  <xacro:arg name="initial_lift" default="0.0"/>
   <xacro:arg name="lidar" default="$(arg sim)"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 

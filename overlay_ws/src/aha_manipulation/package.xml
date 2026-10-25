@@ -2,7 +2,7 @@
 <package format="3">
   <name>aha_manipulation</name>
   <version>0.1.0</version>
-  <description>Manipulation (MoveIt 2) config, pick/place skeleton for AhaRobot. Owner: manipulation squad.</description>
+  <description>Manipulation (MoveIt 2) right-arm planning and trajectory execution for AhaRobot. Owner: manipulation squad.</description>
   <maintainer email="dev@trail-club.local">trail-club manipulation squad</maintainer>
   <license>Apache-2.0</license>
 
@@ -20,10 +20,29 @@
 
   <exec_depend>aha_description</exec_depend>
   <exec_depend>aha_msgs</exec_depend>
+  <exec_depend>aha_perception</exec_depend>
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_kinematics</exec_depend>
-  <exec_depend>moveit_planners</exec_depend>
+  <exec_depend>moveit_planners_ompl</exec_depend>
+  <exec_depend>moveit_simple_controller_manager</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>xacro</exec_depend>
   <exec_depend>moveit_ros_visualization</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>trajectory_msgs</test_depend>
 
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>python3-pytest</test_depend>

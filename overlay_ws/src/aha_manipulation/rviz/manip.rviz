@@ -1,8 +1,6 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
-  - Class: rviz_common/Views
-    Name: Views
 
 Visualization Manager:
   Class: ""
@@ -13,34 +11,115 @@ Visualization Manager:
       Cell Size: 0.5
       Plane Cell Count: 10
       Color: 160; 160; 164
-    - Class: rviz_default_plugins/RobotModel
-      Name: RobotModel
-      Enabled: true
-      Description Source: Topic
-      Description Topic:
-        Value: /robot_description
-        Depth: 5
-        Durability Policy: Transient Local
-        Reliability Policy: Reliable
-      Visual Enabled: true
-      Collision Enabled: false
-      Alpha: 1
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: true
+      Enabled: false
       Show Names: true
       Show Axes: true
       Marker Scale: 0.15
+    # Current robot (Scene Robot), draggable goal (Planning Request),
+    # planned path animation (Planned Path) and the MotionPlanning panel.
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Enabled: true
+      Move Group Namespace: ""
+      MoveIt_Allow_Approximate_IK: false
+      MoveIt_Allow_External_Program: false
+      MoveIt_Allow_Replanning: false
+      MoveIt_Allow_Sensor_Positioning: false
+      MoveIt_Planning_Attempts: 10
+      MoveIt_Planning_Time: 5
+      MoveIt_Use_Cartesian_Path: false
+      MoveIt_Use_Constraint_Aware_IK: true
+      MoveIt_Workspace:
+        Center: {X: 0, Y: 0, Z: 0.8}
+        Size: {X: 3, Y: 3, Z: 2}
+      Planned Path:
+        Color Enabled: true
+        Interrupt Display: false
+        Loop Animation: true
+        Robot Alpha: 0.5
+        Robot Color: 150; 50; 150
+        Show Robot Collision: false
+        Show Robot Visual: true
+        Show Trail: false
+        State Display Time: REALTIME
+        Trail Step Size: 1
+        Trajectory Topic: /display_planned_path
+        Use Sim Time: false
+      Planning Metrics:
+        Payload: 1
+        Show Joint Torques: false
+        Show Manipulability: false
+        Show Manipulability Index: false
+        Show Weight Limit: false
+        TextHeight: 0.08
+      Planning Request:
+        Colliding Link Color: 255; 0; 0
+        Goal State Alpha: 0.6
+        Goal State Color: 250; 128; 0
+        Interactive Marker Size: 0.2
+        Joint Violation Color: 255; 0; 255
+        Planning Group: right_arm
+        Query Goal State: true
+        Query Start State: false
+        Show Workspace: false
+        Start State Alpha: 1
+        Start State Color: 0; 255; 0
+      Planning Scene Topic: /monitored_planning_scene
+      Robot Description: robot_description
+      Scene Geometry:
+        Scene Alpha: 0.9
+        Scene Color: 50; 230; 50
+        Scene Display Time: 0.01
+        Show Scene Geometry: true
+        Voxel Coloring: Z-Axis
+        Voxel Rendering: Occupied Voxels
+      Scene Robot:
+        Attached Body Color: 150; 50; 150
+        Robot Alpha: 1
+        Show Robot Collision: false
+        Show Robot Visual: true
+      Velocity_Scaling_Factor: 0.5
+      Acceleration_Scaling_Factor: 0.5
+    # Goal of the last plan vs. current end effector (eef_goal_monitor.py).
+    - Class: rviz_default_plugins/MarkerArray
+      Name: EefGoalError
+      Enabled: true
+      Topic:
+        Value: /aha/manipulation/eef_goal/markers
     - Class: rviz_default_plugins/MarkerArray
       Name: DetectedObjects
       Enabled: true
       Topic:
         Value: /aha/perception/objects/markers
+    - Class: rviz_default_plugins/Image
+      Name: HeadCamera
+      Enabled: true
+      Normalize Range: true
+      Topic:
+        Value: /camera/color/image_raw
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Image
+      Name: RightWristCamera
+      Enabled: true
+      Normalize Range: true
+      Topic:
+        Value: /camera/right_wrist/image_raw
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
   Global Options:
-    Fixed Frame: base_link
+    Fixed Frame: base_footprint
     Frame Rate: 30
     Background Color: 48; 48; 48
   Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/FocusCamera
   Value: true
@@ -48,13 +127,23 @@ Visualization Manager:
     Current:
       Class: rviz_default_plugins/Orbit
       Name: Orbit
-      Distance: 2.0
-      Focal Point: {X: 0.3, Y: 0, Z: 0.9}
-      Pitch: 0.3
-      Yaw: 1.5
+      Distance: 2.2
+      Focal Point: {X: 0.3, Y: -0.2, Z: 0.6}
+      Pitch: 0.45
+      Yaw: 5.5
 
+# Left: MotionPlanning above Displays. Right: head above right wrist camera.
+# Bottom: the planned path's trajectory slider.
+# QMainWindow State restores the docks by display / panel name. To change the
+# layout or rename a display, arrange it in RViz and save (File > Save Config).
 Window Geometry:
-  Height: 800
-  Width: 1200
+  Height: 1000
+  Width: 1600
+  Hide Left Dock: false
+  Hide Right Dock: false
   Displays: {collapsed: false}
-  Views: {collapsed: false}
+  MotionPlanning: {collapsed: false}
+  HeadCamera: {collapsed: false}
+  RightWristCamera: {collapsed: false}
+  MotionPlanning - Trajectory Slider: {collapsed: false}
+  QMainWindow State: 000000ff00000000fd00000003000000000000020800000395fc0200000002fb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e006701000000110000025f0000001700fffffffb000000100044006900730070006c0061007900730100000276000001300000001700ffffff00000001000001e000000395fc0200000002fb00000014004800650061006400430061006d0065007200610100000011000001c80000001700fffffffb00000020005200690067006800740057007200690073007400430061006d00650072006101000001df000001c70000001700ffffff00000003000006400000003cfc0100000001fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720100000000000006400000003e00ffffff0000024c0000039500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000

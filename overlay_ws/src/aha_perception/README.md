@@ -1,10 +1,16 @@
 # aha_perception
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、
-シミュレーションの左右の手首RGBカメラのbridge。
-topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)、
-macOSのカメラ経路は [カメラツール](../../../tools/perception/macos/README.md)を参照。
+シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
+topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
+
+- [Macカメラツール](../../../tools/perception/macos/pointcloud/README.md): RGB-DをROSへ配信し、RVizで点群を表示する。
+- [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md): Macで撮影し、DGX Sparkで推論して結果を保存する。
+
+`aha_perception.sam31` が単一フレームのモデル推論・マスク処理・深度集計を行い、
+`aha_perception.sam31_worker` が対話検証用の常駐ワーカーを提供する。
+SAM検証はROS topicを使わず、カメラ表示launchとは独立して動作する。
 
 ## launch
 
@@ -22,7 +28,7 @@ D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_m
 | node | 内容 |
 | --- | --- |
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
-| `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット |
+| `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定し、3つのノードが
@@ -39,15 +45,29 @@ URDFの車輪関節の上限（10 rad/s × 半径0.042 m ≈ 0.42 m/s）より�
 シミュレーションの再起動・リセットを検知するとTFバッファと注視点を消す。
 操作パネルの頭のスライダーは、パネルから送った目標に `/joint_states` が2°以内に近づくまで（最長で移動時間の4倍 + 1 s）目標値を表示し、その後は `/joint_states` に追従する。
 
+`arm_controls:=true`（[aha_manipulationの操作画面](../aha_manipulation/README.md#rviz操作画面)が指定）では右手・左手の欄を追加する。
+グリッパは開く・閉じるボタンと指1本の開き（0–60 mm）のスライダーで、
+`/right_gripper_controller/commands`（左手は `/left_gripper_controller/commands`）に
+`[joint_r7r, joint_r7l]`（左手は `[joint_l7r, joint_l7l]`）= `[開き, -開き]` を送る。
+指は物体で止まるため、グリッパのスライダーは送った値を表示し、`/joint_states` に追従しない。
+昇降のスライダー（cm）はその手の昇降（`joint_r1` / `joint_l1`）だけの軌道を `/lift_controller/joint_trajectory` に送り、反対側の昇降は位置を保持する。
+移動時間は距離 / `lift_speed`（既定0.1 m/s、最短0.5 s）、範囲は `lift_limits`（既定0–1.2 m）。
+スライダーは離したとき・溝をクリックしたときに1回送り、頭と同じ方法で1 cm以内に近づいた後は `/joint_states` に追従する。
+左右の昇降とMoveItの軌道実行は同じ `lift_controller` を使う。昇降を送ると実行中の軌道を置き換えるため、動作中の昇降は止まる。
+パネルの片方の昇降を送ったとき、移動中だった反対側のスライダーは目標の表示をやめ、すぐに `/joint_states` に追従する。
+
 ## シミュレーション
 
 ```bash
 ros2 launch aha_bringup sim.launch.py use_perception:=true
 ```
 
-手首カメラは `link_l6` / `link_r6` に固定した仮想取付位置から
-グリッパの把持中心へ向き、水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
-取付位置と光学特性は実機で校正していない。カメラのvisualに質量やcollisionは追加していない。
+手首カメラは既存の `link_l6` / `link_r6` メッシュに含まれるカメラのレンズ位置に置く。
+[Astra.STEP](../../../upstream/Astra_Hardwares/Astra/Astra.STEP) の `Camera` 部品の配置に基づき、
+カメラ原点は手首座標で `(0.026, 0, 0.101)` m、pitchは−60°、レンズ前面はカメラの前方16 mm。
+腕を前方に伸ばした姿勢ではグリッパの上側から前方・下向き30°を見て、
+水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
+取付位置と光学特性は実機で校正していない。既存メッシュのカメラを使い、別のvisual・質量・collisionは追加しない。
 手首カメラの画像はRVizのImage表示で `/camera/left_wrist/image_raw` または
 `/camera/right_wrist/image_raw` を選択して確認できる。
 `cameras:=false` はカメラセンサを除くため、画像を使う場合は付けない。
@@ -122,5 +142,5 @@ TFはrobot_state_publisher（`sim:=false`）とjoint_state_publisherが出す。
 `/joint_states` の頭は `/head_controller/joint_states`、その他の関節は0。
 Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッジはエラーで終了する。
 
-`camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/README.md#rosbridgeへの直接送信)
+`camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
 で既定の `ws://127.0.0.1:9090` へ送ると、RVizに点群が表示される。

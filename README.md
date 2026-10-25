@@ -8,7 +8,7 @@ RoboCup@Home（OPL）向けのROS 2ソフトウェアスタック。
 | パス | 内容 |
 | --- | --- |
 | `overlay_ws/` | AhaRobot独自のROSパッケージ |
-| `upstream/` | Astraコード・ファームウェア・CAD、SOBITS / TMC資源のsubmodule |
+| `upstream/` | Astraコード・ファームウェア・CAD、SOBITS / TMC資源、SAM 3.1のsubmodule |
 | `docker/` | 開発コンテナ |
 | `tools/` | 知覚・サーボ・ファームウェア・ローカルLLMのツール |
 | `docs/` | 開発・起動手順とインターフェース |
@@ -25,6 +25,7 @@ worldと初期位置の変更は
 - [開発ルール](AGENTS.md)
 - [ROSパッケージ・制限](overlay_ws/README.md)
 - [ROSインターフェース](docs/interfaces.md)
+- [両腕キーボード教示](docs/arm-keyboard-teleop.md) — 実機の両腕を `arm_node` 経由でキー操作する
 - [submoduleの更新](docs/upstream-workflow.md)
 - [ライセンス・出典](dependencies/THIRD_PARTY.md)
 - [補助資料](docs/context/README.md) — 実機実験・CAD・検証結果

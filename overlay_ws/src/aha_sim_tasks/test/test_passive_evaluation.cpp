@@ -104,7 +104,7 @@ TEST(PassiveEvaluation, NearbyUnsupportedAppleFallsUnderGravity)
   ASSERT_TRUE(received.wait_for(lock, std::chrono::seconds(2), [&] { return !samples.empty(); }));
   for (const auto &sample : samples)
   {
-    EXPECT_EQ(1, sample.at("schema_version"));
+    EXPECT_EQ(2, sample.at("schema_version"));
     EXPECT_EQ("world", sample.at("frame_id"));
     EXPECT_EQ(3u, sample.at("robot_pose").size());
     EXPECT_EQ(3u, sample.at("object_position").size());

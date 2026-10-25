@@ -7,13 +7,14 @@ from collections import deque
 from functools import partial
 from types import MappingProxyType
 
+from aha_gazebo.model import LIMIT_TOLERANCE
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from message_filters import Subscriber, TimeSynchronizer
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image, JointState
 from std_msgs.msg import Float64MultiArray, String
@@ -23,8 +24,10 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from .api import (
     Action,
     CameraObservation,
+    clamp_joint_near_limits,
     CONTROLLER_JOINTS,
     GRIPPER_JOINTS,
+    GroundTruth,
     JOINT_LIMITS,
     Observation,
 )
@@ -40,20 +43,37 @@ def yaw(quaternion):
 
 class RosEnvironment(Node):
     def __init__(
-        self, task, head_image_topic="", *, cameras=False, camera_timeout=10.0
+        self,
+        task,
+        head_image_topic="",
+        *,
+        cameras=False,
+        camera_timeout=10.0,
+        ground_truth=False,
+        video_recorder=None,
+        sensor_model=None,
+        sensor_seed=0,
     ):
+        if ground_truth and (cameras or head_image_topic):
+            raise ValueError("Ground-truth IK does not consume sensor observations")
         super().__init__(
             "task_evaluator",
             parameter_overrides=[Parameter("use_sim_time", value=True)],
         )
         self.task = task
+        self.truth_enabled = ground_truth
+        self.ground_truth = None
         self.positions = {}
         self.velocities = {}
         self.odom = None
         self.image = None
         self.cameras_enabled = cameras
         self.camera_timeout = camera_timeout
+        self.sensor_model = sensor_model or {}
+        self.sensor_seed = sensor_seed
         self.camera_samples = {}
+        self.camera_raw_stamps = {}
+        self.video_recorder = video_recorder
         self.camera_filters = []
         self.world = None
         self.received = {}
@@ -80,21 +100,26 @@ class RosEnvironment(Node):
             name: self.create_publisher(Float64MultiArray, f"/{name}/commands", 10)
             for name in GRIPPER_JOINTS
         }
-        self.create_subscription(
-            JointState, "/joint_states", self.on_joints, qos_profile_sensor_data
-        )
-        self.create_subscription(
-            Odometry,
-            "/diff_drive_controller/odom",
-            self.on_odom,
-            qos_profile_sensor_data,
-        )
+        if ground_truth:
+            self.truth_joints = self.create_publisher(
+                JointState, "/evaluation/joint_states", 10
+            )
+        if not ground_truth:
+            self.create_subscription(
+                JointState, "/joint_states", self.on_joints, qos_profile_sensor_data
+            )
+            self.create_subscription(
+                Odometry,
+                "/diff_drive_controller/odom",
+                self.on_odom,
+                qos_profile_sensor_data,
+            )
         self.create_subscription(String, "/evaluation/state", self.on_state, 10)
         if head_image_topic:
             self.create_subscription(
                 Image, head_image_topic, self.on_image, qos_profile_sensor_data
             )
-        self.required = {"joints", "odom", "state"}
+        self.required = {"state"} if ground_truth else {"joints", "odom", "state"}
         if head_image_topic:
             self.required.add("image")
         if cameras:
@@ -115,13 +140,19 @@ class RosEnvironment(Node):
                     (CameraInfo, "/camera/right_wrist/camera_info"),
                 ),
             }.items():
+                # Images use reliable streams in the camera bridge.
+                # Best-effort readers can lose different frames from each stream
+                # during a physics burst, leaving no exact pair after pausing.
+                camera_qos = QoSProfile(depth=10)
                 subscribers = [
-                    Subscriber(
-                        self, message_type, topic, qos_profile=qos_profile_sensor_data
-                    )
+                    Subscriber(self, message_type, topic, qos_profile=camera_qos)
                     for message_type, topic in topics
                 ]
-                synchronizer = TimeSynchronizer(subscribers, queue_size=5)
+                for subscriber, (_, topic) in zip(subscribers, topics):
+                    subscriber.registerCallback(
+                        partial(self.on_camera_component, topic)
+                    )
+                synchronizer = TimeSynchronizer(subscribers, queue_size=10)
                 synchronizer.registerCallback(partial(self.on_camera, name))
                 self.camera_filters.append((subscribers, synchronizer))
                 self.required.add("camera:" + name)
@@ -163,6 +194,10 @@ class RosEnvironment(Node):
         self.mark("image")
 
     def on_camera(self, name, image, camera_info, depth_image=None):
+        if depth_image is not None and getattr(self, "sensor_model", {}):
+            from .sensor_noise import noisy_depth
+
+            depth_image = noisy_depth(depth_image, self.sensor_model, self.sensor_seed)
         messages = [image, camera_info]
         if depth_image is not None:
             messages.append(depth_image)
@@ -176,6 +211,13 @@ class RosEnvironment(Node):
         # Retain more than the 0.5 s age window at 15 Hz while TF catches up.
         samples.append((image, camera_info, depth_image))
         self.mark("camera:" + name)
+
+    def on_camera_component(self, topic, message):
+        self.camera_raw_stamps[topic] = (
+            Time.from_msg(message.header.stamp).nanoseconds * 1e-9
+        )
+        if self.video_recorder is not None:
+            self.video_recorder.image(topic, message)
 
     def camera_observations(self):
         if not self.cameras_enabled:
@@ -223,20 +265,57 @@ class RosEnvironment(Node):
     def observation_ready(self):
         return self.camera_observations() is not None
 
+    def camera_diagnostics(self):
+        """Explain unavailable timestamped camera observations at a paused boundary."""
+        now = self.get_clock().now().nanoseconds * 1e-9
+        result = {"sim_time": now, "raw_stamps": self.camera_raw_stamps, "cameras": {}}
+        for name, samples in self.camera_samples.items():
+            latest = []
+            for image, _, _ in list(samples)[-3:]:
+                stamp = Time.from_msg(image.header.stamp)
+                data = {
+                    "stamp": stamp.nanoseconds * 1e-9,
+                    "age": now - stamp.nanoseconds * 1e-9,
+                }
+                try:
+                    self.tf_buffer.lookup_transform(
+                        "base_link", image.header.frame_id, stamp
+                    )
+                    data["tf"] = "available"
+                except TransformException as error:
+                    data["tf"] = str(error)
+                latest.append(data)
+            result["cameras"][name] = latest
+        return result
+
     def on_state(self, message):
         sample = json.loads(message.data)
-        if sample["schema_version"] != 1 or sample["frame_id"] != "world":
+        if sample["schema_version"] not in (1, 2) or sample["frame_id"] != "world":
             raise ValueError("Unsupported evaluation state schema or frame")
         stamp = sample["stamp"]
         sim_time = stamp["sec"] + stamp["nanosec"] * 1e-9
         position = tuple(sample["object_position"])
         robot_pose = tuple(sample["robot_pose"])
         contacts = sample["finger_contacts"]
+        orientation = tuple(sample.get("object_orientation", (0, 0, 0, 1)))
+        destination_contact = sample.get("destination_contact", False)
+        simultaneous = sample.get("simultaneous_grasp", contacts == 2)
+        if (
+            sample["schema_version"] == 2
+            and not {"object_orientation", "destination_contact", "simultaneous_grasp"}
+            <= sample.keys()
+        ):
+            raise ValueError("Incomplete evaluation state")
         if (
             len(position) != 3
             or len(robot_pose) != 3
             or type(contacts) is not int
             or not 0 <= contacts <= 2
+            or len(orientation) != 4
+            or not all(math.isfinite(v) for v in orientation)
+            or abs(sum(v * v for v in orientation) - 1) > 1e-3
+            or type(destination_contact) is not bool
+            or type(simultaneous) is not bool
             or not all(
                 math.isfinite(value) for value in (sim_time, *position, *robot_pose)
             )
@@ -245,6 +324,25 @@ class RosEnvironment(Node):
         # Reject delayed/duplicate samples before changing any speed history.
         if self.world is not None and sim_time <= self.world.sim_time:
             return
+        truth = None
+        if getattr(self, "truth_enabled", False):
+            payload = sample.get("ground_truth")
+            if payload is None:
+                raise ValueError("Gazebo ground truth is missing")
+            pose = tuple(payload["robot_world_pose"])
+            positions = payload["joint_positions"]
+            if (
+                len(pose) != 7
+                or not all(
+                    math.isfinite(value) for value in (*pose, *positions.values())
+                )
+                or abs(sum(value * value for value in pose[3:]) - 1) > 1e-3
+            ):
+                raise ValueError("Invalid Gazebo ground truth")
+            # Physics may not have filled the newly requested joint components yet.
+            if not JOINT_LIMITS.keys() <= positions.keys():
+                return
+            truth = GroundTruth(pose, position, contacts)
         speed = math.inf
         if self.previous_object is not None:
             previous_time, previous_position = self.previous_object
@@ -252,6 +350,13 @@ class RosEnvironment(Node):
                 speed = math.dist(position, previous_position) / (
                     sim_time - previous_time
                 )
+        angular_speed = math.inf
+        previous_orientation = getattr(self, "previous_orientation", None)
+        if previous_orientation is not None:
+            previous_time, previous_q = previous_orientation
+            cosine = min(1.0, abs(sum(a * b for a, b in zip(previous_q, orientation))))
+            angular_speed = 2 * math.acos(cosine) / (sim_time - previous_time)
+        self.previous_orientation = (sim_time, orientation)
         self.previous_object = (sim_time, position)
         robot_xy = robot_pose[:2]
         robot_speed = math.inf
@@ -269,7 +374,26 @@ class RosEnvironment(Node):
             speed,
             contacts,
             robot_speed,
+            orientation,
+            destination_contact,
+            angular_speed,
+            simultaneous,
         )
+        if truth is not None:
+            self.ground_truth = truth
+            self.positions = dict(positions)
+            self.velocities = {}
+            self.odom = robot_pose
+            joint_message = JointState(
+                name=list(positions),
+                position=[
+                    clamp_joint_near_limits(name, value, LIMIT_TOLERANCE)
+                    for name, value in positions.items()
+                ],
+            )
+            joint_message.header.stamp.sec = stamp["sec"]
+            joint_message.header.stamp.nanosec = stamp["nanosec"]
+            self.truth_joints.publish(joint_message)
         self.mark("state")
 
     def ready(self):
@@ -313,7 +437,9 @@ class RosEnvironment(Node):
                 "Camera images or their timestamped transforms are unavailable"
             )
         return Observation(
-            self.get_clock().now().nanoseconds * 1e-9,
+            self.world.sim_time
+            if self.truth_enabled
+            else self.get_clock().now().nanoseconds * 1e-9,
             self.task.task_id,
             self.task.instruction,
             MappingProxyType(dict(self.positions)),
@@ -321,6 +447,7 @@ class RosEnvironment(Node):
             self.odom,
             cameras["head"].image if cameras else self.image,
             MappingProxyType(cameras),
+            self.ground_truth,
         )
 
     def apply(self, action):

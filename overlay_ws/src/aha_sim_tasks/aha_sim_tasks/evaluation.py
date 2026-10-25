@@ -1,11 +1,26 @@
 """Independent task scoring from fresh Gazebo state, using simulation time."""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import json
 import math
 from pathlib import Path
+import numpy as np
 
-from .scene import approach_target, load_scene
+from .scene import approach_target, bounds_corners, load_scene
+
+TASK_ALIASES = {
+    f"{verb}_apple": f"{verb}_object" for verb in ("approach", "pick", "place")
+}
+
+
+def rotation_matrix(quaternion):
+    x, y, z, w = quaternion
+    rotation = (
+        (1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)),
+        (2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)),
+        (2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)),
+    )
+    return np.asarray(rotation)
 
 
 @dataclass(frozen=True)
@@ -27,6 +42,9 @@ def load_tasks(path: Path, scene=None) -> dict[str, Task]:
             key: entry.pop(key)
             for key in ("instruction", "criterion", "timeout", "hold_time")
         }
+        common["instruction"] = common["instruction"].format(
+            object=scene["object"]["label"]
+        )
         if common["criterion"] not in ("approach", "pick", "place"):
             raise ValueError(f"Unknown criterion for {task_id}")
         for key in ("timeout", "hold_time"):
@@ -36,8 +54,30 @@ def load_tasks(path: Path, scene=None) -> dict[str, Task]:
         if entry.get("robot_target") == "source_approach":
             entry["robot_target"] = approach_target(scene)
         if entry.get("object_target") == "destination_position":
-            entry["object_target"] = list(scene["destination_position"])
+            entry["object_target"] = [
+                *scene["destination_table_position"][:2],
+                scene["destination_position"][2],
+            ]
+        if "min_clearance" in entry:
+            entry.update(
+                object_size=scene["object"]["size"],
+                object_points=scene["object"]["vertices"],
+                source_surface_z=scene["source_table_position"][2]
+                + scene["table_size"][2] / 2,
+                destination_surface_z=scene["destination_table_position"][2]
+                + scene["table_size"][2] / 2,
+                require_support=True,
+            )
+        if entry.get("xy_tolerance") == "table_half_size":
+            entry["xy_tolerance"] = [size / 2 for size in scene["table_size"][:2]]
+        elif isinstance(entry.get("xy_tolerance"), (int, float)):
+            entry["xy_tolerance"] = [entry["xy_tolerance"]] * 2
         tasks[task_id] = Task(task_id=task_id, parameters=entry, **common)
+    for alias, canonical in TASK_ALIASES.items():
+        if canonical in tasks:
+            from dataclasses import replace
+
+            tasks[alias] = replace(tasks[canonical], task_id=alias)
     return tasks
 
 
@@ -50,19 +90,43 @@ class WorldState:
     # Distinct fingers that touched during the sample window (0..2).
     finger_contacts: int
     robot_speed: float = 0.0
+    object_orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    destination_contact: bool = False
+    object_angular_speed: float = 0.0
+    simultaneous_grasp: bool = True
 
 
 class Evaluator:
-    def __init__(self, task: Task, start_time: float):
+    def __init__(self, task: Task, start_time: float, trace=None):
         self.task = task
         self.start_time = start_time
         self.stable_since = None
         self.previous_time = None
         self.was_lifted = False
+        self.lift_since = None
         self.result = None
         self.metrics = {}
+        self.trace = trace
+        self.points = np.asarray(
+            task.parameters.get(
+                "object_points",
+                bounds_corners(task.parameters.get("object_size", [0, 0, 0])),
+            )
+        )
 
     def update(self, state: WorldState) -> str | None:
+        previous = self.previous_time
+        result = self._update(state)
+        if self.trace is not None and self.previous_time != previous:
+            self.trace.write(
+                json.dumps(
+                    {"state": asdict(state), "metrics": self.metrics}, allow_nan=False
+                )
+                + "\n"
+            )
+        return result
+
+    def _update(self, state: WorldState) -> str | None:
         if self.result is not None:
             return self.result
         if self.previous_time is not None and state.sim_time <= self.previous_time:
@@ -75,12 +139,16 @@ class Evaluator:
                 *state.object_position,
                 state.object_speed,
                 state.robot_speed,
+                *state.object_orientation,
+                state.object_angular_speed,
             )
         ):
             self.stable_since = None
+            self.lift_since = None
             return None
         if self.previous_time is not None and state.sim_time - self.previous_time > 0.5:
             self.stable_since = None
+            self.lift_since = None
         self.previous_time = state.sim_time
         elapsed = state.sim_time - self.start_time
         self.metrics = {
@@ -92,15 +160,38 @@ class Evaluator:
             "grasped": state.finger_contacts == 2,
             "robot_speed": state.robot_speed,
             "was_lifted": self.was_lifted,
+            "destination_contact": state.destination_contact,
+            "object_angular_speed": state.object_angular_speed,
         }
         if elapsed >= self.task.timeout:
             self.result = "timeout"
             return self.result
         p = self.task.parameters
-        lifted = state.finger_contacts == 2 and state.object_position[2] >= p.get(
-            "min_height", math.inf
+        points = self.points @ rotation_matrix(state.object_orientation).T + np.asarray(
+            state.object_position
         )
-        self.was_lifted = self.was_lifted or lifted
+        lower, upper = points.min(axis=0), points.max(axis=0)
+        bottom = float(lower[2])
+        if "min_clearance" in p:
+            clearance = bottom - p["source_surface_z"]
+            lifted = (
+                state.finger_contacts == 2
+                and state.simultaneous_grasp
+                and clearance >= p["min_clearance"]
+            )
+            self.metrics["lift_clearance"] = clearance
+        else:
+            lifted = state.finger_contacts == 2 and state.object_position[2] >= p.get(
+                "min_height", math.inf
+            )
+        if lifted:
+            if self.lift_since is None:
+                self.lift_since = state.sim_time
+            self.was_lifted |= state.sim_time - self.lift_since >= p.get(
+                "pick_hold_time", 0
+            )
+        else:
+            self.lift_since = None
         if self.task.criterion == "approach":
             x, y, yaw = state.robot_pose
             tx, ty, tyaw = p["robot_target"]
@@ -115,13 +206,30 @@ class Evaluator:
         else:
             x, y, z = state.object_position
             tx, ty, tz = p["object_target"]
+            x_tolerance, y_tolerance = p["xy_tolerance"]
+            inside = (
+                tx - x_tolerance <= lower[0]
+                and upper[0] <= tx + x_tolerance
+                and ty - y_tolerance <= lower[1]
+                and upper[1] <= ty + y_tolerance
+            )
+            supported = state.destination_contact if p.get("require_support") else True
+            height_error = (
+                abs(bottom - p["destination_surface_z"])
+                if "object_size" in p
+                else abs(z - tz)
+            )
+            self.metrics.update(
+                footprint_inside=bool(inside), destination_supported=supported
+            )
             satisfied = (
                 self.was_lifted
                 and state.finger_contacts == 0
-                and abs(x - tx) <= p["xy_tolerance"]
-                and abs(y - ty) <= p["xy_tolerance"]
-                and abs(z - tz) <= p["z_tolerance"]
+                and inside
+                and supported
+                and height_error <= p["z_tolerance"]
                 and state.object_speed <= p["max_object_speed"]
+                and state.object_angular_speed <= p.get("max_angular_speed", math.inf)
             )
         if satisfied:
             if self.stable_since is None:
