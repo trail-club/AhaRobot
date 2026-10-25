@@ -4,7 +4,9 @@
 # Serves /lift_controller like the simulation (joint_l1, joint_r1, partial
 # goals). Each lift has its own upstream lift_node (/<side>/lift, metres from
 # the bottom), so each joint is its own command group with its own topics:
-# a trajectory for joint_r1 runs while the left lift is off.
+# a trajectory for joint_r1 runs while the left lift is off. As with one
+# JointTrajectoryController, a new trajectory preempts the running one; the
+# lift it does not name holds its measured position.
 #
 # Limits are the lift firmware's (AstraFirmwares AstraLiftController):
 # lift_node drops commands outside [0, 1.19] m, the board moves at most

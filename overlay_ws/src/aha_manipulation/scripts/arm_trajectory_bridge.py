@@ -39,8 +39,10 @@ Behaviour:
     is within `goal_tolerance` (or the goal's) of the final point, aborts
     `goal_time` s (or goal_time_tolerance) after the last point.
   - Cancel and an abort for tolerance hold the measured position of the
-    goal's groups, an empty trajectory that of every group. A newer topic command or goal preempts (aborts) the running
-    goal. A stale state stops sending, so the arm stays at the last sample.
+    goal's groups, an empty trajectory that of every group. A newer topic
+    command or goal preempts (aborts) the running goal; groups of the running
+    plan that the new trajectory does not name hold their measured position.
+    A stale state stops sending, so the arm stays at the last sample.
   - Partial joint lists are accepted; the other joints of the same groups
     keep their position.
   - SIGINT/SIGTERM: sampling and goals stop, then the node shuts down. The
@@ -258,6 +260,16 @@ class ArmTrajectoryBridge(Node):
                 f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s "
                 f"on {', '.join(self.cfg.state_topics)} (is the driver node running?)"
             )
+        if self.plan is not None:
+            # The new plan replaces the running one. Its other groups hold
+            # their measured position, as JointTrajectoryController holds the
+            # joints a new goal does not name.
+            names += [
+                n
+                for g in self._groups_of(self.plan.names)
+                if not set(g.names) & set(names) and not self._stale(now, g.names)
+                for n in g.names
+            ]
         # Joints in command order, so plan.names covers whole groups.
         return plan_trajectory(
             [j for j in self.cfg.joints if j.name in names],

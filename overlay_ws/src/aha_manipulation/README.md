@@ -132,7 +132,8 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
   goalの `path_tolerance` / `goal_tolerance` / `goal_time_tolerance` が指定されていればそれを使う。
 - 取り消し・許容誤差による中断では、そのgoalの関節の指令グループに、空の軌道では全グループに、実測の位置を指令して止める。
   関節状態の途絶では指令を止める。
-  新しい軌道は実行中のgoalを中断する。
+  新しい軌道は実行中のgoalを中断する。実行中の軌道の指令グループのうち、新しい軌道が名前を含まないものは実測の位置で保持する
+  （JointTrajectoryControllerが新しいgoalに含まれない関節を保持するのと同じ）。
 - 起動時と待機中は指令を送らない。関節状態が届くまで軌道を受け付けない。
 
 MoveItの右腕の計画はjoint_r1（昇降）を含み、`lift_controller` へも送られる。

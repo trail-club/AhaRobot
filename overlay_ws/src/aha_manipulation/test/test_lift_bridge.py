@@ -219,6 +219,28 @@ class LiftBridgeTest(unittest.TestCase):
         last = [c for c in self.commands_since(t0)][-1]
         self.assertAlmostEqual(last[3][0], self.position("joint_r1"), delta=0.01)
 
+    def test_6_goal_for_one_lift_preempts_and_holds_the_other(self):
+        self.settle()
+        l1, r1 = self.position("joint_l1"), self.position("joint_r1")
+        first = self.send_goal(arm.trajectory(["joint_r1"], [([r1 + 0.2], 4.0)]))
+        self.assertTrue(first.accepted)
+        time.sleep(1.0)
+        second = self.send_goal(arm.trajectory(["joint_l1"], [([l1 - 0.1], 2.0)]))
+        self.assertTrue(second.accepted)
+        # The tick may send one more sample of the old plan meanwhile.
+        t0 = time.monotonic() + 0.2
+        result = self.wait_result(first)
+        self.assertEqual(result.status, GoalStatus.STATUS_ABORTED)
+        self.assertIn("preempted", result.result.error_string)
+        self.assertEqual(self.wait_result(second).status, GoalStatus.STATUS_SUCCEEDED)
+        # From the preemption on, the right lift gets one constant goal: its
+        # measured position then, not the rest of its trajectory.
+        right = PARAMS["joint_r1"]["command_topic"]
+        held = {c[3][0] for c in self.commands_since(t0) if c[1] == right}
+        self.assertEqual(len(held), 1, held)
+        self.assertLess(held.pop(), r1 + 0.1)
+        self.assertAlmostEqual(self.position("joint_l1"), l1 - 0.1, delta=0.003)
+
 
 if __name__ == "__main__":
     unittest.main()
