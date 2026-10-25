@@ -23,3 +23,56 @@ view's control panel starts.
 For approach, apple picking, and pick-and-place demonstrations with independent
 success checks, use [aha_sim_tasks](../aha_sim_tasks/README.md). That package
 owns the task scene and scripted policy.
+
+## Real robot on the frame
+
+`real.launch.py` starts the real robot as currently built: arms and head on a frame of 30 mm aluminum profiles
+on a table, without the mobile base and the lifts ([measurements](../../../docs/context/frame.md)).
+
+```bash
+ros2 launch aha_bringup real.launch.py
+ros2 launch aha_bringup real.launch.py arms:=false head:=manual    # camera and planes only
+```
+
+It runs robot_state_publisher with the frame model, a static `odom` → `base_footprint` (the frame does not move),
+`joint_state_publisher` merging `/head_controller/joint_states` and the arms' `/<side>/arm/joint_states`
+into `/joint_states`, [`arms.launch.py`](launch/arms.launch.py), the head servos, the D435i, the point cloud,
+plane detection and RViz (topics in [ROS interfaces](../../../docs/interfaces.md#実機の頭部)).
+`base_footprint` is on the floor and `base_link` on the table top below the camera column.
+
+| Argument | Default | |
+| --- | --- | --- |
+| `frame_config` | `aha_description/config/frame_table_202610.yaml` | Frame model, see below |
+| `arms` / `use_left` / `use_right` | `true` | Arms (`arms.launch.py`) |
+| `right_device` / `left_device` / `head_port` | `/dev/ttyUSB0` / `/dev/ttyUSB2` / `/dev/ttyUSB1` | Boards in the order of the USB hub ports; the numbers follow the USB enumeration |
+| `trajectory_bridge` / `record` | `true` / `false` | Passed to `arms.launch.py` |
+| `head` | `servo` | `servo`, `manual` (commanded angles as the state) or `none` |
+| `camera` / `planes` / `rviz` | `true` | D435i and point cloud / plane detection (`furniture_config`) / RViz |
+
+The arms need the host-side sign patch on `upstream/astra_controller`
+([patches](../../../patches/README.md#astra_controller用パッチ)); without it the arms read mirrored angles.
+The head board must be in Serial Forwarding mode after each power-up ([aha_perception](../aha_perception/README.md#接続)).
+
+### Frame model
+
+[`aha_description/frame.py`](../aha_description/aha_description/frame.py) rewrites the xacro URDF (`sim:=false`)
+with the YAML `frame_config`: the table height, the head pan axis, an optional camera mount, each arm's shoulder axis
+and mount yaw (the lifts become fixed joints) and the frame members as slotted profiles (the collision is their outer box).
+The head base (Astra's HeadYaw part) is cut out of the upstream body mesh at build time.
+The YAML marks which values were measured and which come from photos.
+
+### Calibration
+
+With `real.launch.py` running (arms with torque off: `ros2 topic pub --once /<side>/arm/torque_enable std_msgs/msg/UInt8 "{data: 0}"`):
+
+```bash
+# Arm mount yaw: upper arm forward with the forearm in line, then outward, per arm
+ros2 run aha_description frame_calibrate.py --config <source>/aha_description/config/frame_table_202610.yaml [--write]
+# Camera tilt and height from the table top (0.38 m) or the floor (0), head pointed at a free area of it
+ros2 run aha_perception camera_plane_calibrate.py --reference 0.38 --config <frame yaml> [--write]
+```
+
+`frame_calibrate.py` also checks the shoulder sign (+90° to the left arm's outside, −90° for the right arm) and the elbow zero.
+`camera_plane_calibrate.py` writes `camera` (link_head_tilt → camera_link); the plane does not give the camera's
+horizontal position or yaw, and the result holds for the head pose it was measured in.
+Rebuild or restart the launch after `--write` to load the new values.

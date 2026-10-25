@@ -315,7 +315,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 ## 実機の頭部
 
-`real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
+`real_head_camera.launch.py` と、骨組みに載せた実機の `aha_bringup` の [real.launch.py](../overlay_ws/src/aha_bringup/README.md#real-robot-on-the-frame) は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
 `servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、

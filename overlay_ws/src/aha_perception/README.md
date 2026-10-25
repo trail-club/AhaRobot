@@ -36,6 +36,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 | `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
+| `camera_plane_calibrate.py` | 高さの分かっている水平面の検出から、骨組みのモデルのカメラの取り付けを校正する（[手順](../aha_bringup/README.md#calibration)） |
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
