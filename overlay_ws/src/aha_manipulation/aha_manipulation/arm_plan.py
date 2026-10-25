@@ -17,7 +17,8 @@ builds the plan:
   or ``max_acceleration`` are rejected, not clamped or slowed down.
 - With velocities in every point, knots are joined by cubic Hermite segments
   (like JointTrajectoryController); otherwise by straight lines. The arm
-  starts and ends at rest.
+  starts and ends at rest. For Hermite segments the limits apply to the
+  peak velocity and acceleration of the cubic, not only to the given values.
 """
 
 from __future__ import annotations
@@ -105,6 +106,26 @@ def _hermite(p0, v0, p1, v1, dt, s):
         + (-2 * s3 + 3 * s2) * p1
         + (s3 - s2) * dt * v1
     )
+
+
+def _hermite_peaks(p0, v0, p1, v1, dt):
+    """Peak |velocity| and |acceleration| of a Hermite segment over [0, dt].
+
+    With d = (p1 - p0) / dt the velocity is a s^2 + b s + v0 in s = t / dt,
+    and the acceleration is linear in s, so it peaks at an end.
+    """
+    d = (p1 - p0) / dt
+    a = -6 * d + 3 * v0 + 3 * v1
+    b = 6 * d - 4 * v0 - 2 * v1
+    speeds = [abs(v0), abs(v1)]
+    if a != 0 and 0 < -b / (2 * a) < 1:
+        s = -b / (2 * a)
+        speeds.append(abs(a * s * s + b * s + v0))
+    accelerations = (
+        abs(6 * d - 4 * v0 - 2 * v1) / dt,
+        abs(-6 * d + 2 * v0 + 4 * v1) / dt,
+    )
+    return max(speeds), max(accelerations)
 
 
 def _check_finite(values, what):
@@ -202,7 +223,7 @@ def plan_trajectory(
         times.append(now)
         positions.append(dict(positions[0]))
         velocities.append(dict(velocities[0]))
-    _check_segments(limits, times, positions, hermite)
+    _check_segments(limits, times, positions, velocities if hermite else None)
     return ArmPlan(
         names=order,
         limits=by_name,
@@ -219,12 +240,13 @@ def _check_limit(joint, quantity, value, limit, k):
         )
 
 
-def _check_segments(limits, times, positions, hermite):
-    """Mean velocity of every segment; for linear segments also the change of it.
+def _check_segments(limits, times, positions, velocities):
+    """Mean velocity of every segment, then the motion between the knots.
 
-    A linear plan has no accelerations of its own, so the velocity change at
-    each knot (starting and ending at rest) over the time between the
-    neighbouring segment midpoints stands for one.
+    Hermite segments (``velocities`` given): the peak velocity and
+    acceleration of each cubic. Linear segments have no accelerations of their
+    own, so the velocity change at each knot (starting and ending at rest)
+    over the time between the neighbouring segment midpoints stands for one.
     """
     for joint in limits:
         name = joint.name
@@ -241,7 +263,28 @@ def _check_segments(limits, times, positions, hermite):
                     f"over its limit {joint.max_velocity:.3f}"
                 )
             mean.append(v)
-        if hermite:
+            if velocities is None:
+                continue
+            speed, accel = _hermite_peaks(
+                positions[k - 1][name],
+                velocities[k - 1][name],
+                positions[k][name],
+                velocities[k][name],
+                dt,
+            )
+            if speed > joint.max_velocity * (1 + LIMIT_ALLOWANCE):
+                raise ValueError(
+                    f"segment {k}: {name} reaches {speed:.3f} rad/s between the "
+                    f"points, over its limit {joint.max_velocity:.3f} "
+                    "(give the trajectory more time)"
+                )
+            if accel > joint.max_acceleration * (1 + LIMIT_ALLOWANCE):
+                raise ValueError(
+                    f"segment {k}: {name} needs {accel:.3f} rad/s^2 between the "
+                    f"points, over its limit {joint.max_acceleration:.3f} "
+                    "(give the trajectory more time)"
+                )
+        if velocities is not None:
             continue
         mean.append(0.0)  # at rest after the end
         spans = [0.0] + [times[k] - times[k - 1] for k in range(1, len(times))] + [0.0]

@@ -45,11 +45,34 @@ def test_only_a_start_point_holds_the_start():
 
 
 def test_hermite_with_velocities_starts_and_ends_at_rest():
-    # 0.1 -> 0.5 in 1 s with zero end velocities: a smooth S curve.
-    p = plan([pt([0.1], 0.0, [0.0]), pt([0.5], 1.0, [0.0])])
+    # 0.1 -> 0.4 in 1 s with zero end velocities: a smooth S curve.
+    p = plan([pt([0.1], 0.0, [0.0]), pt([0.4], 1.0, [0.0])])
     assert p.velocities is not None
-    assert p.sample(10.5)["a"] == pytest.approx(0.3)
-    assert p.sample(10.1)["a"] - 0.1 < 0.02  # linear would be 0.04
+    assert p.sample(10.5)["a"] == pytest.approx(0.25)
+    assert p.sample(10.1)["a"] - 0.1 < 0.015  # linear would be 0.03
+
+
+def test_hermite_peak_velocity_between_the_points_is_rejected():
+    # Rest to rest, d rad in T s peaks at 1.5 d / T in the middle: 0.6 rad in
+    # 1 s averages 0.6 rad/s but reaches 0.9 rad/s; 0.7 rad in 0.9 s reaches
+    # 1.17 rad/s (6 d / T^2 = 5.2 rad/s^2 too, the velocity is checked first).
+    limits = [JointLimits("a", -1.0, 1.0, 1.0, 100.0)]
+    start = {"a": 0.0}
+    plan_trajectory(limits, ["a"], [pt([0.6], 1.0, [0.0])], start, 0.0, 0.05)
+    with pytest.raises(ValueError, match="reaches 1.167 rad/s between"):
+        plan_trajectory(limits, ["a"], [pt([0.7], 0.9, [0.0])], start, 0.0, 0.05)
+
+
+def test_hermite_peak_acceleration_is_rejected():
+    # The review's case: 0.8 rad in 1 s from rest to rest averages 0.8 rad/s
+    # (linear needs only 1.6 rad/s^2) but the cubic starts at 6 d / T^2.
+    plan([pt([0.9], 1.0)], start={"a": 0.1, "b": 0.0, "c": 0.0})
+    with pytest.raises(ValueError, match="rad/s between"):
+        plan([pt([0.9], 1.0, [0.0])], start={"a": 0.1, "b": 0.0, "c": 0.0})
+    # Within the velocity limit, only the acceleration: 0.3 rad in 0.6 s
+    # reaches 0.75 rad/s and 5 rad/s^2.
+    with pytest.raises(ValueError, match="5.000 rad/s\\^2 between"):
+        plan([pt([0.4], 0.6, [0.0])])
 
 
 def test_samples_stay_inside_the_position_limits():
@@ -92,8 +115,15 @@ def test_given_velocity_and_acceleration_over_the_limits_are_rejected():
 
 
 def test_limits_allow_roundoff():
-    # Exactly at the velocity limit plus a relative 1e-6.
-    plan([pt([0.1 + 0.5 * (1 + 1e-6)], 0.5, [1.0 + 1e-6])])
+    # Exactly at the limits plus a relative 1e-6.
+    over = 1 + 1e-6
+    limits = [JointLimits("a", -2.0, 2.0, 1.0, 2.0)]
+    # Linear from rest: 1 rad/s mean, 2 rad/s^2 at the knots (2 d / T^2).
+    plan_trajectory(limits, ["a"], [pt([1.0 * over], 1.0)], {"a": 0.0}, 0.0, 0.05)
+    # Hermite rest to rest: 1.5 d / T = 1 rad/s and 6 d / T^2 = 2 rad/s^2.
+    plan_trajectory(
+        limits, ["a"], [pt([4 / 3 * over], 2.0, [0.0])], {"a": 0.0}, 0.0, 0.05
+    )
 
 
 @pytest.mark.parametrize(
