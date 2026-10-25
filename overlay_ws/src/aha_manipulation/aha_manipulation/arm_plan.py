@@ -101,6 +101,22 @@ class ArmPlan:
         # arm_node drops a whole command with one value out of range.
         return {n: self.limits[n].clamp(pose[n]) for n in self.names}
 
+    def velocity(self, t):
+        """Commanded velocity at absolute time t (0 outside the plan)."""
+        if not self.times[0] < t < self.times[-1]:
+            return {n: 0.0 for n in self.names}
+        k = bisect.bisect_right(self.times, t) - 1
+        t0, t1 = self.times[k], self.times[k + 1]
+        p0, p1 = self.positions[k], self.positions[k + 1]
+        if self.velocities is None:
+            return {n: (p1[n] - p0[n]) / (t1 - t0) for n in self.names}
+        v0, v1 = self.velocities[k], self.velocities[k + 1]
+        s = (t - t0) / (t1 - t0)
+        return {
+            n: _hermite_velocity(p0[n], v0[n], p1[n], v1[n], t1 - t0, s)
+            for n in self.names
+        }
+
 
 def _hermite(p0, v0, p1, v1, dt, s):
     s2, s3 = s * s, s * s * s
@@ -110,6 +126,12 @@ def _hermite(p0, v0, p1, v1, dt, s):
         + (-2 * s3 + 3 * s2) * p1
         + (s3 - s2) * dt * v1
     )
+
+
+def _hermite_velocity(p0, v0, p1, v1, dt, s):
+    """d/dt of _hermite."""
+    d = (p1 - p0) / dt
+    return (-6 * d + 3 * v0 + 3 * v1) * s * s + (6 * d - 4 * v0 - 2 * v1) * s + v0
 
 
 def _hermite_peaks(p0, v0, p1, v1, dt):

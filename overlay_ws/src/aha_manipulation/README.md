@@ -119,6 +119,10 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 左右の `lift_node` の `/<side>/lift/joint_command` へ1関節ずつ送り、`/<side>/lift/joint_states` を読む。
 軌道が名前を含む側の昇降だけに指令し、その側の関節状態だけを必要とするため、片側の昇降だけでも動く。
 制限は昇降の基板（AstraLiftController）に合わせた0〜1.19 m、0.3 m/s、0.1 m/s²。
+基板はAccelStepperの `moveTo` で目標へ動き、目標で止まれる速さまでしか出さないため、補間の現在値をそのまま送ると
+v²/(2a) 遅れる。速度付きの軌道（MoveItの軌道）では、昇降（`board_acceleration` を設定した関節）に
+補間の現在値より進行方向へ v²/(2 `board_acceleration`) 先の位置を送る。直線補間の軌道は速度が不連続で先回りしない。
+フィードバックと許容誤差は補間の現在値で判定する。
 
 - 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。
   全点に速度があれば3次Hermite、なければ直線で、静止から始まり静止で終わる。
@@ -132,7 +136,8 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 - actionは、実測が補間の現在値から `path_tolerance` を超えて離れたとき、または関節状態が `state_timeout` 途絶えたときに中断する。
   最終点から `goal_tolerance` 以内に入れば成功、最終点の時刻から `goal_time` 秒以内に入らなければ中断する。
   goalの `path_tolerance` / `goal_tolerance` / `goal_time_tolerance` が指定されていればそれを使う。
-- 取り消し・許容誤差による中断では、そのgoalの関節の指令グループに、空の軌道では全グループに、実測の位置を指令して止める。
+- 取り消し・許容誤差による中断では、そのgoalの関節の指令グループに、空の軌道では全グループに、実測の位置を指令して止める
+  （昇降は実測から、実行中の軌道の速度で止まれる位置）。
   関節状態の途絶では指令を止める。
   新しい軌道は実行中のgoalを中断する。実行中の軌道の指令グループのうち、新しい軌道が名前を含まないものは実測の位置で保持する
   （JointTrajectoryControllerが新しいgoalに含まれない関節を保持するのと同じ）。

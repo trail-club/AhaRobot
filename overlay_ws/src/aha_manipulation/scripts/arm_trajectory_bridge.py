@@ -43,6 +43,13 @@ Behaviour:
     command or goal preempts (aborts) the running goal; groups of the running
     plan that the new trajectory does not name hold their measured position.
     A stale state stops sending, so the arm stays at the last sample.
+  - Joints with `board_acceleration` (the lifts): for a trajectory with
+    velocities (MoveIt's) they get the sample plus v^2 / (2 board_acceleration)
+    in the direction of motion, since their board only moves as fast as it
+    can still stop at the goal. A linear plan starts and stops with a jump in
+    velocity the board cannot follow, so it gets the samples and the board
+    lags. Holds go to the point where the board can stop. Feedback and
+    tolerances use the sample itself.
   - Partial joint lists are accepted; the other joints of the same groups
     keep their position.
   - SIGINT/SIGTERM: sampling stops and running goals abort (their results
@@ -50,6 +57,7 @@ Behaviour:
     Wall clock only.
 """
 
+import math
 import signal
 import sys
 import threading
@@ -115,6 +123,7 @@ class ArmTrajectoryBridge(Node):
         self.lock = threading.Lock()
         self.positions = {}  # latest state, in each joint's unit
         self.units = {j.name: j.unit for j in self.cfg.joints}
+        self.limits = {j.name: j for j in self.cfg.joints}
         self.state_times = {}  # monotonic time of the latest state per joint
         self.plan = None  # ArmPlan being sampled, None when idle
         self.plan_seq = 0
@@ -230,6 +239,32 @@ class ArmTrajectoryBridge(Node):
                     )
                 )
 
+    def _lead(self, pose, velocity):
+        """`pose` moved ahead by the stopping distance of each board (in place)."""
+        for name, accel in self.cfg.board_accelerations.items():
+            if name in pose and name in velocity:
+                v = velocity[name]
+                pose[name] = self.limits[name].clamp(
+                    pose[name] + math.copysign(v * v / (2 * accel), v)
+                )
+        return pose
+
+    def _command(self, plan, now):
+        """Goal to send for `plan` at `now`."""
+        pose = plan.sample(now)
+        if plan.velocities is None:
+            return pose
+        return self._lead(pose, plan.velocity(now))
+
+    def _stop_pose(self, names, now):
+        """Where `names` can stop: the measured position, ahead by the
+        stopping distance of each board at the running plan's velocity
+        (caller holds the lock)."""
+        pose = {n: self.positions[n] for n in names}
+        if self.plan is None:
+            return pose
+        return self._lead(pose, self.plan.velocity(now))
+
     def _tick(self):
         if self.stopping.is_set():
             return
@@ -247,7 +282,7 @@ class ArmTrajectoryBridge(Node):
                     "trajectory stopped at the last sample"
                 )
                 return
-            self._send(plan.sample(now))
+            self._send(self._command(plan, now))
             if now >= plan.end_time:
                 self.plan = None
 
@@ -268,18 +303,23 @@ class ArmTrajectoryBridge(Node):
             # The new plan replaces the running one. Its other groups hold
             # their measured position, as JointTrajectoryController holds the
             # joints a new goal does not name.
-            names += [
+            held = [
                 n
                 for g in self._groups_of(self.plan.names)
                 if not set(g.names) & set(names) and not self._stale(now, g.names)
                 for n in g.names
             ]
+            names += held
+        else:
+            held = []
+        start = dict(self.positions)
+        start.update(self._stop_pose(held, now))
         # Joints in command order, so plan.names covers whole groups.
         return plan_trajectory(
             [j for j in self.cfg.joints if j.name in names],
             trajectory.joint_names,
             points_of(trajectory),
-            dict(self.positions),
+            start,
             now,
             self.cfg.start_tolerance,
         )
@@ -289,11 +329,12 @@ class ArmTrajectoryBridge(Node):
         self.plan = plan
         self.plan_seq += 1
         if plan is not None:
-            self._send(plan.sample(time.monotonic()))
+            self._send(self._command(plan, time.monotonic()))
         return self.plan_seq
 
     def _hold(self, reason, replace_seq=None, joints=None):
-        """Stop the groups of `joints` (all groups for None) at the measured position.
+        """Stop the groups of `joints` (all groups for None) at the measured position
+        (boards: where they can stop).
 
         Groups without a fresh state get nothing. With `replace_seq`, only
         while that plan is current.
@@ -310,7 +351,7 @@ class ArmTrajectoryBridge(Node):
             if not names:
                 self._install(None)
             else:
-                pose = {n: self.positions[n] for n in names}
+                pose = self._stop_pose(names, now)
                 self._install(
                     ArmPlan(
                         names=names,
@@ -506,9 +547,10 @@ def main():
             elif time.monotonic() - drained > RESULT_FLUSH_S:
                 break
         executor.shutdown(timeout_sec=1.0)
+        name = node.get_name()
         node.destroy_node()
         rclpy.try_shutdown()
-    get_logger("aha_arm_bridge").info("stopped")
+    get_logger(name).info("stopped")
 
 
 if __name__ == "__main__":

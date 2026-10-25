@@ -10,7 +10,10 @@
 #
 # Limits are the lift firmware's (AstraFirmwares AstraLiftController):
 # lift_node drops commands outside [0, 1.19] m, the board moves at most
-# 300 mm/s with 100 mm/s^2.
+# 300 mm/s with 100 mm/s^2. The board drives the stepper with AccelStepper
+# moveTo, which only moves as fast as it can still stop at the goal:
+# board_acceleration is its 100 mm/s^2, so the bridge leads the samples by
+# the stopping distance (arm_map.py).
 
 aha_lift_bridge:
   ros__parameters:
@@ -28,6 +31,7 @@ aha_lift_bridge:
       max_velocity: 0.3
       max_acceleration: 0.1
       unit: m
+      board_acceleration: 0.1
       command_topic: /left/lift/joint_command
       state_topic: /left/lift/joint_states
     joint_r1:
@@ -36,5 +40,6 @@ aha_lift_bridge:
       max_velocity: 0.3
       max_acceleration: 0.1
       unit: m
+      board_acceleration: 0.1
       command_topic: /right/lift/joint_command
       state_topic: /right/lift/joint_states

@@ -1,6 +1,7 @@
 """End to end: arm_trajectory_bridge.py with config/lift.yaml against fake lifts.
 
-fake_arm.py stands in for one lift_node per side. The bridge and the fakes run
+fake_arm.py stands in for one lift_node per side, moving like the lift
+board's AccelStepper. The bridge and the fakes run
 from the source tree on ROS_DOMAIN_ID 96 (AHA_TEST_LIFT_DOMAIN_ID to change).
 Only the right lift runs at first, as with `use_left_lift:=false`.
 """
@@ -31,6 +32,7 @@ PARAMS = yaml.safe_load(open(CONFIG, encoding="utf-8"))["aha_lift_bridge"][
 CONTROLLER = f"/{PARAMS['controller_name']}"
 LIFTS = {"left": "joint_l1", "right": "joint_r1"}
 INITIAL = {"joint_l1": 0.4, "joint_r1": 0.2}
+STEPS_PER_M = 800 / 0.075  # lift_controller.py: 800 pulse/rev, 75 mm/rev
 
 
 def fake_params(side):
@@ -39,6 +41,9 @@ def fake_params(side):
         "joint_names": [joint],
         "initial": [INITIAL[joint]],
         "max_rate": 0.3,
+        "board_acceleration": 0.1,  # AstraLiftController ACCELERATION_MM
+        "steps_per_unit": STEPS_PER_M,
+        "publish_rate": 100.0,  # the board sends feedback every ~10 ms
         "command_topic": PARAMS[joint]["command_topic"],
         "state_topic": PARAMS[joint]["state_topic"],
     }
@@ -134,8 +139,10 @@ class LiftBridgeTest(unittest.TestCase):
             lambda: not self.commands_since(time.monotonic() - 0.3), 10.0, "no commands"
         )
 
-    def send_goal(self, msg):
-        future = self.client.send_goal_async(FollowJointTrajectory.Goal(trajectory=msg))
+    def send_goal(self, msg, feedback=None):
+        future = self.client.send_goal_async(
+            FollowJointTrajectory.Goal(trajectory=msg), feedback_callback=feedback
+        )
         self.wait_for(future.done, 10.0, "goal response")
         return future.result()
 
@@ -148,7 +155,7 @@ class LiftBridgeTest(unittest.TestCase):
 
     def test_1_one_lift_moves_while_the_other_is_off(self):
         start_r = self.position("joint_r1")
-        self.assertAlmostEqual(start_r, INITIAL["joint_r1"])
+        self.assertAlmostEqual(start_r, INITIAL["joint_r1"], delta=1e-3)
         t0 = time.monotonic()
         # 0.1 m in 2 s from rest: 0.05 m/s, 0.05 m/s^2 at the knots.
         handle = self.send_goal(arm.trajectory(["joint_r1"], [([start_r + 0.1], 2.0)]))
@@ -240,6 +247,25 @@ class LiftBridgeTest(unittest.TestCase):
         self.assertEqual(len(held), 1, held)
         self.assertLess(held.pop(), r1 + 0.1)
         self.assertAlmostEqual(self.position("joint_l1"), l1 - 0.1, delta=0.003)
+
+    def test_7_lift_follows_the_path_of_a_fast_trajectory(self):
+        self.settle()
+        r1 = self.position("joint_r1")
+        target = r1 + 0.4 if r1 < 0.7 else r1 - 0.4
+        errors = []
+        # 0.4 m in 5 s, at rest at both ends (Hermite): 0.12 m/s, 0.096 m/s^2.
+        # Goals at the samples would make the board lag v^2 / (2 a) = 0.07 m,
+        # over path_tolerance.
+        handle = self.send_goal(
+            arm.trajectory(["joint_r1"], [([target], [0.0], 5.0)]),
+            lambda msg: errors.append(abs(msg.feedback.error.positions[0])),
+        )
+        self.assertTrue(handle.accepted)
+        result = self.wait_result(handle)
+        self.assertEqual(result.status, GoalStatus.STATUS_SUCCEEDED, result.result)
+        self.assertGreater(len(errors), 50)
+        self.assertLess(max(errors), 0.015)
+        self.assertAlmostEqual(self.position("joint_r1"), target, delta=0.003)
 
 
 if __name__ == "__main__":

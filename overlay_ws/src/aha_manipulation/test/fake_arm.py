@@ -5,10 +5,17 @@ Like the arm_node it takes a JointCommand on `command_topic` only with
 exactly `joint_names` (others are counted on `fake/rejected`, where the
 arm_node would raise) and publishes the joint feedback on `state_topic`. The
 joints start at `initial` and move toward the goal at `max_rate` rad/s.
+With `board_acceleration` > 0 they move like the lift board instead:
+AccelStepper (accel_stepper.py) with `max_rate` and `board_acceleration`,
+`steps_per_unit` steps per metre, goals truncated to steps as lift_node does.
 
 Test controls (std_msgs/Bool): `fake/stall` stops the motion, `fake/mute`
 stops the feedback.
 """
+
+import os
+import sys
+import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -18,6 +25,9 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, UInt32
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from accel_stepper import AccelStepper  # noqa: E402
+
 
 class FakeArm(Node):
     def __init__(self):
@@ -26,9 +36,21 @@ class FakeArm(Node):
         initial = list(self.declare_parameter("initial", [0.0] * len(self.names)).value)
         self.max_rate = self.declare_parameter("max_rate", 2.0).value
         rate = self.declare_parameter("publish_rate", 50.0).value
+        board_acceleration = self.declare_parameter("board_acceleration", 0.0).value
+        self.steps_per_unit = self.declare_parameter("steps_per_unit", 1.0).value
         self.dt = 1.0 / rate
         self.position = dict(zip(self.names, initial))
         self.goal = dict(self.position)
+        self.steppers = {}
+        if board_acceleration > 0:
+            self.steppers = {
+                n: AccelStepper(
+                    self.max_rate * self.steps_per_unit,
+                    board_acceleration * self.steps_per_unit,
+                    round(p * self.steps_per_unit),
+                )
+                for n, p in self.position.items()
+            }
         self.stall = False
         self.mute = False
         self.rejected = 0
@@ -53,6 +75,9 @@ class FakeArm(Node):
             self.rejected += 1
             return
         self.goal = dict(zip(self.names, msg.position_cmd))
+        now = time.monotonic()
+        for name, stepper in self.steppers.items():
+            stepper.move_to(int(self.goal[name] * self.steps_per_unit), now)
 
     def _on_stall(self, msg):
         self.stall = msg.data
@@ -61,7 +86,11 @@ class FakeArm(Node):
         self.mute = msg.data
 
     def _step(self):
-        if not self.stall:
+        now = time.monotonic()
+        for name, stepper in self.steppers.items():
+            stepper.run_until(now)
+            self.position[name] = stepper.position / self.steps_per_unit
+        if not self.stall and not self.steppers:
             step = self.max_rate * self.dt
             for name in self.names:
                 diff = self.goal[name] - self.position[name]

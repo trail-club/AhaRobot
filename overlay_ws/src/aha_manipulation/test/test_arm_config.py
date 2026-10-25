@@ -90,6 +90,9 @@ def test_lift_limits_are_inside_the_lift_firmware():
         assert joint.max_velocity <= 0.3, joint.name
         assert joint.max_acceleration <= 0.1, joint.name
         assert joint.unit == "m", joint.name
+    # The board plans its own stop with ACCELERATION_MM; the bridge leads by it.
+    cfg = parse_config(LIFT)
+    assert cfg.board_accelerations == {j.name: 0.1 for j in cfg.joints}
 
 
 def test_head_launch_merges_the_arm_states():
@@ -125,3 +128,9 @@ def test_parse_config_rejects_bad_values():
         parse_config({**params, "joint_l2": {"min": 1.0, "max": 0.0}})
     with pytest.raises(ValueError, match="positive"):
         parse_config({**params, "rate_hz": 0})
+    with pytest.raises(ValueError, match="board_acceleration"):
+        parse_config({**params, "joint_l2": {"board_acceleration": -1.0}})
+    with pytest.raises(ValueError, match="over `board_acceleration`"):
+        parse_config(
+            {**params, "joint_l2": {"max_acceleration": 2.0, "board_acceleration": 1.0}}
+        )

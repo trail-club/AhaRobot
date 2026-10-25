@@ -8,6 +8,14 @@ the astra_controller nodes accept a JointCommand only with exactly their
 `joint_names`, so a group is always sent whole, in `joints` order. An empty
 `command_topic` uses the bridge's.
 
+`board_acceleration` > 0 is for a board that plans its own stop at that
+acceleration (the lift's AccelStepper): it only moves as fast as it can still
+stop at the goal, so a goal at the sample would lag the trajectory by
+v^2 / (2 a). For trajectories with velocities the bridge sends the sample
+plus that distance in the direction of motion instead, and it holds at the
+point where the board can stop.
+`max_acceleration` must not exceed it.
+
   arm  (arm.yaml):  one group, the five arm joints of one arm_node
   lift (lift.yaml): one group per lift_node, one joint each
 """
@@ -35,6 +43,7 @@ JOINT_DEFAULTS = {
     "unit": "rad",  # "m" for a prismatic joint, used in messages
     "command_topic": "",  # empty: the bridge's command_topic
     "state_topic": "",  # empty: the bridge's state_topic
+    "board_acceleration": 0.0,  # > 0: commands lead the samples (see above)
 }
 
 
@@ -58,6 +67,7 @@ class ArmConfig:
     joints: tuple  # JointLimits in `joints` order
     groups: tuple  # CommandGroup in order of their first joint
     state_topics: tuple  # every topic to read joint states from
+    board_accelerations: dict  # joint -> board_acceleration, only those > 0
 
     @property
     def joint_names(self):
@@ -83,6 +93,7 @@ def parse_config(params):
     joints = []
     groups = {}  # topic -> [names], in insertion order
     state_topics = []
+    boards = {}
     for name in names:
         joint = {**JOINT_DEFAULTS, **params.get(name, {})}
         lo, hi = float(joint["min"]), float(joint["max"])
@@ -91,6 +102,16 @@ def parse_config(params):
         for key in ("max_velocity", "max_acceleration"):
             if not float(joint[key]) > 0:
                 raise ValueError(f"{name}: `{key}` must be positive, got {joint[key]}")
+        board = float(joint["board_acceleration"])
+        if board < 0:
+            raise ValueError(f"{name}: `board_acceleration` must not be negative")
+        if board > 0:
+            if float(joint["max_acceleration"]) > board:
+                raise ValueError(
+                    f"{name}: `max_acceleration` {joint['max_acceleration']} is over "
+                    f"`board_acceleration` {board}"
+                )
+            boards[name] = board
         joints.append(
             JointLimits(
                 name,
@@ -120,4 +141,5 @@ def parse_config(params):
         joints=tuple(joints),
         groups=tuple(CommandGroup(t, tuple(n)) for t, n in groups.items()),
         state_topics=tuple(state_topics),
+        board_accelerations=boards,
     )
