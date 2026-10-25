@@ -3,7 +3,7 @@ and plane detection, without Gazebo.
 
   ros2 launch aha_bringup real.launch.py
   ros2 launch aha_bringup real.launch.py arms:=false head:=manual
-  ros2 launch aha_bringup real.launch.py right_device:=/dev/ttyUSB2 left_device:=/dev/ttyUSB0
+  ros2 launch aha_bringup real.launch.py use_left:=false right_device:=/dev/ttyUSB1
 
 Starts:
   - robot_state_publisher with aha_robot.urdf.xacro (sim:=false) rewritten by
@@ -183,8 +183,8 @@ def generate_launch_description():
             DeclareLaunchArgument("arms", default_value="true"),
             DeclareLaunchArgument("use_left", default_value="true"),
             DeclareLaunchArgument("use_right", default_value="true"),
-            DeclareLaunchArgument("left_device", default_value="/dev/ttyUSB2"),
-            DeclareLaunchArgument("right_device", default_value="/dev/ttyUSB0"),
+            DeclareLaunchArgument("left_device", default_value="/dev/ttyUSB0"),
+            DeclareLaunchArgument("right_device", default_value="/dev/ttyUSB2"),
             DeclareLaunchArgument(
                 "trajectory_bridge",
                 default_value="true",

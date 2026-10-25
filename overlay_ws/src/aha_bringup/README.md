@@ -44,7 +44,7 @@ plane detection and RViz (topics in [ROS interfaces](../../../docs/interfaces.md
 | --- | --- | --- |
 | `frame_config` | `aha_description/config/frame_table_202610.yaml` | Frame model, see below |
 | `arms` / `use_left` / `use_right` | `true` | Arms (`arms.launch.py`) |
-| `right_device` / `left_device` / `head_port` | `/dev/ttyUSB0` / `/dev/ttyUSB2` / `/dev/ttyUSB1` | Boards in the order of the USB hub ports; the numbers follow the USB enumeration |
+| `right_device` / `left_device` / `head_port` | `/dev/ttyUSB2` / `/dev/ttyUSB0` / `/dev/ttyUSB1` | The three boards as first connected ([record](../../../docs/context/motor.md)); the numbers follow the USB enumeration, so check them after replugging (`/dev/serial/by-path/` names the hub port) |
 | `trajectory_bridge` / `record` | `true` / `false` | Passed to `arms.launch.py` (whose own `record` default is `true`) |
 | `head` | `servo` | `servo`, `manual` (commanded angles as the state), `imu` (tilt from the D435i IMU, no servos) or `none` |
 | `camera` / `planes` / `rviz` | `true` | D435i (its IMU only with `head:=imu`) and point cloud / plane detection (`furniture_config`) / RViz |
