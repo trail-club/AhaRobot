@@ -56,6 +56,18 @@ def test_bridge_config_matches_the_arm_node(side):
     assert cfg.joint_names == joints
     assert cfg.controller_name == f"{side}_arm_controller"
     assert cfg.command_topic == f"/{side}/arm/joint_command"
+    assert cfg.state_topic == arms_launch().state_topic(side)
+
+
+def test_head_launch_merges_the_arm_states():
+    # The bridge reads only the arm_node's topic; /joint_states gets the arms
+    # from joint_state_publisher instead of zeros.
+    path = SOURCE / "aha_perception/launch/real_head_camera.launch.py"
+    spec = importlib.util.spec_from_file_location("real_head_camera", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    launch = arms_launch()
+    assert module.ARM_STATES == [launch.state_topic(side) for side in launch.ARMS]
 
 
 @pytest.mark.parametrize("side", ["left", "right"])

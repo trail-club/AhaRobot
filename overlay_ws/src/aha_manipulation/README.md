@@ -108,10 +108,12 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 （`trajectory_bridge:=false` で止める）。ブリッジはJointTrajectoryControllerと同じ
 `/<side>_arm_controller/joint_trajectory` と `follow_joint_trajectory` を受け、
 `arm_node` の `/<side>/arm/joint_command` へ5関節の位置指令を `rate_hz`（50 Hz）で送る。
+関節状態は `arm_node` の `/<side>/arm/joint_states` から読む（`/joint_states` には他のnodeも腕の関節を載せるため）。
 `arm_node` は指令ごとに腕の基板へ目標を書き、基板が台形速度で目標へ動かす。
 
 - 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。
   全点に速度があれば3次Hermite、なければ直線で、静止から始まり静止で終わる。
+  3次Hermiteでは、点の間の速度・加速度の最大値も制限と比べる。
   時刻0の点は現在の姿勢とみなし、`start_tolerance` 以内であることだけを確認する。
 - 関節の位置・速度・加速度の制限を超える軌道は全体を拒否する（actionはgoalを受け付けず、topicは無視する）。
   制限は [config/arm.yaml](config/arm.yaml)。位置の制限は `arm_node` の可動域

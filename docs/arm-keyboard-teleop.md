@@ -95,7 +95,7 @@ ros2 run aha_arm_teleop keyboard_teleop --ros-args -p step:=20 -p rate:=400 -p l
 | `u` / `j` | `joint_l6` (wrist14) | `U` / `J` |
 | `y` / `h` | `joint_l7r` (gripper) | `Y` / `H` |
 
-`joint_states` にその腕の 5 関節と `joint_*7r` が揃うまで、方向キーは無視する。
+`/<side>/arm/joint_states` にその腕の 5 関節と `joint_*7r` が揃うまで、方向キーは無視する。
 
 ## 動いたことの確認
 
@@ -106,11 +106,11 @@ ros2 run aha_arm_teleop keyboard_teleop --ros-args -p step:=20 -p rate:=400 -p l
 python3 -m pytest overlay_ws/src/aha_arm_teleop/test -q
 ```
 
-実機では腕ノードを上げたまま、別シェルで次を見る。`/joint_states` は左右とグリッパが同じトピックに載るので、`hz` は合計になる。名前に両腕が入っていることと、キーでその値が変わることを見る。
+実機では腕ノードを上げたまま、別シェルで次を見る。`/<side>/arm/joint_states` は腕とグリッパが同じトピックに載るので、`hz` は合計になる。名前にその腕の関節が入っていることと、キーでその値が変わることを見る。
 
 ```bash
-ros2 topic hz /joint_states
-ros2 topic echo /joint_states --field name --once
+ros2 topic hz /left/arm/joint_states
+ros2 topic echo /left/arm/joint_states --field name --once
 ```
 
 左の `w` で `joint_l2` の値が減り、右の `W` でも `joint_r2` の値が減る。

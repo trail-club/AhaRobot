@@ -3,6 +3,9 @@
 ブリッジ（aha_manipulation の arm_trajectory_bridge.py、`trajectory_bridge:=false` で止める）は
 `/<side>_arm_controller` の軌道を受けたときだけ arm_node へ指令を送る。
 
+arm_node の腕とグリッパの関節状態は `/<side>/arm/joint_states` に出す。`/joint_states` へは
+joint_state_publisher の `source_list` で合流させる（aha_perception の real_head_camera.launch.py）。
+
 キーボード教示はここに含めない。`ros2 launch` はキーを渡さないので、
 別の対話シェルで `ros2 run aha_arm_teleop keyboard_teleop` する。
 手順は docs/arm-keyboard-teleop.md。
@@ -42,6 +45,11 @@ ARMS = {
 }
 
 
+def state_topic(side: str) -> str:
+    """arm_node の腕とグリッパの関節状態。ブリッジの `state_topic`（arm.yaml）と同じ。"""
+    return f"/{side}/arm/joint_states"
+
+
 def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
     return Node(
         package="astra_controller",
@@ -55,8 +63,8 @@ def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
             }
         ],
         remappings=[
-            ("joint_states", "/joint_states"),
-            ("gripper_joint_states", "/joint_states"),
+            ("joint_states", state_topic(side)),
+            ("gripper_joint_states", state_topic(side)),
         ],
         condition=IfCondition(LaunchConfiguration(f"use_{side}")),
         output="screen",

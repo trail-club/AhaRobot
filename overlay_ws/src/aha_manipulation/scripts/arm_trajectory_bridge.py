@@ -13,7 +13,9 @@ It drives the upstream astra_controller arm_node, which writes every
 JointCommand to the arm board as one goal:
 
   command_topic  astra_controller_interfaces/JointCommand (pub)
-  state_topic    sensor_msgs/JointState (sub, the arm_node's feedback)
+  state_topic    sensor_msgs/JointState (sub, the arm_node's own feedback
+                 /<side>/arm/joint_states; on /joint_states
+                 joint_state_publisher may put the arm joints at 0)
 
 Configured by config/arm.yaml in the aha_manipulation/arm_map.py format.
 

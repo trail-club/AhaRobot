@@ -14,7 +14,7 @@ from .arm_plan import JointLimits
 BUS_DEFAULTS = {
     "controller_name": "right_arm_controller",
     "command_topic": "/right/arm/joint_command",
-    "state_topic": "/joint_states",
+    "state_topic": "/right/arm/joint_states",  # the arm_node's own, not /joint_states
     "rate_hz": 50.0,  # command samples per second
     "start_tolerance": 0.05,  # rad, a point at time 0 vs. the measured pose
     "path_tolerance": 0.3,  # rad, sampled command vs. measured while moving

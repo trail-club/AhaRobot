@@ -5,6 +5,10 @@
 # Position limits are the arm_node's (patches/astra_controller-trail-club-ver1004.patch,
 # ARM_PROFILES) in radians, rounded inwards: the arm_node drops a whole command
 # with one value outside them.
+#
+# `state_topic` is the arm_node's own joint states (arms.launch.py), not
+# /joint_states: other publishers (joint_state_publisher) put the arm joints
+# there too.
 
 /**:
   ros__parameters:
@@ -14,12 +18,12 @@
     goal_tolerance: 0.03
     goal_time: 2.0
     state_timeout: 0.3
-    state_topic: /joint_states
 
 aha_left_arm_bridge:
   ros__parameters:
     controller_name: left_arm_controller
     command_topic: /left/arm/joint_command
+    state_topic: /left/arm/joint_states
     joints: [joint_l2, joint_l3, joint_l4, joint_l5, joint_l6]
     joint_l2: {min: -1.5184, max: 1.4835, max_velocity: 1.0, max_acceleration: 2.0}
     joint_l3: {min: -1.0821, max: 1.4660, max_velocity: 1.0, max_acceleration: 2.0}
@@ -31,6 +35,7 @@ aha_right_arm_bridge:
   ros__parameters:
     controller_name: right_arm_controller
     command_topic: /right/arm/joint_command
+    state_topic: /right/arm/joint_states
     joints: [joint_r2, joint_r3, joint_r4, joint_r5, joint_r6]
     joint_r2: {min: -1.5184, max: 1.5358, max_velocity: 1.0, max_acceleration: 2.0}
     joint_r3: {min: -1.5009, max: 1.2391, max_velocity: 1.0, max_acceleration: 2.0}
