@@ -15,17 +15,22 @@ Internal (drives the arm hardware node over its astra topics):
     <command_topic>   astra_controller_interfaces/msg JointCommand   publish
     <state_topic>     sensor_msgs/msg JointState                     subscribe
 
-The upstream ``arm_node`` writes each goal straight to the servos with no
-downstream smoothing, so ALL motion shaping happens here: every goal is
-time-stretched to ``max_speed`` by ``arm_plan.plan_arm`` and issued on a paced
-cadence (one ``JointCommand`` per planned segment). Unlike the STS head bridge
-there is no servo speed register — the bridge paces the goals and the arm
-firmware ramps toward each at its own bounded rate.
+The upstream ``arm_node`` writes each received goal straight to the servos with
+no downstream smoothing — the firmware ramps toward it with its own P-only
+controller, so a single goal per trajectory point would make the arm lunge.
+ALL motion shaping happens here: ``arm_plan.plan_arm`` turns the trajectory
+into speed-bounded keyframes (never faster than ``max_speed``) and the bridge
+samples the plan at ``rate_hz``, publishing one interpolated position per
+sample. That dense command stream is what keeps the firmware's P-only
+controller on the intended path.
 
-Reach is open-loop by default (``closed_loop: false``): success is reported once
-the final goal has been paced out, which is safe because a well-paced arm tracks
-its goals. Set ``closed_loop: true`` with a real joint-state source to confirm
-the arm physically arrived (bounded by ``goal_tolerance`` / ``goal_timeout``).
+Arrival: with ``closed_loop: true`` (the real arm default — ``arm_node``
+publishes firmware joint feedback on ``state_topic``) success is reported when
+the arm is within ``goal_tolerance`` of the goal within ``goal_timeout`` after
+the plan ends; if the state stream goes stale (``state_timeout``) the bridge
+falls back to the last commanded pose. With ``closed_loop: false`` success is
+reported ``settle_time`` after the plan ends. Cancellation or the ``release``
+service stops the plan and re-asserts the last safe position.
 """
 
 import argparse
@@ -37,8 +42,9 @@ import time
 import rclpy
 from astra_controller_interfaces.msg import JointCommand
 from control_msgs.action import FollowJointTrajectory
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.action import ActionServer
-from rclpy.action import GoalStatus
+from rclpy.action import CancelResponse
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
@@ -59,8 +65,9 @@ DEFAULTS = {
     "max_speed": 1.0,
     "goal_tolerance": 0.03,
     "goal_timeout": 5.0,
+    "settle_time": 1.5,
     "state_timeout": 0.3,
-    "closed_loop": False,
+    "closed_loop": True,
     "hold_interval": 1.0,
 }
 JOINT_DEFAULTS = {"min": -3.14, "max": 3.14}
@@ -88,7 +95,18 @@ class ArmTrajectoryBridge(Node):
         super().__init__(name, namespace="", context=context, parameter_overrides=overrides)
         self._log = logging.getLogger(name)
         for key, value in DEFAULTS.items():
-            self.declare_parameter(key, value)
+            if isinstance(value, list) and not value:
+                # An empty-list default would be statically inferred as
+                # BYTE_ARRAY and clash with a string-array override from a
+                # params file. Declare it dynamically typed instead; arm_map
+                # falls back to joint_names when it stays empty.
+                self.declare_parameters(
+                    "",
+                    [(key, value, ParameterDescriptor(dynamic_typing=True))],
+                    False,
+                )
+            else:
+                self.declare_parameter(key, value)
         joint_names = self.get_parameter("joint_names").value
         for joint in joint_names:
             self.declare_parameter(f"{joint}__min", JOINT_DEFAULTS["min"])
@@ -143,9 +161,8 @@ class ArmTrajectoryBridge(Node):
             self,
             FollowJointTrajectory,
             f"{self._params.controller_name}/follow_joint_trajectory",
-            self._on_goal,
-            self._on_cancel,
-            self._on_result,
+            self._execute,
+            cancel_callback=self._on_cancel,
         )
         self.create_subscription(
             JointTrajectory,
@@ -169,6 +186,7 @@ class ArmTrajectoryBridge(Node):
 
     def stop(self) -> None:
         self._stopping.set()
+        name = self.get_name()
         with self._lock:
             self._plan = None
             self._goal_handle = None
@@ -176,17 +194,17 @@ class ArmTrajectoryBridge(Node):
             self._timer.cancel()
             self._timer.destroy()
         if self._release_srv is not None:
-            self._release_srv.destroy_service()
+            self._release_srv.destroy()
         if self._action_server is not None:
-            self._action_server.destroy_server()
+            self._action_server.destroy()
         if self._sub_state is not None:
-            self._sub_state.destroy_subscription()
+            self._sub_state.destroy()
         self._hold()
         for pub in (self._pub_cmd, self._pub_state):
             if pub is not None:
                 pub.destroy()
         self.destroy_node()
-        self._log.info("%s stopped", self.get_name())
+        self._log.info("%s stopped", name)
 
     # -- state / command ----------------------------------------------------
     def _on_state(self, msg: JointState) -> None:
@@ -245,12 +263,16 @@ class ArmTrajectoryBridge(Node):
             t = _duration_seconds(point.time_from_start)
             for joint, value in zip(self._pending_names, point.positions):
                 points.append((joint, float(value), t))
+        start_pose = {joint: self._effective(joint) for joint in self._params.joint_names}
+        for name in self._params.command_joint_names:
+            start_pose.setdefault(name, self._params.command_hold)
         return plan_arm(
             list(self._limits.values()),
-            self._params.joint_names,
+            self._params.command_joint_names,
             points,
             now=self._now(),
             max_speed=self._params.max_speed,
+            start_pose=start_pose,
         )
 
     def _final_targets(self) -> dict:
@@ -265,7 +287,12 @@ class ArmTrajectoryBridge(Node):
             self._plan = plan
             if plan.segments:
                 self._last.update(plan.segments[-1].targets)
-            self._goal_deadline = plan.end_time + self._params.goal_timeout
+            if self._params.closed_loop:
+                self._goal_deadline = plan.end_time + self._params.goal_timeout
+            else:
+                self._goal_deadline = plan.end_time + self._params.settle_time
+        if plan.clamped:
+            self._log.warning("plan clamped to joint limits: %s", plan.clamped)
 
     # -- external interface -------------------------------------------------
     def _on_trajectory(self, msg: JointTrajectory) -> None:
@@ -287,19 +314,18 @@ class ArmTrajectoryBridge(Node):
                 plan.end_time - self._now(),
             )
 
-    def _on_goal(self, goal_request):
-        return self._action_server.accept_new_goal(goal_request)
-
     def _on_cancel(self, goal_handle):
+        if self._goal_handle is not goal_handle or not goal_handle.is_active:
+            return CancelResponse.REJECT
         with self._lock:
-            self._goal_handle = None
             self._goal = None
             self._goal_deadline = None
+            self._plan = None  # stop the motion; do not keep driving to the goal
             self._hold()
-        return GoalStatus.ACCEPTED
-
-    def _on_result(self, _goal_handle):
-        pass
+        # The handle stays registered: the server applies CANCEL_GOAL only after
+        # this callback returns, so _check_action completes the transition
+        # (EXECUTING->CANCELED directly would be an invalid rcl transition).
+        return CancelResponse.ACCEPT
 
     def _on_release(self, _request, response):
         with self._lock:
@@ -313,8 +339,11 @@ class ArmTrajectoryBridge(Node):
     def _execute(self, goal_handle) -> None:
         self._goal_handle = goal_handle
         self._goal_received = self._now()
-        self._pending_names = list(goal_handle.goal.joint_names)
-        self._pending_points = goal_handle.goal.points
+        # goal_handle.request is the FollowJointTrajectory.Goal message; the
+        # trajectory lives one level deeper.
+        trajectory = goal_handle.request.trajectory
+        self._pending_names = list(trajectory.joint_names)
+        self._pending_points = trajectory.points
         try:
             plan = self._plan_pending()
         except ValueError as error:
@@ -332,20 +361,15 @@ class ArmTrajectoryBridge(Node):
         now = self._now()
         with self._lock:
             if self._plan is not None:
-                i = self._plan.i
-                segments = self._plan.segments
-                while i < len(segments) and segments[i].send_at <= now:
-                    self._publish_cmd(self._command(segments[i].targets))
-                    for joint in self._params.joint_names:
-                        self._last[joint] = segments[i].targets.get(
-                            joint, self._last.get(joint, self._params.command_hold)
-                        )
-                    self._plan.i = i + 1
-                    i += 1
-                if i >= len(segments):
+                # Fixed-rate sampling: one interpolated position per tick.
+                # Past the plan end, position_at() re-asserts the final pose,
+                # so the goal pose is always commanded at least once.
+                pose = self._plan.position_at(now)
+                for joint in self._params.joint_names:
+                    self._last[joint] = pose.get(joint, self._params.command_hold)
+                self._publish_cmd(self._command(pose))
+                if now >= self._plan.end_time:
                     self._plan = None
-                    if self._goal_handle is not None:
-                        self._goal_deadline = now + self._params.goal_timeout
             elif now - self._last_hold >= self._params.hold_interval:
                 self._last_hold = now
                 self._hold()
@@ -355,19 +379,38 @@ class ArmTrajectoryBridge(Node):
 
     def _check_action(self, now: float) -> None:
         goal = self._goal
-        if self._goal_handle is None or goal is None:
+        handle = self._goal_handle
+        if handle is None or goal is None:
+            return
+        if handle.is_cancel_requested:
+            # The server applied CANCEL_GOAL (state CANCELING) after the cancel
+            # callback returned; complete it so the client observes CANCELED
+            # and the result service can resolve.
+            handle.canceled(FollowJointTrajectory.Result())
+            self._goal_handle = None
+            self._goal = None
+            self._goal_deadline = None
+            return
+        if not handle.is_active:
+            # Completed out-of-band (e.g. succeeded just before a cancel);
+            # the terminal status was already published.
+            self._goal_handle = None
+            self._goal = None
+            self._goal_deadline = None
             return
         tol = self._params.goal_tolerance
         reached = all(abs(self._effective(j) - value) <= tol for j, value in goal.items())
         if reached:
-            self._goal_handle.succeed(FollowJointTrajectory.Result())
+            handle.succeed(FollowJointTrajectory.Result())
             self._goal_handle = None
             self._goal = None
+            self._goal_deadline = None
             return
         if self._goal_deadline is not None and now >= self._goal_deadline:
-            self._goal_handle.abort(FollowJointTrajectory.Result())
+            handle.abort(FollowJointTrajectory.Result())
             self._goal_handle = None
             self._goal = None
+            self._goal_deadline = None
             self._log.warning("goal timed out after %.1fs", now - (self._goal_received or now))
 
 

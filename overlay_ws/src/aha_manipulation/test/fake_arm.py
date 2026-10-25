@@ -2,10 +2,11 @@
 """Minimal arm stand-in for aha_manipulation tests.
 
 Mirrors the upstream ``astra_controller`` ``arm_node`` command interface: it
-accepts a ``JointCommand`` on ``command_topic`` and re-emits the commanded
-positions as a ``JointState`` on ``state_topic``. Unlike the real arm (which
-ramps on its own firmware) it reaches each goal instantaneously, so tests can
-assert the paced bridge drives it to the intended pose.
+accepts a ``JointCommand`` on ``command_topic`` and re-emits its positions as a
+``JointState`` on ``state_topic``. With ``max_rate: 0`` (default) it reaches
+each goal instantaneously; with ``max_rate > 0`` it slews toward the commanded
+pose at that rad/s, mimicking the real firmware's own ramp so tests can verify
+closed-loop tracking.
 
 Topics are relative, so running the node in a namespace (or leaving it in the
 root) with matching ``command_topic`` / ``state_topic`` params is all the test
@@ -34,9 +35,13 @@ class FakeArm(Node):
         self.declare_parameter("command_topic", "arm/joint_command")
         self.declare_parameter("state_topic", "arm/joint_states")
         self.declare_parameter("publish_rate", 50.0)
+        self.declare_parameter("max_rate", 0.0)
 
         self._joint_names = list(self.get_parameter("joint_names").value)
         self._position = {name: 0.0 for name in self._joint_names}
+        self._target = {name: 0.0 for name in self._joint_names}
+        self._max_rate = float(self.get_parameter("max_rate").value)
+        self._dt = 1.0 / float(self.get_parameter("publish_rate").value)
         self._lock = threading.Lock()
 
         self._pub_state = self.create_publisher(
@@ -52,11 +57,19 @@ class FakeArm(Node):
     def _on_command(self, msg: JointCommand) -> None:
         with self._lock:
             for name, position in zip(msg.name, msg.position_cmd):
-                if name in self._position:
-                    self._position[name] = float(position)
+                if name in self._target:
+                    self._target[name] = float(position)
 
     def _publish_state(self) -> None:
         with self._lock:
+            if self._max_rate > 0.0:
+                # Slew toward the commanded pose, like the real firmware ramp.
+                limit = self._max_rate * self._dt
+                for name in self._joint_names:
+                    diff = self._target[name] - self._position[name]
+                    self._position[name] += max(-limit, min(limit, diff))
+            else:
+                self._position = dict(self._target)
             msg = JointState()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.name = list(self._joint_names)

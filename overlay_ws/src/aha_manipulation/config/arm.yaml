@@ -7,8 +7,10 @@
 # `command_topic` / `state_topic` are the arm hardware node's (upstream
 # arm_node, run in that namespace) astra topics.
 #
-# Joint limits are radians, extracted from the aha_description URDF:
-#   *_2 *_3 *_5 *_6 are +/-1.57, *_4 is +/-3.14.
+# Joint limits are radians, kept inside the arm firmware's hard limits
+# (upstream ArmController: +/-pi/2, +/-pi/2, +/-0.999pi, +/-pi/2, +/-0.875pi;
+# out-of-range commands are rejected wholesale):
+#   l2/l3/l5/l6 are +/-1.57, l4 is +/-3.13.
 # `command_joint_names` is the full JointCommand `name` the arm_node expects;
 # arm joints beyond `joint_names` (e.g. the gripper degree) are held at
 # `command_hold`. The arm_node's own --joint_names must match this list.
@@ -17,11 +19,12 @@
   ros__parameters:
     # default joint set (left arm); each node below overrides what differs
     rate_hz: 30.0
-    max_speed: 1.0            # rad/s: paces the issued goals (arm firmware ramps on its own)
+    max_speed: 1.0            # rad/s: caps the commanded interpolation speed
     goal_tolerance: 0.03      # rad
     goal_timeout: 5.0         # s, after the plan completes, to confirm reach (closed_loop)
-    state_timeout: 0.3        # s; a state older than this falls back to open-loop
-    closed_loop: false        # true only with a real joint-state feedback source
+    settle_time: 1.5          # s after the plan for success (closed_loop: false only)
+    state_timeout: 0.3        # s; a state older than this falls back to the last command
+    closed_loop: true         # confirm arrival via arm_node joint feedback (real arm)
     hold_interval: 1.0        # s; re-send the held position while idle
 
 aha_left_arm_bridge:
@@ -35,8 +38,8 @@ aha_left_arm_bridge:
     joint_l2__max: 1.57
     joint_l3__min: -1.57
     joint_l3__max: 1.57
-    joint_l4__min: -3.14
-    joint_l4__max: 3.14
+    joint_l4__min: -3.13
+    joint_l4__max: 3.13
     joint_l5__min: -1.57
     joint_l5__max: 1.57
     joint_l6__min: -1.57
@@ -53,8 +56,8 @@ aha_right_arm_bridge:
     joint_r2__max: 1.57
     joint_r3__min: -1.57
     joint_r3__max: 1.57
-    joint_r4__min: -3.14
-    joint_r4__max: 3.14
+    joint_r4__min: -3.13
+    joint_r4__max: 3.13
     joint_r5__min: -1.57
     joint_r5__max: 1.57
     joint_r6__min: -1.57

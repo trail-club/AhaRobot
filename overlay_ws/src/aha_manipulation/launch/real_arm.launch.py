@@ -3,8 +3,9 @@
 For each arm this launches:
   * the upstream ``astra_controller`` ``arm_node`` (in ``<side>/arm``), driven
     over its astra ``joint_command`` topic, and
-  * an ``aha_arm_bridge`` that paces goals from the ``/<side>_arm_controller``
-    interface onto that ``joint_command`` topic (see config/arm.yaml).
+  * an ``aha_arm_bridge`` that turns ``/<side>_arm_controller`` trajectories
+    into a dense position stream on that ``joint_command`` topic
+    (see config/arm.yaml).
 
 Usage:
     ros2 launch aha_manipulation real_arm.launch.py            # both arms
@@ -106,8 +107,13 @@ def generate_launch_description() -> LaunchDescription:
     ld.add_action(
         OpaqueFunction(
             function=_setup,
-            # forward the launch configs the setup reads
-            launch_configuration={"sides": LaunchConfiguration("sides")},
+            # forward every launch config the setup reads
+            launch_configuration={
+                "sides": LaunchConfiguration("sides"),
+                "device_left": LaunchConfiguration("device_left"),
+                "device_right": LaunchConfiguration("device_right"),
+                "use_bridge": LaunchConfiguration("use_bridge"),
+            },
         )
     )
     return ld

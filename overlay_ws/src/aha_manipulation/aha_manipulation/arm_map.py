@@ -17,8 +17,9 @@ BUS_DEFAULTS = {
     "max_speed": 1.0,
     "goal_tolerance": 0.03,
     "goal_timeout": 2.0,
+    "settle_time": 1.5,
     "state_timeout": 0.3,
-    "closed_loop": False,
+    "closed_loop": True,
 }
 JOINT_DEFAULTS = {"min": -3.14, "max": 3.14}
 
@@ -32,12 +33,14 @@ class ArmBusConfig:
     max_speed: float
     goal_tolerance: float
     goal_timeout: float
+    settle_time: float
     state_timeout: float
     closed_loop: bool
     # Full joint list used for the arm_node JointCommand `name`; arm joints
     # beyond `joints` are held at `command_hold` (e.g. the gripper degree).
     command_joint_names: list = field(default_factory=list)
     command_hold: float = 0.0
+    hold_interval: float = 1.0
     joints: list[ArmJoint] = field(default_factory=list)
 
     @property
@@ -47,7 +50,14 @@ class ArmBusConfig:
 
 def parse_config(params: dict) -> ArmBusConfig:
     bus = {**BUS_DEFAULTS, **params}
-    for key in ("rate_hz", "max_speed", "goal_tolerance", "goal_timeout", "state_timeout"):
+    for key in (
+        "rate_hz",
+        "max_speed",
+        "goal_tolerance",
+        "goal_timeout",
+        "settle_time",
+        "state_timeout",
+    ):
         bus[key] = float(bus[key])
     bus["closed_loop"] = bool(bus["closed_loop"])
 
@@ -59,11 +69,20 @@ def parse_config(params: dict) -> ArmBusConfig:
         if joint["min"] >= joint["max"]:
             raise ValueError(f"{name}: min must be < max")
         joints.append(ArmJoint(name, joint["min"], joint["max"]))
-    bus["joint_names"] = [j.name for j in joints]
-    command_names = bus.get("command_joint_names") or bus["joint_names"]
+    command_names = bus.get("command_joint_names") or [j.name for j in joints]
     return ArmBusConfig(
-        **bus,
+        controller_name=str(bus["controller_name"]),
+        command_topic=str(bus["command_topic"]),
+        state_topic=str(bus["state_topic"]),
+        rate_hz=float(bus["rate_hz"]),
+        max_speed=float(bus["max_speed"]),
+        goal_tolerance=float(bus["goal_tolerance"]),
+        goal_timeout=float(bus["goal_timeout"]),
+        settle_time=float(bus["settle_time"]),
+        state_timeout=float(bus["state_timeout"]),
+        closed_loop=bool(bus["closed_loop"]),
         command_joint_names=list(command_names),
         command_hold=float(bus.get("command_hold", 0.0)),
+        hold_interval=float(bus.get("hold_interval", 1.0)),
         joints=joints,
     )

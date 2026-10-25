@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーション、頭部カメラ、実機の頭部の入出力。controller設定は
+標準シミュレーション、頭部カメラ、実機の頭部・アームの入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -149,6 +149,30 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から `joint_state_publisher` が `/joint_states` へ合流させ、
 頭以外の関節は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+
+## 実機のアーム
+
+[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md) の `real_arm.launch.py` が
+upstream astra_controller の `arm_node`（`/<side>/arm` namespace）と、それを駆動するブリッジ
+`aha_<side>_arm_bridge` を起動する。head と同様に、シミュレーションと同じ名前・型の
+`/<side>_arm_controller` インターフェースを提供する。`/<controller>` は `left_arm_controller` /
+`right_arm_controller`。同じ `ROS_DOMAIN_ID` でsimと同時起動しない。
+
+| 用途 | 名前 |型 |
+| --- | --- | --- |
+| 軌道指令（fire & forget） | `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 軌道action | `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| 関節状態 | `/<controller>/joint_states` | `sensor_msgs/msg/JointState` |
+| 安全停止（service） | `/<controller>/release` | `std_msgs/srv/Empty` |
+| ハードウェアへの位置指令（内部） | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+
+ブリッジは `arm_plan`（`aha_manipulation/arm_plan.py`）で軌道をキーフレーム化し（`max_speed`
+rad/s を超えないよう時間引き伸ばし、関節制限でクランプ）、`rate_hz` 周期で
+`position_at(t)` をサンプリングして `/<side>/arm/joint_command` へ配信する。
+`closed_loop`（既定 `true`）では `arm_node` の関節フィードバック
+（`/joint_states` にremap、ブリッジは `joint_states` で購読）で到達を確認する。
+アームの関節状態は `arm_node` のフィードバックが `/joint_states` として配信される。
+lift（`joint_l1`）とグリッパは `arm_node` の別topicで、この5自由度ブリッジの対象外。
 
 ## 独自型
 
