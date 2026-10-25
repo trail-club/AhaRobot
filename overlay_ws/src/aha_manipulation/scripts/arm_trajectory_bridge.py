@@ -1,41 +1,46 @@
 #!/usr/bin/env python3
-"""Time-scaled trajectory bridge for a real Astra arm.
+"""JointTrajectory bridge for one real Astra arm.
 
-Sits between trajectory sources (MoveIt, the sim control UI, eval, teleop) and
-the arm's hardware node (upstream ``astra_controller`` ``arm_node`` /
-``dry_run_node``) — the arm equivalent of aha_servo's
-``servo_trajectory_bridge``. One bridge per arm; wall-clock only.
+This node mirrors the interface of ros2_control's JointTrajectoryController
+for `controller_name`, so MoveIt and scripts drive the simulation and the real
+arm with the same topics (the arm equivalent of aha_servo's
+servo_trajectory_bridge.py):
 
-External ROS interface (mirrors the sim ``JointTrajectoryController``):
-    /<controller_name>/joint_trajectory        (JointTrajectory)  fire & forget
-    /<controller_name>/follow_joint_trajectory (FollowJointTrajectory action)
-    /<controller_name>/joint_states            (JointState)        published
+  /<controller>/joint_trajectory         trajectory_msgs/JointTrajectory (sub)
+  /<controller>/follow_joint_trajectory  control_msgs/action/FollowJointTrajectory
 
-Internal (drives the arm hardware node over its astra topics):
-    <command_topic>   astra_controller_interfaces/msg JointCommand   publish
-    <state_topic>     sensor_msgs/msg JointState                     subscribe
+It drives the upstream astra_controller arm_node, which writes every
+JointCommand to the arm board as one goal:
 
-The upstream ``arm_node`` writes each received goal straight to the servos with
-no downstream smoothing — the firmware ramps toward it with its own P-only
-controller, so a single goal per trajectory point would make the arm lunge.
-ALL motion shaping happens here: ``arm_plan.plan_arm`` turns the trajectory
-into speed-bounded keyframes (never faster than ``max_speed``) and the bridge
-samples the plan at ``rate_hz``, publishing one interpolated position per
-sample. That dense command stream is what keeps the firmware's P-only
-controller on the intended path.
+  command_topic  astra_controller_interfaces/JointCommand (pub)
+  state_topic    sensor_msgs/JointState (sub, the arm_node's feedback)
 
-Arrival: with ``closed_loop: true`` (the real arm default — ``arm_node``
-publishes firmware joint feedback on ``state_topic``) success is reported when
-the arm is within ``goal_tolerance`` of the goal within ``goal_timeout`` after
-the plan ends; if the state stream goes stale (``state_timeout``) the bridge
-falls back to the last commanded pose. With ``closed_loop: false`` success is
-reported ``settle_time`` after the plan ends. Cancellation or the ``release``
-service stops the plan and re-asserts the last safe position.
+Configured by config/arm.yaml in the aha_manipulation/arm_map.py format.
+
+Behaviour:
+  - Nothing is sent before a trajectory arrives: no goal at startup or while
+    idle, so the keyboard teleop can share the arm_node when no trajectory
+    runs. Running both at once is not supported.
+  - Trajectories are checked and sampled by aha_manipulation/arm_plan.py from
+    the measured pose; the plan is sent every 1 / rate_hz s as a goal of all
+    five joints. A trajectory outside the position, velocity or acceleration
+    limits is rejected as a whole (topic: logged and ignored).
+  - Planning needs a fresh state (within `state_timeout`) of every joint.
+  - Action: feedback every FEEDBACK_PERIOD s. Aborts when a joint is more
+    than `path_tolerance` (or the goal's path_tolerance) from the sample of
+    the current time, or when the state goes stale; succeeds when every joint
+    is within `goal_tolerance` (or the goal's) of the final point, aborts
+    `goal_time` s (or goal_time_tolerance) after the last point.
+  - Cancel, an abort for tolerance and an empty trajectory hold the measured
+    position. A newer topic command or goal preempts (aborts) the running
+    goal. A stale state stops sending, so the arm stays at the last sample.
+  - Partial joint lists are accepted; the other joints keep their position.
+  - SIGINT/SIGTERM: sampling and goals stop, then the node shuts down. The
+    arm_node keeps the last goal. Wall clock only.
 """
 
-import argparse
-import logging
 import signal
+import sys
 import threading
 import time
 
@@ -43,417 +48,388 @@ import rclpy
 from astra_controller_interfaces.msg import JointCommand
 from control_msgs.action import FollowJointTrajectory
 from rcl_interfaces.msg import ParameterDescriptor
-from rclpy.action import ActionServer
-from rclpy.action import CancelResponse
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.logging import get_logger
 from rclpy.node import Node
-from rclpy.parameter import Parameter
+from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import JointState
-from std_srvs.srv import Empty
 from trajectory_msgs.msg import JointTrajectory
 
-from aha_manipulation.arm_map import parse_config
-from aha_manipulation.arm_plan import ArmPlan, plan_arm
+from aha_manipulation.arm_map import BUS_DEFAULTS, JOINT_DEFAULTS, parse_config
+from aha_manipulation.arm_plan import ArmPlan, Point, plan_trajectory
 
-DEFAULTS = {
-    "controller_name": "left_arm_controller",
-    "command_topic": "joint_command",
-    "state_topic": "joint_states",
-    "joint_names": ["joint_l2", "joint_l3", "joint_l4", "joint_l5", "joint_l6"],
-    "command_joint_names": [],
-    "command_hold": 0.0,
-    "rate_hz": 30.0,
-    "max_speed": 1.0,
-    "goal_tolerance": 0.03,
-    "goal_timeout": 5.0,
-    "settle_time": 1.5,
-    "state_timeout": 0.3,
-    "closed_loop": True,
-    "hold_interval": 1.0,
-}
-JOINT_DEFAULTS = {"min": -3.14, "max": 3.14}
+Result = FollowJointTrajectory.Result
+FEEDBACK_PERIOD = 0.05  # s
+SPIN_TIMEOUT_S = 0.1
+LOG_THROTTLE_S = 2.0
 
 
-def _duration_seconds(stamp) -> float:
-    return stamp.sec + stamp.nanosec / 1e9
+def seconds(duration):
+    return Duration.from_msg(duration).nanoseconds * 1e-9
 
 
-def _throttle(message: str, state: dict, key: str, interval: float) -> bool:
-    now = time.monotonic()
-    if now - state.get(key, 0.0) >= interval:
-        state[key] = now
-        return True
-    return False
+def points_of(trajectory):
+    return [
+        Point(
+            positions=tuple(p.positions),
+            velocities=tuple(p.velocities),
+            accelerations=tuple(p.accelerations),
+            time=seconds(p.time_from_start),
+        )
+        for p in trajectory.points
+    ]
+
+
+def tolerances(default, overrides, names):
+    """{joint: rad} from a default and JointTolerance overrides (0: default, -1: off)."""
+    values = {n: default for n in names}
+    for tol in overrides:
+        if tol.name in values and tol.position != 0:
+            values[tol.name] = tol.position if tol.position > 0 else float("inf")
+    return {n: (v if v > 0 else float("inf")) for n, v in values.items()}
 
 
 class ArmTrajectoryBridge(Node):
-    def __init__(self, *, name="arm_trajectory_bridge", context=None, params_file=None):
-        overrides = (
-            [Parameter("parameters_file", Parameter.Type.STRING, params_file)]
-            if params_file
-            else []
-        )
-        super().__init__(name, namespace="", context=context, parameter_overrides=overrides)
-        self._log = logging.getLogger(name)
-        for key, value in DEFAULTS.items():
-            if isinstance(value, list) and not value:
-                # An empty-list default would be statically inferred as
-                # BYTE_ARRAY and clash with a string-array override from a
-                # params file. Declare it dynamically typed instead; arm_map
-                # falls back to joint_names when it stays empty.
-                self.declare_parameters(
-                    "",
-                    [(key, value, ParameterDescriptor(dynamic_typing=True))],
-                    False,
-                )
-            else:
-                self.declare_parameter(key, value)
-        joint_names = self.get_parameter("joint_names").value
-        for joint in joint_names:
-            self.declare_parameter(f"{joint}__min", JOINT_DEFAULTS["min"])
-            self.declare_parameter(f"{joint}__max", JOINT_DEFAULTS["max"])
-        self._params = parse_config(
-            {
-                **{key: self.get_parameter(key).value for key in DEFAULTS},
-                **{
-                    joint: {
-                        "min": self.get_parameter(f"{joint}__min").value,
-                        "max": self.get_parameter(f"{joint}__max").value,
-                    }
-                    for joint in joint_names
-                },
-            }
-        )
-        self._stopping = threading.Event()
-        self._lock = threading.Lock()
-        self._limits = {j.name: j for j in self._params.joints}
-        self._plan = None
-        self._goal_handle = None
-        self._goal = None
-        self._goal_received = None
-        self._goal_deadline = None
-        self._last = {j: 0.0 for j in self._params.joint_names}
-        self._state = {}
-        self._state_stamp = None
-        self._pending_names = []
-        self._pending_points = []
-        self._last_hold = 0.0
-        self._throttled = {}
-        self._pub_state = None
-        self._pub_cmd = None
-        self._sub_state = None
-        self._action_server = None
-        self._release_srv = None
-        self._timer = None
+    def __init__(self, stopping):
+        super().__init__("aha_arm_bridge")
+        self.cfg = parse_config(self._read_parameters())
+        self.names = self.cfg.joint_names
+        self.prefix = f"/{self.cfg.controller_name}"
+        self.stopping = stopping  # threading.Event, set by SIGINT/SIGTERM
+        self.lock = threading.Lock()
+        self.positions = {}  # rad, latest state
+        self.state_times = {}  # monotonic time of the latest state per joint
+        self.plan = None  # ArmPlan being sampled, None when idle
+        self.plan_seq = 0
+        self.had_state = False
 
-    def _now(self) -> float:
-        return self.get_clock().now().nanoseconds / 1e9
-
-    # -- lifecycle ----------------------------------------------------------
-    def start(self) -> None:
-        self._pub_state = self.create_publisher(
-            JointState, f"{self._params.controller_name}/joint_states", 10
+        self.command_pub = self.create_publisher(
+            JointCommand, self.cfg.command_topic, 10
         )
-        self._pub_cmd = self.create_publisher(JointCommand, self._params.command_topic, 10)
-        self._sub_state = self.create_subscription(
-            JointState, self._params.state_topic, self._on_state, 10
+        self.create_subscription(JointState, self.cfg.state_topic, self._on_state, 10)
+        self.create_subscription(
+            JointTrajectory, f"{self.prefix}/joint_trajectory", self._on_trajectory, 10
         )
-        self._action_server = ActionServer(
+        self.action_server = ActionServer(
             self,
             FollowJointTrajectory,
-            f"{self._params.controller_name}/follow_joint_trajectory",
-            self._execute,
-            cancel_callback=self._on_cancel,
+            f"{self.prefix}/follow_joint_trajectory",
+            execute_callback=self._execute,
+            goal_callback=self._on_goal,
+            cancel_callback=lambda _goal: CancelResponse.ACCEPT,
+            callback_group=ReentrantCallbackGroup(),
         )
-        self.create_subscription(
-            JointTrajectory,
-            f"{self._params.controller_name}/joint_trajectory",
-            self._on_trajectory,
-            10,
+        self.timer = self.create_timer(
+            1.0 / self.cfg.rate_hz,
+            self._tick,
+            callback_group=MutuallyExclusiveCallbackGroup(),
         )
-        self._release_srv = self.create_service(
-            Empty, f"{self._params.controller_name}/release", self._on_release
+        limits = ", ".join(
+            f"{j.name} [{j.min:+.2f}, {j.max:+.2f}] {j.max_velocity:.2f} rad/s "
+            f"{j.max_acceleration:.2f} rad/s^2"
+            for j in self.cfg.joints
         )
-        self._timer = self.create_timer(1.0 / self._params.rate_hz, self._tick)
-        self._log.info(
-            "%s via %s (max_speed %.2f rad/s, %d joints, %s)",
-            self._params.controller_name,
-            self._params.command_topic,
-            self._params.max_speed,
-            len(self._params.joint_names),
-            "closed_loop" if self._params.closed_loop else "open_loop",
+        self.get_logger().info(
+            f"{self.prefix} -> {self.cfg.command_topic}, waiting for "
+            f"{self.cfg.state_topic}; limits {limits}"
         )
-        self._hold()
 
-    def stop(self) -> None:
-        self._stopping.set()
-        name = self.get_name()
-        with self._lock:
-            self._plan = None
-            self._goal_handle = None
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer.destroy()
-        if self._release_srv is not None:
-            self._release_srv.destroy()
-        if self._action_server is not None:
-            self._action_server.destroy()
-        if self._sub_state is not None:
-            self._sub_state.destroy()
-        self._hold()
-        for pub in (self._pub_cmd, self._pub_state):
-            if pub is not None:
-                pub.destroy()
-        self.destroy_node()
-        self._log.info("%s stopped", name)
+    def _read_parameters(self):
+        """Nested dict in the arm_map layout from this node's parameters."""
+        dynamic = ParameterDescriptor(dynamic_typing=True)
+        params = {
+            key: self.declare_parameter(key, default, dynamic).value
+            for key, default in BUS_DEFAULTS.items()
+        }
+        params["joints"] = list(self.declare_parameter("joints", [""]).value)
+        if params["joints"] == [""]:
+            raise ValueError(
+                "parameter `joints` is not set (pass the config with --params-file)"
+            )
+        for name in params["joints"]:
+            params[name] = {
+                key: self.declare_parameter(f"{name}.{key}", default, dynamic).value
+                for key, default in JOINT_DEFAULTS.items()
+            }
+        return params
 
-    # -- state / command ----------------------------------------------------
-    def _on_state(self, msg: JointState) -> None:
-        with self._lock:
+    def stop(self):
+        """First shutdown step: no more samples; running goals abort."""
+        self.stopping.set()
+        self.timer.cancel()
+
+    # State and commands ---------------------------------------------------
+
+    def _on_state(self, msg):
+        if len(msg.position) != len(msg.name):
+            return
+        now = time.monotonic()
+        with self.lock:
             for name, position in zip(msg.name, msg.position):
-                if name in self._limits:
-                    self._state[name] = position
-            self._state_stamp = self._now()
-
-    def _effective(self, joint: str) -> float:
-        if self._params.closed_loop and self._state.get(joint) is not None:
-            age = self._now() - (self._state_stamp or 0.0)
-            if age <= self._params.state_timeout:
-                return self._state[joint]
-        return self._last.get(joint, self._params.command_hold)
-
-    def _command(self, targets: dict) -> JointCommand:
-        names = list(self._params.command_joint_names)
-        positions = []
-        for name in names:
-            if name in self._limits:
-                positions.append(targets.get(name, self._last.get(name, self._params.command_hold)))
-            else:
-                positions.append(self._params.command_hold)
-        cmd = JointCommand()
-        cmd.name = names
-        cmd.position_cmd = positions
-        return cmd
-
-    def _publish_cmd(self, cmd: JointCommand) -> None:
-        try:
-            self._pub_cmd.publish(cmd)
-        except Exception as error:
-            if _throttle(f"command publish failed: {error}", self._throttled, "publish", 2.0):
-                self._log.warning("command publish failed: %s", error)
-
-    def _publish_state(self) -> None:
-        msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        names = self._params.joint_names
-        msg.name = list(names)
-        msg.position = [self._effective(j) for j in names]
-        self._pub_state.publish(msg)
-
-    def _hold(self) -> None:
-        if self._stopping.is_set() or self._pub_cmd is None:
-            return
-        targets = {j: self._last.get(j, 0.0) for j in self._params.joint_names}
-        self._last.update(targets)
-        self._publish_cmd(self._command(targets))
-
-    # -- planning -----------------------------------------------------------
-    def _plan_pending(self) -> ArmPlan:
-        points = []
-        for point in self._pending_points:
-            t = _duration_seconds(point.time_from_start)
-            for joint, value in zip(self._pending_names, point.positions):
-                points.append((joint, float(value), t))
-        start_pose = {joint: self._effective(joint) for joint in self._params.joint_names}
-        for name in self._params.command_joint_names:
-            start_pose.setdefault(name, self._params.command_hold)
-        return plan_arm(
-            list(self._limits.values()),
-            self._params.command_joint_names,
-            points,
-            now=self._now(),
-            max_speed=self._params.max_speed,
-            start_pose=start_pose,
-        )
-
-    def _final_targets(self) -> dict:
-        targets = {}
-        if self._pending_points:
-            for joint, value in zip(self._pending_names, self._pending_points[-1].positions):
-                targets[joint] = float(value)
-        return targets
-
-    def _install(self, plan: ArmPlan) -> None:
-        with self._lock:
-            self._plan = plan
-            if plan.segments:
-                self._last.update(plan.segments[-1].targets)
-            if self._params.closed_loop:
-                self._goal_deadline = plan.end_time + self._params.goal_timeout
-            else:
-                self._goal_deadline = plan.end_time + self._params.settle_time
-        if plan.clamped:
-            self._log.warning("plan clamped to joint limits: %s", plan.clamped)
-
-    # -- external interface -------------------------------------------------
-    def _on_trajectory(self, msg: JointTrajectory) -> None:
-        if self._stopping.is_set() or not msg.points:
-            return
-        self._pending_names = list(msg.joint_names)
-        self._pending_points = msg.points
-        try:
-            plan = self._plan_pending()
-        except ValueError as error:
-            if _throttle(f"ignoring trajectory: {error}", self._throttled, "bad_traj", 2.0):
-                self._log.warning("ignoring trajectory: %s", error)
-            return
-        self._install(plan)
-        if _throttle("trajectory", self._throttled, "traj", 2.0):
-            self._log.info(
-                "trajectory: %d segments over %.2fs",
-                len(plan.segments),
-                plan.end_time - self._now(),
+                if name in self.names:
+                    self.positions[name] = position
+                    self.state_times[name] = now
+            fresh = self._stale(now) == []
+        if fresh and not self.had_state:
+            self.had_state = True
+            self.get_logger().info(
+                "arm state received: "
+                + ", ".join(f"{n} {self.positions[n]:+.3f}" for n in self.names)
             )
 
-    def _on_cancel(self, goal_handle):
-        if self._goal_handle is not goal_handle or not goal_handle.is_active:
-            return CancelResponse.REJECT
-        with self._lock:
-            self._goal = None
-            self._goal_deadline = None
-            self._plan = None  # stop the motion; do not keep driving to the goal
-            self._hold()
-        # The handle stays registered: the server applies CANCEL_GOAL only after
-        # this callback returns, so _check_action completes the transition
-        # (EXECUTING->CANCELED directly would be an invalid rcl transition).
-        return CancelResponse.ACCEPT
+    def _stale(self, now):
+        """Joints without a state within state_timeout (caller holds the lock)."""
+        return [
+            n
+            for n in self.names
+            if now - self.state_times.get(n, -float("inf")) > self.cfg.state_timeout
+        ]
 
-    def _on_release(self, _request, response):
-        with self._lock:
-            self._plan = None
-            self._goal_handle = None
-            self._goal = None
-            self._goal_deadline = None
-            self._hold()
-        return response
+    def _send(self, pose):
+        if self.stopping.is_set():
+            return
+        self.command_pub.publish(
+            JointCommand(
+                name=list(self.names), position_cmd=[pose[n] for n in self.names]
+            )
+        )
 
-    def _execute(self, goal_handle) -> None:
-        self._goal_handle = goal_handle
-        self._goal_received = self._now()
-        # goal_handle.request is the FollowJointTrajectory.Goal message; the
-        # trajectory lives one level deeper.
-        trajectory = goal_handle.request.trajectory
-        self._pending_names = list(trajectory.joint_names)
-        self._pending_points = trajectory.points
+    def _tick(self):
+        if self.stopping.is_set():
+            return
+        with self.lock:
+            plan = self.plan
+            if plan is None:
+                return
+            now = time.monotonic()
+            stale = self._stale(now)
+            if stale:
+                # The plan started from a pose that may no longer hold.
+                self.plan = None
+                self.get_logger().error(
+                    f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s: "
+                    "trajectory stopped at the last sample"
+                )
+                return
+            self._send(plan.sample(now))
+            if now >= plan.end_time:
+                self.plan = None
+
+    def _plan(self, trajectory):
+        """ArmPlan from the measured pose now (caller holds the lock); raises ValueError."""
+        now = time.monotonic()
+        stale = self._stale(now)
+        if stale:
+            raise ValueError(
+                f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s "
+                f"on {self.cfg.state_topic} (is the arm_node running?)"
+            )
+        return plan_trajectory(
+            self.cfg.joints,
+            trajectory.joint_names,
+            points_of(trajectory),
+            dict(self.positions),
+            now,
+            self.cfg.start_tolerance,
+        )
+
+    def _install(self, plan):
+        """Replace the plan (caller holds the lock); returns the new plan id."""
+        self.plan = plan
+        self.plan_seq += 1
+        if plan is not None:
+            self._send(plan.sample(time.monotonic()))
+        return self.plan_seq
+
+    def _hold(self, reason, replace_seq=None):
+        """Stop at the measured position; with `replace_seq`, only while that plan is current."""
+        with self.lock:
+            if replace_seq is not None and self.plan_seq != replace_seq:
+                return
+            stale = self._stale(time.monotonic())
+            if stale:
+                self._install(None)
+            else:
+                pose = dict(self.positions)
+                self._install(
+                    ArmPlan(
+                        names=tuple(self.names),
+                        limits={j.name: j for j in self.cfg.joints},
+                        times=[time.monotonic()],
+                        positions=[pose],
+                        velocities=None,
+                    )
+                )
+        if stale:
+            self.get_logger().warning(
+                f"{reason}: no state of {', '.join(stale)}, sending no hold goal "
+                "(the arm keeps its last goal)"
+            )
+        else:
+            self.get_logger().info(f"{reason}: holding the measured position")
+
+    # Commands -------------------------------------------------------------
+
+    def _on_trajectory(self, msg):
+        if not msg.points:
+            self._hold("empty trajectory")
+            return
         try:
-            plan = self._plan_pending()
-        except ValueError as error:
-            self._log.warning("rejecting goal: %s", error)
-            goal_handle.abort(FollowJointTrajectory.Result())
-            self._goal_handle = None
-            return
-        self._goal = self._final_targets()
-        self._install(plan)
+            with self.lock:
+                self._install(self._plan(msg))
+        except ValueError as e:
+            self.get_logger().error(f"{self.prefix}/joint_trajectory ignored: {e}")
 
-    # -- tick ---------------------------------------------------------------
-    def _tick(self) -> None:
-        if self._stopping.is_set():
-            return
-        now = self._now()
-        with self._lock:
-            if self._plan is not None:
-                # Fixed-rate sampling: one interpolated position per tick.
-                # Past the plan end, position_at() re-asserts the final pose,
-                # so the goal pose is always commanded at least once.
-                pose = self._plan.position_at(now)
-                for joint in self._params.joint_names:
-                    self._last[joint] = pose.get(joint, self._params.command_hold)
-                self._publish_cmd(self._command(pose))
-                if now >= self._plan.end_time:
-                    self._plan = None
-            elif now - self._last_hold >= self._params.hold_interval:
-                self._last_hold = now
-                self._hold()
-            if self._goal_handle is not None:
-                self._check_action(now)
-        self._publish_state()
+    def _on_goal(self, request):
+        try:
+            with self.lock:
+                self._plan(request.trajectory)
+        except ValueError as e:
+            self.get_logger().error(
+                f"{self.prefix}/follow_joint_trajectory goal rejected: {e}"
+            )
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
 
-    def _check_action(self, now: float) -> None:
-        goal = self._goal
-        handle = self._goal_handle
-        if handle is None or goal is None:
-            return
-        if handle.is_cancel_requested:
-            # The server applied CANCEL_GOAL (state CANCELING) after the cancel
-            # callback returned; complete it so the client observes CANCELED
-            # and the result service can resolve.
-            handle.canceled(FollowJointTrajectory.Result())
-            self._goal_handle = None
-            self._goal = None
-            self._goal_deadline = None
-            return
-        if not handle.is_active:
-            # Completed out-of-band (e.g. succeeded just before a cancel);
-            # the terminal status was already published.
-            self._goal_handle = None
-            self._goal = None
-            self._goal_deadline = None
-            return
-        tol = self._params.goal_tolerance
-        reached = all(abs(self._effective(j) - value) <= tol for j, value in goal.items())
-        if reached:
-            handle.succeed(FollowJointTrajectory.Result())
-            self._goal_handle = None
-            self._goal = None
-            self._goal_deadline = None
-            return
-        if self._goal_deadline is not None and now >= self._goal_deadline:
-            handle.abort(FollowJointTrajectory.Result())
-            self._goal_handle = None
-            self._goal = None
-            self._goal_deadline = None
-            self._log.warning("goal timed out after %.1fs", now - (self._goal_received or now))
+    def _execute(self, goal_handle):
+        request = goal_handle.request
+        result = Result()
+        try:
+            with self.lock:
+                plan = self._plan(request.trajectory)
+                seq = self._install(plan)
+        except ValueError as e:
+            result.error_code = Result.INVALID_GOAL
+            result.error_string = str(e)
+            goal_handle.abort()
+            return result
+        names = list(request.trajectory.joint_names)
+        final = plan.final
+        path_tol = tolerances(self.cfg.path_tolerance, request.path_tolerance, names)
+        goal_tol = tolerances(self.cfg.goal_tolerance, request.goal_tolerance, names)
+        extra = seconds(request.goal_time_tolerance)
+        deadline = plan.end_time + (extra if extra > 0 else self.cfg.goal_time)
+
+        feedback = FollowJointTrajectory.Feedback(joint_names=names)
+        while True:
+            time.sleep(FEEDBACK_PERIOD)
+            if self.stopping.is_set() or not self.context.ok():
+                result.error_string = "shutting down"
+                try:
+                    goal_handle.abort()
+                except Exception:  # noqa: BLE001 - the context may be gone
+                    pass
+                return result
+            with self.lock:
+                now = time.monotonic()
+                preempted = self.plan_seq != seq
+                current = {n: self.positions[n] for n in names}
+                stale = self._stale(now)
+            if goal_handle.is_cancel_requested:
+                self._hold("goal canceled", seq)
+                goal_handle.canceled()
+                result.error_string = "canceled"
+                return result
+            if preempted:
+                # Same code as JointTrajectoryController uses for a preempted goal.
+                result.error_code = Result.INVALID_GOAL
+                result.error_string = "preempted by a newer command"
+                goal_handle.abort()
+                return result
+            if stale:
+                result.error_code = Result.PATH_TOLERANCE_VIOLATED
+                result.error_string = (
+                    f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s"
+                )
+                return self._abort(goal_handle, result, seq, hold=False)
+
+            desired = plan.sample(now)
+            feedback.header.stamp = self.get_clock().now().to_msg()
+            feedback.desired.positions = [desired[n] for n in names]
+            feedback.actual.positions = [current[n] for n in names]
+            feedback.error.positions = [desired[n] - current[n] for n in names]
+            goal_handle.publish_feedback(feedback)
+
+            if now < plan.end_time:
+                off = [
+                    f"{n} {e:+.3f} rad"
+                    for n, e in zip(names, feedback.error.positions)
+                    if abs(e) > path_tol[n]
+                ]
+                if off:
+                    result.error_code = Result.PATH_TOLERANCE_VIOLATED
+                    result.error_string = "off the path: " + ", ".join(off)
+                    return self._abort(goal_handle, result, seq)
+                continue
+            errors = {n: final[n] - current[n] for n in names}
+            if all(abs(e) <= goal_tol[n] for n, e in errors.items()):
+                goal_handle.succeed()
+                result.error_code = Result.SUCCESSFUL
+                return result
+            if now > deadline:
+                result.error_code = Result.GOAL_TOLERANCE_VIOLATED
+                result.error_string = "not within tolerance: " + ", ".join(
+                    f"{n} error {e:+.3f} rad"
+                    for n, e in errors.items()
+                    if abs(e) > goal_tol[n]
+                )
+                return self._abort(goal_handle, result, seq)
+
+    def _abort(self, goal_handle, result, seq, hold=True):
+        self.get_logger().warning(f"goal aborted, {result.error_string}")
+        if hold:
+            # Stop the failed motion, as JointTrajectoryController does.
+            self._hold("goal aborted", seq)
+        else:
+            with self.lock:
+                if self.plan_seq == seq:
+                    self._install(None)
+        goal_handle.abort()
+        return result
 
 
-def main(args=None) -> int:
-    logging.basicConfig(
-        level=logging.INFO, force=True, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--params-file", default=None)
-    parsed, _ = parser.parse_known_args(args)
+def ignore_stop_signals():
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, signal.SIG_IGN)
 
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    rclpy.init(args=args)
-    bridge = ArmTrajectoryBridge(
-        name="aha_arm_bridge", context=rclpy.get_default_context(), params_file=parsed.params_file
-    )
-    stop = threading.Event()
 
-    def _on_signal(_signum, _frame):
-        stop.set()
+def main():
+    # As in aha_servo's bridge: a signal only requests the stop, and the
+    # context lives until the ordered teardown below.
+    stopping = threading.Event()
 
-    signal.signal(signal.SIGINT, _on_signal)
-    signal.signal(signal.SIGTERM, _on_signal)
+    def request_stop(_signum, _frame):
+        ignore_stop_signals()
+        stopping.set()
 
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, request_stop)
     try:
-        bridge.start()
-    except Exception as error:
-        logging.getLogger("aha_arm_bridge").error("%s", error)
-        rclpy.shutdown()
-        return 1
-
-    executor = rclpy.executors.SingleThreadedExecutor()
-    executor.add_node(bridge)
+        node = ArmTrajectoryBridge(stopping)
+    except ValueError as e:
+        print(f"arm_trajectory_bridge: {e}", file=sys.stderr)
+        rclpy.try_shutdown()
+        sys.exit(2)
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        while not stop.is_set() and rclpy.ok():
-            executor.spin_once(timeout_sec=0.05)
+        while not stopping.is_set() and node.context.ok():
+            executor.spin_once(timeout_sec=SPIN_TIMEOUT_S)
+    except ExternalShutdownException:
+        pass
     finally:
-        bridge.stop()
-        executor.remove_node(bridge)
-        rclpy.shutdown()
-    return 0
+        ignore_stop_signals()
+        node.stop()
+        # Joins the worker threads: running goals see `stopping` and finish here.
+        executor.shutdown(timeout_sec=1.0)
+        node.destroy_node()
+        rclpy.try_shutdown()
+    get_logger("aha_arm_bridge").info("stopped")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-
+    main()

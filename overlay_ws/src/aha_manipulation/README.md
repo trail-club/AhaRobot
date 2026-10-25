@@ -100,4 +100,28 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 [上流の終了時障害報告](https://github.com/moveit/moveit2/issues/3680)も参照。
 他バージョンには適用しない。
 
-実機の共通リフト軸とhardware interfaceへの対応は含まない。
+実機の共通リフト軸への対応は含まない。
+
+## 実機の腕の軌道実行
+
+`aha_bringup` の `arms.launch.py` が左右の `arm_node` と一緒に `arm_trajectory_bridge.py` を起動する
+（`trajectory_bridge:=false` で止める）。ブリッジはJointTrajectoryControllerと同じ
+`/<side>_arm_controller/joint_trajectory` と `follow_joint_trajectory` を受け、
+`arm_node` の `/<side>/arm/joint_command` へ5関節の位置指令を `rate_hz`（50 Hz）で送る。
+`arm_node` は指令ごとに腕の基板へ目標を書き、基板が台形速度で目標へ動かす。
+
+- 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。
+  全点に速度があれば3次Hermite、なければ直線で、静止から始まり静止で終わる。
+  時刻0の点は現在の姿勢とみなし、`start_tolerance` 以内であることだけを確認する。
+- 関節の位置・速度・加速度の制限を超える軌道は全体を拒否する（actionはgoalを受け付けず、topicは無視する）。
+  制限は [config/arm.yaml](config/arm.yaml)。位置の制限は `arm_node` の可動域
+  （[パッチ](../../../patches/README.md)の `ARM_PROFILES`）に合わせる。`arm_node` は1関節でも範囲外の指令を捨てる。
+- actionは、実測が補間の現在値から `path_tolerance` を超えて離れたとき、または関節状態が `state_timeout` 途絶えたときに中断する。
+  最終点から `goal_tolerance` 以内に入れば成功、最終点の時刻から `goal_time` 秒以内に入らなければ中断する。
+  goalの `path_tolerance` / `goal_tolerance` / `goal_time_tolerance` が指定されていればそれを使う。
+- 取り消し・許容誤差による中断・空の軌道では、実測の位置を指令して止める。関節状態の途絶では指令を止める。
+  新しい軌道は実行中のgoalを中断する。
+- 起動時と待機中は指令を送らない。関節状態が届くまで軌道を受け付けない。
+
+MoveItの右腕の計画はjoint_r1（昇降）を含み、`lift_controller` へも送られる。実機の昇降は対象外のため、
+実機でMoveItから実行する構成は含まない。

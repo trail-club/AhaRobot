@@ -1,12 +1,5 @@
-import pytest
-import rclpy
-from rclpy.context import Context
+# Test the source tree's aha_manipulation module (also without a build).
+import os
+import sys
 
-
-@pytest.fixture(scope="session")
-def rclpy_context() -> Context:
-    context = rclpy.create_context()
-    rclpy.init(context=context)
-    yield context
-    if rclpy.ok(context=context):
-        rclpy.shutdown(context=context)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

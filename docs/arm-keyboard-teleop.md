@@ -60,6 +60,9 @@ ros2 launch aha_bringup arms.launch.py \
   left_device:=/dev/ttyUSB0
 ```
 
+同じlaunchで、軌道を受けたときだけ腕へ指令するブリッジ（[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行)）も起動する。
+教示はブリッジが軌道を実行していないときに行う。
+
 別の対話シェルで教示を起動する。`ros2 launch` はキーをこのプロセスに渡さないので、`ros2 run` にする。
 
 ```bash

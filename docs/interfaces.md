@@ -222,27 +222,21 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 
 ## 実機のアーム
 
-[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md) の `real_arm.launch.py` が
-upstream astra_controller の `arm_node`（`/<side>/arm` namespace）と、それを駆動するブリッジ
-`aha_<side>_arm_bridge` を起動する。head と同様に、シミュレーションと同じ名前・型の
-`/<side>_arm_controller` インターフェースを提供する。`/<controller>` は `left_arm_controller` /
-`right_arm_controller`。同じ `ROS_DOMAIN_ID` でsimと同時起動しない。
+`aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と、
+[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py` を起動する。
+ブリッジはシミュレーションと同じ名前・型の軌道入力を提供する。`<side>` は `left` / `right`。
+シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
 
-| 用途 | 名前 |型 |
+| 用途 | 名前 | 型 |
 | --- | --- | --- |
-| 軌道指令（fire & forget） | `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
-| 軌道action | `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
-| 関節状態 | `/<controller>/joint_states` | `sensor_msgs/msg/JointState` |
-| 安全停止（service） | `/<controller>/release` | `std_msgs/srv/Empty` |
-| ハードウェアへの位置指令（内部） | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+| 軌道指令 | `/<side>_arm_controller/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 軌道action | `/<side>_arm_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| 腕への位置指令 | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+| 腕とグリッパの関節状態 | `/joint_states` | `sensor_msgs/msg/JointState` |
 
-ブリッジは `arm_plan`（`aha_manipulation/arm_plan.py`）で軌道をキーフレーム化し（`max_speed`
-rad/s を超えないよう時間引き伸ばし、関節制限でクランプ）、`rate_hz` 周期で
-`position_at(t)` をサンプリングして `/<side>/arm/joint_command` へ配信する。
-`closed_loop`（既定 `true`）では `arm_node` の関節フィードバック
-（`/joint_states` にremap、ブリッジは `joint_states` で購読）で到達を確認する。
-アームの関節状態は `arm_node` のフィードバックが `/joint_states` として配信される。
-lift（`joint_l1`）とグリッパは `arm_node` の別topicで、この5自由度ブリッジの対象外。
+ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
+キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
+昇降とグリッパはブリッジの対象外。
 
 ## 独自型
 

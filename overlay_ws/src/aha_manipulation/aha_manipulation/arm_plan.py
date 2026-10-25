@@ -1,216 +1,257 @@
-"""Time-scaled trajectory planning for the real Astra arms. Pure Python, no ROS.
+"""Trajectory checks and sampling for the real Astra arms (no ROS).
 
-The real arms are driven by the upstream ``astra_controller`` ``arm_node``, a
-black box that writes every received ``JointCommand`` straight to the
-servos; the firmware then ramps toward it with its own P-only controller.
-Nothing downstream smooths a goal, so one goal per trajectory point would
-make the arm jump at whatever rate the firmware allows.
+The upstream ``arm_node`` writes every ``JointCommand`` to the arm board as
+one goal; the board firmware moves there with its own trapezoidal profile.
+To follow a trajectory, arm_trajectory_bridge.py samples :class:`ArmPlan` at
+a fixed rate and sends each sample as a goal.
 
-This module is the motion-shaping layer. :func:`plan_arm` turns a
-trajectory into an :class:`ArmPlan` of absolute-time keyframes:
+:func:`plan_trajectory` checks a trajectory against the joint limits and
+builds the plan:
 
-* each input point is ``(joint_name, position_rad, time_from_start_s)`` with
-  the time relative to ``now``;
-* every keyframe carries the **full** command pose: joints present in the
-  trajectory move, joints absent from it hold their last value (or the
-  ``start_pose`` value before their first point);
-* keyframe positions are clamped to the joint limits;
-* consecutive keyframes are stretched in time until no joint moves faster
-  than ``max_speed`` rad/s, so the piecewise-linear path in between is
-  always inside the limits and never faster than ``max_speed``;
-* keyframes that would only re-assert the current pose are merged away.
-
-The bridge samples :meth:`ArmPlan.position_at` at a fixed rate and
-publishes one position per sample, which is what keeps the firmware's
-P-only controller on the intended path.
+- Knots are the measured start pose at ``now`` and one full pose per point.
+  Joints the trajectory does not name keep their start position.
+- A point at ``time_from_start`` 0 is the start (MoveIt sends the current
+  state there): it must be within ``start_tolerance`` of the measured pose
+  and is replaced by it.
+- Positions outside ``[min, max]`` and motions faster than ``max_velocity``
+  or ``max_acceleration`` are rejected, not clamped or slowed down.
+- With velocities in every point, knots are joined by cubic Hermite segments
+  (like JointTrajectoryController); otherwise by straight lines. The arm
+  starts and ends at rest.
 """
 
 from __future__ import annotations
 
+import bisect
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-# Keyframes whose joints all move by less than this (rad) only re-assert
-# the same pose; they are merged into the previous keyframe.
-_EPSILON_RAD = 1e-6
+# Relative allowance on the velocity and acceleration limits for roundoff in
+# a trajectory generated at the limit (MoveIt's time parameterization).
+LIMIT_ALLOWANCE = 1e-3
 
 
 @dataclass(frozen=True)
-class ArmJoint:
-    """One arm joint: name plus its position limits (rad)."""
+class JointLimits:
+    """Position (rad), velocity (rad/s) and acceleration (rad/s^2) limits."""
 
     name: str
     min: float
     max: float
+    max_velocity: float
+    max_acceleration: float
 
-    def clamp(self, rad: float) -> tuple[float, bool]:
-        """Return ``(rad limited to [min, max], whether it was changed)``."""
-        if self.min > self.max:
-            raise ValueError(f"{self.name}: min {self.min} exceeds max {self.max}")
-        value = min(max(rad, self.min), self.max)
-        return value, value != rad
+    def clamp(self, rad):
+        return min(max(rad, self.min), self.max)
 
 
-@dataclass
-class ArmSegment:
-    """One keyframe, to be published at ``send_at`` (monotonic seconds).
+@dataclass(frozen=True)
+class Point:
+    """One trajectory point; velocities / accelerations may be empty."""
 
-    ``targets`` carries the full command pose (every joint in the plan's
-    ``names``): trajectory joints at their value for this keyframe, the
-    rest held at their last value.
-    """
-
-    send_at: float
-    targets: dict[str, float] = field(repr=False)
+    positions: tuple
+    velocities: tuple
+    accelerations: tuple
+    time: float  # s from the trajectory start
 
 
 @dataclass
 class ArmPlan:
-    """Result of :func:`plan_arm`.
+    """Knots in absolute time; ``velocities`` is None for linear segments."""
 
-    Keyframes are ``start_pose`` at ``start_time`` followed by
-    ``segments``, in strictly increasing time order. ``clamped`` records
-    every ``(joint, requested, sent)`` value that hit a joint limit.
-    """
+    names: tuple  # every arm joint, in command order
+    limits: dict  # name -> JointLimits
+    times: list
+    positions: list  # one {joint: rad} per knot
+    velocities: list | None
 
-    names: list[str]  # full command joint list, in publish order
-    start_time: float
-    start_pose: dict[str, float]
-    segments: list[ArmSegment] = field(default_factory=list)
-    end_time: float = 0.0
-    clamped: list[tuple[str, float, float]] = field(default_factory=list)
+    @property
+    def end_time(self):
+        return self.times[-1]
 
-    def position_at(self, t: float) -> dict[str, float]:
-        """The commanded pose at ``t``: piecewise-linear, held at the ends.
+    @property
+    def final(self):
+        return dict(self.positions[-1])
 
-        Times before ``start_time`` hold the start pose, times after
-        ``end_time`` hold the final pose.
-        """
-        times = [self.start_time] + [segment.send_at for segment in self.segments]
-        poses = [self.start_pose] + [segment.targets for segment in self.segments]
-        if t <= times[0]:
-            return dict(poses[0])
-        if t >= times[-1]:
-            return dict(poses[-1])
-        i = 0
-        while t > times[i + 1]:
-            i += 1
-        t0, t1 = times[i], times[i + 1]
-        if t1 <= t0:
-            return dict(poses[i + 1])
-        p0, p1 = poses[i], poses[i + 1]
-        frac = (t - t0) / (t1 - t0)
-        return {name: p0[name] + (p1[name] - p0[name]) * frac for name in self.names}
+    def sample(self, t):
+        """Commanded pose at absolute time t, inside the position limits."""
+        if t <= self.times[0]:
+            pose = self.positions[0]
+        elif t >= self.times[-1]:
+            pose = self.positions[-1]
+        else:
+            k = bisect.bisect_right(self.times, t) - 1
+            t0, t1 = self.times[k], self.times[k + 1]
+            s = (t - t0) / (t1 - t0)
+            p0, p1 = self.positions[k], self.positions[k + 1]
+            if self.velocities is None:
+                pose = {n: p0[n] + (p1[n] - p0[n]) * s for n in self.names}
+            else:
+                v0, v1 = self.velocities[k], self.velocities[k + 1]
+                pose = {
+                    n: _hermite(p0[n], v0[n], p1[n], v1[n], t1 - t0, s)
+                    for n in self.names
+                }
+        # A Hermite segment can bulge slightly past a knot at a limit; the
+        # arm_node drops a whole command with one value out of range.
+        return {n: self.limits[n].clamp(pose[n]) for n in self.names}
 
 
-def plan_arm(
-    joints: list[ArmJoint],
-    command_joint_names: list[str],
-    points: list[tuple[str, float, float]],
-    *,
-    now: float = 0.0,
-    max_speed: float = 1.0,
-    start_pose: dict[str, float] | None = None,
+def _hermite(p0, v0, p1, v1, dt, s):
+    s2, s3 = s * s, s * s * s
+    return (
+        (2 * s3 - 3 * s2 + 1) * p0
+        + (s3 - 2 * s2 + s) * dt * v0
+        + (-2 * s3 + 3 * s2) * p1
+        + (s3 - s2) * dt * v1
+    )
+
+
+def _check_finite(values, what):
+    for v in values:
+        if not math.isfinite(v):
+            raise ValueError(f"{what} is not finite")
+
+
+def plan_trajectory(
+    limits, joint_names, points, start, now, start_tolerance
 ) -> ArmPlan:
-    """Plan ``points`` into a speed-bounded keyframe sequence.
+    """ArmPlan for a trajectory from the measured ``start`` pose; raises ValueError.
 
-    Args:
-        joints: position limits of the arm's joints (every joint that may
-            move); joints absent from this list are never clamped.
-        command_joint_names: full ``JointCommand`` joint list, in the order
-            the bridge publishes it; every point must name one of these.
-        points: trajectory points as ``(joint_name, position_rad,
-            time_from_start_s)``, with the times relative to ``now``.
-            Unsorted times and repeated joint/time pairs are fine; a joint
-            a point does not mention keeps its last value.
-        now: monotonic reference for the relative times.
-        max_speed: commanded-motion cap in rad/s. Declared times are the
-            *minimum* spacing between keyframes; the cap always wins.
-        start_pose: the arm's current position per joint (what the bridge
-            last commanded or measured); missing command joints start at 0.
-            Arm joints are clamped into their limits.
-
-    Raises:
-        ValueError: on duplicate or empty joint names, limits with min >
-            max, points naming joints outside ``command_joint_names``,
-            non-finite or negative values/times, a non-positive
-            ``max_speed``, or an empty trajectory.
+    limits: [JointLimits] for every arm joint, in command order.
+    joint_names: the trajectory's joints (a subset of the arm joints).
+    points: [Point] in the trajectory's order.
+    start: {joint: rad} measured now for every arm joint.
     """
-    if not math.isfinite(max_speed) or max_speed <= 0:
-        raise ValueError(f"max_speed must be positive and finite, got {max_speed}")
-    if not command_joint_names:
-        raise ValueError("command_joint_names is empty")
-    if len(set(command_joint_names)) != len(command_joint_names):
-        raise ValueError(f"duplicate joint names in {command_joint_names}")
+    order = tuple(j.name for j in limits)
+    by_name = {j.name: j for j in limits}
+    names = list(joint_names)
+    if not names:
+        raise ValueError("trajectory has no joint names")
+    if len(set(names)) != len(names):
+        raise ValueError(f"duplicate joint names {names}")
+    unknown = [n for n in names if n not in by_name]
+    if unknown:
+        raise ValueError(f"unknown joints {unknown} (this arm: {list(order)})")
     if not points:
         raise ValueError("trajectory has no points")
 
-    limits: dict[str, ArmJoint] = {}
-    for joint in joints:
-        if joint.min > joint.max:
-            raise ValueError(f"{joint.name}: min {joint.min} exceeds max {joint.max}")
-        if joint.name in limits:
-            raise ValueError(f"duplicate joint {joint.name}")
-        limits[joint.name] = joint
-
-    start = {name: 0.0 for name in command_joint_names}
-    if start_pose:
-        for name, value in start_pose.items():
-            if name not in start:
-                raise ValueError(f"start_pose joint {name!r} is not a command joint")
-            start[name] = float(value)
-    for name, joint in limits.items():
-        if name in start:
-            start[name], _ = joint.clamp(start[name])
-
-    by_time: dict[float, dict[str, float]] = {}
-    clamped: list[tuple[str, float, float]] = []
-    for point in points:
-        if len(point) != 3:
-            raise ValueError(f"trajectory point {point!r} is not (joint, value, time)")
-        joint_name, value, t = point
-        if joint_name not in command_joint_names:
+    hermite = all(len(p.velocities) for p in points)
+    times = [now]
+    positions = [{n: float(start[n]) for n in order}]
+    velocities = [{n: 0.0 for n in order}]
+    previous = 0.0
+    for k, point in enumerate(points):
+        if len(point.positions) != len(names):
             raise ValueError(
-                f"unknown joint {joint_name!r} (command joints: {command_joint_names})"
+                f"point {k}: {len(point.positions)} positions for {len(names)} joints"
             )
-        value = float(value)
-        if not math.isfinite(value):
-            raise ValueError(f"{joint_name}: position is not finite")
-        if not math.isfinite(t) or t < 0:
-            raise ValueError(f"{joint_name}: time_from_start {t} is invalid")
-        sent = value
-        joint = limits.get(joint_name)
-        if joint is not None:
-            sent, hit = joint.clamp(value)
-            if hit:
-                clamped.append((joint_name, value, sent))
-        by_time.setdefault(now + t, {})[joint_name] = sent
+        for field, values in (
+            ("velocities", point.velocities),
+            ("accelerations", point.accelerations),
+        ):
+            if len(values) not in (0, len(names)):
+                raise ValueError(
+                    f"point {k}: {len(values)} {field} for {len(names)} joints"
+                )
+            _check_finite(values, f"point {k}: a value in {field}")
+        _check_finite(point.positions, f"point {k}: a position")
+        _check_finite([point.time], f"point {k}: time_from_start")
 
-    # Absolute-time keyframes: the arm's start pose plus one per declared
-    # time, each carrying every joint at its latest value so far.
-    declared = dict(start)
-    keyframes: list[tuple[float, dict[str, float]]] = [(now, dict(start))]
-    for t in sorted(by_time):
-        declared.update(by_time[t])
-        keyframes.append((t, dict(declared)))
-
-    # Stretch in time until no joint exceeds max_speed; drop keyframes that
-    # only re-assert the pose. Stretched times are strictly increasing, so
-    # the path between consecutive keyframes is the motion actually taken.
-    stretched: list[tuple[float, dict[str, float]]] = [keyframes[0]]
-    for t, pose in keyframes[1:]:
-        prev_t, prev_pose = stretched[-1]
-        move = max(abs(pose[name] - prev_pose[name]) for name in command_joint_names)
-        if move < _EPSILON_RAD:
+        if k == 0 and point.time == 0.0:
+            for name, value in zip(names, point.positions):
+                gap = abs(value - start[name])
+                if gap > start_tolerance:
+                    raise ValueError(
+                        f"point 0 at time 0: {name} {value:+.3f} rad is {gap:.3f} rad "
+                        f"from the current position (start tolerance {start_tolerance})"
+                    )
             continue
-        stretched.append((prev_t + max(t - prev_t, move / max_speed), pose))
+        if point.time <= previous:
+            raise ValueError(f"point {k}: time_from_start does not increase")
+        previous = point.time
 
-    segments = [ArmSegment(send_at=t, targets=pose) for t, pose in stretched[1:]]
+        pose = dict(positions[-1])
+        speed = {n: 0.0 for n in order}
+        for i, name in enumerate(names):
+            joint = by_name[name]
+            value = float(point.positions[i])
+            if not joint.min <= value <= joint.max:
+                raise ValueError(
+                    f"point {k}: {name} {value:+.3f} rad is outside "
+                    f"[{joint.min:+.3f}, {joint.max:+.3f}]"
+                )
+            pose[name] = value
+            if point.velocities:
+                speed[name] = float(point.velocities[i])
+                _check_limit(joint, "velocity", speed[name], joint.max_velocity, k)
+            if point.accelerations:
+                _check_limit(
+                    joint,
+                    "acceleration",
+                    float(point.accelerations[i]),
+                    joint.max_acceleration,
+                    k,
+                )
+        times.append(now + point.time)
+        positions.append(pose)
+        velocities.append(speed)
+
+    if len(times) == 1:
+        # Only the start point: nothing to move.
+        times.append(now)
+        positions.append(dict(positions[0]))
+        velocities.append(dict(velocities[0]))
+    _check_segments(limits, times, positions, hermite)
     return ArmPlan(
-        names=list(command_joint_names),
-        start_time=now,
-        start_pose=stretched[0][1],
-        segments=segments,
-        end_time=stretched[-1][0],
-        clamped=clamped,
+        names=order,
+        limits=by_name,
+        times=times,
+        positions=positions,
+        velocities=velocities if hermite else None,
     )
+
+
+def _check_limit(joint, quantity, value, limit, k):
+    if abs(value) > limit * (1 + LIMIT_ALLOWANCE):
+        raise ValueError(
+            f"point {k}: {joint.name} {quantity} {abs(value):.3f} exceeds {limit:.3f}"
+        )
+
+
+def _check_segments(limits, times, positions, hermite):
+    """Mean velocity of every segment; for linear segments also the change of it.
+
+    A linear plan has no accelerations of its own, so the velocity change at
+    each knot (starting and ending at rest) over the time between the
+    neighbouring segment midpoints stands for one.
+    """
+    for joint in limits:
+        name = joint.name
+        mean = [0.0]  # at rest before the start
+        for k in range(1, len(times)):
+            dt = times[k] - times[k - 1]
+            if dt <= 0:
+                mean.append(0.0)
+                continue
+            v = (positions[k][name] - positions[k - 1][name]) / dt
+            if abs(v) > joint.max_velocity * (1 + LIMIT_ALLOWANCE):
+                raise ValueError(
+                    f"segment {k}: {name} moves at {abs(v):.3f} rad/s, "
+                    f"over its limit {joint.max_velocity:.3f}"
+                )
+            mean.append(v)
+        if hermite:
+            continue
+        mean.append(0.0)  # at rest after the end
+        spans = [0.0] + [times[k] - times[k - 1] for k in range(1, len(times))] + [0.0]
+        for k in range(len(mean) - 1):
+            between = (spans[k] + spans[k + 1]) / 2
+            if between <= 0:
+                continue
+            a = (mean[k + 1] - mean[k]) / between
+            if abs(a) > joint.max_acceleration * (1 + LIMIT_ALLOWANCE):
+                raise ValueError(
+                    f"knot {k}: {name} needs {abs(a):.3f} rad/s^2, over its limit "
+                    f"{joint.max_acceleration:.3f} (give the trajectory more time)"
+                )

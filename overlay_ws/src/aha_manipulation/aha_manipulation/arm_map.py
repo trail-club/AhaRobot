@@ -1,88 +1,99 @@
-"""Arm bus configuration for arm_trajectory_bridge.py, parsed from ROS parameters.
+"""Configuration of arm_trajectory_bridge.py (config/arm.yaml), from ROS parameters.
 
-The shape mirrors aha_servo's joint_map (one block per joint, defaults filled
-in) but keeps only what a hardware-driven arm needs: no Feetech ids/zero/sign,
-no encoder steps. Joint limits are radians.
+One bridge drives one arm. `joints` lists the five arm joints in the order of
+the arm_node's `joint_names`: the arm_node accepts a JointCommand only with
+exactly that name list. Each joint has a block (`<joint>.min`, ...) with its
+position limits (rad), `max_velocity` (rad/s) and `max_acceleration`
+(rad/s^2).
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .arm_plan import ArmJoint
+from .arm_plan import JointLimits
 
 BUS_DEFAULTS = {
-    "controller_name": "left_arm_controller",
-    "command_topic": "joint_command",
-    "state_topic": "joint_states",
-    "rate_hz": 30.0,
-    "max_speed": 1.0,
-    "goal_tolerance": 0.03,
-    "goal_timeout": 2.0,
-    "settle_time": 1.5,
-    "state_timeout": 0.3,
-    "closed_loop": True,
+    "controller_name": "right_arm_controller",
+    "command_topic": "/right/arm/joint_command",
+    "state_topic": "/joint_states",
+    "rate_hz": 50.0,  # command samples per second
+    "start_tolerance": 0.05,  # rad, a point at time 0 vs. the measured pose
+    "path_tolerance": 0.3,  # rad, sampled command vs. measured while moving
+    "goal_tolerance": 0.03,  # rad, final point vs. measured
+    "goal_time": 2.0,  # s after the last point to be within goal_tolerance
+    "state_timeout": 0.3,  # s, older joint states count as missing
 }
-JOINT_DEFAULTS = {"min": -3.14, "max": 3.14}
+JOINT_DEFAULTS = {
+    "min": -1.57,
+    "max": 1.57,
+    "max_velocity": 1.0,
+    "max_acceleration": 2.0,
+}
+JOINT_COUNT = 5
 
 
-@dataclass
-class ArmBusConfig:
+@dataclass(frozen=True)
+class ArmConfig:
     controller_name: str
     command_topic: str
     state_topic: str
     rate_hz: float
-    max_speed: float
+    start_tolerance: float
+    path_tolerance: float
     goal_tolerance: float
-    goal_timeout: float
-    settle_time: float
+    goal_time: float
     state_timeout: float
-    closed_loop: bool
-    # Full joint list used for the arm_node JointCommand `name`; arm joints
-    # beyond `joints` are held at `command_hold` (e.g. the gripper degree).
-    command_joint_names: list = field(default_factory=list)
-    command_hold: float = 0.0
-    hold_interval: float = 1.0
-    joints: list[ArmJoint] = field(default_factory=list)
+    joints: tuple  # JointLimits in command order
 
     @property
-    def joint_names(self) -> list:
+    def joint_names(self):
         return [j.name for j in self.joints]
 
 
-def parse_config(params: dict) -> ArmBusConfig:
-    bus = {**BUS_DEFAULTS, **params}
-    for key in (
-        "rate_hz",
-        "max_speed",
-        "goal_tolerance",
-        "goal_timeout",
-        "settle_time",
-        "state_timeout",
-    ):
-        bus[key] = float(bus[key])
-    bus["closed_loop"] = bool(bus["closed_loop"])
+def parse_config(params):
+    """ArmConfig from {key: value, joint: {key: value}}; raises ValueError."""
+    bus = {**BUS_DEFAULTS, **{k: params[k] for k in BUS_DEFAULTS if k in params}}
+    for key in ("controller_name", "command_topic", "state_topic"):
+        if not bus[key]:
+            raise ValueError(f"`{key}` is empty")
+    for key in ("rate_hz", "goal_tolerance", "goal_time", "state_timeout"):
+        if not float(bus[key]) > 0:
+            raise ValueError(f"`{key}` must be positive, got {bus[key]}")
+    for key in ("start_tolerance", "path_tolerance"):
+        if not float(bus[key]) >= 0:
+            raise ValueError(f"`{key}` must not be negative, got {bus[key]}")
 
+    names = list(params.get("joints", []))
+    if len(names) != JOINT_COUNT or len(set(names)) != JOINT_COUNT:
+        raise ValueError(
+            f"`joints` must name the {JOINT_COUNT} arm joints once each, got {names}"
+        )
     joints = []
-    for name in bus["joint_names"]:
+    for name in names:
         joint = {**JOINT_DEFAULTS, **params.get(name, {})}
-        joint["min"] = float(joint["min"])
-        joint["max"] = float(joint["max"])
-        if joint["min"] >= joint["max"]:
-            raise ValueError(f"{name}: min must be < max")
-        joints.append(ArmJoint(name, joint["min"], joint["max"]))
-    command_names = bus.get("command_joint_names") or [j.name for j in joints]
-    return ArmBusConfig(
+        lo, hi = float(joint["min"]), float(joint["max"])
+        if not lo < hi:
+            raise ValueError(f"{name}: min {lo} must be below max {hi}")
+        for key in ("max_velocity", "max_acceleration"):
+            if not float(joint[key]) > 0:
+                raise ValueError(f"{name}: `{key}` must be positive, got {joint[key]}")
+        joints.append(
+            JointLimits(
+                name,
+                lo,
+                hi,
+                float(joint["max_velocity"]),
+                float(joint["max_acceleration"]),
+            )
+        )
+    return ArmConfig(
         controller_name=str(bus["controller_name"]),
         command_topic=str(bus["command_topic"]),
         state_topic=str(bus["state_topic"]),
         rate_hz=float(bus["rate_hz"]),
-        max_speed=float(bus["max_speed"]),
+        start_tolerance=float(bus["start_tolerance"]),
+        path_tolerance=float(bus["path_tolerance"]),
         goal_tolerance=float(bus["goal_tolerance"]),
-        goal_timeout=float(bus["goal_timeout"]),
-        settle_time=float(bus["settle_time"]),
+        goal_time=float(bus["goal_time"]),
         state_timeout=float(bus["state_timeout"]),
-        closed_loop=bool(bus["closed_loop"]),
-        command_joint_names=list(command_names),
-        command_hold=float(bus.get("command_hold", 0.0)),
-        hold_interval=float(bus.get("hold_interval", 1.0)),
-        joints=joints,
+        joints=tuple(joints),
     )

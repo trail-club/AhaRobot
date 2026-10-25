@@ -1,153 +1,115 @@
-"""Unit tests for the pure arm planner (no ROS)."""
+"""aha_manipulation.arm_plan: trajectory checks and sampling (no ROS)."""
+
+import math
 
 import pytest
 
-from aha_manipulation.arm_plan import ArmJoint, plan_arm
+from aha_manipulation.arm_plan import JointLimits, Point, plan_trajectory
 
-NAMES = ["j0", "j1", "j2"]
-
-
-def _joints():
-    return [ArmJoint("j0", -1.5, 1.5), ArmJoint("j1", -3.0, 3.0), ArmJoint("j2", -1.0, 1.0)]
+NAMES = ["a", "b", "c"]
+LIMITS = [JointLimits(n, -1.0, 1.0, 1.0, 2.0) for n in NAMES]
+START = {"a": 0.1, "b": -0.2, "c": 0.0}
 
 
-def test_single_point_stretches_to_speed_cap():
-    plan = plan_arm(_joints(), NAMES, [("j0", 1.0, 0.0)], now=0.0, max_speed=2.0)
-    assert plan.segments[0].send_at == pytest.approx(0.5)
-    assert plan.end_time == pytest.approx(0.5)
-    assert plan.segments[0].targets["j0"] == pytest.approx(1.0)
+def plan(points, names=("a",), start=START, now=10.0, tolerance=0.05):
+    return plan_trajectory(LIMITS, list(names), points, start, now, tolerance)
 
 
-def test_declared_time_dominates_when_slow_enough():
-    plan = plan_arm(_joints(), NAMES, [("j0", 1.0, 5.0)], now=0.0, max_speed=2.0)
-    assert plan.segments[0].send_at == pytest.approx(5.0)
+def pt(positions, t, velocities=(), accelerations=()):
+    return Point(tuple(positions), tuple(velocities), tuple(accelerations), t)
 
 
-def test_speed_cap_dominates_when_time_too_short():
-    plan = plan_arm(_joints(), NAMES, [("j0", 1.0, 0.1)], now=0.0, max_speed=2.0)
-    assert plan.segments[0].send_at == pytest.approx(0.5)
+def test_linear_from_the_measured_start_and_others_hold():
+    p = plan([pt([0.6], 2.0)])
+    assert p.times == [10.0, 12.0]
+    assert p.sample(10.0) == START
+    assert p.sample(11.0) == pytest.approx({"a": 0.35, "b": -0.2, "c": 0.0})
+    assert p.sample(20.0) == p.final == {"a": 0.6, "b": -0.2, "c": 0.0}
+    assert p.velocities is None
 
 
-def test_slowest_joint_travel_stretches():
-    plan = plan_arm(_joints(), NAMES, [("j0", 0.5, 1.0), ("j1", 3.0, 1.0)], now=0.0, max_speed=1.0)
-    assert plan.segments[0].send_at == pytest.approx(3.0)
+def test_point_at_time_zero_is_replaced_by_the_start():
+    p = plan([pt([0.12], 0.0), pt([0.5], 1.0)])
+    assert p.times == [10.0, 11.0]
+    assert p.sample(10.0)["a"] == 0.1
 
 
-def test_unlisted_joints_hold_start_pose():
-    plan = plan_arm(
-        _joints(), NAMES, [("j0", 0.5, 1.0)], now=0.0, max_speed=1.0, start_pose={"j1": 0.25}
+def test_point_at_time_zero_far_from_the_start_is_rejected():
+    with pytest.raises(ValueError, match="from the current position"):
+        plan([pt([0.3], 0.0), pt([0.5], 1.0)])
+
+
+def test_only_a_start_point_holds_the_start():
+    p = plan([pt([0.1], 0.0)])
+    assert p.end_time == 10.0 and p.final == START
+
+
+def test_hermite_with_velocities_starts_and_ends_at_rest():
+    # 0.1 -> 0.5 in 1 s with zero end velocities: a smooth S curve.
+    p = plan([pt([0.1], 0.0, [0.0]), pt([0.5], 1.0, [0.0])])
+    assert p.velocities is not None
+    assert p.sample(10.5)["a"] == pytest.approx(0.3)
+    assert p.sample(10.1)["a"] - 0.1 < 0.02  # linear would be 0.04
+
+
+def test_samples_stay_inside_the_position_limits():
+    # A Hermite segment toward the limit with a large end velocity bulges past it.
+    limits = [JointLimits("a", -1.0, 1.0, 10.0, 100.0)]
+    p = plan_trajectory(
+        limits,
+        ["a"],
+        [pt([1.0], 0.5, [5.0]), pt([1.0], 1.0, [0.0])],
+        {"a": 0.0},
+        0.0,
+        0.05,
     )
-    assert plan.segments[0].targets["j0"] == pytest.approx(0.5)
-    assert plan.segments[0].targets["j1"] == pytest.approx(0.25)
-    assert plan.segments[0].targets["j2"] == pytest.approx(0.0)
+    samples = [p.sample(t / 100) for t in range(101)]
+    assert max(s["a"] for s in samples) == 1.0
 
 
-def test_static_keyframe_is_merged_away():
-    plan = plan_arm(_joints(), NAMES, [("j0", 0.2, 0.0), ("j0", 0.2, 3.0)], now=0.0, max_speed=1.0)
-    assert len(plan.segments) == 1
-    assert plan.segments[0].send_at == pytest.approx(0.2)
-    assert plan.position_at(3.0)["j0"] == pytest.approx(0.2)
+def test_positions_outside_the_limits_are_rejected():
+    with pytest.raises(ValueError, match="outside"):
+        plan([pt([1.2], 5.0)])
 
 
-def test_same_time_points_merge_into_one_keyframe():
-    plan = plan_arm(_joints(), NAMES, [("j0", 0.3, 0.0), ("j1", 0.4, 0.0)], now=0.0, max_speed=1.0)
-    assert len(plan.segments) == 1
-    assert plan.segments[0].targets["j1"] == pytest.approx(0.4)
-    assert plan.segments[0].targets["j2"] == pytest.approx(0.0)
+def test_too_fast_segment_is_rejected():
+    with pytest.raises(ValueError, match="rad/s"):
+        plan([pt([0.9], 0.5)])  # 0.8 rad in 0.5 s
 
 
-def test_clamping_is_recorded():
-    plan = plan_arm(_joints(), NAMES, [("j2", 2.0, 1.0)], now=0.0, max_speed=1.0)
-    assert plan.segments[0].targets["j2"] == pytest.approx(1.0)
-    assert plan.clamped == [("j2", 2.0, 1.0)]
+def test_too_fast_start_from_rest_is_rejected():
+    # From rest, d rad in T s needs 2 d / T^2 (velocity change over half the segment).
+    plan([pt([0.9], 1.0)])  # 0.8 rad/s, 1.6 rad/s^2
+    with pytest.raises(ValueError, match="rad/s\\^2"):
+        plan([pt([0.5], 0.4)])  # 1.0 rad/s, 5 rad/s^2
 
 
-def test_position_at_interpolates_and_holds():
-    plan = plan_arm(_joints(), NAMES, [("j0", 1.0, 1.0)], now=0.0, max_speed=10.0)
-    assert plan.position_at(-1.0)["j0"] == pytest.approx(0.0)
-    assert plan.position_at(0.0)["j0"] == pytest.approx(0.0)
-    assert plan.position_at(0.5)["j0"] == pytest.approx(0.5)
-    assert plan.position_at(1.0)["j0"] == pytest.approx(1.0)
-    assert plan.position_at(5.0)["j0"] == pytest.approx(1.0)
+def test_given_velocity_and_acceleration_over_the_limits_are_rejected():
+    with pytest.raises(ValueError, match="velocity"):
+        plan([pt([0.5], 1.0, [1.5])])
+    with pytest.raises(ValueError, match="acceleration"):
+        plan([pt([0.5], 1.0, [0.5], [3.0])])
 
 
-def test_dense_sampling_never_exceeds_max_speed():
-    points = [
-        ("j0", 0.8, 0.2),
-        ("j1", -2.5, 0.4),
-        ("j2", 0.9, 0.6),
-        ("j0", -1.2, 0.8),
-    ]
-    plan = plan_arm(_joints(), NAMES, points, now=100.0, max_speed=0.5)
-    limits = {"j0": (-1.5, 1.5), "j1": (-3.0, 3.0), "j2": (-1.0, 1.0)}
-    times = [100.0] + [segment.send_at for segment in plan.segments]
-    assert times == sorted(times)
-    assert all(a < b for a, b in zip(times, times[1:]))
-    t = 100.0
-    prev = plan.position_at(t)
-    steps = 0
-    while t < plan.end_time:
-        t += 0.01
-        current = plan.position_at(t)
-        for name in NAMES:
-            low, high = limits[name]
-            assert low - 1e-9 <= current[name] <= high + 1e-9
-            assert abs(current[name] - prev[name]) / 0.01 <= 0.5 + 1e-6
-        prev = current
-        steps += 1
-    assert steps > 20
+def test_limits_allow_roundoff():
+    # Exactly at the velocity limit plus a relative 1e-6.
+    plan([pt([0.1 + 0.5 * (1 + 1e-6)], 0.5, [1.0 + 1e-6])])
 
 
-def test_non_monotonic_times_normalize():
-    plan = plan_arm(_joints(), NAMES, [("j0", 0.5, 2.0), ("j0", -0.5, 0.5)], now=0.0, max_speed=1.0)
-    assert plan.end_time == pytest.approx(2.0)
-    assert plan.segments[0].send_at == pytest.approx(0.5)
-    assert plan.segments[0].targets["j0"] == pytest.approx(-0.5)
-    assert plan.segments[-1].targets["j0"] == pytest.approx(0.5)
-
-
-def test_start_pose_is_clamped():
-    plan = plan_arm(
-        _joints(), NAMES, [("j0", 0.5, 1.0)], now=0.0, max_speed=1.0, start_pose={"j0": 9.9}
-    )
-    assert plan.start_pose["j0"] == pytest.approx(1.5)
-
-
-def test_empty_trajectory_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [])
-
-
-def test_unknown_joint_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [("j9", 0.0, 0.0)])
-
-
-def test_duplicate_command_names_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), ["j0", "j0"], [("j0", 0.0, 0.0)])
-
-
-def test_bad_limits_rejected():
-    with pytest.raises(ValueError):
-        plan_arm([ArmJoint("j0", 1.0, -1.0)], ["j0"], [("j0", 0.0, 0.0)])
-
-
-def test_non_finite_value_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [("j0", float("nan"), 0.0)])
-
-
-def test_negative_time_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [("j0", 0.1, -0.5)])
-
-
-def test_zero_max_speed_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [("j0", 0.1, 0.0)], max_speed=0.0)
-
-
-def test_bad_start_pose_name_rejected():
-    with pytest.raises(ValueError):
-        plan_arm(_joints(), NAMES, [("j0", 0.1, 0.0)], start_pose={"j9": 1.0})
+@pytest.mark.parametrize(
+    "names,points,match",
+    [
+        ([], [pt([], 1.0)], "no joint names"),
+        (["a", "a"], [pt([0.1, 0.1], 1.0)], "duplicate"),
+        (["x"], [pt([0.1], 1.0)], "unknown joints"),
+        (["a"], [], "no points"),
+        (["a"], [pt([0.1, 0.2], 1.0)], "positions for"),
+        (["a"], [pt([0.1], 1.0, [0.0, 0.0])], "velocities for"),
+        (["a"], [pt([math.nan], 1.0)], "not finite"),
+        (["a"], [pt([0.2], 1.0), pt([0.3], 1.0)], "does not increase"),
+        (["a"], [pt([0.2], -1.0)], "does not increase"),
+    ],
+)
+def test_malformed_trajectories_are_rejected(names, points, match):
+    with pytest.raises(ValueError, match=match):
+        plan(points, names=names)

@@ -1,93 +1,94 @@
 #!/usr/bin/env python3
-"""Minimal arm stand-in for aha_manipulation tests.
+"""Stand-in for the upstream astra_controller arm_node in the bridge tests.
 
-Mirrors the upstream ``astra_controller`` ``arm_node`` command interface: it
-accepts a ``JointCommand`` on ``command_topic`` and re-emits its positions as a
-``JointState`` on ``state_topic``. With ``max_rate: 0`` (default) it reaches
-each goal instantaneously; with ``max_rate > 0`` it slews toward the commanded
-pose at that rad/s, mimicking the real firmware's own ramp so tests can verify
-closed-loop tracking.
+Like the arm_node it takes a JointCommand on `command_topic` only with
+exactly `joint_names` (others are counted on `fake/rejected`, where the
+arm_node would raise) and publishes the joint feedback on `state_topic`. The
+joints start at `initial` and move toward the goal at `max_rate` rad/s.
 
-Topics are relative, so running the node in a namespace (or leaving it in the
-root) with matching ``command_topic`` / ``state_topic`` params is all the test
-needs.
+Test controls (std_msgs/Bool): `fake/stall` stops the motion, `fake/mute`
+stops the feedback.
 """
 
-import argparse
-import threading
-
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from astra_controller_interfaces.msg import JointCommand
 from rclpy.node import Node
-from rclpy.parameter import Parameter
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool, UInt32
 
 
 class FakeArm(Node):
-    def __init__(self, *, name="fake_arm", context=None, params_file=None) -> None:
-        overrides = (
-            [Parameter("parameters_file", Parameter.Type.STRING, params_file)]
-            if params_file
-            else []
-        )
-        super().__init__(name, namespace="", context=context, parameter_overrides=overrides)
-        self.declare_parameter("joint_names", ["joint_a1", "joint_a2", "joint_a3", "joint_a4", "joint_a5"])
-        self.declare_parameter("command_topic", "arm/joint_command")
-        self.declare_parameter("state_topic", "arm/joint_states")
-        self.declare_parameter("publish_rate", 50.0)
-        self.declare_parameter("max_rate", 0.0)
+    def __init__(self):
+        super().__init__("fake_arm")
+        self.names = list(self.declare_parameter("joint_names", [""]).value)
+        initial = list(self.declare_parameter("initial", [0.0] * len(self.names)).value)
+        self.max_rate = self.declare_parameter("max_rate", 2.0).value
+        rate = self.declare_parameter("publish_rate", 50.0).value
+        self.dt = 1.0 / rate
+        self.position = dict(zip(self.names, initial))
+        self.goal = dict(self.position)
+        self.stall = False
+        self.mute = False
+        self.rejected = 0
 
-        self._joint_names = list(self.get_parameter("joint_names").value)
-        self._position = {name: 0.0 for name in self._joint_names}
-        self._target = {name: 0.0 for name in self._joint_names}
-        self._max_rate = float(self.get_parameter("max_rate").value)
-        self._dt = 1.0 / float(self.get_parameter("publish_rate").value)
-        self._lock = threading.Lock()
-
-        self._pub_state = self.create_publisher(
-            JointState, self.get_parameter("state_topic").value, 10
+        self.state_pub = self.create_publisher(
+            JointState, self.declare_parameter("state_topic", "/joint_states").value, 10
         )
+        self.rejected_pub = self.create_publisher(UInt32, "fake/rejected", 10)
+        # Same QoS as the arm_node's subscription.
         self.create_subscription(
-            JointCommand, self.get_parameter("command_topic").value, self._on_command, 10
+            JointCommand,
+            self.declare_parameter("command_topic", "joint_command").value,
+            self._on_command,
+            qos_profile_sensor_data,
         )
-        self._timer = self.create_timer(
-            1.0 / float(self.get_parameter("publish_rate").value), self._publish_state
+        self.create_subscription(Bool, "fake/stall", self._on_stall, 10)
+        self.create_subscription(Bool, "fake/mute", self._on_mute, 10)
+        self.create_timer(self.dt, self._step)
+
+    def _on_command(self, msg):
+        if list(msg.name) != self.names:
+            self.rejected += 1
+            return
+        self.goal = dict(zip(self.names, msg.position_cmd))
+
+    def _on_stall(self, msg):
+        self.stall = msg.data
+
+    def _on_mute(self, msg):
+        self.mute = msg.data
+
+    def _step(self):
+        if not self.stall:
+            step = self.max_rate * self.dt
+            for name in self.names:
+                diff = self.goal[name] - self.position[name]
+                self.position[name] += max(-step, min(step, diff))
+        self.rejected_pub.publish(UInt32(data=self.rejected))
+        if self.mute:
+            return
+        msg = JointState(name=list(self.names))
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.position = [self.position[n] for n in self.names]
+        self.state_pub.publish(msg)
+        # The arm_node publishes the gripper on the same topic (arms.launch.py).
+        self.state_pub.publish(
+            JointState(name=["joint_l7l", "joint_l7r"], position=[0.0, 0.0])
         )
 
-    def _on_command(self, msg: JointCommand) -> None:
-        with self._lock:
-            for name, position in zip(msg.name, msg.position_cmd):
-                if name in self._target:
-                    self._target[name] = float(position)
 
-    def _publish_state(self) -> None:
-        with self._lock:
-            if self._max_rate > 0.0:
-                # Slew toward the commanded pose, like the real firmware ramp.
-                limit = self._max_rate * self._dt
-                for name in self._joint_names:
-                    diff = self._target[name] - self._position[name]
-                    self._position[name] += max(-limit, min(limit, diff))
-            else:
-                self._position = dict(self._target)
-            msg = JointState()
-            msg.header.stamp = self.get_clock().now().to_msg()
-            msg.name = list(self._joint_names)
-            msg.position = [self._position[name] for name in self._joint_names]
-        self._pub_state.publish(msg)
-
-
-def main(args=None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--params-file", default=None)
-    parsed, _ = parser.parse_known_args(args)
-    rclpy.init(args=args)
-    node = FakeArm(name="fake_arm", context=rclpy.get_default_context(), params_file=parsed.params_file)
-    rclpy.spin(node)
+def main():
+    rclpy.init()
+    node = FakeArm()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     node.destroy_node()
-    rclpy.shutdown()
-    return 0
+    rclpy.try_shutdown()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

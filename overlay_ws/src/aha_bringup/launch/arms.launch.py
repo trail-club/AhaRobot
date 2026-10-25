@@ -1,4 +1,7 @@
-"""実機の左右 arm_node を上げる。
+"""実機の左右 arm_node と、腕ごとの軌道ブリッジを上げる。
+
+ブリッジ（aha_manipulation の arm_trajectory_bridge.py、`trajectory_bridge:=false` で止める）は
+`/<side>_arm_controller` の軌道を受けたときだけ arm_node へ指令を送る。
 
 キーボード教示はここに含めない。`ros2 launch` はキーを渡さないので、
 別の対話シェルで `ros2 run aha_arm_teleop keyboard_teleop` する。
@@ -15,11 +18,28 @@ from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import (
+    AndSubstitution,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 DEFAULT_BAG_DIR = os.environ.get("AHA_BAG_DIR", "/app/overlay_ws/bags")
 JST = timezone(timedelta(hours=9), "JST")
+# side -> (arm_node joint_names, gripper_joint_names). The bridge's `joints`
+# in aha_manipulation/config/arm.yaml use the same order.
+ARMS = {
+    "left": (
+        ["joint_l2", "joint_l3", "joint_l4", "joint_l5", "joint_l6"],
+        ["joint_l7l", "joint_l7r"],
+    ),
+    "right": (
+        ["joint_r2", "joint_r3", "joint_r4", "joint_r5", "joint_r6"],
+        ["joint_r7l", "joint_r7r"],
+    ),
+}
 
 
 def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
@@ -39,6 +59,27 @@ def _arm(side: str, joints: list[str], grippers: list[str]) -> Node:
             ("gripper_joint_states", "/joint_states"),
         ],
         condition=IfCondition(LaunchConfiguration(f"use_{side}")),
+        output="screen",
+        emulate_tty=True,
+    )
+
+
+def _bridge(side: str) -> Node:
+    return Node(
+        package="aha_manipulation",
+        executable="arm_trajectory_bridge.py",
+        name=f"aha_{side}_arm_bridge",
+        parameters=[
+            PathJoinSubstitution(
+                [FindPackageShare("aha_manipulation"), "config", "arm.yaml"]
+            )
+        ],
+        condition=IfCondition(
+            AndSubstitution(
+                LaunchConfiguration(f"use_{side}"),
+                LaunchConfiguration("trajectory_bridge"),
+            )
+        ),
         output="screen",
         emulate_tty=True,
     )
@@ -70,18 +111,11 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("use_left", default_value="true"),
             DeclareLaunchArgument("use_right", default_value="true"),
+            DeclareLaunchArgument("trajectory_bridge", default_value="true"),
             DeclareLaunchArgument("record", default_value="true"),
             DeclareLaunchArgument("bag_dir", default_value=DEFAULT_BAG_DIR),
-            _arm(
-                "left",
-                ["joint_l2", "joint_l3", "joint_l4", "joint_l5", "joint_l6"],
-                ["joint_l7l", "joint_l7r"],
-            ),
-            _arm(
-                "right",
-                ["joint_r2", "joint_r3", "joint_r4", "joint_r5", "joint_r6"],
-                ["joint_r7l", "joint_r7r"],
-            ),
+            *(_arm(side, *ARMS[side]) for side in ARMS),
+            *(_bridge(side) for side in ARMS),
             OpaqueFunction(function=_record),
         ]
     )
