@@ -16,7 +16,9 @@ head:
   pan_xyz: [0.09, 0.0, 0.402]
   tilt_offset: [0.0, 0.0, 0.0]
 
-# camera: bracket design values of sensors.xacro (not measured on the robot).
+# camera: camera_plane_calibrate.py against the floor, head:=imu (tilt 17.9 deg
+# down, pan 0), 2026-10-25 (docs/context/camera.md); was the bracket design.
+camera: {xyz: [0.0476, -0.0146, -0.0000], rpy: [1.5410, 0.0101, 0.0005]}
 
 arms:
   # shoulder_xyz: joint_<l|r>2 axis at the middle of the upper arm bar, which
