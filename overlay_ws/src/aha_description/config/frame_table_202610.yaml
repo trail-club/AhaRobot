@@ -12,8 +12,9 @@ head:
   # The head is Astra's (HeadYaw base, pan servo, tilt bracket): the tilt axis
   # crosses the pan axis, and the base's top is 0.0976 m above them. The base
   # hangs at the end of the 30x60 bar with its top at the column top (0.50 m,
-  # measured) -> 0.402. x: photo (9 cm in front of the column).
-  pan_xyz: [0.09, 0.0, 0.402]
+  # measured) -> 0.402. x: 12 cm in front of the column (photo estimate 9 cm,
+  # 3 cm further forward by the user's check of the model).
+  pan_xyz: [0.12, 0.0, 0.402]
   tilt_offset: [0.0, 0.0, 0.0]
 
 # camera: camera_plane_calibrate.py against the floor, head:=imu (tilt 17.9 deg
@@ -37,9 +38,10 @@ extrusions:
   # Center column: two 30x30 bars side by side, measured 0.50 m high; stands
   # on the table behind the bottom profile.
   - {name: column, from: [0.0, 0.0, 0.0], to: [0.0, 0.0, 0.50], section: [0.06, 0.03]}
-  # 30x60 bar on the column's front face, top flush with the column top, to
-  # the head base's back (pan axis - 0.06); length follows the photo pan x.
-  - {name: head_bar, from: [0.015, 0.0, 0.485], to: [0.03, 0.0, 0.485], section: [0.06, 0.03]}
+  # 30x60 bar on the column's front face, top flush with the column top, into
+  # the head base: at the bar's height the base's mesh starts 0.039-0.05 m
+  # behind the pan axis (its bottom plate 0.06 m), so the bar ends at pan - 0.04.
+  - {name: head_bar, from: [0.015, 0.0, 0.485], to: [0.08, 0.0, 0.485], section: [0.06, 0.03]}
   # Arm towers: 30x120 profiles (x 0 to 0.09 between the slot centers),
   # outer faces 0.32 apart (measured); height (photo).
   - {name: left_tower, from: [0.045, 0.145, 0.0], to: [0.045, 0.145, 0.32], section: [0.03, 0.12]}
