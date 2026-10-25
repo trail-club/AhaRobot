@@ -62,12 +62,20 @@ def test_head_modes(module, monkeypatch):
     for head, executable in (
         ("servo", "servo_trajectory_bridge.py"),
         ("manual", "manual_head.py"),
+        ("imu", "imu_head.py"),
     ):
         context = context_with_defaults(module, head=head)
         (node,) = recorded_nodes(module, monkeypatch, module._head, context)
         assert node.executable == executable and not hasattr(node, "remappings")
     context = context_with_defaults(module, head="none")
     assert recorded_nodes(module, monkeypatch, module._head, context) == []
+
+
+def test_camera_imu_only_for_the_imu_head(module):
+    for head, imu in (("imu", "true"), ("servo", "false")):
+        (include,) = module._camera(context_with_defaults(module, head=head))
+        assert dict(include.launch_arguments)["imu"] == imu
+    assert module._camera(context_with_defaults(module, camera="false")) == []
 
 
 def test_head_port_overrides_the_servo_config(module, monkeypatch):

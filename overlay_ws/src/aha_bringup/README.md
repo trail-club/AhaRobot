@@ -46,8 +46,8 @@ plane detection and RViz (topics in [ROS interfaces](../../../docs/interfaces.md
 | `arms` / `use_left` / `use_right` | `true` | Arms (`arms.launch.py`) |
 | `right_device` / `left_device` / `head_port` | `/dev/ttyUSB0` / `/dev/ttyUSB2` / `/dev/ttyUSB1` | Boards in the order of the USB hub ports; the numbers follow the USB enumeration |
 | `trajectory_bridge` / `record` | `true` / `false` | Passed to `arms.launch.py` (whose own `record` default is `true`) |
-| `head` | `servo` | `servo`, `manual` (commanded angles as the state) or `none` |
-| `camera` / `planes` / `rviz` | `true` | D435i (without its IMU) and point cloud / plane detection (`furniture_config`) / RViz |
+| `head` | `servo` | `servo`, `manual` (commanded angles as the state), `imu` (tilt from the D435i IMU, no servos) or `none` |
+| `camera` / `planes` / `rviz` | `true` | D435i (its IMU only with `head:=imu`) and point cloud / plane detection (`furniture_config`) / RViz |
 
 The arms need the host-side sign patch on `upstream/astra_controller`
 ([patches](../../../patches/README.md#astra_controller用パッチ)); without it the arms read mirrored angles.

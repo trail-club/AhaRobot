@@ -17,8 +17,11 @@ Starts:
                  trajectory_bridge and record passed through)
   - head:=servo  aha_servo servo_trajectory_bridge.py on head_port
                  head:=manual  aha_perception manual_head.py (no servos)
+                 head:=imu     aha_perception imu_head.py: no servos, tilt from
+                               the D435i IMU, pan from the commanded angle
                  head:=none    nothing (the head reads 0)
-  - camera:=true aha_perception realsense.launch.py and pointcloud.launch.py
+  - camera:=true aha_perception realsense.launch.py (IMU only for head:=imu)
+                 and pointcloud.launch.py
   - planes:=true aha_perception plane_detection.launch.py (furniture_config)
   - rviz:=true   aha_perception sim_view.launch.py (fixed frame
                  base_footprint, control panel and head look-at)
@@ -93,16 +96,33 @@ def _head(context):
                 output="screen",
             )
         ]
-    if head == "manual":
+    if head in ("manual", "imu"):
+        executable = "manual_head.py" if head == "manual" else "imu_head.py"
+        parameters = [str(_share("aha_perception") / "config" / "head.yaml")]
+        if head == "imu":
+            parameters.append({"mode": "state"})
         return [
             Node(
                 package="aha_perception",
-                executable="manual_head.py",
-                parameters=[str(_share("aha_perception") / "config" / "head.yaml")],
+                executable=executable,
+                parameters=parameters,
                 output="screen",
             )
         ]
     return []
+
+
+def _camera(context):
+    if LaunchConfiguration("camera").perform(context).lower() not in ("true", "1"):
+        return []
+    imu = LaunchConfiguration("head").perform(context) == "imu"
+    return [
+        IncludeLaunchDescription(
+            _launch("aha_perception", "realsense.launch.py"),
+            # The IMU's HID stream is opened only when the head tilt uses it.
+            launch_arguments={"imu": "true" if imu else "false"}.items(),
+        )
+    ]
 
 
 def generate_launch_description():
@@ -130,12 +150,6 @@ def generate_launch_description():
             "record": LaunchConfiguration("record"),
         }.items(),
         condition=IfCondition(LaunchConfiguration("arms")),
-    )
-    camera = IncludeLaunchDescription(
-        _launch("aha_perception", "realsense.launch.py"),
-        # No IMU user here (no head:=imu); its HID stream is not opened.
-        launch_arguments={"imu": "false"}.items(),
-        condition=IfCondition(LaunchConfiguration("camera")),
     )
     pointcloud = IncludeLaunchDescription(
         _launch("aha_perception", "pointcloud.launch.py"),
@@ -184,9 +198,10 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "head",
                 default_value="servo",
-                choices=["servo", "manual", "none"],
+                choices=["servo", "manual", "imu", "none"],
                 description="servo: head servos on head_port; manual: commanded "
-                "angles as the state (manual_head.py); none: no head node",
+                "angles as the state (manual_head.py); imu: tilt from the D435i "
+                "IMU (imu_head.py); none: no head node",
             ),
             DeclareLaunchArgument("head_port", default_value="/dev/ttyUSB1"),
             DeclareLaunchArgument("camera", default_value="true"),
@@ -202,7 +217,7 @@ def generate_launch_description():
             joint_states,
             arms,
             OpaqueFunction(function=_head),
-            camera,
+            OpaqueFunction(function=_camera),
             pointcloud,
             planes,
             rviz,
