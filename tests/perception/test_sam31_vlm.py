@@ -346,43 +346,52 @@ class PipelineTests(unittest.TestCase):
 
 
 class ClientTests(unittest.TestCase):
-    def reply(self, content):
-        response = BytesIO(json.dumps({"message": {"content": content}}).encode())
+    def reply(self, content, reasoning=""):
+        message = {"content": content, "reasoning_content": reasoning}
+        response = BytesIO(json.dumps({"choices": [{"message": message}]}).encode())
         response.__enter__ = lambda self=response: self
         response.__exit__ = lambda *args: None
         return response
 
     def test_request_sends_the_image_and_returns_the_answer(self):
-        client = sam31_vlm.OllamaClient("http://dgx:11434/", "qwen3-vl:30b")
+        client = sam31_vlm.VlmClient("http://dgx:8080/v1/", "qwen3.8-27b")
         with patch.object(
-            sam31_vlm.urllib.request, "urlopen", return_value=self.reply('{"keep": []}')
+            sam31_vlm.urllib.request,
+            "urlopen",
+            return_value=self.reply('{"keep": []}', "thought"),
         ) as urlopen:
             self.assertEqual(
                 client.ask("pick", np.zeros((4, 4, 3), np.uint8)), '{"keep": []}'
             )
+        self.assertEqual(client.last_thinking, "thought")
         request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://dgx:11434/api/chat")
+        self.assertEqual(request.full_url, "http://dgx:8080/v1/chat/completions")
         body = json.loads(request.data)
-        self.assertEqual(body["model"], "qwen3-vl:30b")
-        self.assertTrue(body["messages"][0]["images"][0])
+        self.assertEqual(body["model"], "qwen3.8-27b")
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+        text, image = body["messages"][0]["content"]
+        self.assertEqual(text, {"type": "text", "text": "pick"})
+        self.assertTrue(image["image_url"]["url"].startswith("data:image/png;base64,"))
 
     def test_request_sends_every_image_in_order(self):
-        client = sam31_vlm.OllamaClient()
+        client = sam31_vlm.VlmClient()
         photo = np.zeros((4, 4, 3), np.uint8)
         with patch.object(
             sam31_vlm.urllib.request, "urlopen", return_value=self.reply('{"keep": []}')
         ) as urlopen:
             client.ask("pick", photo, np.full((2, 2, 3), 255, np.uint8))
-        images = json.loads(urlopen.call_args.args[0].data)["messages"][0]["images"]
+        content = json.loads(urlopen.call_args.args[0].data)["messages"][0]["content"]
+        images = [part["image_url"]["url"] for part in content[1:]]
         self.assertEqual(len(images), 2)
-        decoded = sam31_vlm.Image.open(BytesIO(base64.b64decode(images[0])))
+        encoded = images[0].split(",", 1)[1]
+        decoded = sam31_vlm.Image.open(BytesIO(base64.b64decode(encoded)))
         self.assertEqual(decoded.size, (4, 4))
 
     def test_empty_answer_and_unreachable_server_are_errors(self):
-        client = sam31_vlm.OllamaClient()
+        client = sam31_vlm.VlmClient()
         image = np.zeros((4, 4, 3), np.uint8)
         with patch.object(
-            sam31_vlm.urllib.request, "urlopen", return_value=self.reply("")
+            sam31_vlm.urllib.request, "urlopen", return_value=self.reply("", "long")
         ):
             with self.assertRaisesRegex(RuntimeError, "no answer"):
                 client.ask("pick", image)
