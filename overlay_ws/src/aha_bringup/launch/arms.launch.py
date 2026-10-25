@@ -2,7 +2,8 @@
 
 ブリッジ（aha_manipulation の arm_trajectory_bridge.py、`trajectory_bridge:=false` で止める）は
 `/<side>_arm_controller` と `/lift_controller` の軌道を受けたときだけ arm_node / lift_node へ指令を送る。
-昇降は `use_<side>_lift`（既定は `use_<side>` と同じ）で左右ごとに止められる。
+昇降の lift_node は `use_<side>_lift:=true` で左右ごとに起動する（既定は起動しない）。
+デバイス名の既定は upstream AstraFirmwares の udev 規則（99-astra-fixed-port.rules）の名前。
 
 arm_node の腕とグリッパの関節状態は `/<side>/arm/joint_states`、lift_node の昇降は
 `/<side>/lift/joint_states` に出す。`/joint_states` へは joint_state_publisher の `source_list` で
@@ -182,12 +183,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("use_left", default_value="true"),
             DeclareLaunchArgument("use_right", default_value="true"),
-            DeclareLaunchArgument(
-                "use_left_lift", default_value=LaunchConfiguration("use_left")
-            ),
-            DeclareLaunchArgument(
-                "use_right_lift", default_value=LaunchConfiguration("use_right")
-            ),
+            DeclareLaunchArgument("use_left_lift", default_value="false"),
+            DeclareLaunchArgument("use_right_lift", default_value="false"),
             DeclareLaunchArgument("trajectory_bridge", default_value="true"),
             DeclareLaunchArgument("record", default_value="true"),
             DeclareLaunchArgument("bag_dir", default_value=DEFAULT_BAG_DIR),

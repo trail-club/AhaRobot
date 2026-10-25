@@ -38,8 +38,8 @@ Behaviour:
     the current time, or when the state goes stale; succeeds when every joint
     is within `goal_tolerance` (or the goal's) of the final point, aborts
     `goal_time` s (or goal_time_tolerance) after the last point.
-  - Cancel, an abort for tolerance and an empty trajectory hold the measured
-    position. A newer topic command or goal preempts (aborts) the running
+  - Cancel and an abort for tolerance hold the measured position of the
+    goal's groups, an empty trajectory that of every group. A newer topic command or goal preempts (aborts) the running
     goal. A stale state stops sending, so the arm stays at the last sample.
   - Partial joint lists are accepted; the other joints of the same groups
     keep their position.
@@ -276,21 +276,20 @@ class ArmTrajectoryBridge(Node):
             self._send(plan.sample(time.monotonic()))
         return self.plan_seq
 
-    def _hold(self, reason, replace_seq=None):
-        """Stop every group with a fresh state at its measured position.
+    def _hold(self, reason, replace_seq=None, joints=None):
+        """Stop the groups of `joints` (all groups for None) at the measured position.
 
-        With `replace_seq`, only while that plan is current.
+        Groups without a fresh state get nothing. With `replace_seq`, only
+        while that plan is current.
         """
         with self.lock:
             if replace_seq is not None and self.plan_seq != replace_seq:
                 return
             now = time.monotonic()
-            stale = self._stale(now)
+            groups = self._groups_of(joints) if joints else self.cfg.groups
+            stale = [n for g in groups for n in self._stale(now, g.names)]
             names = tuple(
-                n
-                for g in self.cfg.groups
-                if not self._stale(now, g.names)
-                for n in g.names
+                n for g in groups if not self._stale(now, g.names) for n in g.names
             )
             if not names:
                 self._install(None)
@@ -371,7 +370,7 @@ class ArmTrajectoryBridge(Node):
                 current = {n: self.positions[n] for n in names}
                 stale = self._stale(now, plan.names)
             if goal_handle.is_cancel_requested:
-                self._hold("goal canceled", seq)
+                self._hold("goal canceled", seq, plan.names)
                 goal_handle.canceled()
                 result.error_string = "canceled"
                 return result
@@ -386,7 +385,7 @@ class ArmTrajectoryBridge(Node):
                 result.error_string = (
                     f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s"
                 )
-                return self._abort(goal_handle, result, seq, hold=False)
+                return self._abort(goal_handle, result, seq, plan, hold=False)
 
             desired = plan.sample(now)
             feedback.header.stamp = self.get_clock().now().to_msg()
@@ -404,7 +403,7 @@ class ArmTrajectoryBridge(Node):
                 if off:
                     result.error_code = Result.PATH_TOLERANCE_VIOLATED
                     result.error_string = "off the path: " + ", ".join(off)
-                    return self._abort(goal_handle, result, seq)
+                    return self._abort(goal_handle, result, seq, plan)
                 continue
             errors = {n: final[n] - current[n] for n in names}
             if all(abs(e) <= goal_tol[n] for n, e in errors.items()):
@@ -418,13 +417,13 @@ class ArmTrajectoryBridge(Node):
                     for n, e in errors.items()
                     if abs(e) > goal_tol[n]
                 )
-                return self._abort(goal_handle, result, seq)
+                return self._abort(goal_handle, result, seq, plan)
 
-    def _abort(self, goal_handle, result, seq, hold=True):
+    def _abort(self, goal_handle, result, seq, plan, hold=True):
         self.get_logger().warning(f"goal aborted, {result.error_string}")
         if hold:
             # Stop the failed motion, as JointTrajectoryController does.
-            self._hold("goal aborted", seq)
+            self._hold("goal aborted", seq, plan.names)
         else:
             with self.lock:
                 if self.plan_seq == seq:

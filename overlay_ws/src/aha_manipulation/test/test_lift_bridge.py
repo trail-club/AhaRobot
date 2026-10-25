@@ -203,6 +203,22 @@ class LiftBridgeTest(unittest.TestCase):
             {PARAMS[j]["command_topic"]: {(j,)} for j in ("joint_l1", "joint_r1")},
         )
 
+    def test_5_cancel_holds_only_the_goal_lift(self):
+        self.settle()
+        r1 = self.position("joint_r1")
+        t0 = time.monotonic()
+        handle = self.send_goal(arm.trajectory(["joint_r1"], [([r1 + 0.2], 4.0)]))
+        self.assertTrue(handle.accepted)
+        time.sleep(1.0)
+        cancel = handle.cancel_goal_async()
+        self.wait_for(cancel.done, 5.0, "cancel response")
+        self.assertEqual(self.wait_result(handle).status, GoalStatus.STATUS_CANCELED)
+        self.settle()
+        topics = {c[1] for c in self.commands_since(t0)}
+        self.assertEqual(topics, {PARAMS["joint_r1"]["command_topic"]})
+        last = [c for c in self.commands_since(t0)][-1]
+        self.assertAlmostEqual(last[3][0], self.position("joint_r1"), delta=0.01)
+
 
 if __name__ == "__main__":
     unittest.main()

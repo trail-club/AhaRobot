@@ -112,6 +112,9 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 `arm_node` は指令ごとに腕の基板へ目標を書き、基板が台形速度で目標へ動かす。
 
 昇降も同じスクリプトを [config/lift.yaml](config/lift.yaml) で起動する（node名 `aha_lift_bridge`）。
+`arms.launch.py` は `use_<side>_lift:=true` で左右の `lift_node` とこのブリッジを起動する。
+`lift_node` のデバイス名の既定（`/dev/tty_puppet_lift_<side>`）はupstream AstraFirmwaresのudev規則の名前で、
+違うときは `<side>_lift_device` で渡す。
 `/lift_controller/joint_trajectory` と `follow_joint_trajectory`（`joint_l1` / `joint_r1`、m）を受け、
 左右の `lift_node` の `/<side>/lift/joint_command` へ1関節ずつ送り、`/<side>/lift/joint_states` を読む。
 軌道が名前を含む側の昇降だけに指令し、その側の関節状態だけを必要とするため、片側の昇降だけでも動く。
@@ -127,7 +130,8 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 - actionは、実測が補間の現在値から `path_tolerance` を超えて離れたとき、または関節状態が `state_timeout` 途絶えたときに中断する。
   最終点から `goal_tolerance` 以内に入れば成功、最終点の時刻から `goal_time` 秒以内に入らなければ中断する。
   goalの `path_tolerance` / `goal_tolerance` / `goal_time_tolerance` が指定されていればそれを使う。
-- 取り消し・許容誤差による中断・空の軌道では、実測の位置を指令して止める。関節状態の途絶では指令を止める。
+- 取り消し・許容誤差による中断では、そのgoalの関節の指令グループに、空の軌道では全グループに、実測の位置を指令して止める。
+  関節状態の途絶では指令を止める。
   新しい軌道は実行中のgoalを中断する。
 - 起動時と待機中は指令を送らない。関節状態が届くまで軌道を受け付けない。
 

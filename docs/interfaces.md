@@ -224,7 +224,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 ## 実機のアーム
 
 `aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と
-`lift_node`（`/<side>/lift` namespace）、
+`lift_node`（`/<side>/lift` namespace、`use_<side>_lift:=true` のとき）、
 [aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py`（腕ごとと昇降）を起動する。
 ブリッジはシミュレーションと同じ名前・型の軌道入力を提供する。`<side>` は `left` / `right`。
 シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
