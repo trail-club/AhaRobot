@@ -11,8 +11,11 @@ builds the plan:
 - Knots are the measured start pose at ``now`` and one full pose per point.
   Joints the trajectory does not name keep their start position.
 - A point at ``time_from_start`` 0 is the start (MoveIt sends the current
-  state there): it must be within ``start_tolerance`` of the measured pose
-  and is replaced by it.
+  state there): it must be within ``start_tolerance`` of the measured pose.
+  The plan keeps the trajectory's shape and adds the gap to the measured pose
+  fading linearly to 0 at the last point, so the arm starts where it is and
+  a short first segment does not turn the gap into a jerk. The fade adds
+  gap / duration to the velocity and nothing to the acceleration.
 - Positions outside ``[min, max]`` and motions faster than ``max_velocity``
   or ``max_acceleration`` are rejected, not clamped or slowed down.
 - With velocities in every point, knots are joined by cubic Hermite segments
@@ -159,6 +162,7 @@ def plan_trajectory(
         raise ValueError("trajectory has no points")
 
     hermite = all(len(p.velocities) for p in points)
+    gap = {}  # measured start - point 0, for a point at time 0
     times = [now]
     positions = [{n: float(start[n]) for n in order}]
     velocities = [{n: 0.0 for n in order}]
@@ -182,14 +186,16 @@ def plan_trajectory(
 
         if k == 0 and point.time == 0.0:
             for name, value in zip(names, point.positions):
-                gap = abs(value - start[name])
-                if gap > start_tolerance:
+                off = float(start[name]) - float(value)
+                if abs(off) > start_tolerance:
                     unit = by_name[name].unit
                     raise ValueError(
                         f"point 0 at time 0: {name} {value:+.3f} {unit} is "
-                        f"{gap:.3f} {unit} from the current position "
+                        f"{abs(off):.3f} {unit} from the current position "
                         f"(start tolerance {start_tolerance})"
                     )
+                positions[0][name] = float(value)
+                gap[name] = off
             continue
         if point.time <= previous:
             raise ValueError(f"point {k}: time_from_start does not increase")
@@ -221,6 +227,14 @@ def plan_trajectory(
         positions.append(pose)
         velocities.append(speed)
 
+    duration = times[-1] - now
+    for name, off in gap.items():
+        for k, t in enumerate(times):
+            positions[k][name] += (
+                off * (1 - (t - now) / duration) if duration > 0 else off
+            )
+            if duration > 0:
+                velocities[k][name] -= off / duration
     if len(times) == 1:
         # Only the start point: nothing to move.
         times.append(now)
