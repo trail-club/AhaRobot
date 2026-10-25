@@ -1,0 +1,47 @@
+# Provisional model of the real robot as built in 2026-10 (aha_description/frame.py):
+# arms and head on a frame of 30 mm aluminum extrusions standing on a table,
+# no mobile base and no lifts.
+#
+# base_link: on the table top below the center of the center column;
+# x forward (the camera's direction), y left, z up. Lengths in m.
+# measured: by tape (2026-10-25). photo: estimated from photos, to be measured.
+
+base_height: 0.38  # measured: floor -> table top
+
+head:
+  # The head is Astra's (HeadYaw base, pan servo, tilt bracket): the tilt axis
+  # crosses the pan axis, and the base's top is 0.0976 m above them. The base
+  # hangs at the end of the 30x60 bar with its top at the column top (0.50 m,
+  # measured) -> 0.402. x: photo (9 cm in front of the column).
+  pan_xyz: [0.09, 0.0, 0.402]
+  tilt_offset: [0.0, 0.0, 0.0]
+
+# camera: bracket design values of sensors.xacro (not measured on the robot).
+
+arms:
+  # shoulder_xyz: joint_<l|r>2 axis at the middle of the upper arm bar, which
+  # is 0.02 m below the bar's top (link_<l|r>2 mesh). Bar top, measured:
+  # left 0.264, right 0.242. The motor block is mounted on the outer face of
+  # the tower (y +-0.16) at the second upright from the back (x 0.03); the
+  # axis is 0.072 m out from the mounting face (link_<l|r>1 mesh: face at
+  # -0.004, axis at 0.068).
+  # yaw: link_<l|r>1 as in the Astra URDF, not checked on the robot.
+  left: {shoulder_xyz: [0.03, 0.232, 0.244], yaw: 1.5708}
+  right: {shoulder_xyz: [0.03, -0.232, 0.222], yaw: -1.5708}
+
+# Aluminum profiles of 30 mm modules, centerlines (from -> to); section
+# [width, depth] (aha_description/frame.py).
+extrusions:
+  # Center column: two 30x30 bars side by side, measured 0.50 m high; stands
+  # on the table behind the bottom profile.
+  - {name: column, from: [0.0, 0.0, 0.0], to: [0.0, 0.0, 0.50], section: [0.06, 0.03]}
+  # 30x60 bar on the column's front face, top flush with the column top, to
+  # the head base's back (pan axis - 0.06); length follows the photo pan x.
+  - {name: head_bar, from: [0.015, 0.0, 0.485], to: [0.03, 0.0, 0.485], section: [0.06, 0.03]}
+  # Arm towers: 30x120 profiles (x 0 to 0.09 between the slot centers),
+  # outer faces 0.32 apart (measured); height (photo).
+  - {name: left_tower, from: [0.045, 0.145, 0.0], to: [0.045, 0.145, 0.32], section: [0.03, 0.12]}
+  - {name: right_tower, from: [0.045, -0.145, 0.0], to: [0.045, -0.145, 0.32], section: [0.03, 0.12]}
+  # Bottom profile, 30x60 and 0.26 m long (measured), between the towers'
+  # middle slots.
+  - {name: bottom, from: [0.045, -0.13, 0.015], to: [0.045, 0.13, 0.015], section: [0.06, 0.03]}
