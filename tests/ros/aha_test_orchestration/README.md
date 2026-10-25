@@ -37,7 +37,7 @@ ros2 run aha_test_orchestration place_with_llm.py --label milk --variant A --dry
 1. 観測：家具の設定で床より高い段（0.1 m以上）を見る。`back_off`（`--back-off`）では、近くからだと上の棚板に隠れる
    低い段の奥まで見える所へ台車をまっすぐ下げる（`aha_test_orchestration.viewpoint`：カメラの高さH、段の上面h、上の棚板の下面b、
    奥行きDから、カメラと前面の距離 (H − b)·D / (b − h) の最大に0.05 mを足し、1.5 mまで。arenaの棚は段2のため約1.25 m）。
-   そこから、カラー画像の縦の画角（約43.6°、両端4°ずつ除く）に収まるだけの段をまとめて見る（arenaの棚は2方向）。
+   そこから、カラー画像の縦の画角（約43.4°、両端4°ずつ除く）に収まるだけの段をまとめて見る（arenaの棚は2方向）。
    台車の移動は障害物を確かめない（`base_motion`、Nav2が動くまでの代わり）。`back_off` なしでは今の位置から段ごとの中心を見る。
    頭を向けるたびに、頭の関節が止まるまで（0.3 s以上）待ってから面と物体の検出を2回ずつ待ち、その方向の段ごとに
    `get_place_candidates`（家具と段、持っている物体の大きさ）を呼んで空きの有無（`yes` / `no` / `not seen`）を記録する。
@@ -92,7 +92,7 @@ LLMの呼び出しは温度0、`max_tokens` 1000、`chat_template_kwargs.enable_
 
 ## テスト
 
-`colcon test --packages-select aha_test_orchestration`。ROSに依存しないテストはホストでも実行できる。
+開発コンテナの `/app/overlay_ws` で `colcon test --base-paths src ../tests/ros --packages-select aha_test_orchestration`（[tests](../../README.md)）。ROSに依存しないテストはホストでも実行できる。
 
 ```bash
 cd ../../..   # repo root

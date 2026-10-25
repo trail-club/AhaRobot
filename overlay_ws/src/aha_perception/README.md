@@ -16,7 +16,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 
 | launch | 内容 |
 | --- | --- |
-| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`depth_noise` 指定時は `sim_depth_noise.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py` |
+| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`depth_noise` 指定時は `sim_depth_noise.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py`、`objects:=true` で `sim_object_detector.py` |
 | `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用。`depth_topic` で頭部Depthの配信先を変える |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |

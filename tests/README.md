@@ -4,7 +4,7 @@
 
 | 場所 | 内容 |
 | --- | --- |
-| `perception/` | ホストで実行するperceptionのツールの単体テスト（`make test`） |
+| `perception/` | ホストで実行するperceptionのツールの単体テスト（`make test`）。`make test` の環境にはscipyがなく、`test_plane_bench_noise.py` はスキップされる |
 | `ros/` | 試験用のROSパッケージ（下表）。`overlay_ws` の通常のビルドには含まれず、`make test` でビルド・テストする |
 | `manipulation/place_sim/` | 置く動作の試行・ストレス試行（Gazebo） |
 | `orchestration/place_llm/` | LLMで置く場所を決めて置く試行（Gazebo） |
@@ -12,7 +12,7 @@
 | パッケージ（`ros/`） | 内容 |
 | --- | --- |
 | [aha_test_msgs](ros/aha_test_msgs/) | 置く動作のaction `PlaceObject` |
-| [aha_test_description](ros/aha_test_description/) | 試験用のロボットのxacro（把持物体の固定、MoveItの昇降の下限より上から始める初期位置）と、本番の `controllers.yaml` に昇降のcontrollerの差分を重ねてビルド時に作る設定 |
+| [aha_test_description](ros/aha_test_description/) | 試験用のロボットのxacro（把持物体の固定、MoveItの昇降の下限より上から始める初期位置0.01 m。`sim.launch.py` の `initial_lift` は使わない）と、本番の `controllers.yaml` に昇降のcontrollerの差分を重ねてビルド時に作る設定 |
 | [aha_test_manipulation](ros/aha_test_manipulation/README.md) | 両腕のMoveIt設定、perceptionの置き場所の候補へ持っている物体を置くaction server、シミュレーションの把持 |
 | [aha_test_orchestration](ros/aha_test_orchestration/README.md) | ローカルLLMで置く段と場所を決めて置く処理、台車の仮の移動（odomのみ、障害物の確認なし） |
 | [aha_test_ui](ros/aha_test_ui/README.md) | 状態・LLMとの会話・イベントを表示するモニタ |

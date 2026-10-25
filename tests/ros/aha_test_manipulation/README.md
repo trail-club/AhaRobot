@@ -109,7 +109,7 @@ ros2 action send_goal --feedback /aha/manipulation/place aha_test_msgs/action/Pl
 条件に合う最良の候補が `base_spot`（腕の側の置きやすい位置）に来る。呼び出し側が台車を動かして同じgoalを送り直す。
 feedbackは `phase`（`perceiving` / `planning` / `checking` / `approaching` / `releasing` / `retreating` / `returning` / `verifying`）と候補の番号。
 
-`/aha/manipulation/place/markers`（RVizの `sim_view.rviz` の Place order）は、試す順の番号（1が最初、検出をやり直しても続き番号）と状態の色
+`/aha/manipulation/place/markers`（RVizの表示は下記のとおり足す）は、試す順の番号（1が最初、検出をやり直しても続き番号）と状態の色
 （青：待ち、黄：試行中、赤：失敗、緑：置いた）、失敗の理由（`IK` / `plan` / `path` / `blocked` / `not seen`）を出す。
 試す前に外した候補（届かない・柱が塞がる）は番号のない灰色の小さな点、`near` は白、`group` は緑、`avoid` は赤の円盤。
 perceptionの `/aha/perception/place/markers` は問い合わせごとの候補の空き（円盤）と障害物の箱で、順位は持たない。

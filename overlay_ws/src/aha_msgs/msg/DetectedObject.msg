@@ -1,7 +1,7 @@
 # A single object detected by the perception pipeline.
 # Owner: perception squad. Consumers: manipulation, navigation.
 
-std_msgs/Header header          # frame_id = camera_optical_frame at detection time
+std_msgs/Header header          # frame_id = the detector's output frame (e.g. odom), stamp = the image used
 string       class_name         # e.g. "bottle", "person"
 int32        track_id           # -1 if untracked
 float32      confidence         # [0.0, 1.0]

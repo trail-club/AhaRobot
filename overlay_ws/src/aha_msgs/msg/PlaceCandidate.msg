@@ -15,4 +15,7 @@ uint32       plane_id           # Plane.id of the support (in the response's pla
 uint32       surface_id         # Surface.id of the surface (/aha/perception/surfaces), 0 = not tracked yet
 string       surface_label      # "table" | "shelf" | "floor" | "other"
 float32      surface_height     # m, z of the position
-float32      score              # higher first: clearance, or minus the distance to the request's near point
+float32      score              # clearance, or minus the distance to the request's near point. The list is
+                                # ordered by the distance to near, else by clearance rounded to the grid
+                                # resolution across planes (then the plane nearer the robot), so score
+                                # is not strictly descending

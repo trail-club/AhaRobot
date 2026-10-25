@@ -26,9 +26,9 @@ class ViewOptions:
     margin: float = 0.05  # m added to the required camera distance
     min_distance: float = 0.0  # m, camera to the front face
     max_distance: float = 1.5
-    # 640x480 color of the head camera: about 43.6 deg (sensors.xacro, the
+    # 640x480 color of the head camera: about 43.4 deg (sensors.xacro, the
     # object detection uses the color image); minus a margin per side.
-    vertical_fov: float = math.radians(43.6)
+    vertical_fov: float = math.radians(43.4)
     fov_margin: float = math.radians(4.0)
     object_height: float = 0.2  # m above a level kept in view (its objects)
 

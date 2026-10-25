@@ -242,7 +242,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
 出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
 家具の段に対応した面の平面は、凸包を家具の設定の外形（`furniture_clip_margin` 広げた範囲）で切り取って出す（重心・高さは切り取る前の値で、凸包の外になることがある）。
-`surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。
+`surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。`odom` で追跡を始めた後にTFが取れない検出では、面を更新せず `surfaces` も出さない。
 `Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
 視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
 `object_categories` は今は空。追跡の規則は [aha_perception](../overlay_ws/src/aha_perception/README.md#面の追跡)を参照。
@@ -252,7 +252,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `planes/cloud` は面のID（`Surface.id`）ごとに色分けしたインライア点（追跡前の平面は灰色）。
 `planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
 `place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）と
-中心の球（ns `center`）を、障害物ごとに箱（ns `obstacle`）を出す。順位は出さない（試す順は呼び出し側が決める）。
+中心の球（ns `center`）を、障害物ごとに箱（ns `obstacle`）を、要求の除外領域（`exclude_regions`）ごとに箱（ns `exclude`）を出す。順位は出さない（試す順は呼び出し側が決める）。
 `furniture/markers` は起動時に1回、設定のframeで段ごとに家具の外形の長方形（ns `level`）と `<名前> <段>` の文字（ns `label`）を出す。
 
 `get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
