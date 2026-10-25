@@ -34,16 +34,17 @@ LIMIT_ALLOWANCE = 1e-3
 
 @dataclass(frozen=True)
 class JointLimits:
-    """Position (rad), velocity (rad/s) and acceleration (rad/s^2) limits."""
+    """Position, velocity and acceleration limits in `unit`, /s and /s^2."""
 
     name: str
     min: float
     max: float
     max_velocity: float
     max_acceleration: float
+    unit: str = "rad"  # "m" for a prismatic joint, used in messages
 
-    def clamp(self, rad):
-        return min(max(rad, self.min), self.max)
+    def clamp(self, position):
+        return min(max(position, self.min), self.max)
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,7 @@ class ArmPlan:
     names: tuple  # every arm joint, in command order
     limits: dict  # name -> JointLimits
     times: list
-    positions: list  # one {joint: rad} per knot
+    positions: list  # one {joint: position} per knot
     velocities: list | None
 
     @property
@@ -142,7 +143,7 @@ def plan_trajectory(
     limits: [JointLimits] for every arm joint, in command order.
     joint_names: the trajectory's joints (a subset of the arm joints).
     points: [Point] in the trajectory's order.
-    start: {joint: rad} measured now for every arm joint.
+    start: {joint: position} measured now for every joint in ``limits``.
     """
     order = tuple(j.name for j in limits)
     by_name = {j.name: j for j in limits}
@@ -183,9 +184,11 @@ def plan_trajectory(
             for name, value in zip(names, point.positions):
                 gap = abs(value - start[name])
                 if gap > start_tolerance:
+                    unit = by_name[name].unit
                     raise ValueError(
-                        f"point 0 at time 0: {name} {value:+.3f} rad is {gap:.3f} rad "
-                        f"from the current position (start tolerance {start_tolerance})"
+                        f"point 0 at time 0: {name} {value:+.3f} {unit} is "
+                        f"{gap:.3f} {unit} from the current position "
+                        f"(start tolerance {start_tolerance})"
                     )
             continue
         if point.time <= previous:
@@ -199,7 +202,7 @@ def plan_trajectory(
             value = float(point.positions[i])
             if not joint.min <= value <= joint.max:
                 raise ValueError(
-                    f"point {k}: {name} {value:+.3f} rad is outside "
+                    f"point {k}: {name} {value:+.3f} {joint.unit} is outside "
                     f"[{joint.min:+.3f}, {joint.max:+.3f}]"
                 )
             pose[name] = value
@@ -259,7 +262,7 @@ def _check_segments(limits, times, positions, velocities):
             v = (positions[k][name] - positions[k - 1][name]) / dt
             if abs(v) > joint.max_velocity * (1 + LIMIT_ALLOWANCE):
                 raise ValueError(
-                    f"segment {k}: {name} moves at {abs(v):.3f} rad/s, "
+                    f"segment {k}: {name} moves at {abs(v):.3f} {joint.unit}/s, "
                     f"over its limit {joint.max_velocity:.3f}"
                 )
             mean.append(v)
@@ -274,13 +277,13 @@ def _check_segments(limits, times, positions, velocities):
             )
             if speed > joint.max_velocity * (1 + LIMIT_ALLOWANCE):
                 raise ValueError(
-                    f"segment {k}: {name} reaches {speed:.3f} rad/s between the "
+                    f"segment {k}: {name} reaches {speed:.3f} {joint.unit}/s between the "
                     f"points, over its limit {joint.max_velocity:.3f} "
                     "(give the trajectory more time)"
                 )
             if accel > joint.max_acceleration * (1 + LIMIT_ALLOWANCE):
                 raise ValueError(
-                    f"segment {k}: {name} needs {accel:.3f} rad/s^2 between the "
+                    f"segment {k}: {name} needs {accel:.3f} {joint.unit}/s^2 between the "
                     f"points, over its limit {joint.max_acceleration:.3f} "
                     "(give the trajectory more time)"
                 )
@@ -295,6 +298,6 @@ def _check_segments(limits, times, positions, velocities):
             a = (mean[k + 1] - mean[k]) / between
             if abs(a) > joint.max_acceleration * (1 + LIMIT_ALLOWANCE):
                 raise ValueError(
-                    f"knot {k}: {name} needs {abs(a):.3f} rad/s^2, over its limit "
+                    f"knot {k}: {name} needs {abs(a):.3f} {joint.unit}/s^2, over its limit "
                     f"{joint.max_acceleration:.3f} (give the trajectory more time)"
                 )

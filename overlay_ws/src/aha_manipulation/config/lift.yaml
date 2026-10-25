@@ -1,0 +1,38 @@
+# arm_trajectory_bridge.py for the two lifts (aha_bringup arms.launch.py).
+# Format: aha_manipulation/arm_map.py.
+#
+# Serves /lift_controller like the simulation (joint_l1, joint_r1, partial
+# goals). Each lift has its own upstream lift_node (/<side>/lift, metres from
+# the bottom), so each joint is its own command group with its own topics:
+# a trajectory for joint_r1 runs while the left lift is off.
+#
+# Limits are the lift firmware's (AstraFirmwares AstraLiftController):
+# lift_node drops commands outside [0, 1.19] m, the board moves at most
+# 300 mm/s with 100 mm/s^2.
+
+aha_lift_bridge:
+  ros__parameters:
+    controller_name: lift_controller
+    rate_hz: 50.0
+    start_tolerance: 0.005
+    path_tolerance: 0.05
+    goal_tolerance: 0.003
+    goal_time: 3.0
+    state_timeout: 0.3
+    joints: [joint_l1, joint_r1]
+    joint_l1:
+      min: 0.0
+      max: 1.19
+      max_velocity: 0.3
+      max_acceleration: 0.1
+      unit: m
+      command_topic: /left/lift/joint_command
+      state_topic: /left/lift/joint_states
+    joint_r1:
+      min: 0.0
+      max: 1.19
+      max_velocity: 0.3
+      max_acceleration: 0.1
+      unit: m
+      command_topic: /right/lift/joint_command
+      state_topic: /right/lift/joint_states

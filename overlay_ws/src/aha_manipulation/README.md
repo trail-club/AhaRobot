@@ -111,12 +111,18 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 関節状態は `arm_node` の `/<side>/arm/joint_states` から読む（`/joint_states` には他のnodeも腕の関節を載せるため）。
 `arm_node` は指令ごとに腕の基板へ目標を書き、基板が台形速度で目標へ動かす。
 
+昇降も同じスクリプトを [config/lift.yaml](config/lift.yaml) で起動する（node名 `aha_lift_bridge`）。
+`/lift_controller/joint_trajectory` と `follow_joint_trajectory`（`joint_l1` / `joint_r1`、m）を受け、
+左右の `lift_node` の `/<side>/lift/joint_command` へ1関節ずつ送り、`/<side>/lift/joint_states` を読む。
+軌道が名前を含む側の昇降だけに指令し、その側の関節状態だけを必要とするため、片側の昇降だけでも動く。
+制限は昇降の基板（AstraLiftController）に合わせた0〜1.19 m、0.3 m/s、0.1 m/s²。
+
 - 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。
   全点に速度があれば3次Hermite、なければ直線で、静止から始まり静止で終わる。
   3次Hermiteでは、点の間の速度・加速度の最大値も制限と比べる。
   時刻0の点は現在の姿勢とみなし、`start_tolerance` 以内であることだけを確認する。
 - 関節の位置・速度・加速度の制限を超える軌道は全体を拒否する（actionはgoalを受け付けず、topicは無視する）。
-  制限は [config/arm.yaml](config/arm.yaml)。位置の制限は `arm_node` の可動域
+  制限は [config/arm.yaml](config/arm.yaml) と [config/lift.yaml](config/lift.yaml)。腕の位置の制限は `arm_node` の可動域
   （[パッチ](../../../patches/README.md)の `ARM_PROFILES`）に合わせる。`arm_node` は1関節でも範囲外の指令を捨てる。
 - actionは、実測が補間の現在値から `path_tolerance` を超えて離れたとき、または関節状態が `state_timeout` 途絶えたときに中断する。
   最終点から `goal_tolerance` 以内に入れば成功、最終点の時刻から `goal_time` 秒以内に入らなければ中断する。
@@ -125,5 +131,6 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
   新しい軌道は実行中のgoalを中断する。
 - 起動時と待機中は指令を送らない。関節状態が届くまで軌道を受け付けない。
 
-MoveItの右腕の計画はjoint_r1（昇降）を含み、`lift_controller` へも送られる。実機の昇降は対象外のため、
-実機でMoveItから実行する構成は含まない。
+MoveItの右腕の計画はjoint_r1（昇降）を含み、`lift_controller` へも送られる。
+MoveItの `joint_limits.yaml` の昇降の加速度（0.5 m/s²）は昇降の基板（0.1 m/s²）より大きく、
+昇降を大きく動かす計画は加速度の倍率を下げないとブリッジに拒否される。

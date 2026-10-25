@@ -218,12 +218,14 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
-`joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+昇降は `/<side>/lift/joint_states` から、`joint_state_publisher` が `/joint_states` へ合流させる。
+それ以外の関節と、`arms.launch.py` で起動していない腕・昇降は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
 
 ## 実機のアーム
 
-`aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と、
-[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py` を起動する。
+`aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と
+`lift_node`（`/<side>/lift` namespace）、
+[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py`（腕ごとと昇降）を起動する。
 ブリッジはシミュレーションと同じ名前・型の軌道入力を提供する。`<side>` は `left` / `right`。
 シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
 
@@ -233,12 +235,19 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 | 軌道action | `/<side>_arm_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
 | 腕への位置指令 | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
 | 腕とグリッパの関節状態 | `/<side>/arm/joint_states` | `sensor_msgs/msg/JointState` |
+| 昇降の軌道指令 | `/lift_controller/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 昇降の軌道action | `/lift_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| 昇降への位置指令 | `/<side>/lift/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+| 昇降の関節状態 | `/<side>/lift/joint_states` | `sensor_msgs/msg/JointState` |
 
-`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
+昇降の関節は `joint_l1` / `joint_r1`（下端からのm）。`/lift_controller` はシミュレーションと同じく部分関節goalを受け付け、
+左右の片方の `lift_node` だけでも、その側の軌道を実行する。
+
+`arm_node` と `lift_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
 `joint_state_publisher` が合流させる（[実機の頭部](#実機の頭部)）。ブリッジとキーボード教示は `/<side>/arm/joint_states` を読む。
-ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
-キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
-昇降とグリッパはブリッジの対象外。
+ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` と `/<side>/lift/joint_command` へ配信する。
+キーボード教示も腕の指令topicへ配信するため、軌道の実行中に教示しない。
+グリッパはブリッジの対象外。
 
 ## 独自型
 
