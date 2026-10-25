@@ -231,7 +231,7 @@ def test_standard_sim_preserves_explicit_pose(monkeypatch):
 
 
 def test_manipulation_accepts_states_up_to_the_physics_limits(monkeypatch):
-    from launch.actions import IncludeLaunchDescription
+    from launch.actions import GroupAction, IncludeLaunchDescription
 
     from aha_gazebo.model import LIMIT_MARGIN, LIMIT_TOLERANCE
 
@@ -240,11 +240,19 @@ def test_manipulation_accepts_states_up_to_the_physics_limits(monkeypatch):
         module, "get_package_prefix", lambda package: "/install/" + package
     )
     context = LaunchContext()
+
+    def includes(entities):
+        # The subsystem includes sit in scoped GroupActions.
+        for action in entities:
+            if isinstance(action, IncludeLaunchDescription):
+                yield action
+            elif isinstance(action, GroupAction):
+                yield from includes(action.get_sub_entities())
+
     (manip,) = [
         action
-        for action in module.generate_launch_description().entities
-        if isinstance(action, IncludeLaunchDescription)
-        and "joint_states_topic" in dict(action.launch_arguments)
+        for action in includes(module.generate_launch_description().entities)
+        if "joint_states_topic" in dict(action.launch_arguments)
     ]
     arguments = dict(manip.launch_arguments)
     tolerance = float(
