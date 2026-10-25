@@ -123,6 +123,7 @@ class BridgeTest(unittest.TestCase):
         cls.tmpdir = tempfile.mkdtemp()
         cls.fake = start(FAKE_ARM, fake_params(), cls.tmpdir)
         cls.bridge = start(BRIDGE, bridge_params(), cls.tmpdir)
+        cls.stopped = None  # (returncode, output) once a test stopped the bridge
         rclpy.init()
         cls.node = rclpy.create_node("arm_bridge_test")
         cls.lock = threading.Lock()
@@ -152,7 +153,7 @@ class BridgeTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        code, out = stop_process(cls.bridge)
+        code, out = cls.stopped or stop_process(cls.bridge)
         stop_process(cls.fake)
         cls.spinning = False
         cls.spin_thread.join(timeout=5.0)
@@ -374,6 +375,23 @@ class BridgeTest(unittest.TestCase):
         self.assertTrue(all(names == JOINTS for _, names, _ in sent))
         time.sleep(0.2)
         self.assertEqual(self.rejected, 0)
+
+    def test_99_sigint_aborts_the_running_goal_with_a_result(self):
+        # MoveIt waits for the result of a goal it sent; a bridge stopped
+        # under it must still answer. Stops the bridge: runs last.
+        self.settle()
+        start_pose = self.current()
+        handle, _ = self.send_goal(
+            trajectory(["joint_l2"], [([start_pose["joint_l2"] - 0.6], 3.0)])
+        )
+        self.assertTrue(handle.accepted)
+        result = handle.get_result_async()  # requested right away, like MoveIt
+        time.sleep(0.5)
+        os.killpg(self.bridge.pid, signal.SIGINT)
+        self.wait_for(result.done, 5.0, "goal result after SIGINT")
+        self.assertEqual(result.result().status, GoalStatus.STATUS_ABORTED)
+        self.assertIn("shutting down", result.result().result.error_string)
+        type(self).stopped = stop_process(self.bridge)
 
 
 if __name__ == "__main__":
