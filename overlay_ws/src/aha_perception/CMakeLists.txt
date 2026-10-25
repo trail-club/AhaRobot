@@ -26,6 +26,7 @@ install(
 
 install(
   PROGRAMS
+    scripts/camera_plane_calibrate.py
     scripts/head_look_at.py
     scripts/imu_head.py
     scripts/manual_head.py
@@ -47,6 +48,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_plane_detection_io test/test_plane_detection_io.py TIMEOUT 120)
   ament_add_pytest_test(test_depth_noise test/test_depth_noise.py TIMEOUT 120)
   ament_add_pytest_test(test_place test/test_place.py TIMEOUT 120)
+  ament_add_pytest_test(test_plane_calibration test/test_plane_calibration.py TIMEOUT 60)
   ament_add_pytest_test(test_surfaces test/test_surfaces.py TIMEOUT 120)
   ament_add_pytest_test(test_furniture test/test_furniture.py TIMEOUT 60)
   ament_add_pytest_test(test_plane_detection_node test/test_plane_detection_node.py TIMEOUT 60)
