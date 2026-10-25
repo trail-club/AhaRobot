@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーション、頭部カメラ、実機の頭部の入出力。controller設定は
+標準シミュレーション、頭部カメラ、人の認識、実機の頭部の入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -212,6 +212,23 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
 RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
 
+## 人の認識
+
+[people.launch.py](../overlay_ws/src/aha_perception/README.md#人の認識)の `person_perception.py` が扱う。
+入力は頭部カメラの3 topic（色・位置合わせ済みDepth・CameraInfo、同じ時刻の組）で、RELIABLEで購読する（パラメータ `reliable: false` でbest effort）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 追跡中の人 | `/aha/perception/people` | `aha_msgs/msg/PersonArray` |
+| 人の表示 | `/aha/perception/people/markers` | `visualization_msgs/msg/MarkerArray` |
+| 外見を名前で覚える | `/aha/perception/remember_person` | `aha_msgs/srv/RememberPerson` |
+| 外見の特徴（VLM） | `/aha/perception/describe_person` | `aha_msgs/srv/DescribePerson` |
+
+`PersonArray` は処理した画像ごとに、追跡中の全員を配信する。`header.frame_id` は `target_frame`（既定 `map`）、`header.stamp` は画像の時刻。
+各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
+`id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
+名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+
 ## 実機の頭部
 
 `real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
@@ -222,6 +239,6 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 
 ## 独自型
 
-[aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
-`SetNavGoal`、`PickObject`、`TaskCommand` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
+[aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
+`SetNavGoal`、`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
