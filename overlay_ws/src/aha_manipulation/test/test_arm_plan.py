@@ -31,7 +31,27 @@ def test_linear_from_the_measured_start_and_others_hold():
 def test_point_at_time_zero_is_replaced_by_the_start():
     p = plan([pt([0.12], 0.0), pt([0.5], 1.0)])
     assert p.times == [10.0, 11.0]
-    assert p.sample(10.0)["a"] == 0.1
+    assert p.sample(10.0)["a"] == pytest.approx(0.1)
+    assert p.sample(11.0)["a"] == 0.5
+
+
+def test_start_gap_fades_out_over_the_trajectory():
+    # MoveIt-like: 0.1 s first segment, the arm 0.01 rad off point 0. Moving
+    # the first knot alone would need about 6 * 0.01 / 0.1^2 = 6 rad/s^2 more.
+    start = {"a": 0.11, "b": -0.2, "c": 0.0}
+    # Trapezoid at 0.4 rad/s^2 from 0.1: 0.002 rad and 0.04 rad/s at 0.1 s.
+    points = [
+        pt([0.1], 0.0, [0.0]),
+        pt([0.102], 0.1, [0.04]),
+        pt([0.15], 0.5, [0.2]),
+        pt([0.2], 1.0, [0.0]),
+    ]
+    p = plan(points, start=start)
+    assert p.sample(10.0)["a"] == pytest.approx(0.11)
+    assert p.sample(11.0)["a"] == pytest.approx(0.2)
+    # Half way the gap is half gone.
+    shifted = plan(points, start={"a": 0.1, "b": -0.2, "c": 0.0})
+    assert p.sample(10.5)["a"] - shifted.sample(10.5)["a"] == pytest.approx(0.005)
 
 
 def test_point_at_time_zero_far_from_the_start_is_rejected():

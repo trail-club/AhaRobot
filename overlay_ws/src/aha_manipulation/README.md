@@ -114,7 +114,9 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 - 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。
   全点に速度があれば3次Hermite、なければ直線で、静止から始まり静止で終わる。
   3次Hermiteでは、点の間の速度・加速度の最大値も制限と比べる。
-  時刻0の点は現在の姿勢とみなし、`start_tolerance` 以内であることだけを確認する。
+  時刻0の点は現在の姿勢とみなし、`start_tolerance` 以内であることを確認する。
+  実測との差は軌道の形を変えずに上乗せし、最終点の時刻で0になるよう直線的に減らす
+  （最初の区間が短くても、差が急な加速度にならない）。
 - 関節の位置・速度・加速度の制限を超える軌道は全体を拒否する（actionはgoalを受け付けず、topicは無視する）。
   制限は [config/arm.yaml](config/arm.yaml)。位置の制限は `arm_node` の可動域
   （[パッチ](../../../patches/README.md)の `ARM_PROFILES`）に合わせる。`arm_node` は1関節でも範囲外の指令を捨てる。
