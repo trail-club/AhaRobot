@@ -320,7 +320,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
 `joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
-サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
+サーボなし（`real_head_camera.launch.py` の `head:=manual` / `head:=imu`、`real.launch.py` の `head:=manual`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
 `/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
 （`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
 

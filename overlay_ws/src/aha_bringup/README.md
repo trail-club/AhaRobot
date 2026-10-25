@@ -31,7 +31,7 @@ on a table, without the mobile base and the lifts ([measurements](../../../docs/
 
 ```bash
 ros2 launch aha_bringup real.launch.py
-ros2 launch aha_bringup real.launch.py arms:=false head:=manual    # camera and planes only
+ros2 launch aha_bringup real.launch.py arms:=false head:=manual    # no servo boards
 ```
 
 It runs robot_state_publisher with the frame model, a static `odom` → `base_footprint` (the frame does not move),
@@ -45,9 +45,9 @@ plane detection and RViz (topics in [ROS interfaces](../../../docs/interfaces.md
 | `frame_config` | `aha_description/config/frame_table_202610.yaml` | Frame model, see below |
 | `arms` / `use_left` / `use_right` | `true` | Arms (`arms.launch.py`) |
 | `right_device` / `left_device` / `head_port` | `/dev/ttyUSB0` / `/dev/ttyUSB2` / `/dev/ttyUSB1` | Boards in the order of the USB hub ports; the numbers follow the USB enumeration |
-| `trajectory_bridge` / `record` | `true` / `false` | Passed to `arms.launch.py` |
+| `trajectory_bridge` / `record` | `true` / `false` | Passed to `arms.launch.py` (whose own `record` default is `true`) |
 | `head` | `servo` | `servo`, `manual` (commanded angles as the state) or `none` |
-| `camera` / `planes` / `rviz` | `true` | D435i and point cloud / plane detection (`furniture_config`) / RViz |
+| `camera` / `planes` / `rviz` | `true` | D435i (without its IMU) and point cloud / plane detection (`furniture_config`) / RViz |
 
 The arms need the host-side sign patch on `upstream/astra_controller`
 ([patches](../../../patches/README.md#astra_controller用パッチ)); without it the arms read mirrored angles.

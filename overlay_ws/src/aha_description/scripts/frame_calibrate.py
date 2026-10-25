@@ -14,10 +14,12 @@ each arm:
    shoulder angle must change by +90 deg (left) or -90 deg (right) about z;
    another change means a wrong sign or a slipping joint.
 
-Needs /joint_states from the arms (aha_bringup arms.launch.py; torque off
-with `ros2 topic pub --once /<side>/arm/torque_enable std_msgs/msg/UInt8
-"{data: 0}"`) and /robot_description (robot_state_publisher). With --write
-the yaw values in the frame config are replaced in place.
+Reads the arms' own /<side>/arm/joint_states (aha_bringup arms.launch.py;
+torque off with `ros2 topic pub --once /<side>/arm/torque_enable
+std_msgs/msg/UInt8 "{data: 0}"`), not /joint_states, where
+joint_state_publisher would fill a missing arm with zeros or stale values,
+and /robot_description (robot_state_publisher). With --write the yaw values
+in the frame config are replaced in place.
 
   ros2 run aha_description frame_calibrate.py --config <frame.yaml> [--write]
 """
@@ -90,7 +92,10 @@ class JointReader:
         self.node = rclpy.create_node("aha_frame_calibrate")
         self.samples = {}
         self.urdf = None
-        self.node.create_subscription(JointState, "/joint_states", self.on_joints, 50)
+        for side in ARMS:
+            self.node.create_subscription(
+                JointState, f"/{side}/arm/joint_states", self.on_joints, 50
+            )
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.node.create_subscription(
             String, "/robot_description", self.on_description, latched
@@ -122,7 +127,7 @@ class JointReader:
         self.spin(SAMPLE_S)
         missing = [j for j in joints if not self.samples.get(j)]
         if missing:
-            raise RuntimeError(f"no /joint_states for {missing}")
+            raise RuntimeError(f"no fresh /<side>/arm/joint_states for {missing}")
         # Circular mean: safe next to +-pi.
         return [
             math.atan2(

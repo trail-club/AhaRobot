@@ -133,6 +133,8 @@ def generate_launch_description():
     )
     camera = IncludeLaunchDescription(
         _launch("aha_perception", "realsense.launch.py"),
+        # No IMU user here (no head:=imu); its HID stream is not opened.
+        launch_arguments={"imu": "false"}.items(),
         condition=IfCondition(LaunchConfiguration("camera")),
     )
     pointcloud = IncludeLaunchDescription(
