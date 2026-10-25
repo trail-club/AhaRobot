@@ -139,7 +139,7 @@ ROS_DOMAIN_ID=7 ros2 run aha_perception teleop_head.py  # 別シェルからキ�
 | `camera` | `false` | rosbridge（127.0.0.1:9090）と `pointcloud.launch.py` を起動 |
 
 TFはrobot_state_publisher（`sim:=false`）とjoint_state_publisherが出す。
-`/joint_states` の頭は `/head_controller/joint_states`、その他の関節は0。
+`/joint_states` の頭は `/head_controller/joint_states`、腕とグリッパは `aha_bringup` の `arms.launch.py` の `/<side>/arm/joint_states`（起動していなければ0）、その他の関節は0。
 Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッジはエラーで終了する。
 
 `camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
