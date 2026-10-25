@@ -45,8 +45,9 @@ Behaviour:
     A stale state stops sending, so the arm stays at the last sample.
   - Partial joint lists are accepted; the other joints of the same groups
     keep their position.
-  - SIGINT/SIGTERM: sampling and goals stop, then the node shuts down. The
-    arm_node keeps the last goal. Wall clock only.
+  - SIGINT/SIGTERM: sampling stops and running goals abort (their results
+    are sent before the node shuts down). The arm_node keeps the last goal.
+    Wall clock only.
 """
 
 import signal
@@ -75,6 +76,8 @@ Result = FollowJointTrajectory.Result
 FEEDBACK_PERIOD = 0.05  # s
 SPIN_TIMEOUT_S = 0.1
 LOG_THROTTLE_S = 2.0
+SHUTDOWN_TIMEOUT_S = 2.0  # s to let running goals abort and send their results
+RESULT_FLUSH_S = 0.2  # s of spinning after the last goal ended
 
 
 def seconds(duration):
@@ -116,6 +119,7 @@ class ArmTrajectoryBridge(Node):
         self.plan = None  # ArmPlan being sampled, None when idle
         self.plan_seq = 0
         self.announced = set()  # groups whose state was logged
+        self.active_goals = 0  # running _execute calls
 
         self.command_pubs = {
             g.topic: self.create_publisher(JointCommand, g.topic, 10)
@@ -348,6 +352,15 @@ class ArmTrajectoryBridge(Node):
         return GoalResponse.ACCEPT
 
     def _execute(self, goal_handle):
+        with self.lock:
+            self.active_goals += 1
+        try:
+            return self._run_goal(goal_handle)
+        finally:
+            with self.lock:
+                self.active_goals -= 1
+
+    def _run_goal(self, goal_handle):
         request = goal_handle.request
         result = Result()
         try:
@@ -408,7 +421,7 @@ class ArmTrajectoryBridge(Node):
 
             if now < plan.end_time:
                 off = [
-                    f"{n} {e:+.3f} {self.units[n]}"
+                    f"{n} {e:+.4f} {self.units[n]}"
                     for n, e in zip(names, feedback.error.positions)
                     if abs(e) > path_tol[n]
                 ]
@@ -425,7 +438,7 @@ class ArmTrajectoryBridge(Node):
             if now > deadline:
                 result.error_code = Result.GOAL_TOLERANCE_VIOLATED
                 result.error_string = "not within tolerance: " + ", ".join(
-                    f"{n} error {e:+.3f} {self.units[n]}"
+                    f"{n} error {e:+.4f} {self.units[n]}"
                     for n, e in errors.items()
                     if abs(e) > goal_tol[n]
                 )
@@ -477,7 +490,21 @@ def main():
     finally:
         ignore_stop_signals()
         node.stop()
-        # Joins the worker threads: running goals see `stopping` and finish here.
+        # Running goals see `stopping` and abort. Keep spinning until they are
+        # done and their results have gone out, or clients waiting for a
+        # result (MoveIt) never get one.
+        deadline = time.monotonic() + SHUTDOWN_TIMEOUT_S
+        drained = None
+        while node.context.ok() and time.monotonic() < deadline:
+            executor.spin_once(timeout_sec=0.02)
+            with node.lock:
+                active = node.active_goals
+            if active:
+                drained = None
+            elif drained is None:
+                drained = time.monotonic()
+            elif time.monotonic() - drained > RESULT_FLUSH_S:
+                break
         executor.shutdown(timeout_sec=1.0)
         node.destroy_node()
         rclpy.try_shutdown()
