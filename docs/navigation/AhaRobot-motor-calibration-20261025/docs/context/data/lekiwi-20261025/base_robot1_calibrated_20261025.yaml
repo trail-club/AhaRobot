@@ -1,0 +1,32 @@
+/**:
+  ros__parameters:
+    port: /dev/lekiwi
+    baudrate: 1000000
+    motor_ids:
+    - 7
+    - 8
+    - 9
+    wheel_radius: 0.0487925896784655
+    base_radius: 0.12672490771420117
+    wheel_angle_offset_deg: -81.43120324
+    wheel_direction_signs:
+    - 1.0
+    - 1.0
+    - 1.0
+    max_ticks: 3000
+    max_linear_x: 0.26
+    max_linear_y: 0.23
+    max_angular_z: 1.8
+    control_rate_hz: 50.0
+    cmd_vel_timeout_s: 0.5
+    use_encoder_odometry: true
+    servo_acceleration: 20
+    odom_frame: odom
+    base_frame: base_footprint
+    publish_tf: true
+    diagnostics_period_s: 5.0
+    dry_run: false
+    test_wheel_ticks:
+    - 0
+    - 0
+    - 0
