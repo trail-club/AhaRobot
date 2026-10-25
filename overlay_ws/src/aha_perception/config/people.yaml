@@ -1,0 +1,11 @@
+# person_perception (launch/people.launch.py). The DGX connection and
+# target_frame are launch arguments.
+person_perception:
+  ros__parameters:
+    prompt: person          # SAM 3.1 text prompt
+    threshold: 0.5          # SAM 3.1 detection score
+    vlm_model: qwen3.8-27b  # Qwen3.8 server on the DGX (tools/local-llm): features and names
+    max_rate: 5.0           # images/s sent to the DGX at most; one at a time
+    gate: 0.8               # m; a sighting farther from every track starts a new one
+    forget_after: 3.0       # s without a sighting before a track is dropped
+    smoothing: 0.5          # weight of the previous position per sighting

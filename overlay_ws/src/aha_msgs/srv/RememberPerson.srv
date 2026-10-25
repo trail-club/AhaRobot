@@ -1,0 +1,10 @@
+# Remember the appearance of a tracked person under a name (aha_perception person_perception).
+# The track keeps the name until it is lost; later tracks get it when the VLM
+# matches them to this appearance.
+# The same name replaces the earlier appearance. Owner: perception squad.
+
+uint32 id
+string name
+---
+bool    success
+string  message

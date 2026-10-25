@@ -88,8 +88,8 @@ def reference_phrase(reference, user, library=None):
         if view is None:
             raise SystemExit(f"no reference views for {reference} (run reference.sh)")
         rgb = np.asarray(Image.open(view / "rgb.png").convert("RGB"))
-        with common.vlm_client(user) as client:
-            return kind_phrase(client, rgb)
+        client = common.vlm_client()
+        return kind_phrase(client, rgb)
 
     return reference_tool.saved_or_ask(library, reference, ask)
 

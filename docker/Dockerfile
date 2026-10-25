@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get install -y --no-install-recommends \
       git make sudo terminator xauth \
       python3-pip python3-colcon-common-extensions python3-rosdep python3-vcstool \
-      iputils-ping telnet x11-apps mesa-utils \
+      iputils-ping telnet x11-apps mesa-utils openssh-client \
       '~nros-jazzy-rqt*' \
       ros-jazzy-teleop-twist-keyboard \
       ros-jazzy-xacro \

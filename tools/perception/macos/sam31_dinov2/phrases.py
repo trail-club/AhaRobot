@@ -37,10 +37,10 @@ def run(user):
     from aha_perception.sam31_vlm import kind_phrase
 
     view = common.CACHE / "references" / dino.EVAL_REFERENCE / "front" / "rgb.png"
-    with common.vlm_client(user) as client:
-        start = time.time()
-        kind = kind_phrase(client, np.asarray(Image.open(view).convert("RGB")))
-        seconds = round(time.time() - start, 1)
+    client = common.vlm_client()
+    start = time.time()
+    kind = kind_phrase(client, np.asarray(Image.open(view).convert("RGB")))
+    seconds = round(time.time() - start, 1)
     work = common.WORK / "phrases"
     captures = common.capture_paths(common.campbell27())
     dino.prepare(

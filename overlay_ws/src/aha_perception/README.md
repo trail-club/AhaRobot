@@ -1,7 +1,8 @@
 # aha_perception
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、
-シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証。
+シミュレーションの左右の手首RGBカメラのbridge、SAM 3.1のセグメンテーション検証、
+SAM 3.1による人の認識（[person_perception](#人の認識)）。
 topic・frameは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
 
@@ -22,11 +23,13 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
 | `camera_view.launch.py` | 実機カメラだけの表示。`pointcloud.launch.py` とRViz（`rviz/camera.rviz`） |
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ）をシミュレーションと同じUIで動かす |
+| `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
 
 ## ノード
 
 | node | 内容 |
 | --- | --- |
+| `person_perception.py` | 頭部カメラの人の3D位置・追跡ID・覚えた名前を配信し、外見の特徴を答える（[人の認識](#人の認識)） |
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
@@ -144,3 +147,25 @@ Ctrl-Cでトルクを切る。サーボが見つからない場合、ブリッ�
 
 `camera:=true` では、D435iの映像を [stream_realsense.py](../../../tools/perception/macos/pointcloud/README.md#rosbridgeへの直接送信)
 で既定の `ws://127.0.0.1:9090` へ送ると、RVizに点群が表示される。
+
+## 人の認識
+
+`person_perception.py` は頭部カメラの色画像をDGX SparkのSAM 3.1へ送り、Depthから求めた人の3D位置・追跡ID・覚えた名前を配信する。
+覚えた人との照合と外見の特徴は、[ローカルLLM](../../../tools/local-llm/README.md) のQwen3.8が人の切り出し画像を見て答える。
+topic・serviceは [ROSインターフェース](../../../docs/interfaces.md#人の認識)、追跡・名前付けの設定は `config/people.yaml` を参照。
+
+```bash
+ros2 launch aha_perception people.launch.py ssh_user:=<Unixユーザー名>
+```
+
+| 引数 | 既定 | 内容 |
+| --- | --- | --- |
+| `target_frame` | `map` | 配信する座標系。TFのない場合（Macのカメラだけ）は空にしてカメラの座標系にする |
+| `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | DGXの接続先。SSH configの別名を使う場合は `ssh_port:=0` |
+| `identity_file` | 空 | SSHの秘密鍵。空なら既定の鍵かssh-agent |
+| `use_sim_time` | `false` | シミュレーションでは `true` |
+
+DGXへのSSH接続の準備は [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md#準備)と同じ。
+起動時にDGXでイメージを作ってコンテナを起動し（初回は数分）、Ctrl-Cで削除する。
+Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/macos/pointcloud/README.md)）はMacのssh-agentを使うため、Mac側で `ssh-add -l` に鍵が出ることを確認する。
+シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する（人のモデルは置いていない）。
