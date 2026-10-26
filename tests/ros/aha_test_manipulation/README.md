@@ -1,7 +1,7 @@
 # aha_test_manipulation
 
 試験用（[tests](../../README.md)）：AhaRobotの両腕のMoveIt 2設定とlaunch、perceptionの置き場所の候補へ持っている物体を置くaction server。
-シミュレーションで、perceptionの候補を物体を置くところまで試すための仮の実装で、ロボットでは使わない。
+シミュレーションと骨組みに載せた実機（[実機（骨組み）](#実機骨組み)）で、perceptionの候補を物体を置くところまで試すための仮の実装で、本番のロボットでは使わない。
 
 ## 起動
 
@@ -25,6 +25,78 @@ ros2 launch aha_test_manipulation manip.launch.py            # rviz:=false でRV
 `rviz` は `perception.launch.py` と共通で、`rviz:=false` は両方のRVizと頭を向ける `head_look_at.py` を止める。
 `rviz:=false` で置く動作を使う場合は `head_look_at.py` を別に起動する（[置く動作の試行](../../manipulation/place_sim/README.md#実行)にコマンド例）。
 
+### 実機（骨組み）
+
+骨組みに載せた実機（台車・昇降なし）では、[aha_test_frame](../aha_test_frame/README.md) の `real.launch.py` の横で `manip_real.launch.py` を起動する。
+
+```bash
+ros2 launch aha_test_frame real.launch.py use_left:=false
+ros2 launch aha_test_manipulation manip_real.launch.py      # aim_head:=false で頭を向けない
+```
+
+`manip_real.launch.py` は `moveit.launch.py` を `frame_config` 付きで起動し、`place_server.py` を実機向けのパラメータ
+（`use_sim_time` false、`release_topic` なし、`gripper_interface` `arm_node`、`gripper_open` 0.055 m、`gripper_ramp_time` 1 s、`default_approach` `side`、
+`lift_margin` / `retreat_lift` / `escape_lift` 0、`release_height` 0.02 m、`velocity_scaling` 0.3、`verify_detections` 3、`placed_padding` 0.03 m、`frozen_window` 0.5 s、`look_height` 0.38 m、`tcp_height`、`max_release_height` 0.04 m）で起動する。
+グリッパの指令は `/<arm>/arm/joint_states` の指の位置から `gripper_ramp_time` かけて送る（一度に閉じて物を押し付けると腕の基板がリセットされた。[記録](../../../docs/context/motor.md)）。
+
+昇降がないため `side` 把持（TCPのzが上）の手先の高さは1つに決まる。`tcp_height` はその高さで、起動時に `frame_config` のモデルの `arm` の
+`link_[r|l]ee` の `base_footprint` からの高さ（腕の関節をすべて0、`joint_[r|l]5` = 0でTCPのzが上）を `frame_moveit.side_grasp_tcp_height` で求める
+（`frame_table_202610.yaml` で右0.432 m、左0.474 m。`joint_[r|l]2`〜`4` は鉛直軸で高さを変えない）。
+`place_server.py` は候補ごとに離す高さ（物体の底面の支持面からの高さ）を、TCPがちょうど `tcp_height` に来る値
+`tcp_height` − (TCPから物体の底面までの高さ) − 支持面の高さ にする（TCPから底面までは `object_in_hand` または持ち方の既定の姿勢から求める）。
+これが `release_height`（0.02 m、物体を面に押し込まないための下限。横からの進入はこの高さで水平に動くため、モデルより低い実際の手先の分も見込む）未満か `max_release_height` より大きい候補は試す前に外す
+（logに `unreachable: the TCP at ... releases ... cm above ...`、マーカーは灰色の点）。
+高さ0.12 mの物体を既定の持ち方で右手に持つと、置ける支持面は床から約0.317〜0.337 m（ロボット自身の机0.38 mは範囲外）。`top` 把持・`top` 接近は断り（`STATUS_ERROR`）、`auto` は `side` だけを試す。
+
+| 引数（`manip_real.launch.py`） | 既定 | 内容 |
+| --- | --- | --- |
+| `frame_config` | `aha_test_frame/config/frame_table_202610.yaml` | 骨組みのモデル。`real.launch.py` と同じものを渡す |
+| `arm` | `right` | 軌道を実行する腕（`moveit.launch.py` の `arms`）と `default_arm` |
+| `rviz` / `place_server` | `true` / `true` | `manip.launch.py` と同じ |
+| `aim_head` | `true` | 検出の前に頭を向ける（`/aha/perception/look_at`）。頭がなければ `false` |
+
+`moveit.launch.py frame_config:=<YAML>` は `robot_description` を骨組みのモデル（`aha_test_frame.frame.frame_description`、昇降は固定関節）にし、
+SRDF・関節上限・controllerを `aha_test_manipulation/frame_moveit.py` で起動時に作る。
+
+- SRDF：固定・存在しない関節（`joint_[r|l]1`）をnamed stateから除き、同じlinkに固定されたlinkの組（骨組みの部材・`link_[r|l]1`・`frame_head_base`）と、
+  どのgroupも動かさないlinkの組（頭と骨組み）の衝突判定を除外する。group `right_arm` / `left_arm` は `joint_[r|l]2`〜`6` の5関節になる。
+- 関節上限：`joint_[r|l]2`〜`6` の位置・速度・加速度を[軌道ブリッジ](../../../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行)の
+  `config/arm.yaml` の範囲に狭める（ブリッジは範囲外の軌道を全体で拒否する）。加速度はブリッジの上限の半分にする
+  （[試行](../../../docs/context/place.md)で、MoveItの軌道がブリッジの加速度の判定で拒否されたため）。
+  開始姿勢が範囲外（例：右肘 `joint_r3` −1.545 rad）だと、MoveItはどの計画も開始姿勢の範囲外として失敗する。
+  その場合は範囲内への1点の軌道をブリッジの `/<side>_arm_controller/joint_trajectory` に送ってから使う（ブリッジは測った姿勢から補間する）。
+- controller：`arms`（既定 `right`、`right,left` で両腕）の `/<side>_arm_controller/follow_joint_trajectory` だけで、`lift_controller` はない。
+  結果を待つ余裕はブリッジの `goal_time` + 0.5 s、開始姿勢のずれの許容はブリッジの `start_tolerance`。
+
+### グリッパの手渡し
+
+`scripts/gripper_handover.py` は `place_server.py` を使わず、`arm_node` のグリッパ指令（`/<arm>/arm/gripper_joint_command`）と
+関節状態（`/<arm>/arm/joint_states` の `joint_<r|l>7r`）だけで、指を開いて物体を受け取る／返してもらう。
+一度に大きく閉じるとアーム基板が落ちた例があるため、常に測った指の位置からランプで動かす（`--ramp` 秒かけて `--rate` Hzで指令）。
+`--width`（物体の幅）があればその分だけ閉じて止め、なければ指がゆっくり閉じ続け、指令に状態がついてこなくなった時点
+（物体に当たって動けない）で止め、当たった位置から `--squeeze` だけ閉じた位置を保つ（`aha_test_manipulation.gripper_ramp`、ROSに依らずテスト可）。
+
+```bash
+ros2 run aha_test_manipulation gripper_handover.py open                              # --open（既定0.03 m）まで開く
+ros2 run aha_test_manipulation gripper_handover.py close --width 0.03                # 物体の幅がわかっているとき
+ros2 run aha_test_manipulation gripper_handover.py close                             # 幅がわからないとき（当たりを検知）
+ros2 run aha_test_manipulation gripper_handover.py handover --arm left --open 0.04   # 開く→Enter待ち→閉じる
+```
+
+| オプション | 既定 | 内容 |
+| --- | --- | --- |
+| `--arm` | `right` | `right` / `left` |
+| `--open` | 0.03 m | 開く指令（片側） |
+| `--width` | なし | 物体の幅（指の間、m）。なければ当たりを検知して止める |
+| `--squeeze` | 0.003 m | 当たった位置（または `--width` の半分）からさらに閉じる量（片側）。0で押し付けない |
+| `--ramp` / `--rate` | 1.0 s / 20 Hz | 測った位置から目標までの時間とその間の指令の頻度 |
+
+最後に測った指の開き（片側）と物体の幅（当たりを検知したときは `2 × 当たった位置`、`--width` では `2 × (開き + --squeeze)`）を表示する。
+起動時に指の状態を最大3秒待ち、来なければ中止する。
+`arm_node` はグリッパの指令と一緒に最後の腕の指令を送り直すため、最初に測った腕の姿勢を `/<arm>/arm/joint_command` へ1回送る（トルクを切って手で動かした腕が、古い指令の位置へ跳ばないように）。基板のリセット後は読みが止まっていて役に立たないので、`arm_node` を起動し直してから使う。
+読みが `arm_node` の範囲外なら（範囲外の指令は捨てられる）送らずに中止し、送る姿勢はlogに出す。
+この腕の指令で、`arm_node` は最後のグリッパの指令も一度に送り直す（指を手で動かした後や、前の指令が閉じた位置のときは指が一度に動く）。この道具ではこれを避けられない。
+
 ## 設定
 
 | ファイル | 内容 |
@@ -33,7 +105,7 @@ ros2 launch aha_test_manipulation manip.launch.py            # rviz:=false でRV
 | `config/kinematics.yaml` | KDL（timeout 0.05 s） |
 | `config/joint_limits.yaml` | 速度・加速度の上限、既定のscaling 0.5、昇降の下限 0.005 m |
 | `config/ompl_planning.yaml` / `pilz_cartesian_limits.yaml` | OMPL（RRTConnect、薄い障害物向けの細かい衝突確認）、Pilz LIN / CIRCのTCP速度・加速度 |
-| `config/moveit_controllers.yaml` | 実行に使うcontroller（腕と `lift_controller`。グリッパはMoveItから実行しない） |
+| `config/moveit_controllers.yaml` | 実行に使うcontroller（腕と `lift_controller`。グリッパはMoveItから実行しない）。骨組みの実機では使わない |
 
 `robot_description` は [aha_test_description](../aha_test_description/) の試験用xacro（`sim:=true`、`.setup_assistant`）から生成する。planning frameはURDFのroot `base_footprint`（virtual jointなし）。
 
@@ -100,7 +172,7 @@ ros2 action send_goal --feedback /aha/manipulation/place aha_test_msgs/action/Pl
 | `grasp` | `side` | 物体の持ち方 `side` / `top` |
 | `object_in_hand` | 持ち方の既定の姿勢 | 手の中の物体の中心の姿勢（軸は `object_size` と同じ、直立でz上）。手に固定のframe（右TCPの `link_ree` など）で、pickが実際に掴んだ所を渡す。置く姿勢（物体を直立させて底面を `release_height` に）、持っている物体の箱、検出から除く箱に使う。`side` の横からの進入は手の向き（TCPのx）に沿う |
 | `approach` | `auto` | `side` / `top` / `auto`（候補ごとに side → top） |
-| `release_height` | 0.01 m | 離す高さ（支持面から） |
+| `release_height` | 0.01 m | 離す高さ（支持面から）。`tcp_height` があればその下限 |
 
 似た物体の隣に置く場合は、呼び出し側がその物体の位置を `near` に渡す。
 結果の `place_pose` は離した時の物体底面の中心（`base_footprint`、xは接近方向）、`surface_id` は置いた支持面の `Surface.id`（未追跡なら0）、
@@ -147,11 +219,15 @@ perceptionの `/aha/perception/place/markers` は問い合わせごとの候補�
 | `base_max_shift` / `base_max_turn` / `max_replans` | 0.01 m / 1.0° / 2 | 台車の移動とみなす量、やり直しの回数 |
 | `velocity_scaling` / `cartesian_velocity_scaling` | 0.5 / 0.2 | 関節空間・Cartesian pathの速度・加速度のscaling |
 | `release_topic` | 空 | 離す前に送る `std_msgs/Empty` のtopic（`{arm}` を腕の名前に置き換える）。`manip.launch.py` は `sim_held_object:=true` で `/aha/sim/held_object/{arm}/detach` を渡す |
+| `gripper_interface` / `gripper_open` | `controller` / 0.06 m | グリッパの指令。`controller` は `/<arm>_gripper_controller/commands`（`Float64MultiArray`、両指）、`arm_node` は `arm_node` の `/<arm>/arm/gripper_joint_command`（`JointCommand`、`joint_[r\|l]7r`）。`gripper_open` は片側の開きの上限で、持てる物体の大きさにも使う |
+| `gripper_ramp_time` | 0 s | 0より大きいと、グリッパの指令を現在の指の位置（`arm_node` では `/<arm>/arm/joint_states`、0.5 s以内のものだけ）から20 Hzでこの時間かけて送る。指の位置がなければ一度に送る |
+| `tcp_height` / `max_release_height` | 0（なし） / 0.04 m | >0なら `side` 把持のTCPの高さ（`base_footprint` のz）を固定し、候補ごとの離す高さで合わせる。範囲は `release_height`〜`max_release_height`（[実機（骨組み）](#実機骨組み)） |
 | `return_state` | `carry` | 最後に戻るnamed state |
 | `support_padding` | 0.03 m | planning sceneの支持面の箱を検出の縁から横に広げる量 |
 | `base_spot` / `base_spot_top` | [0.55, 0.45] / [0.38, 0.2] | `suggested_base_pose` で候補を置く台車からの位置 x, \|y\|。`side` は腕の外側寄り（肩から約30°）で、手先の外側に張り出す手首が物の後ろに回り、隣の物や側板に当たりにくい |
 | `group_ratio` | 0.6 | `near` までの距離が `avoid` の各点までの距離のこの倍未満の候補だけを `near` のグループとする（中間の位置はどちらのグループか分からない） |
-| `verify_place` / `verify_margin` / `verify_height_tolerance` | true / 0.03 m / 0.04 m | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限 |
+| `verify_place` / `verify_margin` / `verify_height_tolerance` / `verify_detections` | true / 0.03 m / 0.04 m / 1 | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限、確認に使う検出の数（最初を含む） |
+| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、関節ごとに、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、以後のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。止まった関節の読み（`/<arm>/arm/joint_states`）が変われば（`arm_node` の起動し直し）解除する。静止中に止まった読みは検出しない |
 
 ## ROSインターフェース
 
@@ -180,9 +256,10 @@ planning pipelineは `ompl`（既定）と `pilz_industrial_motion_planner`（PT
 | 把持物体の状態（Gazebo → ROS） | `/aha/sim/held_object/<arm>/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`、`attached` / `detached`） |
 
 `place_server.py` は上のmove_groupのinterface、perceptionの `/aha/perception/get_place_candidates`・`/aha/perception/planes`・
-`/aha/perception/look_at`、`/joint_states`、`odom` → `base_footprint` のTF、グリッパの位置指令topicを使う。
+`/aha/perception/look_at`、`/joint_states`、`odom` → `base_footprint` のTF、グリッパの位置指令topic（`gripper_interface`）を使う。
+IKの解に昇降の関節がなければ（骨組みのモデル）、関節空間の目標は腕の関節だけにする。
 planning sceneの `aha_place_surface_*` / `aha_place_wall_*` / `aha_place_obstacle_*` / `aha_held_object_<arm>` / `aha_placed_object`
-（`<arm>` は `right` / `left`）はgoalごとにこのserverが書き換える。状態と結果は [aha_test_ui](../aha_test_ui/README.md) のモニタにも出す。
+（`<arm>` は `right` / `left`）はgoalごとにこのserverが書き換える。`aha_placed_object` は退避の後に置く姿勢へ、`object_size` を各方向に `placed_padding` 広げた箱で置く。状態と結果は [aha_test_ui](../aha_test_ui/README.md) のモニタにも出す。
 RVizで置く順を見るには、MarkerArrayの表示を `/aha/manipulation/place/markers`（transient local）で足す。
 
 ## シミュレーションの把持物体
@@ -208,7 +285,14 @@ ros2 run aha_test_manipulation sim_hold_object.py --release                     
 - 届く範囲に空きがなければ `STATUS_UNREACHABLE` で、呼び出し側が台車を近づける。
 - 物体は箱として扱い、置く向きは肩から候補への方向で決まる。
 - 台車の移動は各動作の前に確かめるだけで、動作中の移動は次の確認まで分からない。
+- 骨組みの実機では `side` 把持の手先の高さが1つに決まり（KDLは位置の許容を持たない）、離す高さで合わせられる2 cmの範囲の支持面にしか置けない
+  （[実機（骨組み）](#実機骨組み)）。`top` 把持は机に届かない。
 
 ## テスト
 
-`test/test_moveit_config.py` はSRDF・関節上限・controller設定と試験用のロボット（`aha_test_description`）の一致、他の `test/test_*.py` は置く動作のROSに依らない部分を確かめる。
+`test/test_moveit_config.py` はSRDF・関節上限・controller設定と試験用のロボット（`aha_test_description`）の一致、
+`test/test_frame_moveit.py` は骨組みのモデルのSRDF・関節上限・controller（`frame_moveit.py`）、`test/test_gripper_ramp.py` は
+[グリッパの手渡し](#グリッパの手渡し)のランプ・当たり検知（`gripper_ramp.py`）を確かめる。
+`test/test_manip_real_launch.py` は実機用のlaunchの構成、`test/test_place_server_real.py` はplace_serverの実機向けの処理、
+`test/test_topic_coupling.py` と `test/test_gripper_handover_integration.py` は `arm_node`・軌道ブリッジとのトピックと関節名の一致を確かめ、
+ROS_DOMAIN_ID 75（localhostだけ）でノードを起動する（後者は `astra_controller` の `dry_run_node` を使い、なければスキップ）。他の `test/test_*.py` は置く動作のROSに依らない部分を確かめる。

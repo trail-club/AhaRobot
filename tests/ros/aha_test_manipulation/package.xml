@@ -10,6 +10,10 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_manipulation</exec_depend>
+  <exec_depend>aha_test_frame</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>astra_controller_interfaces</exec_depend>
   <exec_depend>aha_test_description</exec_depend>
   <exec_depend>aha_msgs</exec_depend>
   <exec_depend>aha_test_msgs</exec_depend>
@@ -44,6 +48,10 @@
   <test_depend>aha_msgs</test_depend>
   <test_depend>aha_test_msgs</test_depend>
   <test_depend>aha_test_description</test_depend>
+  <test_depend>aha_test_frame</test_depend>
+  <test_depend>aha_manipulation</test_depend>
+  <test_depend>aha_bringup</test_depend>
+  <test_depend>astra_controller</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
