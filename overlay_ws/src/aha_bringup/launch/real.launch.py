@@ -31,7 +31,6 @@ Do not run next to sim.launch.py on the same ROS_DOMAIN_ID.
 
 from pathlib import Path
 
-import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -44,7 +43,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from aha_description.frame import frame_robot, load_frame
+from aha_description.frame import frame_description
 
 HEAD_STATES = "/head_controller/joint_states"  # aha_servo head.yaml controller_name
 ARM_STATES = ["/left/arm/joint_states", "/right/arm/joint_states"]  # arms.launch.py
@@ -58,17 +57,8 @@ def _launch(package: str, name: str):
     return PythonLaunchDescriptionSource(str(_share(package) / "launch" / name))
 
 
-def robot_description(frame_config: str) -> str:
-    """URDF of the robot on the frame described by ``frame_config``."""
-    urdf = xacro.process_file(
-        str(_share("aha_description") / "urdf" / "aha_robot.urdf.xacro"),
-        mappings={"sim": "false"},
-    ).toxml()
-    return frame_robot(urdf, load_frame(frame_config))
-
-
 def _robot(context):
-    description = robot_description(
+    description = frame_description(
         LaunchConfiguration("frame_config").perform(context)
     )
     return [

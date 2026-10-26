@@ -28,11 +28,12 @@ from __future__ import annotations
 
 import argparse
 import math
-import re
 import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from aha_description.frame import replace_yaw
 
 ARMS = {"left": "l", "right": "r"}
 OUTWARD = {"left": math.pi / 2, "right": -math.pi / 2}  # shoulder change, rad
@@ -69,15 +70,6 @@ def straight_error(elbow_offset: float, elbow: float) -> float:
 def outward_error(side: str, forward: float, outward: float) -> float:
     """Shoulder change from forward to outward minus the expected one."""
     return wrap((outward - forward) - OUTWARD[side])
-
-
-def replace_yaw(text: str, side: str, yaw: float) -> str:
-    """Config text with the ``yaw`` of ``side``'s arm entry set to ``yaw``."""
-    pattern = re.compile(rf"^(\s*{side}:\s*\{{.*?yaw:\s*)(-?[0-9.eE+-]+)(.*)$", re.M)
-    text, count = pattern.subn(lambda m: f"{m.group(1)}{yaw:.4f}{m.group(3)}", text)
-    if count != 1:
-        raise ValueError(f"no single '{side}: {{... yaw: ...}}' line in the config")
-    return text
 
 
 class JointReader:

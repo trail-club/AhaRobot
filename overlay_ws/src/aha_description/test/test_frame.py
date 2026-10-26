@@ -6,12 +6,14 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
 from aha_description.frame import (
     GROOVE_DEPTH,
     frame_robot,
     load_frame,
     profile_boxes,
+    replace_joint_offsets,
     rpy_matrix,
 )
 
@@ -24,7 +26,7 @@ URDF = """
   <link name="link_head_tilt"/>
   <link name="camera_link"/>
   <link name="link_l1"/><link name="link_l2"/>
-  <link name="link_r1"/><link name="link_r2"/>
+  <link name="link_r1"/><link name="link_r2"/><link name="link_r3"/><link name="link_r4"/>
   <joint name="base_footprint_to_base_link" type="fixed">
     <parent link="base_footprint"/><child link="base_link"/><origin xyz="0 0 0.042"/>
   </joint>
@@ -63,6 +65,16 @@ URDF = """
   <joint name="joint_r2" type="revolute">
     <parent link="link_r1"/><child link="link_r2"/>
     <origin xyz="0.068 0 0" rpy="0 0 0.18555"/><axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="1" velocity="1"/>
+  </joint>
+  <joint name="joint_r3" type="revolute">
+    <parent link="link_r2"/><child link="link_r3"/>
+    <origin xyz="0.29812 0 0" rpy="0 0 1.3852"/><axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="1" velocity="1"/>
+  </joint>
+  <joint name="joint_r4" type="revolute">
+    <parent link="link_r3"/><child link="link_r4"/>
+    <origin xyz="0.265 0 -0.087" rpy="3.1416 0 0"/><axis xyz="0 0 1"/>
     <limit lower="-1.57" upper="1.57" effort="1" velocity="1"/>
   </joint>
 </robot>
@@ -229,3 +241,82 @@ def test_unknown_arm_is_an_error(tmp_path):
     )
     with pytest.raises(ValueError, match="unknown arm"):
         load_frame(path)
+
+
+def rotz(angle):
+    T = np.eye(4)
+    T[:3, :3] = rpy_matrix((0.0, 0.0, angle))
+    return T
+
+
+def with_offsets(offsets):
+    right = dict(CONFIG["arms"]["right"], joint_offsets=offsets)
+    return dict(CONFIG, arms=dict(CONFIG["arms"], right=right))
+
+
+@pytest.mark.parametrize("name", ["joint_r3", "joint_r4"])
+@pytest.mark.parametrize("value", [0.12, -0.07])
+def test_joint_offset_turns_the_joint_by_the_offset(robot, name, value):
+    # The true angle is reading + offset: the offset model at q matches the
+    # plain model at q + offset, also for joint_r4 whose axis points down.
+    shifted = ET.fromstring(frame_robot(URDF, with_offsets({name: value})))
+    plain = transform(joint(robot, name).find("origin"))
+    offset = transform(joint(shifted, name).find("origin"))
+    for q in (0.0, 0.7, -1.2):
+        assert offset @ rotz(q) == pytest.approx(plain @ rotz(q + value), abs=1e-4)
+    # Only the yaw changes.
+    assert values(joint(shifted, name).find("origin"), "rpy")[:2] == pytest.approx(
+        values(joint(robot, name).find("origin"), "rpy")[:2]
+    )
+
+
+def test_joint_offset_needs_a_vertical_revolute_axis():
+    config = dict(CONFIG, arms={"left": dict(CONFIG["arms"]["left"])})
+    config["arms"]["left"]["joint_offsets"] = {"joint_l1": 0.1}  # fixed by the frame
+    with pytest.raises(ValueError, match="not a revolute"):
+        frame_robot(URDF, config)
+    tilted = URDF.replace('rpy="0 0 1.3852"', 'rpy="0.3 0 1.3852"')
+    with pytest.raises(ValueError, match="not vertical"):
+        frame_robot(tilted, with_offsets({"joint_r3": 0.1}))
+
+
+@pytest.mark.parametrize(
+    "offsets, message",
+    [
+        ("{joint_l3: 0.1}", "not a joint of the right arm"),
+        ("{joint_r3: abc}", "must be a number"),
+        ("{joint_r3: .nan}", "not finite"),
+        ("[0.1]", "must be a mapping"),
+    ],
+)
+def test_invalid_joint_offsets_are_errors(tmp_path, offsets, message):
+    path = tmp_path / "frame.yaml"
+    path.write_text(
+        "base_height: 0.4\nhead: {pan_xyz: [0, 0, 0]}\n"
+        "arms: {right: {shoulder_xyz: [0, 0, 0], yaw: 0, joint_offsets: "
+        f"{offsets}}}}}\n"
+    )
+    with pytest.raises(ValueError, match=message):
+        load_frame(path)
+
+
+def test_replace_joint_offsets_adds_and_replaces():
+    text = (
+        "arms:\n"
+        "  left: {shoulder_xyz: [0.03, 0.232, 0.244], yaw: 1.5708}\n"
+        "  right: {shoulder_xyz: [0.03, -0.232, 0.222], yaw: -1.5239}  # note\n"
+    )
+    added = replace_joint_offsets(text, "right", {"joint_r3": -0.12})
+    assert added.splitlines()[2] == (
+        "  right: {shoulder_xyz: [0.03, -0.232, 0.222], yaw: -1.5239, "
+        "joint_offsets: {joint_r3: -0.1200}}  # note"
+    )
+    assert added.splitlines()[1] == text.splitlines()[1]
+    replaced = replace_joint_offsets(
+        added, "right", {"joint_r4": 0.01, "joint_r3": 0.05}
+    )
+    assert "joint_offsets: {joint_r3: 0.0500, joint_r4: 0.0100}}  # note" in replaced
+    right = yaml.safe_load(replaced)["arms"]["right"]
+    assert right["joint_offsets"] == {"joint_r3": 0.05, "joint_r4": 0.01}
+    with pytest.raises(ValueError):
+        replace_joint_offsets("arms: {}\n", "left", {})

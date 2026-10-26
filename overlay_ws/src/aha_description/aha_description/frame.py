@@ -14,8 +14,13 @@ base_link (x forward, y left, z up):
 - ``camera`` (optional): ``xyz`` / ``rpy`` of camera_joint (link_head_tilt ->
   camera_link), else the bracket design values of sensors.xacro
 - ``arms``: per side ``shoulder_xyz``, the joint_<l|r>2 axis at the height
-  of link_<l|r>2's frame (the middle of the upper arm bar), and ``yaw`` of
-  link_<l|r>1 (the URDF's is +-pi/2)
+  of link_<l|r>2's frame (the middle of the upper arm bar), ``yaw`` of
+  link_<l|r>1 (the URDF's is +-pi/2), turning the whole arm about the
+  shoulder axis, and optional ``joint_offsets`` ({joint_<l|r>N: rad}): the
+  true angle of a joint is its reading plus the offset. The offset turns the
+  joint's origin about the joint axis, which must be vertical in the parent
+  link (a revolute joint about z with an origin roll of 0 or pi and no pitch,
+  as joint_<l|r>2..4); the model then shows the true pose for the readings
 - ``extrusions``: the frame members (``name``, centerline ``from`` / ``to``,
   optional ``section`` [width, depth], default EXTRUSION_SECTION square),
   each a link fixed to base_link. ``width`` is across the member
@@ -32,6 +37,7 @@ body, wheels and caster lose their visuals and collisions.
 from __future__ import annotations
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -68,6 +74,17 @@ def load_frame(path) -> dict:
         missing = [k for k in ("shoulder_xyz", "yaw") if k not in (arm or {})]
         if missing:
             raise ValueError(f"{path}: arm {side} needs {missing}")
+        offsets = arm.get("joint_offsets") or {}
+        if not isinstance(offsets, dict):
+            raise ValueError(f"{path}: arm {side} joint_offsets must be a mapping")
+        pattern = re.compile(rf"joint_{ARMS[side]}[0-9]+")
+        for name, value in offsets.items():
+            if not pattern.fullmatch(str(name)):
+                raise ValueError(f"{path}: {name!r} is not a joint of the {side} arm")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{path}: joint offset {name} must be a number")
+            if not math.isfinite(value):
+                raise ValueError(f"{path}: joint offset {name} is not finite")
     return config
 
 
@@ -110,6 +127,26 @@ def _origin(joint):
     if origin is None:
         origin = ET.SubElement(joint, "origin")
     return origin
+
+
+def _offset_joint(joint, offset: float):
+    """Turn a joint's origin by ``offset`` about its axis (vertical in the
+    parent link): the joint reads ``offset`` less than its true angle."""
+    name = joint.get("name")
+    if joint.get("type") not in ("revolute", "continuous"):
+        raise ValueError(f"joint offset on {name}: not a revolute joint")
+    axis_element = joint.find("axis")
+    axis = _values(None if axis_element is None else axis_element.get("xyz"), "1 0 0")
+    origin = _origin(joint)
+    rpy = _values(origin.get("rpy"))
+    vertical = rpy_matrix(rpy) @ (axis / np.linalg.norm(axis))
+    if math.hypot(vertical[0], vertical[1]) > 1e-4:
+        raise ValueError(
+            f"joint offset on {name}: the axis is not vertical in the parent link"
+        )
+    # origin * Rz(offset) about the axis = Rz(+-offset) * origin rotation.
+    rpy[2] += offset if vertical[2] > 0.0 else -offset
+    origin.set("rpy", _text(rpy))
 
 
 def _make_fixed(joint):
@@ -207,6 +244,68 @@ def _extrusion_link(root, extrusion):
     ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
 
 
+def replace_yaw(text: str, side: str, yaw: float) -> str:
+    """Config text with the ``yaw`` of ``side``'s arm entry set to ``yaw``."""
+    pattern = re.compile(rf"^(\s*{side}:\s*\{{.*?yaw:\s*)(-?[0-9.eE+-]+)(.*)$", re.M)
+    text, count = pattern.subn(lambda m: f"{m.group(1)}{yaw:.4f}{m.group(3)}", text)
+    if count != 1:
+        raise ValueError(f"no single '{side}: {{... yaw: ...}}' line in the config")
+    return text
+
+
+def replace_shoulder_xyz(text: str, side: str, xyz) -> str:
+    """Config text with the ``shoulder_xyz`` of ``side``'s arm entry set."""
+    pattern = re.compile(
+        rf"^(\s*{side}:\s*\{{.*?shoulder_xyz:\s*)\[[^\]]*\](.*)$", re.M
+    )
+    values = ", ".join(f"{float(v):.4f}" for v in xyz)
+    text, count = pattern.subn(lambda m: f"{m.group(1)}[{values}]{m.group(2)}", text)
+    if count != 1:
+        raise ValueError(
+            f"no single '{side}: {{shoulder_xyz: ...}}' line in the config"
+        )
+    return text
+
+
+def replace_joint_offsets(text: str, side: str, offsets: dict) -> str:
+    """Config text with ``joint_offsets`` of ``side``'s one-line arm entry set
+    to ``offsets`` (replaced, or added at the end of the entry)."""
+    pattern = re.compile(rf"^\s*{side}:\s*\{{.*$", re.M)
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        raise ValueError(f"no single '{side}: {{...}}' line in the config")
+    match = matches[0]
+    line = match.group(0)
+    entries = ", ".join(
+        f"{name}: {value:.4f}" for name, value in sorted(offsets.items())
+    )
+    value = f"joint_offsets: {{{entries}}}"
+    existing = re.compile(r"joint_offsets:\s*\{[^}]*\}")
+    if existing.search(line):
+        line = existing.sub(value, line, count=1)
+    else:
+        body, hash_, comment = line.partition("#")
+        end = body.rstrip()
+        if not end.endswith("}"):
+            raise ValueError(f"the '{side}:' entry is not a one-line mapping")
+        line = f"{end[:-1]}, {value}}}" + (f"  {hash_}{comment}" if hash_ else "")
+    return text[: match.start()] + line + text[match.end() :]
+
+
+def frame_description(frame_config) -> str:
+    """URDF of the installed aha_robot.urdf.xacro (sim:=false) on the frame
+    at ``frame_config``: the real robot's robot_description (needs xacro and
+    the aha_description share directory, unlike the rest of this module)."""
+    import xacro
+    from ament_index_python.packages import get_package_share_directory
+
+    share = Path(get_package_share_directory("aha_description"))
+    urdf = xacro.process_file(
+        str(share / "urdf" / "aha_robot.urdf.xacro"), mappings={"sim": "false"}
+    ).toxml()
+    return frame_robot(urdf, load_frame(frame_config))
+
+
 def frame_robot(urdf: str, config: dict) -> str:
     """URDF string of the robot on the frame described by ``config``."""
     root = ET.fromstring(urdf)
@@ -258,6 +357,8 @@ def frame_robot(urdf: str, config: dict) -> str:
         lift_origin = _origin(lift)
         lift_origin.set("xyz", _text(mount))
         lift_origin.set("rpy", _text((0.0, 0.0, yaw)))
+        for name, offset in (arm.get("joint_offsets") or {}).items():
+            _offset_joint(_joint(root, name), float(offset))
 
     for extrusion in config.get("extrusions", ()):
         _extrusion_link(root, extrusion)
