@@ -9,7 +9,10 @@ simulation.
 
   ros2 launch aha_perception real_head_camera.launch.py
   ros2 launch aha_perception real_head_camera.launch.py camera:=true
+  ros2 launch aha_perception real_head_camera.launch.py camera:=true camera_source:=realsense planes:=true
   ros2 launch aha_perception real_head_camera.launch.py port:=/dev/ttyUSB1 baud:=921600 rviz:=false
+  ros2 launch aha_perception real_head_camera.launch.py head:=manual camera:=true planes:=true
+  ros2 launch aha_perception real_head_camera.launch.py head:=imu camera:=true camera_source:=realsense
 
 Starts:
   - robot_state_publisher (xacro sim:=false, wall clock)
@@ -17,15 +20,30 @@ Starts:
     comes from /head_controller/joint_states, the arms and grippers from
     /<side>/arm/joint_states while aha_bringup arms.launch.py runs, all other
     joints read 0
-  - aha_servo servo_trajectory_bridge.py with config (default
-    aha_servo/config/head.yaml; port/baud override it when given)
+  - head:=servo (default)  aha_servo servo_trajectory_bridge.py with config
+                           (default aha_servo/config/head.yaml; port/baud
+                           override it when given); with imu_check:=true also
+                           imu_head.py mode:=check (servo vs IMU tilt)
+  - head:=manual           manual_head.py: no servos, the commanded angles
+                           become the head state (match a hand-tilted camera
+                           with the panel sliders)
+  - head:=imu              imu_head.py: no servos, tilt from the D435i IMU,
+                           pan from the commanded angles
+                           (needs camera:=true camera_source:=realsense)
   - rviz:=true (default)  sim_view.launch.py with use_sim_time:=false,
                           fixed_frame:=base_link (RViz, control panel,
                           look-at; the base pad does nothing)
-  - camera:=true          rosbridge_server on 127.0.0.1:9090 and
-                          pointcloud.launch.py. The D435i stream
-                          (stream_realsense.py through rosbridge) is started
-                          separately, see aha_perception/README.md.
+  - camera:=true          pointcloud.launch.py and the camera source:
+                            camera_source:=rosbridge (default)
+                              rosbridge_server on 127.0.0.1:9090; the D435i
+                              stream (stream_realsense.py) is started
+                              separately, see aha_perception/README.md
+                            camera_source:=realsense
+                              realsense.launch.py (color_profile,
+                              depth_profile; IMU only for head:=imu or
+                              imu_check:=true)
+  - planes:=true          plane_detection.launch.py (needs the camera stream,
+                          i.e. camera:=true)
 
 Do not run next to sim.launch.py on the same ROS_DOMAIN_ID: both serve
 /head_controller and /joint_states.
@@ -53,7 +71,52 @@ HEAD_STATES = "/head_controller/joint_states"
 ARM_STATES = ["/left/arm/joint_states", "/right/arm/joint_states"]
 
 
+def flag(context, name):
+    return LaunchConfiguration(name).perform(context).lower() in ("true", "1")
+
+
+def needs_imu(context):
+    return LaunchConfiguration("head").perform(context) == "imu" or flag(
+        context, "imu_check"
+    )
+
+
+def perception_launch(name):
+    return PythonLaunchDescriptionSource(
+        PathJoinSubstitution([FindPackageShare("aha_perception"), "launch", name])
+    )
+
+
+def imu_head(mode):
+    return Node(
+        package="aha_perception",
+        executable="imu_head.py",
+        parameters=[
+            PathJoinSubstitution(
+                [FindPackageShare("aha_perception"), "config", "head.yaml"]
+            ),
+            {"mode": mode},
+        ],
+        output="screen",
+    )
+
+
 def head_bridge(context):
+    head = LaunchConfiguration("head").perform(context)
+    if head == "manual":
+        head_params = PathJoinSubstitution(
+            [FindPackageShare("aha_perception"), "config", "head.yaml"]
+        )
+        return [
+            Node(
+                package="aha_perception",
+                executable="manual_head.py",
+                parameters=[head_params],
+                output="screen",
+            )
+        ]
+    if head == "imu":
+        return [imu_head("state")]
     overrides = {}
     port = LaunchConfiguration("port").perform(context)
     baud = LaunchConfiguration("baud").perform(context)
@@ -61,13 +124,56 @@ def head_bridge(context):
         overrides["port"] = port
     if baud:
         overrides["baud"] = int(baud)
-    return [
+    actions = [
         Node(
             package="aha_servo",
             executable="servo_trajectory_bridge.py",
             name="aha_head_servo_bridge",
             parameters=[LaunchConfiguration("config").perform(context), overrides],
             output="screen",
+        )
+    ]
+    if flag(context, "imu_check"):
+        actions.append(imu_head("check"))
+    return actions
+
+
+def check_arguments(context):
+    source = LaunchConfiguration("camera_source").perform(context)
+    if needs_imu(context) and not (flag(context, "camera") and source == "realsense"):
+        raise RuntimeError(
+            "head:=imu and imu_check:=true need camera:=true camera_source:=realsense"
+        )
+    return []
+
+
+def camera_source(context):
+    if not flag(context, "camera"):
+        return []
+    if LaunchConfiguration("camera_source").perform(context) == "realsense":
+        return [
+            IncludeLaunchDescription(
+                perception_launch("realsense.launch.py"),
+                launch_arguments={
+                    "color_profile": LaunchConfiguration("color_profile"),
+                    "depth_profile": LaunchConfiguration("depth_profile"),
+                    "imu": "true" if needs_imu(context) else "false",
+                }.items(),
+            )
+        ]
+    # Host network: bind to loopback so the bridge is not exposed on the LAN.
+    return [
+        IncludeLaunchDescription(
+            AnyLaunchDescriptionSource(
+                PathJoinSubstitution(
+                    [
+                        FindPackageShare("rosbridge_server"),
+                        "launch",
+                        "rosbridge_websocket_launch.xml",
+                    ]
+                )
+            ),
+            launch_arguments={"address": "127.0.0.1", "port": "9090"}.items(),
         )
     ]
 
@@ -102,45 +208,20 @@ def generate_launch_description():
     )
 
     sim_view = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [
-                    FindPackageShare("aha_perception"),
-                    "launch",
-                    "sim_view.launch.py",
-                ]
-            )
-        ),
+        perception_launch("sim_view.launch.py"),
         launch_arguments={"use_sim_time": "false", "fixed_frame": "base_link"}.items(),
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
-    # Host network: bind to loopback so the bridge is not exposed on the LAN.
-    rosbridge = IncludeLaunchDescription(
-        AnyLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [
-                    FindPackageShare("rosbridge_server"),
-                    "launch",
-                    "rosbridge_websocket_launch.xml",
-                ]
-            )
-        ),
-        launch_arguments={"address": "127.0.0.1", "port": "9090"}.items(),
-        condition=IfCondition(LaunchConfiguration("camera")),
-    )
     pointcloud = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [
-                    FindPackageShare("aha_perception"),
-                    "launch",
-                    "pointcloud.launch.py",
-                ]
-            )
-        ),
+        perception_launch("pointcloud.launch.py"),
         launch_arguments={"use_sim_time": "false"}.items(),
         condition=IfCondition(LaunchConfiguration("camera")),
+    )
+
+    planes = IncludeLaunchDescription(
+        perception_launch("plane_detection.launch.py"),
+        condition=IfCondition(LaunchConfiguration("planes")),
     )
 
     return LaunchDescription(
@@ -155,6 +236,21 @@ def generate_launch_description():
                     ]
                 ),
                 description="Head servo bus config (aha_servo/joint_map.py format)",
+            ),
+            DeclareLaunchArgument(
+                "head",
+                default_value="servo",
+                choices=["servo", "manual", "imu"],
+                description="servo: drive the head servos; manual: no servos, "
+                "manual_head.py publishes the commanded angles as the head state; "
+                "imu: no servos, imu_head.py publishes the IMU tilt and the "
+                "commanded pan (camera_source:=realsense)",
+            ),
+            DeclareLaunchArgument(
+                "imu_check",
+                default_value="false",
+                description="With head:=servo, warn when the servo tilt and the "
+                "IMU tilt differ by more than 3 deg (camera_source:=realsense)",
             ),
             DeclareLaunchArgument(
                 "port",
@@ -174,14 +270,39 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "camera",
                 default_value="false",
-                description="Start rosbridge (127.0.0.1:9090) and the point cloud node "
-                "for the real D435i stream",
+                description="Start the camera source and the point cloud node",
             ),
+            DeclareLaunchArgument(
+                "camera_source",
+                default_value="rosbridge",
+                choices=["rosbridge", "realsense"],
+                description="rosbridge: rosbridge (127.0.0.1:9090) for "
+                "stream_realsense.py; realsense: the RealSense ROS driver "
+                "(realsense.launch.py)",
+            ),
+            DeclareLaunchArgument(
+                "color_profile",
+                default_value="640,480,15",
+                description="camera_source:=realsense color width,height,fps",
+            ),
+            DeclareLaunchArgument(
+                "depth_profile",
+                default_value="640,480,15",
+                description="camera_source:=realsense depth width,height,fps",
+            ),
+            DeclareLaunchArgument(
+                "planes",
+                default_value="false",
+                description="Start plane detection on the head depth camera "
+                "(with camera:=true)",
+            ),
+            OpaqueFunction(function=check_arguments),
             rsp,
             jsp,
             OpaqueFunction(function=head_bridge),
             sim_view,
-            rosbridge,
+            OpaqueFunction(function=camera_source),
             pointcloud,
+            planes,
         ]
     )

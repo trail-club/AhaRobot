@@ -1,0 +1,66 @@
+# Put down the object held in a gripper on a detected support surface.
+# Owner: manipulation squad. Consumers: task / behavior.
+# Place spots come from perception's GetPlaceCandidates (base_footprint).
+
+string                     arm             # "right" (default when empty) | "left"
+geometry_msgs/Vector3      object_size     # x, y footprint and z height (m), all > 0
+string[]                   surface_labels  # empty = table and shelf
+geometry_msgs/PointStamped near            # empty frame_id = none; else prefer spots near it
+string                     grasp           # how the object is held: "side" (default) | "top"
+# Pose of the held object's center (axes as object_size, z up when upright)
+# in a frame fixed to the hand (e.g. link_ree, the right TCP), e.g. where the
+# pick actually grasped it. Empty frame_id = the grasp's nominal pose.
+geometry_msgs/PoseStamped  object_in_hand
+string                     approach        # "auto" (default: side, then top) | "side" | "top"
+float32                    release_height  # m above the surface at release; 0 = default (0.01)
+# true: place only on a support whose height is within height_tolerance of
+# surface_height (m, z in base_footprint); never on another surface
+bool                       restrict_height
+float32                    surface_height
+float32                    height_tolerance # m, <= 0 = default (0.03)
+uint32[]                   surface_ids      # empty = any; else only these Surface.id
+# Furniture of perception's furniture config (empty = any) and its level
+# (0 = any level the object fits); see GetPlaceCandidates
+string                     furniture
+int32                      furniture_level
+float32                    clearance        # m of free space around the object beyond perception's margin
+# With near: points (in near's frame) of objects the placed object must not
+# be grouped with, e.g. another category on the same shelf level. Spots
+# closer to near than to every avoid point are tried first.
+geometry_msgs/Point[]      avoid
+# With near: the other objects of near's group (same frame). Distances to
+# the group (near_max_distance, the avoid ratio, the order) are to the
+# nearest of near and these: beside another member is beside the group.
+geometry_msgs/Point[]      group
+# With near, > 0: only spots within this distance (m) of near and closer to it
+# than to every avoid point; if none is reachable, STATUS_UNREACHABLE with
+# suggested_base_pose
+float32                    near_max_distance
+---
+uint8 STATUS_OK=0                # placed (retreat / return failures in returned and message)
+uint8 STATUS_NO_SURFACE=1        # no support matching the labels (and height)
+uint8 STATUS_NO_SPACE=2          # supports seen, but no free spot for the object
+uint8 STATUS_UNREACHABLE=3       # candidates, but no IK / plan / Cartesian path for any
+uint8 STATUS_EXECUTION_FAILED=4  # candidates failed, at least one in trajectory execution
+uint8 STATUS_ERROR=5             # bad goal, perception or MoveIt services unavailable
+uint8 STATUS_CANCELED=6          # the arm stops where it is (object kept unless released)
+uint8 STATUS_BASE_MOVED=7        # the base kept moving after the detection (odom), replans used up
+uint8 STATUS_INVALID_OBJECT=8    # object_size does not fit the gripper for the grasp
+uint8 STATUS_NOT_AT_SPOT=9       # released, but no object seen at the spot afterwards (fell or pushed)
+
+bool                       success
+uint8                      status
+string                     message
+geometry_msgs/PoseStamped  place_pose      # object bottom center at release, z up, x = approach direction
+float32                    surface_height  # m, z in base_footprint of the support placed on
+uint32                     surface_id      # Surface.id of the support placed on (0 = not tracked yet)
+string                     approach_used   # "side" | "top"
+uint32                     candidates_tried
+bool                       returned        # the arm reached the return state (named state) at the end
+bool                       verified        # a detection after the return saw an object at the spot
+# STATUS_UNREACHABLE with near_max_distance: base pose (odom) from which the
+# best spot near near is at the arm's base_spot; empty frame_id if none
+geometry_msgs/PoseStamped  suggested_base_pose
+---
+string                     phase           # "perceiving" | "planning" | "checking" | "approaching" | "releasing" | "retreating" | "returning" | "verifying"
+uint32                     candidate_index # 0-based index into the candidates being tried

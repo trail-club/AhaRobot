@@ -30,7 +30,8 @@ if [ ! -d "${HOME}/.ros/rosdep/sources.cache" ]; then
     rosdep update || true
 fi
 
-# Install ROS deps for all packages present under overlay_ws/src.
+# Install ROS deps for all packages present under overlay_ws/src and the
+# test packages under tests/ros (built by make test).
 # Safe to re-run; rosdep is a no-op when everything is satisfied.
 # rosdep is an external program, but a failing apt step has been exiting
 # this PID 1 script with code 255 even after `||`. A subshell keeps `exit`
@@ -50,7 +51,7 @@ if [ -d "${WS}/src" ]; then
             sudo apt-get update
         fi
         # These upstream dependencies serve the unused random-world manager only.
-        rosdep install --from-paths src --ignore-src -r -y \
+        rosdep install --from-paths src ../tests/ros --ignore-src -r -y \
             --skip-keys "gz_human_sim sobits_interfaces"
     ) || echo "[init] rosdep reported unresolved deps (continuing)"
 fi

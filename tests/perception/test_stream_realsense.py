@@ -142,6 +142,29 @@ class StreamRealsenseMessageTests(unittest.TestCase):
         self.assertEqual(operation["qos"]["durability"], "volatile")
         self.assertEqual(operation["qos"]["depth"], 5)
 
+    def test_depth_filters_run_in_disparity_domain_and_can_be_disabled(self):
+        fake_rs = SimpleNamespace(
+            disparity_transform=lambda to_disparity: ("disparity", to_disparity),
+            spatial_filter=lambda: "spatial",
+            temporal_filter=lambda: "temporal",
+        )
+
+        filters = stream_realsense.make_depth_filters(fake_rs, True)
+
+        self.assertEqual(
+            filters,
+            [
+                ("disparity", ("disparity", True)),
+                ("spatial", "spatial"),
+                ("temporal", "temporal"),
+                ("depth", ("disparity", False)),
+            ],
+        )
+        self.assertEqual(stream_realsense.make_depth_filters(fake_rs, False), [])
+        parser = stream_realsense._build_parser()
+        self.assertTrue(parser.parse_args([]).filter)
+        self.assertFalse(parser.parse_args(["--no-filter"]).filter)
+
     def test_mac_topic_contract_has_no_pointcloud_publisher(self):
         topics = {
             stream_realsense.COLOR_TOPIC,

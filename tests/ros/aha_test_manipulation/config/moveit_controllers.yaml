@@ -1,0 +1,33 @@
+# MoveIt splits a right_arm / left_arm trajectory into the arm controller and
+# lift_controller (joint_[l|r]1 only; lift_controller accepts partial goals).
+# Grippers are ForwardCommandControllers and are not executed by MoveIt.
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - right_arm_controller
+    - left_arm_controller
+    - lift_controller
+
+  right_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [joint_r2, joint_r3, joint_r4, joint_r5, joint_r6]
+
+  left_arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [joint_l2, joint_l3, joint_l4, joint_l5, joint_l6]
+
+  lift_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [joint_l1, joint_r1]
+
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.01

@@ -37,6 +37,8 @@
 `teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 
 標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
+`sim.launch.py world_tf:=true`（既定 `false`）は初期位置（`spawn_x` / `spawn_y` / `spawn_yaw`）から
+`world` → `odom`（`use_nav:=true` では `world` → `map`）の静的TFを配信する。`odom` の原点は初期位置の床（`map` はslam_toolboxの起動時の `odom`）とみなす。
 
 ## タスク評価
 
@@ -158,19 +160,26 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 | --- | --- |
 | `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） |
 | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
-| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1、m単位） |
+| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1のm、RealSenseドライバでは16UC1のmm） |
 | `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` |
+| `/camera/imu` | `sensor_msgs/msg/Imu`（RealSenseドライバのみ、accel・gyro、`camera_imu_optical_frame`） |
 
 | 経路 | 起動 | 上3topicの配信元 |
 | --- | --- | --- |
 | シミュレーション | `sim.launch.py use_perception:=true` | Gazeboの `rgbd_camera`（640×480、15 Hz）を `ros_gz_bridge` で変換 |
 | 実機カメラ | [カメラツール](../tools/perception/macos/pointcloud/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
 | 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
+| 実機（RealSenseドライバ） | `real_head_camera.launch.py camera:=true camera_source:=realsense`、`camera_view.launch.py camera_source:=realsense`、`realsense.launch.py` | `realsense2_camera_node`（既定640×480、15 fps） |
 
+シミュレーションで `depth_noise:=d435i_filtered`（または `d435i_raw`）を付けると、bridgeのDepthは
+`/camera/depth_registered/image_rect_clean` に出て、`sim_depth_noise.py` が実機D435i相当のノイズを加えた
+`/camera/depth_registered/image_rect` を配信する（[Depthノイズ](../overlay_ws/src/aha_perception/README.md#depthノイズ)）。
 `/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)
-の `depth_image_proc` が生成する。全topicは `camera_color_optical_frame` を使い、
+の `depth_image_proc` が生成する。`/camera/imu` 以外のtopicは `camera_color_optical_frame` を使い、
 RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
 `stream_realsense.py` の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
+RealSenseドライバは位置合わせしたDepthのCameraInfoを `/camera/depth_registered/camera_info` にも出し、
+`/camera/depth/image_rect_raw` など位置合わせ前のtopicも出す（`publish_tf` は無効、赤外線は配信しない）。
 
 TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
@@ -212,6 +221,81 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 `head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
 RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
 
+## 平面検出
+
+`plane_detection.launch.py`（`perception.launch.py` / `real_head_camera.launch.py` の `planes:=true` で起動）の
+`plane_detection_node.py` が扱う。設定は [aha_perception](../overlay_ws/src/aha_perception/README.md#平面検出のノード)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 入力Depth（32FC1 m / 16UC1 mm） | `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image` |
+| 入力の内部パラメータ | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| 平面（法線・オフセット・重心・凸包・ラベル） | `/aha/perception/planes` | `aha_msgs/msg/PlaneArray` |
+| 平面のインライア点（x, y, z, rgb） | `/aha/perception/planes/cloud` | `sensor_msgs/msg/PointCloud2` |
+| 平面の凸包とラベル | `/aha/perception/planes/markers` | `visualization_msgs/msg/MarkerArray` |
+| 追跡した面（ID・ラベル・段・平面） | `/aha/perception/surfaces` | `aha_msgs/msg/SurfaceArray` |
+| 置き場所の候補（service） | `/aha/perception/get_place_candidates` | `aha_msgs/srv/GetPlaceCandidates` |
+| 置き場所の候補と障害物の表示（service呼び出し時） | `/aha/perception/place/markers` | `visualization_msgs/msg/MarkerArray` |
+| 家具の段の表示（`furniture_config` の指定時のみ、transient local） | `/aha/perception/furniture/markers` | `visualization_msgs/msg/MarkerArray` |
+
+入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
+時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
+出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
+家具の段に対応した面の平面は、凸包を家具の設定の外形（`furniture_clip_margin` 広げた範囲）で切り取って出す（重心・高さは切り取る前の値で、凸包の外になることがある）。
+`surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。`odom` で追跡を始めた後にTFが取れない検出では、面を更新せず `surfaces` も出さない。
+`Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
+視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
+`object_categories` は今は空。追跡の規則は [aha_perception](../overlay_ws/src/aha_perception/README.md#面の追跡)を参照。
+`furniture` / `furniture_level` は家具の設定（パラメータ `furniture_config`、[家具の設定](../overlay_ws/src/aha_perception/README.md#家具の設定)）で
+その面が対応した家具の名前と段（1が設定の一番下の段）。対応しない面・設定なしでは空 / 0。
+対応には `tracking_frame` から設定のframeへのTFを使い、TFがない間は対応しない。
+`planes/cloud` は面のID（`Surface.id`）ごとに色分けしたインライア点（追跡前の平面は灰色）。
+`planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
+`place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）と
+中心の球（ns `center`）を、障害物ごとに箱（ns `obstacle`）を、要求の除外領域（`exclude_regions`）ごとに箱（ns `exclude`）を出す。順位は出さない（試す順は呼び出し側が決める）。
+`furniture/markers` は起動時に1回、設定のframeで段ごとに家具の外形の長方形（ns `level`）と `<名前> <段>` の文字（ns `label`）を出す。
+
+`get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
+`object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
+`surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ検出の時刻のTF（なければ最新）で `base_footprint` へ変換し、その点に近い順に並べる（`approach_from` も同じ）。
+`restrict_height` がtrueなら、高さが `surface_height`（`base_footprint` のz）から `height_tolerance`（0以下は0.03 m）以内の支持面だけを使う。
+`exclude_regions`（`aha_msgs/PlaceObstacle` の箱、検出の時刻の `base_footprint` として扱う、`plane_id` は無視）の中とカメラから見てその後ろの点は
+候補にも障害物の箱にも使わず、その下の支持面（物体の高さまで）は見えていないものとする。
+`surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
+`furniture` が空でなければ、最新の検出でその家具の `furniture_level`（0は物体の高さが入るすべての段）に対応した面だけを支持面にする
+（`surface_ids` もあれば両方に含まれる面、ラベルの扱いは `surface_ids` と同じ）。
+`clearance`（m）は候補の物体の底面（外接円、`approach_from` があれば置く向きの長方形）と障害物の間に `obstacle_margin` に加えて空ける距離で、支持面の縁までの距離は変えない。
+`approach_from`（空なら外接円）と `yaw_offsets` は置く向きで、候補は `oriented` とその向きの `pose` を返す。
+`pose` の姿勢はz軸が面の法線、x軸が面内で `oriented` なら確かめた物体の向き、そうでなければ向き0（`base_footprint` のx方向）を向く。
+応答の `view_point` は要求した段の上面の中心（段0では段の高さの平均）を設定から求めて `tracking_frame` で表した点
+（TFがなければ `base_footprint`、家具の指定がないかTFがなければ `frame_id` が空）。段が見えていない場合に頭を向ける先に使う。
+候補の `pose` は検出の時刻（`stamp`）の `base_footprint` で、その後に台車が動いた場合は `stamp` のTFで変換する。
+`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
+`surface_id` はその面の `Surface.id`（まだIDがなければ0）、`planes` は候補を探した支持面、`stamp` は使った検出のDepthの時刻。
+`obstacles` は検出のすべての支持面（ラベル・高さ・IDの指定によらない、床を除く）の上の物体の箱（`aha_msgs/PlaceObstacle`、`base_footprint`）で、
+`plane_id` の支持面は `planes` に含まれないことがある（`/aha/perception/planes` の同じ時刻のメッセージにはある）。
+家具の段に対応した面の箱は切り取る前の凸包で作るため、`planes` の凸包から外にはみ出すことがある。
+検出がない・古い・引数やTFが不正、家具の設定がない・家具や段が設定にない場合は `success` がfalseで `status` が `STATUS_ERROR`。
+それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面や家具の段が最新の検出にない場合、合う平面に有効な点が3点未満の場合を含む）と `STATUS_NO_SURFACE`、
+置ける場所がない（物体の高さ `object_size.z` が段の上の空き（次の段の高さ − 板の厚さ − 段の高さ）を超える場合を含む。
+家具を指定しない要求でも、段に対応した面では空きから面の高さの誤差を引いた高さを超える物体は置けない）と
+`STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
+呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
+
+## 物体検出（シミュレーションのみ）
+
+`perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
+`sim_object_detector.py` がGazeboの真の姿勢から頭部カメラに見える物体を出す。実機の物体検出器はまだない。
+判定・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 検出した物体（ラベル・track ID・姿勢・大きさ） | `/aha/perception/objects` | `aha_msgs/msg/DetectedObjectArray` |
+
+frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`）、時刻は判定に使ったDepthの時刻、2 Hz以下（RELIABLE）。
+`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
+`pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
+
 ## 人の認識
 
 [people.launch.py](../overlay_ws/src/aha_perception/README.md#人の認識)の `person_perception.py` が扱う。
@@ -236,6 +320,9 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
 `joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
+`/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
+（`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
 
 ## 実機のアーム
 
@@ -260,5 +347,9 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 ## 独自型
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
-`SetNavGoal`、`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。型定義だけでは対応するnodeやserverの起動を意味しない。
+`Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
+`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。
+型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
+置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
