@@ -18,6 +18,7 @@ class FrozenWatch:
         self.motion = motion  # rad
         self._actual = None  # readings at the last change
         self._since = None  # (time, desired) at the last change of the readings
+        self.goal = None  # the caller's id of the watched trajectory goal
 
     def reset(self):
         self._actual = None

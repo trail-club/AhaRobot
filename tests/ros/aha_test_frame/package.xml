@@ -11,6 +11,9 @@
   <build_depend>astra_description</build_depend>
 
   <exec_depend>aha_bringup</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>aha_description</exec_depend>
   <exec_depend>aha_manipulation</exec_depend>
   <exec_depend>aha_msgs</exec_depend>
@@ -30,8 +33,6 @@
   <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_cmake_pytest</test_depend>
-  <test_depend>ament_index_python</test_depend>
-  <test_depend>launch</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>

@@ -12,6 +12,7 @@
   <exec_depend>aha_description</exec_depend>
   <exec_depend>aha_manipulation</exec_depend>
   <exec_depend>aha_test_frame</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>astra_controller_interfaces</exec_depend>
   <exec_depend>aha_test_description</exec_depend>
   <exec_depend>aha_msgs</exec_depend>

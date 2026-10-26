@@ -93,7 +93,7 @@ from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import MoveItErrorCodes
 from moveit_msgs.srv import GetCartesianPath, GetPositionIK
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.duration import Duration as RclpyDuration
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
@@ -383,6 +383,8 @@ class PlaceServer(Node):
         self.fingers = {}
         self.frozen = None  # why the arm readings looked frozen, until the next goal
         if self.param("frozen_window") > 0.0:
+            # One at a time: FrozenWatch keeps state between samples.
+            feedback_group = MutuallyExclusiveCallbackGroup()
             for arm in ARMS:
                 watch = FrozenWatch(
                     self.param("frozen_window"), self.param("frozen_motion")
@@ -394,7 +396,7 @@ class PlaceServer(Node):
                         arm, watch, msg
                     ),
                     10,
-                    callback_group=group,
+                    callback_group=feedback_group,
                 )
         if interface == "arm_node":
             for cfg in ARMS.values():
@@ -498,6 +500,12 @@ class PlaceServer(Node):
         return find()
 
     def on_bridge_feedback(self, arm, watch, msg):
+        # A new controller goal starts afresh: readings at rest between goals
+        # are constant and must not count against its first samples.
+        goal = bytes(msg.goal_id.uuid)
+        if watch.goal != goal:
+            watch.reset()
+            watch.goal = goal
         feedback = msg.feedback
         reason = watch.update(
             time.monotonic(), feedback.desired.positions, feedback.actual.positions
