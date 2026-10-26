@@ -25,7 +25,7 @@ worldと初期位置の変更は
 - [開発ルール](AGENTS.md)
 - [ROSパッケージ・制限](overlay_ws/README.md)
 - [ROSインターフェース](docs/interfaces.md)
-- [昇降機構の配線資料](docs/electrical/lift/README.md) — WireViz YAML・配線図・機器配置図・元PDF
+- [配線資料](docs/electrical/README.md) — 配線ごとの資料と追加・更新方法
 - [両腕キーボード教示](docs/arm-keyboard-teleop.md) — 実機の両腕を `arm_node` 経由でキー操作する
 - [submoduleの更新](docs/upstream-workflow.md)
 - [ライセンス・出典](dependencies/THIRD_PARTY.md)
