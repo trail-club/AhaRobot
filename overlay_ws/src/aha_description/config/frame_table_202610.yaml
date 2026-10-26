@@ -28,9 +28,13 @@ arms:
   # the tower (y +-0.16) at the second upright from the back (x 0.03); the
   # axis is 0.072 m out from the mounting face (link_<l|r>1 mesh: face at
   # -0.004, axis at 0.068).
-  # yaw: link_<l|r>1 as in the Astra URDF, not checked on the robot.
+  # yaw: left as in the Astra URDF, not checked on the robot. Right: yaw, the
+  # elbow offset and the height (0.222 measured) from arm_cloud_calibrate.py
+  # (docs/context/frame.md).
+  # joint_offsets (optional): {joint_<l|r>N: rad} added to the readings of the
+  # vertical joints 2..4 (aha_description/frame.py), e.g. joint_r3: -0.12.
   left: {shoulder_xyz: [0.03, 0.232, 0.244], yaw: 1.5708}
-  right: {shoulder_xyz: [0.03, -0.232, 0.222], yaw: -1.5708}
+  right: {shoulder_xyz: [0.03, -0.232, 0.202], yaw: -1.5234, joint_offsets: {joint_r3: 0.035}}
 
 # Aluminum profiles of 30 mm modules, centerlines (from -> to); section
 # [width, depth] (aha_description/frame.py).
