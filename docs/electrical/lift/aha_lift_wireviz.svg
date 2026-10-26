@@ -87,7 +87,7 @@
 <polygon fill="#000000" stroke="transparent" points="973.5,-448.5 973.5,-450.5 1407.5,-450.5 1407.5,-448.5 973.5,-448.5"/>
 <text text-anchor="start" x="1038.5" y="-435.3" font-family="arial" font-size="14.00"> </text>
 <polygon fill="none" stroke="black" points="973.5,-406.5 973.5,-429.5 1407.5,-429.5 1407.5,-406.5 973.5,-406.5"/>
-<text text-anchor="start" x="977.5" y="-414.3" font-family="arial" font-size="14.00">4 black wires identified as black 1..4 in source. Gauge/length not given.</text>
+<text text-anchor="start" x="977.5" y="-414.3" font-family="arial" font-size="14.00">4 black wires labeled BK1..BK4. Gauge/length not specified.</text>
 </g>
 <!-- MCU&#45;&#45;W_CTRL -->
 <g id="edge2" class="edge">
@@ -225,7 +225,7 @@
 <polygon fill="none" stroke="black" points="1974,-410.5 1974,-433.5 2201,-433.5 2201,-410.5 1974,-410.5"/>
 <text text-anchor="start" x="2055" y="-418.3" font-family="arial" font-size="14.00">ENA&#45; (NC)</text>
 <polygon fill="none" stroke="black" points="1807,-387.5 1807,-410.5 2201,-410.5 2201,-387.5 1807,-387.5"/>
-<text text-anchor="start" x="1811" y="-395.3" font-family="arial" font-size="14.00">Terminal order per source drawing. ENA pins are not connected.</text>
+<text text-anchor="start" x="1811" y="-395.3" font-family="arial" font-size="14.00">ENA pins are not connected.</text>
 </g>
 <!-- DRV_PWR -->
 <g id="node3" class="node">
@@ -313,7 +313,7 @@
 <polygon fill="#000000" stroke="transparent" points="2712.5,-86.5 2712.5,-88.5 3051.5,-88.5 3051.5,-86.5 2712.5,-86.5"/>
 <text text-anchor="start" x="2767" y="-73.3" font-family="arial" font-size="14.00"> </text>
 <polygon fill="none" stroke="black" points="2712.5,-44.5 2712.5,-67.5 3051.5,-67.5 3051.5,-44.5 2712.5,-44.5"/>
-<text text-anchor="start" x="2716.5" y="-52.3" font-family="arial" font-size="14.00">Lead colors per attached PDF. Gauge/length not given.</text>
+<text text-anchor="start" x="2716.5" y="-52.3" font-family="arial" font-size="14.00">Gauge/length not specified.</text>
 </g>
 <!-- DRV_PWR&#45;&#45;W_MOTOR -->
 <g id="edge10" class="edge">
@@ -384,7 +384,7 @@
 <polygon fill="none" stroke="black" points="3618.5,-81.5 3618.5,-104.5 3939.5,-104.5 3939.5,-81.5 3618.5,-81.5"/>
 <text text-anchor="start" x="3757.5" y="-89.3" font-family="arial" font-size="14.00">B&#45; blue</text>
 <polygon fill="none" stroke="black" points="3348.5,-58.5 3348.5,-81.5 3939.5,-81.5 3939.5,-58.5 3348.5,-58.5"/>
-<text text-anchor="start" x="3352.5" y="-66.3" font-family="arial" font-size="14.00">Motor lead coil assignments copied from source; verify actual motor datasheet before energizing.</text>
+<text text-anchor="start" x="3352.5" y="-66.3" font-family="arial" font-size="14.00">Verify motor lead coil assignments against the actual motor datasheet.</text>
 </g>
 <!-- SUPPLY -->
 <g id="node5" class="node">
@@ -405,7 +405,7 @@
 <polygon fill="none" stroke="black" points="420.5,-34.5 420.5,-57.5 680.5,-57.5 680.5,-34.5 420.5,-34.5"/>
 <text text-anchor="start" x="546.5" y="-42.3" font-family="arial" font-size="14.00">2</text>
 <polygon fill="none" stroke="black" points="113.5,-11.5 113.5,-34.5 680.5,-34.5 680.5,-11.5 113.5,-11.5"/>
-<text text-anchor="start" x="117.5" y="-19.3" font-family="arial" font-size="14.00">Source unspecified (battery / DC&#45;DC). Fuse/switch wiring and current rating not documented.</text>
+<text text-anchor="start" x="117.5" y="-19.3" font-family="arial" font-size="14.00">Supply type, fuse/switch wiring and current rating unspecified.</text>
 </g>
 <!-- W_PWR -->
 <g id="node9" class="node">
@@ -432,7 +432,7 @@
 <polygon fill="#000000" stroke="transparent" points="971.5,-41.5 971.5,-43.5 1409.5,-43.5 1409.5,-41.5 971.5,-41.5"/>
 <text text-anchor="start" x="1043.5" y="-28.3" font-family="arial" font-size="14.00"> </text>
 <polygon fill="none" stroke="black" points="971.5,0.5 971.5,-22.5 1409.5,-22.5 1409.5,0.5 971.5,0.5"/>
-<text text-anchor="start" x="975.5" y="-7.3" font-family="arial" font-size="14.00">Thick black and thick red in source; numeric gauge/length not specified.</text>
+<text text-anchor="start" x="975.5" y="-7.3" font-family="arial" font-size="14.00">Thick black and red conductors; numeric gauge/length not specified.</text>
 </g>
 <!-- SUPPLY&#45;&#45;W_PWR -->
 <g id="edge18" class="edge">
@@ -483,7 +483,7 @@
 <polygon fill="none" stroke="black" points="3776.5,-312.5 3776.5,-335.5 3944.5,-335.5 3944.5,-312.5 3776.5,-312.5"/>
 <text text-anchor="start" x="3856.5" y="-320.3" font-family="arial" font-size="14.00">4</text>
 <polygon fill="none" stroke="black" points="3343.5,-289.5 3343.5,-312.5 3944.5,-312.5 3944.5,-289.5 3343.5,-289.5"/>
-<text text-anchor="start" x="3347.5" y="-297.3" font-family="arial" font-size="14.00">Four pre&#45;attached wire colors copied from source. NC white lead is insulated and left unconnected.</text>
+<text text-anchor="start" x="3347.5" y="-297.3" font-family="arial" font-size="14.00">NC white lead is insulated and left unconnected.</text>
 </g>
 <!-- SENSOR&#45;&#45;W_SENSOR -->
 <g id="edge28" class="edge">

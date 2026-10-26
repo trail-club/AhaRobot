@@ -1,13 +1,11 @@
-# WireViz YAML. Based only on AHA-LIFT-SCH-001 REV 1.0 (2026-10-25).
+# WireViz YAML for the AhaRobot lift axis.
 # Logical terminal endpoints; physical connector types, gauge and lengths not specified.
 # Render: wireviz aha_lift_wireviz.yml
 
 metadata:
   title: AhaRobot GT45-600 Lift Axis - Wiring Harness
-  description: As transcribed from AHA-LIFT-SCH-001 rev1.0, 2026-10-25. Terminal endpoints are logical devices, not specified
-    plug families.
-  notes: Cable lengths, gauge, actual plug/crimp types, and several hardware details are not specified in the source PDF.
-    Do not use as release-to-manufacture without review.
+  description: Terminal endpoints are logical devices, not specified plug families.
+  notes: Cable lengths, gauge and actual plug/crimp types are unspecified.
 options:
   bgcolor: WH
 connectors:
@@ -47,7 +45,7 @@ connectors:
     - DIR-
     - ENA+ (NC)
     - ENA- (NC)
-    notes: Terminal order per source drawing. ENA pins are not connected.
+    notes: ENA pins are not connected.
     ignore_in_bom: true
   DRV_PWR:
     type: DM542 lower terminals
@@ -80,7 +78,7 @@ connectors:
     - A- green
     - B+ yellow
     - B- blue
-    notes: Motor lead coil assignments copied from source; verify actual motor datasheet before energizing.
+    notes: Verify motor lead coil assignments against the actual motor datasheet.
     ignore_in_bom: true
   SENSOR:
     type: STUOB FM-SX674-WR NPN photoelectric switch
@@ -94,7 +92,7 @@ connectors:
     - BU 0V
     - BK NO
     - WH NC (unused)
-    notes: Four pre-attached wire colors copied from source. NC white lead is insulated and left unconnected.
+    notes: NC white lead is insulated and left unconnected.
     ignore_in_bom: true
   SUPPLY:
     type: 24V DC main power
@@ -104,7 +102,7 @@ connectors:
     pinlabels:
     - 0V (-)
     - +24V (+)
-    notes: Source unspecified (battery / DC-DC). Fuse/switch wiring and current rating not documented.
+    notes: Supply type, fuse/switch wiring and current rating unspecified.
     ignore_in_bom: true
 cables:
   W_CTRL:
@@ -120,7 +118,7 @@ cables:
     - BK2 PUL-
     - BK3 DIR+
     - BK4 DIR-
-    notes: 4 black wires identified as black 1..4 in source. Gauge/length not given.
+    notes: 4 black wires labeled BK1..BK4. Gauge/length not specified.
   W_MOTOR:
     category: bundle
     type: 4 stepper motor leads
@@ -134,7 +132,7 @@ cables:
     - A-
     - B+
     - B-
-    notes: Lead colors per attached PDF. Gauge/length not given.
+    notes: Gauge/length not specified.
   W_PWR:
     category: bundle
     type: 24V supply conductors
@@ -144,7 +142,7 @@ cables:
     wirelabels:
     - 0V
     - +24V
-    notes: Thick black and thick red in source; numeric gauge/length not specified.
+    notes: Thick black and red conductors; numeric gauge/length not specified.
   W_SENSOR:
     category: bundle
     type: Sensor 4-wire pigtail
