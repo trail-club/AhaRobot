@@ -1,6 +1,6 @@
 """MoveIt config of the real robot on its frame (ROS free).
 
-The frame model (aha_description.frame) fixes the lifts and wheels and adds
+The frame model (aha_test_frame.frame) fixes the lifts and wheels and adds
 the frame members (``frame_*``) and the head base (``frame_head_base``) as
 links fixed to base_link. moveit.launch.py (``frame_config``) builds its
 config from the simulation's with these functions:
@@ -26,7 +26,7 @@ import math
 import xml.etree.ElementTree as ET
 
 import numpy as np
-from aha_description.frame import rpy_matrix
+from aha_test_frame.frame import rpy_matrix
 
 # MoveIt waits this long (s) beyond the bridge's goal_time for the result.
 GOAL_MARGIN = 0.5

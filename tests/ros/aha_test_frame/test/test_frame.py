@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-from aha_description.frame import (
+from aha_test_frame.frame import (
     GROOVE_DEPTH,
     frame_robot,
     load_frame,

@@ -35,7 +35,6 @@
 | --- | --- | --- |
 | [aha_perception/hardware/head_cam_mount_d435i](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md) | `Astra_Hardwares` の `HeadCamMount`（[HeadCamMount.STL](../upstream/Astra_Hardwares/Astra/STL/HeadCamMount.STL)）のホーン接続部を作り直したD435i用ブラケット（STL・STEP・f3d・画像） | 上流と同じGPL-3.0と非商用の追加制限。`aha_perception` の `Apache-2.0` 宣言とは別に扱う |
 | [aha_description/meshes/head_cam_mount_d435i.stl](../overlay_ws/src/aha_description/meshes/head_cam_mount_d435i.stl) | 上記ブラケットのURDF用mesh | 同上。`aha_description` の `Apache-2.0` 宣言とは別に扱う |
-| `aha_description` のビルドで作る `meshes/head_base.stl` | `astra_description` の `base_link.STL` から頭の土台を切り出したもの（[crop_head_base.py](../overlay_ws/src/aha_description/scripts/crop_head_base.py)）。リポジトリには入れない | `astra_description` と同じ（`package.xml`: `BSD`） |
 
 ## SOBITS / TMCのシミュレーション資源
 

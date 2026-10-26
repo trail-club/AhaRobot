@@ -1,4 +1,4 @@
-# Provisional model of the real robot as built in 2026-10 (aha_description/frame.py):
+# Provisional model of the real robot as built in 2026-10 (aha_test_frame/frame.py):
 # arms and head on a frame of 30 mm aluminum extrusions standing on a table,
 # no mobile base and no lifts.
 #
@@ -32,12 +32,12 @@ arms:
   # elbow offset and the height (0.222 measured) from arm_cloud_calibrate.py
   # (docs/context/frame.md).
   # joint_offsets (optional): {joint_<l|r>N: rad} added to the readings of the
-  # vertical joints 2..4 (aha_description/frame.py), e.g. joint_r3: -0.12.
+  # vertical joints 2..4 (aha_test_frame/frame.py), e.g. joint_r3: -0.12.
   left: {shoulder_xyz: [0.03, 0.232, 0.244], yaw: 1.5708}
   right: {shoulder_xyz: [0.03, -0.232, 0.202], yaw: -1.5234, joint_offsets: {joint_r3: 0.035}}
 
 # Aluminum profiles of 30 mm modules, centerlines (from -> to); section
-# [width, depth] (aha_description/frame.py).
+# [width, depth] (aha_test_frame/frame.py).
 extrusions:
   # Center column: two 30x30 bars side by side, measured 0.50 m high; stands
   # on the table behind the bottom profile.

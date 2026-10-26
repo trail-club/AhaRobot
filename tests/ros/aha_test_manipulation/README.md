@@ -27,16 +27,16 @@ ros2 launch aha_test_manipulation manip.launch.py            # rviz:=false でRV
 
 ### 実機（骨組み）
 
-骨組みに載せた実機（台車・昇降なし）では、[real.launch.py](../../../overlay_ws/src/aha_bringup/README.md#real-robot-on-the-frame) の横で `manip_real.launch.py` を起動する。
+骨組みに載せた実機（台車・昇降なし）では、[aha_test_frame](../aha_test_frame/README.md) の `real.launch.py` の横で `manip_real.launch.py` を起動する。
 
 ```bash
-ros2 launch aha_bringup real.launch.py use_left:=false
+ros2 launch aha_test_frame real.launch.py use_left:=false
 ros2 launch aha_test_manipulation manip_real.launch.py      # aim_head:=false で頭を向けない
 ```
 
 `manip_real.launch.py` は `moveit.launch.py` を `frame_config` 付きで起動し、`place_server.py` を実機向けのパラメータ
 （`use_sim_time` false、`release_topic` なし、`gripper_interface` `arm_node`、`gripper_open` 0.055 m、`gripper_ramp_time` 1 s、`default_approach` `side`、
-`lift_margin` / `retreat_lift` / `escape_lift` 0、`release_height` 0.02 m、`velocity_scaling` 0.3、`verify_detections` 3、`placed_padding` 0.03 m、`look_height` 0.38 m、`tcp_height`、`max_release_height` 0.04 m）で起動する。
+`lift_margin` / `retreat_lift` / `escape_lift` 0、`release_height` 0.02 m、`velocity_scaling` 0.3、`verify_detections` 3、`placed_padding` 0.03 m、`frozen_window` 0.5 s、`look_height` 0.38 m、`tcp_height`、`max_release_height` 0.04 m）で起動する。
 グリッパの指令は `/<arm>/arm/joint_states` の指の位置から `gripper_ramp_time` かけて送る（一度に閉じて物を押し付けると腕の基板がリセットされた。[記録](../../../docs/context/motor.md)）。
 
 昇降がないため `side` 把持（TCPのzが上）の手先の高さは1つに決まる。`tcp_height` はその高さで、起動時に `frame_config` のモデルの `arm` の
@@ -50,12 +50,12 @@ ros2 launch aha_test_manipulation manip_real.launch.py      # aim_head:=false �
 
 | 引数（`manip_real.launch.py`） | 既定 | 内容 |
 | --- | --- | --- |
-| `frame_config` | `aha_description/config/frame_table_202610.yaml` | 骨組みのモデル。`real.launch.py` と同じものを渡す |
+| `frame_config` | `aha_test_frame/config/frame_table_202610.yaml` | 骨組みのモデル。`real.launch.py` と同じものを渡す |
 | `arm` | `right` | 軌道を実行する腕（`moveit.launch.py` の `arms`）と `default_arm` |
 | `rviz` / `place_server` | `true` / `true` | `manip.launch.py` と同じ |
 | `aim_head` | `true` | 検出の前に頭を向ける（`/aha/perception/look_at`）。頭がなければ `false` |
 
-`moveit.launch.py frame_config:=<YAML>` は `robot_description` を骨組みのモデル（`aha_description.frame.frame_description`、昇降は固定関節）にし、
+`moveit.launch.py frame_config:=<YAML>` は `robot_description` を骨組みのモデル（`aha_test_frame.frame.frame_description`、昇降は固定関節）にし、
 SRDF・関節上限・controllerを `aha_test_manipulation/frame_moveit.py` で起動時に作る。
 
 - SRDF：固定・存在しない関節（`joint_[r|l]1`）をnamed stateから除き、同じlinkに固定されたlinkの組（骨組みの部材・`link_[r|l]1`・`frame_head_base`）と、
@@ -93,7 +93,7 @@ ros2 run aha_test_manipulation gripper_handover.py handover --arm left --open 0.
 
 最後に測った指の開き（片側）と物体の幅（当たりを検知したときは `2 × 当たった位置`、`--width` では `2 × (開き + --squeeze)`）を表示する。
 起動時に指の状態を最大3秒待ち、来なければ中止する。
-`arm_node` はグリッパの指令と一緒に最後の腕の指令を送り直すため、最初に測った腕の姿勢を `/<arm>/arm/joint_command` へ1回送る（トルクを切って動かした腕や基板のリセット後に、古い指令の位置へ跳ばないように）。
+`arm_node` はグリッパの指令と一緒に最後の腕の指令を送り直すため、最初に測った腕の姿勢を `/<arm>/arm/joint_command` へ1回送る（トルクを切って手で動かした腕が、古い指令の位置へ跳ばないように）。基板のリセット後は読みが止まっていて役に立たないので、`arm_node` を起動し直してから使う。
 この腕の指令で、`arm_node` は最後のグリッパの指令も一度に送り直す（指を手で動かした後や、前の指令が閉じた位置のときは指が一度に動く）。両方を避けるには `arm_node` 側の変更が要る。
 
 ## 設定
@@ -226,6 +226,7 @@ perceptionの `/aha/perception/place/markers` は問い合わせごとの候補�
 | `base_spot` / `base_spot_top` | [0.55, 0.45] / [0.38, 0.2] | `suggested_base_pose` で候補を置く台車からの位置 x, \|y\|。`side` は腕の外側寄り（肩から約30°）で、手先の外側に張り出す手首が物の後ろに回り、隣の物や側板に当たりにくい |
 | `group_ratio` | 0.6 | `near` までの距離が `avoid` の各点までの距離のこの倍未満の候補だけを `near` のグループとする（中間の位置はどちらのグループか分からない） |
 | `verify_place` / `verify_margin` / `verify_height_tolerance` / `verify_detections` | true / 0.03 m / 0.04 m / 1 | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限、見えないときに試す新しい検出の数 |
+| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、次のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。次のgoalで解除 |
 
 ## ROSインターフェース
 

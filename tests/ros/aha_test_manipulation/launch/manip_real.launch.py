@@ -1,5 +1,5 @@
 """Test bed manipulation on the real robot on its frame, next to
-aha_bringup/real.launch.py with the same frame_config (README.md).
+aha_test_frame real.launch.py with the same frame_config (README.md).
 
 Starts:
   - moveit.launch.py with frame_config and arms:=<arm>: move_group on the
@@ -14,7 +14,7 @@ Starts:
 
 from pathlib import Path
 
-from aha_description.frame import frame_description
+from aha_test_frame.frame import frame_description
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -34,10 +34,9 @@ from aha_test_manipulation.frame_moveit import side_grasp_tcp_height
 # arm_node's gripper range is -0.002 .. 0.055 m per finger (astra_controller
 # ARM_PROFILES); it drops a command outside it.
 GRIPPER_OPEN = 0.055
-# arm_node sends each gripper command as the target at full speed; closing at
-# once on an object reset the arm board (docs/context/motor.md, 2026-10-25).
-# The place server ramps its gripper commands (the release opens) over this
-# time (s).
+# arm_node sends each gripper command as the target at full speed (closing on
+# an object reset the arm board, docs/context/motor.md). The place server
+# ramps its gripper commands (the release opens) over this time (s).
 GRIPPER_RAMP_TIME = 1.0
 # Without the lift only joint_<l|r>5 tilts the hand, so a TCP with z up (side
 # grasp) stays at one height (tcp_height, from the frame model): place_server
@@ -51,14 +50,16 @@ GRIPPER_RAMP_TIME = 1.0
 # the release height starts at 2 cm.
 LOOK_HEIGHT = 0.38
 RELEASE_HEIGHT = 0.02
-# The arm trajectory bridge rejected joint goals planned at velocity_scaling
-# 0.5 for 2.2 rad/s^2 between the first points (limit 2.0).
+# Trials on the robot (docs/context/place.md): the arm trajectory bridge
+# rejected goals planned at velocity_scaling 0.5 for acceleration, a placed cup
+# was missing from the first detection after the return, and the return
+# brushed a cup seen 3-4 cm off the place pose (its planning scene box grows
+# PLACED_PADDING per side).
 VELOCITY_SCALING = 0.3
-# A cup standing at the spot was missing from the first detection after the
-# return and seen in a later one.
 VERIFY_DETECTIONS = 3
-# The return brushed a placed cup detected 3-4 cm off the place pose: its box
-# in the planning scene grows this much per side.
+# Readings frozen after an arm board reset (docs/context/motor.md): unchanged
+# for this long (s) while the bridge's command moves.
+FROZEN_WINDOW = 0.5
 PLACED_PADDING = 0.03
 MAX_RELEASE_HEIGHT = 0.04
 
@@ -90,6 +91,7 @@ def _place_server(context):
                     "velocity_scaling": VELOCITY_SCALING,
                     "verify_detections": VERIFY_DETECTIONS,
                     "placed_padding": PLACED_PADDING,
+                    "frozen_window": FROZEN_WINDOW,
                     "tcp_height": side_grasp_tcp_height(urdf, arm),
                     "max_release_height": MAX_RELEASE_HEIGHT,
                 }
@@ -110,7 +112,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "frame_config",
                 default_value=str(
-                    Path(get_package_share_directory("aha_description"))
+                    Path(get_package_share_directory("aha_test_frame"))
                     / "config"
                     / "frame_table_202610.yaml"
                 ),

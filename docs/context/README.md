@@ -1,6 +1,6 @@
 # 補助資料
 
-資料は [CAD](cad.md)・[骨組み](frame.md)・[モーター](motor.md)・[ファームウェアと通信](firmware.md)・[カメラ](camera.md)・[物体検出](perception.md)、
+資料は [CAD](cad.md)・[骨組み](frame.md)・[モーター](motor.md)・[ファームウェアと通信](firmware.md)・[カメラ](camera.md)・[物体検出](perception.md)・[置く動作](place.md)、
 記載方針は [開発ルール](../../AGENTS.md#資料の参照と記載)を参照。
 
 測定データやログへの参照を残す。

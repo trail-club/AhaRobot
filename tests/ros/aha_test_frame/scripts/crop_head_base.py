@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cut the head base (the printed HeadYaw part with the pan servo) out of the
 upstream base_link mesh, in coordinates relative to the joint_head_pan
-origin (m, base_link axes), for the frame model (aha_description/frame.py).
+origin (m, base_link axes), for the frame model (aha_test_frame/frame.py).
 
 The Astra body mesh carries the head base on the column top: the triangles
 above HEAD_BASE_MIN_Z with their center in front of HEAD_BASE_MIN_X.
@@ -41,7 +41,7 @@ def normal(triangle) -> tuple[float, float, float]:
 
 
 def write_stl(path: Path, triangles) -> None:
-    out = bytearray(b"aha_description head base".ljust(80, b"\0"))
+    out = bytearray(b"aha_test_frame head base".ljust(80, b"\0"))
     out += struct.pack("<I", len(triangles))
     for triangle in triangles:
         out += struct.pack("<3f", *normal(triangle))

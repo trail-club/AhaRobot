@@ -7,7 +7,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 
 | package | 内容 |
 | --- | --- |
-| `aha_description` | URDF xacro、差動二輪ベース、ros2_control設定、骨組みに載せた実機のモデル（[aha_bringup](src/aha_bringup/README.md#real-robot-on-the-frame)） |
+| `aha_description` | URDF xacro、差動二輪ベース、ros2_control設定 |
 | `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
 | `aha_bringup` | [ロボット生成とcontrollerの起動](src/aha_bringup/README.md) |
 | `aha_sim_tasks` | [タスク・policy評価](src/aha_sim_tasks/README.md)、approach / pick / pick-and-place |

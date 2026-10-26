@@ -1,5 +1,5 @@
 """real.launch.py builds its description and nodes (needs the installed
-aha_description, aha_servo and aha_perception: colcon test)."""
+aha_test_frame, aha_description, aha_servo and aha_perception: colcon test)."""
 
 import importlib.util
 import xml.etree.ElementTree as ET
@@ -83,3 +83,19 @@ def test_head_port_overrides_the_servo_config(module, monkeypatch):
     (node,) = recorded_nodes(module, monkeypatch, module._head, context)
     assert node.parameters[1] == {"port": "/dev/ttyUSB7"}
     assert node.parameters[0].endswith("aha_servo/config/head.yaml")
+
+
+def test_bridges_run_by_python3_for_the_used_arms(module):
+    context = context_with_defaults(module, use_left="false")
+    (bridge,) = module._bridges(context)
+    cmd = [
+        part[0].perform(context) if isinstance(part, list) else str(part)
+        for part in bridge.cmd
+    ]
+    joined = " ".join(cmd)
+    assert joined.startswith("python3 ") and "arm_trajectory_bridge.py" in joined
+    assert "__node:=aha_right_arm_bridge" in joined and "arm.yaml" in joined
+    assert (
+        module._bridges(context_with_defaults(module, trajectory_bridge="false")) == []
+    )
+    assert module._bridges(context_with_defaults(module, arms="false")) == []

@@ -1,5 +1,5 @@
 """arm_cloud_calibration recovers the arm offsets from synthetic point clouds
-of the installed frame model (aha_description frame_table_202610.yaml), and
+of the installed frame model (aha_test_frame frame_table_202610.yaml), and
 the ROS-free helpers of scripts/arm_cloud_calibrate.py."""
 
 import importlib.util
@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 import yaml
 
-from aha_description.frame import frame_robot, load_frame
-from aha_perception.arm_cloud_calibration import (
+from aha_test_frame.frame import frame_robot, load_frame
+from aha_test_frame.arm_cloud_calibration import (
     ArmModel,
     Snapshot,
     UrdfTree,
@@ -27,7 +27,7 @@ from aha_perception.arm_cloud_calibration import (
     support_height,
     voxel_filter,
 )
-from aha_perception.camera_arm_calibration import HorizontalCorrection
+from aha_test_frame.camera_arm_calibration import HorizontalCorrection
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "arm_cloud_calibrate.py"
 CAMERA_FRAME = "camera_color_optical_frame"
@@ -71,7 +71,7 @@ def frame_urdf(config: dict) -> str:
 def config():
     from ament_index_python.packages import get_package_share_directory
 
-    share = Path(get_package_share_directory("aha_description"))
+    share = Path(get_package_share_directory("aha_test_frame"))
     config = load_frame(share / "config" / "frame_table_202610.yaml")
     # The poses above are in view with this right arm, whatever the robot's
     # calibration in the config.

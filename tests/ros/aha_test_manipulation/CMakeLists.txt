@@ -10,6 +10,7 @@ find_package(ament_cmake_python REQUIRED)
 # aha_test_manipulation.sim_held_object: Gazebo held object (sim only)
 # aha_test_manipulation.frame_moveit: SRDF, limits and controllers of the real robot's frame model
 # aha_test_manipulation.gripper_ramp: ramp sequences and contact detection for gripper_handover.py (ROS free)
+# aha_test_manipulation.frozen_watch: frozen arm readings from the bridge's feedback (ROS free)
 ament_python_install_package(${PROJECT_NAME})
 
 install(
@@ -32,6 +33,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_moveit_config test/test_moveit_config.py)
   ament_add_pytest_test(test_frame_moveit test/test_frame_moveit.py)
+  ament_add_pytest_test(test_frozen_watch test/test_frozen_watch.py)
   ament_add_pytest_test(test_place_geometry test/test_place_geometry.py)
   ament_add_pytest_test(test_scene_objects test/test_scene_objects.py)
   ament_add_pytest_test(test_place_selection test/test_place_selection.py)

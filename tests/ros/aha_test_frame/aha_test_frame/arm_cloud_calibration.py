@@ -57,7 +57,7 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.spatial import cKDTree
 
-from aha_description.frame import ARMS, rpy_matrix
+from aha_test_frame.frame import ARMS, rpy_matrix
 
 PARAMETERS = (
     "shoulder",

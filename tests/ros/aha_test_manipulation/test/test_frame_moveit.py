@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
-from aha_description.frame import frame_description
+from aha_test_frame.frame import frame_description
 from ament_index_python.packages import get_package_share_directory
 
 from aha_test_manipulation.frame_moveit import (
@@ -24,7 +24,7 @@ from aha_test_manipulation.frame_moveit import (
 
 PACKAGE = Path(__file__).resolve().parents[1]
 FRAME_CONFIG = (
-    Path(get_package_share_directory("aha_description"))
+    Path(get_package_share_directory("aha_test_frame"))
     / "config"
     / "frame_table_202610.yaml"
 )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate the arm mount yaw of the frame model (aha_description/frame.py).
+"""Calibrate the arm mount yaw of the frame model (aha_test_frame/frame.py).
 
 The arm joints read URDF angles (zero pose and signs calibrated on the arms,
 docs/context/motor.md), but how each arm stands on the frame is not known:
@@ -21,7 +21,7 @@ joint_state_publisher would fill a missing arm with zeros or stale values,
 and /robot_description (robot_state_publisher). With --write the yaw values
 in the frame config are replaced in place.
 
-  ros2 run aha_description frame_calibrate.py --config <frame.yaml> [--write]
+  ros2 run aha_test_frame frame_calibrate.py --config <frame.yaml> [--write]
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from aha_description.frame import replace_yaw
+from aha_test_frame.frame import replace_yaw
 
 ARMS = {"left": "l", "right": "r"}
 OUTWARD = {"left": math.pi / 2, "right": -math.pi / 2}  # shoulder change, rad

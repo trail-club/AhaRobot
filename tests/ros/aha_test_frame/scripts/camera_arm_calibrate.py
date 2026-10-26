@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Correct the head camera's horizontal position and yaw from gripper clicks.
 
-Runs on the real robot (aha_bringup real.launch.py) after
+Runs on the real robot (aha_test_frame real.launch.py) after
 camera_plane_calibrate.py has set the camera tilt and height. For each pose
 an arm (torque off) is held still with its gripper tip in the point cloud and
 the tip is clicked in RViz with Publish Point (--topic). The click, seen
@@ -13,7 +13,7 @@ within --max-error of the click, when the gripper moved in the last 0.5 s,
 or when the head moved since the first pair. Enter 'u' to drop the last
 pair and 'q' to finish.
 
-The fit (aha_perception/camera_arm_calibration.py) gives the camera's
+The fit (aha_test_frame/camera_arm_calibration.py) gives the camera's
 horizontal shift and yaw in base_footprint with per-pair residuals; the new
 camera_joint (link_head_tilt -> camera_link) is printed and, with --write,
 set as ``camera`` in the frame config, keeping the tilt and height. The
@@ -21,9 +21,9 @@ correction holds for the head pose it was measured in.
 
 The RViz of real.launch.py remaps Publish Point to the head look-at, so a
 click would turn the head: start real.launch.py with rviz:=false and RViz on
-its own (aha_bringup README, Calibration).
+its own (aha_test_frame README).
 
-  ros2 run aha_perception camera_arm_calibrate.py --config <frame.yaml> [--write]
+  ros2 run aha_test_frame camera_arm_calibrate.py --config <frame.yaml> [--write]
 """
 
 from __future__ import annotations
@@ -38,13 +38,13 @@ from pathlib import Path
 
 import numpy as np
 
-from aha_perception.camera_arm_calibration import (
+from aha_test_frame.camera_arm_calibration import (
     corrected_mount,
     facing_point,
     horizontal_correction,
     nearest,
 )
-from aha_perception.plane_calibration import (
+from aha_test_frame.plane_calibration import (
     matrix_rpy,
     set_camera,
     transform_matrix,

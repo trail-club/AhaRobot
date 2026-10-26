@@ -315,12 +315,12 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 ## 実機の頭部
 
-`real_head_camera.launch.py` と、骨組みに載せた実機の `aha_bringup` の [real.launch.py](../overlay_ws/src/aha_bringup/README.md#real-robot-on-the-frame) は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
+`real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
 `servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
 `/head_controller/follow_joint_trajectory` を提供する。
 頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
 `joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
-サーボなし（`real_head_camera.launch.py` の `head:=manual` / `head:=imu`、`real.launch.py` の `head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
+サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
 `/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
 （`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
 
@@ -337,16 +337,12 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | 軌道action | `/<side>_arm_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
 | 腕への位置指令 | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
 | 腕とグリッパの関節状態 | `/<side>/arm/joint_states` | `sensor_msgs/msg/JointState` |
-| グリッパへの位置指令 | `/<side>/arm/gripper_joint_command` | `astra_controller_interfaces/msg/JointCommand` |
 
-`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` と `real.launch.py` の
+`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
 `joint_state_publisher` が合流させる（[実機の頭部](#実機の頭部)）。ブリッジとキーボード教示は `/<side>/arm/joint_states` を読む。
 ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
 キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
-昇降とグリッパはブリッジの対象外。グリッパ指令の `name` は `joint_<l|r>7r` だけで、値は片側の指の開き（m）。
-`arm_node` はグリッパ指令を受けると、腕の5関節にも最後の腕の指令（起動時の読みか、最後の `joint_command`）を送り直し、
-`joint_command` を受けるとグリッパにも最後のグリッパ指令を送り直す。
-試験用の置く動作（[aha_test_manipulation](../tests/ros/aha_test_manipulation/README.md#実機骨組み)）は離すときにこのtopicへ配信する。
+昇降とグリッパはブリッジの対象外。
 
 ## 独自型
 

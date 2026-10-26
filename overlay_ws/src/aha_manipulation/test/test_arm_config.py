@@ -3,7 +3,6 @@
 import math
 import re
 from pathlib import Path
-from types import SimpleNamespace
 import importlib.util
 
 import pytest
@@ -88,34 +87,3 @@ def test_parse_config_rejects_bad_values():
         parse_config({**params, "joint_l2": {"min": 1.0, "max": 0.0}})
     with pytest.raises(ValueError, match="positive"):
         parse_config({**params, "rate_hz": 0})
-    with pytest.raises(ValueError, match="negative"):
-        parse_config({**params, "frozen_timeout": -1.0})
-
-
-def test_frozen_readings_are_detected_but_not_stale():
-    path = PKG / "scripts/arm_trajectory_bridge.py"
-    spec = importlib.util.spec_from_file_location("arm_trajectory_bridge", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    cfg = parse_config(node_params("aha_right_arm_bridge"))
-    assert cfg.frozen_timeout > 0
-    names = cfg.joint_names
-    bridge = SimpleNamespace(cfg=cfg, names=names, state_times={}, change_times={})
-    bridge._frozen = lambda now: module.ArmTrajectoryBridge._frozen(bridge, now)
-    stale = lambda now: module.ArmTrajectoryBridge._stale(bridge, now)  # noqa: E731
-    bridge.state_times = {n: 10.0 for n in names}
-    bridge.change_times = {n: 10.0 - cfg.frozen_timeout - 0.1 for n in names}
-    bridge.change_times[names[0]] = 9.5  # one joint changed recently
-    assert not bridge._frozen(10.0)
-    bridge.change_times[names[0]] = 10.0 - cfg.frozen_timeout - 0.1
-    assert bridge._frozen(10.0)
-    assert stale(10.0) == []  # an arm at rest reads the same values
-    off = SimpleNamespace(
-        **{
-            **vars(bridge),
-            "cfg": parse_config(
-                {**node_params("aha_right_arm_bridge"), "frozen_timeout": 0.0}
-            ),
-        }
-    )
-    assert not module.ArmTrajectoryBridge._frozen(off, 10.0)

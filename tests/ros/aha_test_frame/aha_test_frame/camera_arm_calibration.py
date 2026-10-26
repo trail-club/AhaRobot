@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from aha_perception.plane_calibration import moved_mount
+from aha_test_frame.plane_calibration import moved_mount
 
 MIN_SPREAD = 0.05  # m, RMS distance of the seen points from their centroid
 

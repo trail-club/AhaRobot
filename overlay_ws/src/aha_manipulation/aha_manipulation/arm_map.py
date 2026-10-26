@@ -21,10 +21,6 @@ BUS_DEFAULTS = {
     "goal_tolerance": 0.03,  # rad, final point vs. measured
     "goal_time": 2.0,  # s after the last point to be within goal_tolerance
     "state_timeout": 0.3,  # s, older joint states count as missing
-    # s, every joint reading the same value this long is logged as possibly
-    # frozen (an arm board reset leaves the arm_node publishing its last
-    # values; an arm at rest reads the same too); 0 = off
-    "frozen_timeout": 0.0,
 }
 JOINT_DEFAULTS = {
     "min": -1.57,
@@ -46,7 +42,6 @@ class ArmConfig:
     goal_tolerance: float
     goal_time: float
     state_timeout: float
-    frozen_timeout: float
     joints: tuple  # JointLimits in command order
 
     @property
@@ -63,7 +58,7 @@ def parse_config(params):
     for key in ("rate_hz", "goal_tolerance", "goal_time", "state_timeout"):
         if not float(bus[key]) > 0:
             raise ValueError(f"`{key}` must be positive, got {bus[key]}")
-    for key in ("start_tolerance", "path_tolerance", "frozen_timeout"):
+    for key in ("start_tolerance", "path_tolerance"):
         if not float(bus[key]) >= 0:
             raise ValueError(f"`{key}` must not be negative, got {bus[key]}")
 
@@ -100,6 +95,5 @@ def parse_config(params):
         goal_tolerance=float(bus["goal_tolerance"]),
         goal_time=float(bus["goal_time"]),
         state_timeout=float(bus["state_timeout"]),
-        frozen_timeout=float(bus["frozen_timeout"]),
         joints=tuple(joints),
     )

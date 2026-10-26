@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Correct the head camera mount of the frame model from a reference plane.
 
-Runs next to plane detection on the real robot (aha_bringup real.launch.py).
+Runs next to plane detection on the real robot (aha_test_frame real.launch.py).
 Over --samples detections it takes the largest horizontal plane whose height
 is within --tolerance of --reference (m in base_footprint: the table top the
 frame stands on, or 0 for the floor), averages its fit and computes the
-camera tilt and height correction (aha_perception/plane_calibration.py).
+camera tilt and height correction (aha_test_frame/plane_calibration.py).
 The new camera_joint (link_head_tilt -> camera_link) is printed and, with
---write, set as ``camera`` in the frame config (aha_description/frame.py).
+--write, set as ``camera`` in the frame config (aha_test_frame/frame.py).
 Point the head at a large free area of the reference plane; the camera's
 horizontal position and yaw are not observable this way. The correction holds
 for the head pose it was measured in (the error may come from the pan / tilt
 axes): calibrate in the working pose and check other poses afterwards.
 
-  ros2 run aha_perception camera_plane_calibrate.py --reference 0.38 \
+  ros2 run aha_test_frame camera_plane_calibrate.py --reference 0.38 \
     --config <frame.yaml> [--write]
 """
 
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from aha_perception.plane_calibration import (
+from aha_test_frame.plane_calibration import (
     PlaneFit,
     correction,
     corrected_mount,

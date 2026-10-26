@@ -1,7 +1,7 @@
 # 骨組みの測定記録
 
 台車と昇降のない実機（机の上の骨組みに腕と頭を載せた構成）の寸法を日付順に記録する。
-モデルの書き方は [aha_bringup](../../overlay_ws/src/aha_bringup/README.md#real-robot-on-the-frame) を参照。
+モデルの書き方は [aha_test_frame](../../tests/ros/aha_test_frame/README.md#骨組みのモデル) を参照。
 
 ## 2026-10-25 — 骨組みの寸法と構成
 

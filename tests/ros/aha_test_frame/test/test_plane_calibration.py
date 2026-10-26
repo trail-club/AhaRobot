@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from aha_perception.plane_calibration import (
+from aha_test_frame.plane_calibration import (
     PlaneFit,
     correction,
     corrected_mount,

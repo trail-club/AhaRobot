@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Calibrate an arm's mount yaw and joint offsets from the head camera's cloud.
 
-Runs on the real robot (aha_bringup real.launch.py, camera on) after the
+Runs on the real robot (aha_test_frame real.launch.py, camera on) after the
 camera tilt and height are calibrated (camera_plane_calibrate.py). The arm
 (torque off) is held still in a pose inside the camera's view; Enter takes a
 snapshot: the latest point cloud (--cloud) in base_footprint via TF at its
@@ -13,7 +13,7 @@ same for FROZEN_S only warn: an arm at rest with the torque on reads constant,
 and so do the frozen readings of an arm board that was reset (check the model
 against the arm in RViz).
 'u' drops the last snapshot, 'q' fits
-(aha_perception/arm_cloud_calibration.py): the --free parameters
+(aha_test_frame/arm_cloud_calibration.py): the --free parameters
 (shoulder: mount yaw, elbow / wrist: joint_<x>3 / joint_<x>4 offsets,
 camera: horizontal position and yaw) that put the cloud points on the arm
 model. It prints per-snapshot RMS distances and inlier counts, the estimates
@@ -26,7 +26,7 @@ the frame config (--config) the deltas are added to. --save keeps the
 snapshots in an .npz after each one, --load fits saved snapshots offline.
 --snapshots N --interval S takes N snapshots S seconds apart without input.
 
-  ros2 run aha_perception arm_cloud_calibrate.py --config <frame.yaml> \
+  ros2 run aha_test_frame arm_cloud_calibrate.py --config <frame.yaml> \
     --arm right [--free shoulder,elbow[,wrist][,camera]] [--write]
 """
 
@@ -44,13 +44,13 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from aha_description.frame import (
+from aha_test_frame.frame import (
     ARMS,
     replace_joint_offsets,
     replace_shoulder_xyz,
     replace_yaw,
 )
-from aha_perception.arm_cloud_calibration import (
+from aha_test_frame.arm_cloud_calibration import (
     DEFAULT_FREE,
     GROUPS,
     ArmModel,
@@ -62,11 +62,11 @@ from aha_perception.arm_cloud_calibration import (
     prepare,
     unit,
 )
-from aha_perception.camera_arm_calibration import (
+from aha_test_frame.camera_arm_calibration import (
     HorizontalCorrection,
     corrected_mount,
 )
-from aha_perception.plane_calibration import matrix_rpy, set_camera, transform_matrix
+from aha_test_frame.plane_calibration import matrix_rpy, set_camera, transform_matrix
 
 TARGET_FRAME = "base_footprint"
 MOUNT_PARENT = "link_head_tilt"
@@ -475,7 +475,7 @@ def main(argv=None) -> int:
             "move the arm alike; free the camera only with the shoulder fixed"
         )
 
-    from aha_description.frame import frame_description
+    from aha_test_frame.frame import frame_description
 
     config_urdf = frame_description(args.config)
     if args.load:

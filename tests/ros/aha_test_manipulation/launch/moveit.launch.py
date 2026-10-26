@@ -6,9 +6,9 @@ generated from the xacro and args in .setup_assistant (aha_test_description's
 test bed xacro, sim:=true), the same as the simulation's
 robot_state_publisher.
 
-Real robot on its frame (frame_config:=<aha_description frame YAML>): next to
-aha_bringup/real.launch.py with the same frame_config. robot_description is
-the frame model (aha_description.frame.frame_description, lifts fixed), the
+Real robot on its frame (frame_config:=<aha_test_frame frame YAML>): next to
+aha_test_frame real.launch.py with the same frame_config. robot_description is
+the frame model (aha_test_frame.frame.frame_description, lifts fixed), the
 SRDF, joint limits and controllers come from aha_test_manipulation.frame_moveit:
 trajectories go to the arm trajectory bridges of ``arms`` only.
 
@@ -23,7 +23,7 @@ Arguments:
 from pathlib import Path
 
 import yaml
-from aha_description.frame import frame_description
+from aha_test_frame.frame import frame_description
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -131,7 +131,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "frame_config",
                 default_value="",
-                description="Frame YAML of the real robot (aha_description/frame.py); "
+                description="Frame YAML of the real robot (aha_test_frame/frame.py); "
                 "empty: the simulation's test bed robot",
             ),
             DeclareLaunchArgument(

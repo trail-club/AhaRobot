@@ -9,10 +9,6 @@
 # `state_topic` is the arm_node's own joint states (arms.launch.py), not
 # /joint_states: other publishers (joint_state_publisher) put the arm joints
 # there too.
-#
-# `frozen_timeout`: identical values on every joint for minutes followed an arm
-# board reset (docs/context/motor.md, 2026-10-25); arms at rest with the torque
-# on also read identical values for over 2 s, so it only warns.
 
 /**:
   ros__parameters:
@@ -22,7 +18,6 @@
     goal_tolerance: 0.03
     goal_time: 2.0
     state_timeout: 0.3
-    frozen_timeout: 5.0
 
 aha_left_arm_bridge:
   ros__parameters:

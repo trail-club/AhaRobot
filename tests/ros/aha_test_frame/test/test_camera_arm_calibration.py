@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from aha_perception.camera_arm_calibration import (
+from aha_test_frame.camera_arm_calibration import (
     HorizontalCorrection,
     corrected_mount,
     facing_point,

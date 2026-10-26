@@ -88,6 +88,7 @@ from aha_msgs.srv import GetPlaceCandidates
 from aha_test_msgs.action import PlaceObject
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PointStamped, PoseStamped
+from control_msgs.action import FollowJointTrajectory
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import MoveItErrorCodes
 from moveit_msgs.srv import GetCartesianPath, GetPositionIK
@@ -109,6 +110,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
 from aha_test_manipulation import place_geometry as geo
+from aha_test_manipulation.frozen_watch import FrozenWatch
 from aha_test_manipulation import place_markers as markers
 from aha_test_manipulation import place_selection as selection
 from aha_test_manipulation import scene_objects as scene
@@ -313,6 +315,13 @@ class PlaceServer(Node):
         # (real arm, astra_controller arm_node).
         p("gripper_interface", "controller")
         p("gripper_ramp_time", 0.0)  # wall s from the finger state, 0 = one command
+        # Frozen arm readings (an arm board reset; frozen_watch.FrozenWatch) from
+        # the arm trajectory bridge's feedback: readings unchanged for
+        # frozen_window s (0 = off) while the command moves more than
+        # frozen_motion rad. The running motion is not canceled (the bridge
+        # would hold the frozen reading); the next MoveIt goal is refused.
+        p("frozen_window", 0.0)
+        p("frozen_motion", 0.05)
         p("finger_clearance", 0.005)  # object fit check, per side and to the palm
         p("release_margin", 0.01)  # per side beyond the object at release
         p("release_topic", "")  # "{arm}" is replaced; empty = no release hook
@@ -372,6 +381,21 @@ class PlaceServer(Node):
         # arm_node's own topic, as joint_state_publisher reports 0 (closed)
         # for a finger it has no state of.
         self.fingers = {}
+        self.frozen = None  # why the arm readings looked frozen, until the next goal
+        if self.param("frozen_window") > 0.0:
+            for arm in ARMS:
+                watch = FrozenWatch(
+                    self.param("frozen_window"), self.param("frozen_motion")
+                )
+                self.create_subscription(
+                    FollowJointTrajectory.Impl.FeedbackMessage,
+                    f"/{arm}_arm_controller/follow_joint_trajectory/_action/feedback",
+                    lambda msg, arm=arm, watch=watch: self.on_bridge_feedback(
+                        arm, watch, msg
+                    ),
+                    10,
+                    callback_group=group,
+                )
         if interface == "arm_node":
             for cfg in ARMS.values():
                 self.create_subscription(
@@ -473,6 +497,15 @@ class PlaceServer(Node):
         self.wait_for(lambda: find() is not None, timeout)
         return find()
 
+    def on_bridge_feedback(self, arm, watch, msg):
+        feedback = msg.feedback
+        reason = watch.update(
+            time.monotonic(), feedback.desired.positions, feedback.actual.positions
+        )
+        if reason and self.frozen is None:
+            self.frozen = f"{arm} arm: {reason}"
+            self.get_logger().error(self.frozen)
+
     def on_finger_states(self, msg):
         now = time.monotonic()
         for name, position in zip(msg.name, msg.position):
@@ -554,6 +587,8 @@ class PlaceServer(Node):
         """Send a MoveIt goal and wait for its result; a cancel of the place
         goal cancels it and raises Canceled."""
         self.check_cancel()
+        if self.frozen:
+            raise PlaceError(f"{what}: {self.frozen}", Result.STATUS_EXECUTION_FAILED)
         if not client.wait_for_server(timeout_sec=self.param("service_timeout")):
             raise PlaceError(f"{what}: action server not available")
         handle = self.wait_future(
@@ -584,6 +619,8 @@ class PlaceServer(Node):
         finally:
             self.active_motion = None
         self.check_cancel()
+        if self.frozen:
+            raise PlaceError(f"{what}: {self.frozen}", Result.STATUS_EXECUTION_FAILED)
         return future.result().result
 
     def note_error(self, code):
@@ -1624,6 +1661,7 @@ class PlaceServer(Node):
             self.last_feedback = None
             self.execution_failed = False
             self.moved = False
+            self.frozen = None  # a new goal after the arm_node was restarted
             self.at_place = None
             self.released = None
             result = PlaceObject.Result()

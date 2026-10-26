@@ -51,7 +51,7 @@ FRAME_COLOR = (0.78, 0.79, 0.81, 1.0)
 GROOVE_COLOR = (0.45, 0.46, 0.48, 1.0)
 EXTRUSION_SECTION = 0.03  # m, 30 mm aluminum profile
 MODULE = 0.03  # m, profile module (one slot per module and face)
-HEAD_BASE_MESH = "package://aha_description/meshes/head_base.stl"
+HEAD_BASE_MESH = "package://aha_test_frame/meshes/head_base.stl"
 # Extents of the head base mesh from the joint_head_pan origin (base_link
 # axes), measured on the crop: x -0.06 .. 0.018, y +-0.03, z 0.059 .. 0.0976.
 HEAD_BASE_BOX = ((-0.021, 0.0, 0.0783), (0.078, 0.06, 0.0386))  # center, size
