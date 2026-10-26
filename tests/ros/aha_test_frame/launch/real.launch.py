@@ -38,6 +38,7 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     ExecuteProcess,
+    GroupAction,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     OpaqueFunction,
@@ -169,16 +170,23 @@ def generate_launch_description():
         parameters=[{"source_list": [HEAD_STATES, *ARM_STATES], "rate": 30}],
         output="screen",
     )
-    arms = IncludeLaunchDescription(
-        _launch("aha_bringup", "arms.launch.py"),
-        launch_arguments={
-            "left_device": LaunchConfiguration("left_device"),
-            "right_device": LaunchConfiguration("right_device"),
-            "use_left": LaunchConfiguration("use_left"),
-            "use_right": LaunchConfiguration("use_right"),
-            "trajectory_bridge": "false",
-            "record": LaunchConfiguration("record"),
-        }.items(),
+    # Scoped: the include's trajectory_bridge:=false must not replace this
+    # launch's own (the bridges are started by _bridges instead).
+    arms = GroupAction(
+        [
+            IncludeLaunchDescription(
+                _launch("aha_bringup", "arms.launch.py"),
+                launch_arguments={
+                    "left_device": LaunchConfiguration("left_device"),
+                    "right_device": LaunchConfiguration("right_device"),
+                    "use_left": LaunchConfiguration("use_left"),
+                    "use_right": LaunchConfiguration("use_right"),
+                    "trajectory_bridge": "false",
+                    "record": LaunchConfiguration("record"),
+                }.items(),
+            )
+        ],
+        scoped=True,
         condition=IfCondition(LaunchConfiguration("arms")),
     )
     pointcloud = IncludeLaunchDescription(

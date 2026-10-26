@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.substitutions import LaunchConfiguration
 
 SCRIPT = Path(__file__).resolve().parents[1] / "launch" / "real.launch.py"
 
@@ -99,3 +100,22 @@ def test_bridges_run_by_python3_for_the_used_arms(module):
         module._bridges(context_with_defaults(module, trajectory_bridge="false")) == []
     )
     assert module._bridges(context_with_defaults(module, arms="false")) == []
+
+
+def test_the_arms_include_does_not_leak_its_bridge_argument(module):
+    """arms.launch.py runs with trajectory_bridge:=false inside a scope, so
+    _bridges, executed after it, still sees this launch's value."""
+    context = context_with_defaults(module)
+    groups = [
+        e
+        for e in module.generate_launch_description().entities
+        if isinstance(e, GroupAction)
+    ]
+    assert len(groups) == 1
+    # Push the scope, set the include's arguments, pop the scope.
+    entities = groups[0].execute(context)
+    assert any(isinstance(e, IncludeLaunchDescription) for e in entities)
+    for entity in entities:
+        entity.execute(context)
+    assert LaunchConfiguration("trajectory_bridge").perform(context) == "true"
+    assert len(module._bridges(context)) == 2
