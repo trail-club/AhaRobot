@@ -2,7 +2,7 @@
 # Keyboard teleop for both arms through arm_node.
 #
 # Prereq: `ros2 launch aha_bringup arms.launch.py` is already publishing
-# /joint_states. Run this in an interactive shell. `ros2 launch` does not
+# /<side>/arm/joint_states. Run this in an interactive shell. `ros2 launch` does not
 # deliver keypresses, so this is `ros2 run` on purpose.
 #
 #   w/s e/d r/f t/g u/j y/h   left arm

@@ -16,6 +16,7 @@ find_package(ament_cmake_python REQUIRED)
 # aha_perception.tf_jump: TF listener that detects sim restarts
 # aha_perception.object_list: object labels, categories, sizes and sim model names
 # aha_perception.sim_object_detection: visibility and corruption of simulated detections
+# aha_perception.people, aha_perception.dgx: person perception core and DGX worker client for person_perception.py
 ament_python_install_package(${PROJECT_NAME})
 
 install(
@@ -28,6 +29,7 @@ install(
     scripts/head_look_at.py
     scripts/imu_head.py
     scripts/manual_head.py
+    scripts/person_perception.py
     scripts/plane_detection_node.py
     scripts/sim_control_panel.py
     scripts/sim_depth_noise.py
@@ -52,6 +54,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_imu_tilt test/test_imu_tilt.py TIMEOUT 60)
   ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
   ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)
+  ament_add_pytest_test(test_person_perception test/test_person_perception.py TIMEOUT 120)
 endif()
 
 ament_package()

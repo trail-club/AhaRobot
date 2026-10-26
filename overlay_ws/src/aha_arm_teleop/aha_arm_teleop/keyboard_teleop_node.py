@@ -19,8 +19,8 @@ from rclpy.executors import SingleThreadedExecutor
 
 from .logic import HELP, Teleop
 
-# 1 周で処理するコールバックの上限。/joint_states は 1 腕あたり関節とグリッパの
-# 2 本の発行元があり、両腕で約 360 本/秒届く。1 周 1 本だとループ周期と
+# 1 周で処理するコールバックの上限。/<side>/arm/joint_states は 1 腕あたり関節と
+# グリッパの 2 本の発行元があり、両腕で約 360 本/秒届く。1 周 1 本だとループ周期と
 # ほぼ同じ数しか捌けず、どちらかの発行元の実位置が数百 ms 古くなる。
 SPIN_PER_TICK = 10
 
@@ -34,7 +34,6 @@ class KeyboardTeleopNode(rclpy.node.Node):
         self.declare_parameter("stall_time", 0.5)
         self.declare_parameter("max_jump", 250)
         self.declare_parameter("sides", ["left", "right"])
-        self.declare_parameter("joint_states_topic", "/joint_states")
 
         sides = tuple(self.get_parameter("sides").value)
         unknown = [s for s in sides if s not in ("left", "right")]
@@ -62,12 +61,14 @@ class KeyboardTeleopNode(rclpy.node.Node):
             self._torque_pub[side] = self.create_publisher(
                 std_msgs.msg.UInt8, f"/{side}/arm/torque_enable", 10
             )
-        self.create_subscription(
-            sensor_msgs.msg.JointState,
-            self.get_parameter("joint_states_topic").value,
-            self._on_joint_states,
-            10,
-        )
+            # arm_node の状態だけを読む。/joint_states には
+            # joint_state_publisher が腕の関節を 0 で載せることがある。
+            self.create_subscription(
+                sensor_msgs.msg.JointState,
+                f"/{side}/arm/joint_states",
+                self._on_joint_states,
+                10,
+            )
         self._last_draw = 0.0
 
     def _on_joint_states(self, msg: sensor_msgs.msg.JointState) -> None:

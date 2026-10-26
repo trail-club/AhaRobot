@@ -27,7 +27,7 @@ from .sam31_vlm import (
     DEFAULT_VLM_MODEL,
     DEFAULT_VLM_URL,
     MAX_CANDIDATES,
-    OllamaClient,
+    VlmClient,
     focal_lengths,
     segment_with_vlm,
 )
@@ -174,7 +174,7 @@ def main(argv=None):
         protocol_stream(),
         threshold=args.threshold,
         checkpoint=args.checkpoint,
-        vlm=OllamaClient(args.vlm_url, args.vlm_model) if args.vlm else None,
+        vlm=VlmClient(args.vlm_url, args.vlm_model) if args.vlm else None,
         candidate_threshold=args.candidate_threshold,
         match=not args.no_match,
     )

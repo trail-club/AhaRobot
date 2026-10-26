@@ -242,12 +242,12 @@ def test_manipulation_accepts_states_up_to_the_physics_limits(monkeypatch):
     context = LaunchContext()
 
     def includes(entities):
-        # The subsystem launches are inside scoped GroupActions.
+        # The subsystem includes sit in scoped GroupActions.
         for action in entities:
-            if isinstance(action, GroupAction):
-                yield from includes(action.get_sub_entities())
-            elif isinstance(action, IncludeLaunchDescription):
+            if isinstance(action, IncludeLaunchDescription):
                 yield action
+            elif isinstance(action, GroupAction):
+                yield from includes(action.get_sub_entities())
 
     (manip,) = [
         action

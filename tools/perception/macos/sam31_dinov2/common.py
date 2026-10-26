@@ -32,14 +32,18 @@ sys.path.insert(0, str(ROOT / "overlay_ws/src/aha_perception"))
 sys.path.insert(0, str(ROOT / "tools/perception/macos/sam31"))
 import interactive  # noqa: E402
 from aha_perception.sam31 import load_capture as load_rgbd  # noqa: E402
-from aha_perception.sam31_vlm import OllamaClient, focal_lengths  # noqa: E402
+from aha_perception.sam31_vlm import (  # noqa: E402
+    DEFAULT_VLM_MODEL,
+    DEFAULT_VLM_URL,
+    VlmClient,
+    focal_lengths,
+)
 
 DGX_HOST = os.environ.get("SAM31_SSH_HOST", interactive.DGX_ADDRESS)
 DGX_PORT = int(os.environ.get("SAM31_SSH_PORT", interactive.DGX_SSH_PORT))
 DGX_USER = os.environ.get("SAM31_SSH_USER")
 IMAGE = "local/aharobot-sam31"
 CHECKPOINT_DIR = "/srv/shared/models/sam3.1"
-VLM_MODEL = "qwen3-vl:30b"
 MATCH_IOU = 0.5
 MIN_PIXELS = 50  # specks are ignored for every method (also remote/dino_common.py)
 # Shipped with every remote script (the container sees only its work directory).
@@ -328,11 +332,9 @@ def wait_for_container(name, user):
         time.sleep(15)
 
 
-@contextlib.contextmanager
-def vlm_client(user=DGX_USER):
-    """OllamaClient for the DGX VLM through an SSH tunnel."""
-    with interactive.vlm_tunnel(dgx(user)) as url:
-        yield OllamaClient(url, VLM_MODEL, timeout=600)
+def vlm_client():
+    """Client for the Qwen3.8 server on the DGX, reached directly over WARP."""
+    return VlmClient(DEFAULT_VLM_URL, DEFAULT_VLM_MODEL, timeout=600)
 
 
 # --- images and pages -----------------------------------------------------------------

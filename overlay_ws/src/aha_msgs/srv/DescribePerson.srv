@@ -1,0 +1,8 @@
+# Visible features of a tracked person from a VLM (aha_perception person_perception).
+# Owner: perception squad.
+
+uint32 id
+---
+bool     success
+string   message
+string[] features     # short English phrases, e.g. "glasses", "red t-shirt"

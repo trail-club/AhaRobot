@@ -12,6 +12,9 @@ model="${MODEL:-TensorFold/Qwen3.8-27B-MLX-4bit}"
 parallel="${PARALLEL:-4}"                           # 同時に処理するリクエスト数
 mem_gb="${MEM_GB:-70}"                              # GPUメモリの上限
 addr="${ADDR:-10.99.0.1}"                           # WARP用アドレス。名簿のメンバーだけが届くのでAPIキーは使わない
+vision="${VISION:-1}"                               # 1: 画像入力（data URL）を受け付ける。0: テキストのみ
+vision_args=()
+if [[ "$vision" == 1 ]]; then vision_args=(--vision); fi
 
 exists() { docker ps -a --format '{{.Names}}' | grep -qx "$name"; }
 
@@ -27,7 +30,8 @@ case "${1:-status}" in
         -v "$hf_dir:/root/.cache/huggingface" \
         -v local-llm-cache:/root/.cache/torch_extensions \
         -e TENSORFOLD_CUDA_MEMORY_LIMIT_GB="$mem_gb" -e TENSORFOLD_NO_UPDATE_CHECK=1 -e TENSORFOLD_NO_LIVE=1 \
-        "$image" tensorfold serve "$model" --name qwen3.8-27b --host "$addr" --port 8080 --parallel "$parallel"
+        "$image" tensorfold serve "$model" --name qwen3.8-27b --host "$addr" --port 8080 --parallel "$parallel" \
+        "${vision_args[@]}"
     fi ;;
   stop)
     if exists; then docker stop "$name" >/dev/null; fi ;;

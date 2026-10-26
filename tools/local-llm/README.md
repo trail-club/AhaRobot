@@ -37,6 +37,9 @@ Cline（VS Code拡張 `saoudrizwan.claude-dev`）では、API Providerを **Open
 - 生成速度の目安（2026-10-04）: コード約100 tok/s、英語の文章約35〜50 tok/s、日本語の文章約20〜27 tok/s。
 - キャッシュの効かない長い入力は読み込みに時間がかかる（約6万トークンで約50秒）。会話の続きはキャッシュが効く。
 - `seed` を指定しない場合、同じ入力には同じ出力が返る。
+- 画像も入力できる（`--vision`）。`messages` の `content` に `{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}` を入れる。
+  data URLのみで、1リクエストの履歴全体で4枚まで（TensorFoldの既定）。
+- 思考過程（`reasoning_content`）が既定で出力され、`max_tokens` はそれも含めて数える。
 
 ## サーバーの管理
 

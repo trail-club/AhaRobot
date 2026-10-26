@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーション、頭部カメラ、実機の頭部の入出力。controller設定は
+標準シミュレーション、頭部カメラ、人の認識、実機の頭部・アームの入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -296,22 +296,60 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 `class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
 `pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
 
+## 人の認識
+
+[people.launch.py](../overlay_ws/src/aha_perception/README.md#人の認識)の `person_perception.py` が扱う。
+入力は頭部カメラの3 topic（色・位置合わせ済みDepth・CameraInfo、同じ時刻の組）で、RELIABLEで購読する（パラメータ `reliable: false` でbest effort）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 追跡中の人 | `/aha/perception/people` | `aha_msgs/msg/PersonArray` |
+| 人の表示 | `/aha/perception/people/markers` | `visualization_msgs/msg/MarkerArray` |
+| 外見を名前で覚える | `/aha/perception/remember_person` | `aha_msgs/srv/RememberPerson` |
+| 外見の特徴（VLM） | `/aha/perception/describe_person` | `aha_msgs/srv/DescribePerson` |
+
+`PersonArray` は処理した画像ごとに、追跡中の全員を配信する。`header.frame_id` は `target_frame`（既定 `map`）、`header.stamp` は画像の時刻。
+各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
+`id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
+名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+
 ## 実機の頭部
 
 `real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
 `servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
 `/head_controller/follow_joint_trajectory` を提供する。
-頭の関節状態は `/head_controller/joint_states` から `joint_state_publisher` が `/joint_states` へ合流させ、
-頭以外の関節は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
+`joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
 サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
 `/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
 （`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
 
+## 実機のアーム
+
+`aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と、
+[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py` を起動する。
+ブリッジはシミュレーションと同じ名前・型の軌道入力を提供する。`<side>` は `left` / `right`。
+シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 軌道指令 | `/<side>_arm_controller/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 軌道action | `/<side>_arm_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| 腕への位置指令 | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+| 腕とグリッパの関節状態 | `/<side>/arm/joint_states` | `sensor_msgs/msg/JointState` |
+
+`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
+`joint_state_publisher` が合流させる（[実機の頭部](#実機の頭部)）。ブリッジとキーボード教示は `/<side>/arm/joint_states` を読む。
+ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
+キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
+昇降とグリッパはブリッジの対象外。
+
 ## 独自型
 
-[aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、
-`Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、`PickObject`、`TaskCommand` の型定義がある。
+[aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
+`Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
+`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

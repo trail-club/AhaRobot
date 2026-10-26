@@ -6,6 +6,7 @@
 | --- | --- |
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
+| `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
 | `config/<task>.json` | タスク定義 |
@@ -33,6 +34,8 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `task` | 必須 | `config/` のタスク名、またはJSONのパス |
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
+| `people` | `false` | 頭部カメラのbridge、[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）、`head_look_at.py` を起動 |
+| `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true` のDGXの接続先 |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -100,7 +103,7 @@ class AskNameAndDrink(Skill):
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を25サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate` のみ。
+実装済みのスキルは `navigate` と、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）。
 
 客席・ホスト・荷物置き場は固定の代替地点。入口のドアは閉じたままで、ロボットは内側の `entrance` まで移動する。
 人・荷物のモデルは配置しない。地点は `/aha/tasks/locations` に配信し、RVizで表示できる。
@@ -108,3 +111,18 @@ class AskNameAndDrink(Skill):
 ```bash
 rviz2 -d "$(ros2 pkg prefix --share aha_navigation)/rviz/nav.rviz" --ros-args -p use_sim_time:=true
 ```
+
+### 人の認識を使うスキル
+
+`/aha/perception/people` の人をスキル間でIDと名前で受け渡す。出力の `<役割>.position` は人の体の中心（`<役割>.frame` の座標）。
+person_perceptionが起動していない場合は、実行時に失敗する（起動時の待機はしない）。発話は含まない。
+
+| スキル | 動作 | 出力 |
+| --- | --- | --- |
+| `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
+| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
+| `locate_guests` | `guests` の全員が名前付きで見えるまで待つ。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
+
+待つ時間は `timeout`（`find_person` / `locate_guests` は30 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s）で変更できる。
+`memorize_person` をmockにした場合は外見を覚えないため、後の `locate_guests` はその客を見分けられない。
+
