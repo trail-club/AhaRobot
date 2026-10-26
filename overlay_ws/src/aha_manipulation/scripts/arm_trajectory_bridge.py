@@ -28,6 +28,10 @@ Behaviour:
     five joints. A trajectory outside the position, velocity or acceleration
     limits is rejected as a whole (topic: logged and ignored).
   - Planning needs a fresh state (within `state_timeout`) of every joint.
+    With `frozen_timeout`, every joint reading the same value for that long
+    is logged as possibly frozen (an arm board reset leaves the arm_node
+    publishing its last values); an arm at rest can read the same, so it
+    does not stop planning.
   - Action: feedback every FEEDBACK_PERIOD s. Aborts when a joint is more
     than `path_tolerance` (or the goal's path_tolerance) from the sample of
     the current time, or when the state goes stale; succeeds when every joint
@@ -106,6 +110,8 @@ class ArmTrajectoryBridge(Node):
         self.lock = threading.Lock()
         self.positions = {}  # rad, latest state
         self.state_times = {}  # monotonic time of the latest state per joint
+        self.change_times = {}  # monotonic time the reading last changed
+        self.frozen = False
         self.plan = None  # ArmPlan being sampled, None when idle
         self.plan_seq = 0
         self.had_state = False
@@ -175,15 +181,34 @@ class ArmTrajectoryBridge(Node):
         with self.lock:
             for name, position in zip(msg.name, msg.position):
                 if name in self.names:
+                    if self.positions.get(name) != position:
+                        self.change_times[name] = now
                     self.positions[name] = position
                     self.state_times[name] = now
+            frozen = self._frozen(now)
             fresh = self._stale(now) == []
+        if frozen != self.frozen:
+            self.frozen = frozen
+            if frozen:
+                self.get_logger().warn(
+                    f"every joint read the same value for {self.cfg.frozen_timeout} s: "
+                    "if the arm moved meanwhile, the readings are frozen (arm board "
+                    "reset?) and the arm_node needs a restart"
+                )
         if fresh and not self.had_state:
             self.had_state = True
             self.get_logger().info(
                 "arm state received: "
                 + ", ".join(f"{n} {self.positions[n]:+.3f}" for n in self.names)
             )
+
+    def _frozen(self, now):
+        """Every joint unchanged for frozen_timeout (caller holds the lock)."""
+        timeout = self.cfg.frozen_timeout
+        return timeout > 0 and all(
+            n in self.change_times and now - self.change_times[n] > timeout
+            for n in self.names
+        )
 
     def _stale(self, now):
         """Joints without a state within state_timeout (caller holds the lock)."""
