@@ -402,7 +402,9 @@ class PlaceServer(Node):
                     10,
                     callback_group=feedback_group,
                 )
-        if interface == "arm_node":
+        # The arm_node's own states: finger positions for the ramp and the
+        # readings that clear a frozen state.
+        if interface == "arm_node" or self.param("frozen_window") > 0.0:
             for cfg in ARMS.values():
                 self.create_subscription(
                     JointState,

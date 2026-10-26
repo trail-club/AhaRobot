@@ -292,4 +292,7 @@ ros2 run aha_test_manipulation sim_hold_object.py --release                     
 
 `test/test_moveit_config.py` はSRDF・関節上限・controller設定と試験用のロボット（`aha_test_description`）の一致、
 `test/test_frame_moveit.py` は骨組みのモデルのSRDF・関節上限・controller（`frame_moveit.py`）、`test/test_gripper_ramp.py` は
-[グリッパの手渡し](#グリッパの手渡し)のランプ・当たり検知（`gripper_ramp.py`）、他の `test/test_*.py` は置く動作のROSに依らない部分を確かめる。
+[グリッパの手渡し](#グリッパの手渡し)のランプ・当たり検知（`gripper_ramp.py`）を確かめる。
+`test/test_manip_real_launch.py` は実機用のlaunchの構成、`test/test_place_server_real.py` はplace_serverの実機向けの処理、
+`test/test_topic_coupling.py` と `test/test_gripper_handover_integration.py` は `arm_node`・軌道ブリッジとのトピックと関節名の一致を確かめ、
+ROS_DOMAIN_ID 75（localhostだけ）でノードを起動する（後者は `astra_controller` の `dry_run_node` を使い、なければスキップ）。他の `test/test_*.py` は置く動作のROSに依らない部分を確かめる。

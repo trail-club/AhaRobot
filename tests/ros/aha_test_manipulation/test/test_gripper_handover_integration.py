@@ -54,6 +54,28 @@ def dry_run(env, tmp_path):
             stdout=out,
             stderr=subprocess.STDOUT,
         )
+    # gripper_handover.py waits only 3 s for a state: start it once they flow
+    # (with the type given, echo waits for the topic instead of failing).
+    try:
+        subprocess.run(
+            [
+                "ros2",
+                "topic",
+                "echo",
+                "--once",
+                "--no-daemon",
+                "/right/arm/joint_states",
+                "sensor_msgs/msg/JointState",
+            ],
+            env=env,
+            capture_output=True,
+            timeout=30,
+            check=True,
+        )
+    except Exception:
+        node.kill()
+        node.wait()
+        raise
     yield node, log
     node.terminate()
     try:

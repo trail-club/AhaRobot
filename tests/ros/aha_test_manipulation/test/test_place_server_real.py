@@ -111,7 +111,7 @@ def test_frozen_wrist_is_kept_until_its_reading_changes(server, clock):
     freeze_wrist(stub, watch)
     assert stub.frozen and "joint_r5" in stub.frozen
     assert stub.frozen_readings == {"joint_r5": 0.0015}
-    # The other joints reading live values do not clear it, nor a new goal.
+    # The other joints reading live values do not clear it.
     stub.on_finger_states(SimpleNamespace(name=NAMES, position=[0.7, 0.0015]))
     assert stub.frozen
     # The wrist reads a new value (the arm_node restarted): cleared.

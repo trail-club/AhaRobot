@@ -15,7 +15,7 @@ robot_state_publisher（骨組みのモデル）、静的TF `odom` → `base_foo
 `/head_controller/joint_states` と腕の `/<side>/arm/joint_states` を `/joint_states` に合流させる `joint_state_publisher`、
 [`arms.launch.py`](../../../overlay_ws/src/aha_bringup/launch/arms.launch.py)（`arm_node`）、腕の軌道ブリッジ、頭のサーボ、D435i、点群、平面検出、RVizを起動する。
 `base_footprint` は床、`base_link` はカメラの柱の下の天板の上。
-状態のない関節（`use_left:=false` の左腕、`head:=none` の頭）は0として出るので、MoveItはその腕がゼロ姿勢にあるものとして衝突を判定する。使わない腕は実機でもそこから離して置く。
+状態のない関節（`use_left:=false` の左腕、`head:=none` の頭）は0として出るので、MoveItはその腕がゼロ姿勢にあるものとして衝突を判定する。使わない腕は、実機でもゼロ姿勢か、使う腕の届かない所に置く。
 
 | 引数 | 既定 | 内容 |
 | --- | --- | --- |

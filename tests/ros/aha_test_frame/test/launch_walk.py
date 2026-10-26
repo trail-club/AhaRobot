@@ -88,6 +88,7 @@ def _process(entity, context, tmp_dir: Path) -> Process:
     if not isinstance(entity, Node):
         cmd = [_text(context, part) for part in entity.cmd]
         return Process(label=" ".join(cmd), cmd=cmd)
+    # launch_ros (Jazzy) private API: the node's evaluated arguments.
     entity._perform_substitutions(context)
     parameters, files = {}, []
     # (argument, is_file) as the node's command line gets them.
