@@ -85,6 +85,13 @@ def load_frame(path) -> dict:
                 raise ValueError(f"{path}: joint offset {name} must be a number")
             if not math.isfinite(value):
                 raise ValueError(f"{path}: joint offset {name} is not finite")
+    camera = config.get("camera")
+    if camera is not None and "xyz" not in (camera or {}):
+        raise ValueError(f"{path}: camera needs xyz")
+    for i, extrusion in enumerate(config.get("extrusions") or []):
+        missing = [k for k in ("name", "from", "to") if k not in (extrusion or {})]
+        if missing:
+            raise ValueError(f"{path}: extrusion {i} needs {missing}")
     return config
 
 

@@ -46,8 +46,14 @@ class GripperNode(Node):
         super().__init__("gripper_handover")
         self.joint = ramp.finger_joint(arm)
         self.position = None  # latest measured finger position (m, per side)
+        # The arm_node's joint_names, in its order.
+        self.arm_joints = [f"joint_{arm[0]}{i}" for i in range(2, 7)]
+        self.arm = {}  # latest measured arm joint positions
         self.command_pub = self.create_publisher(
             JointCommand, f"/{arm}/arm/gripper_joint_command", qos_profile_sensor_data
+        )
+        self.arm_pub = self.create_publisher(
+            JointCommand, f"/{arm}/arm/joint_command", qos_profile_sensor_data
         )
         self.create_subscription(
             JointState,
@@ -59,6 +65,30 @@ class GripperNode(Node):
     def _on_state(self, msg: JointState):
         if self.joint in msg.name:
             self.position = msg.position[msg.name.index(self.joint)]
+        self.arm.update(
+            (name, position)
+            for name, position in zip(msg.name, msg.position)
+            if name in self.arm_joints
+        )
+
+    def hold_arm(self):
+        """Command the measured arm pose: the arm_node sends every gripper
+        command together with its last arm command (its startup reading or the
+        last joint_command), which may be far from where the arm is now."""
+        missing = [name for name in self.arm_joints if name not in self.arm]
+        if missing:
+            raise RuntimeError(f"no state of {', '.join(missing)}")
+        deadline = time.monotonic() + INITIAL_STATE_TIMEOUT
+        while self.arm_pub.get_subscription_count() == 0:
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"nothing subscribes {self.arm_pub.topic_name}")
+            rclpy.spin_once(self, timeout_sec=INITIAL_STATE_POLL)
+        msg = JointCommand(
+            name=list(self.arm_joints),
+            position_cmd=[float(self.arm[name]) for name in self.arm_joints],
+        )
+        msg.header.stamp = self.get_clock().now().to_msg()
+        self.arm_pub.publish(msg)
 
     def send(self, value: float):
         msg = JointCommand(name=[self.joint], position_cmd=[float(value)])
@@ -130,6 +160,7 @@ def run_open(node: GripperNode, args) -> float:
             f"{INITIAL_STATE_TIMEOUT:.0f} s; is arm_node running and publishing?"
         )
     node.check_subscribed()
+    node.hold_arm()
     sequence = ramp.SimpleRamp(start, args.open, args.ramp, args.rate)
     return drive(node, sequence, args.rate)
 
@@ -143,6 +174,7 @@ def run_close(node: GripperNode, args) -> tuple[float, float]:
             f"{INITIAL_STATE_TIMEOUT:.0f} s; is arm_node running and publishing?"
         )
     node.check_subscribed()
+    node.hold_arm()
     if args.width is not None:
         # The target already accounts for the squeeze, so the final measured
         # position (once the ramp reaches it) inverts back to --width.

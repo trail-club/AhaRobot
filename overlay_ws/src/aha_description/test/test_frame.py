@@ -300,6 +300,23 @@ def test_invalid_joint_offsets_are_errors(tmp_path, offsets, message):
         load_frame(path)
 
 
+@pytest.mark.parametrize(
+    "extra, message",
+    [
+        ("camera: {rpy: [0, 0, 0]}", "camera needs xyz"),
+        ("extrusions: [{name: a, from: [0, 0, 0]}]", "extrusion 0 needs"),
+    ],
+)
+def test_incomplete_camera_and_extrusions_are_errors(tmp_path, extra, message):
+    path = tmp_path / "frame.yaml"
+    path.write_text(
+        "base_height: 0.4\nhead: {pan_xyz: [0, 0, 0]}\n"
+        f"arms: {{right: {{shoulder_xyz: [0, 0, 0], yaw: 0}}}}\n{extra}\n"
+    )
+    with pytest.raises(ValueError, match=message):
+        load_frame(path)
+
+
 def test_replace_joint_offsets_adds_and_replaces():
     text = (
         "arms:\n"

@@ -146,7 +146,8 @@ class Clicks:
     def pair(self, msg, args) -> Pair:
         """Pair of a click; ValueError with the reason when it is rejected."""
         stamp = self.Time.from_msg(msg.header.stamp)
-        if stamp.nanoseconds == 0:
+        stamped = stamp.nanoseconds > 0
+        if not stamped:
             stamp = self.Time()
         latest = self.Time()
         fixed = self.lookup(TARGET_FRAME, msg.header.frame_id, stamp, TF_WAIT_S)
@@ -160,11 +161,16 @@ class Clicks:
         seen = (fixed @ np.array([p.x, p.y, p.z, 1.0]))[:3]
         camera = (parent @ mount)[:3, 3]
         offset = np.array([*args.offset, 1.0])
-        before_stamp = stamp - self.Duration(seconds=STILL_WINDOW_S)
+        # Without a stamp (latest TF) the motion before the click is unknown.
+        before_stamp = (
+            stamp - self.Duration(seconds=STILL_WINDOW_S) if stamped else None
+        )
         candidates, moved = {}, {}
         for link in args.links:
             now = self.lookup(TARGET_FRAME, link, stamp, TF_WAIT_S)
-            before = self.lookup(TARGET_FRAME, link, before_stamp)
+            before = (
+                self.lookup(TARGET_FRAME, link, before_stamp) if before_stamp else None
+            )
             if now is None:
                 continue
             point = (now @ offset)[:3]

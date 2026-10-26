@@ -127,7 +127,9 @@ GRIPPER_INTERFACES = {
 }
 MAX_REFRESHES = 3  # fresh candidate lists after spots found blocked
 GRIPPER_RAMP_RATE = 20.0  # Hz, gripper commands during gripper_ramp_time
-FINGER_STATE_TIMEOUT = 0.5  # wall s, older finger states are not ramped from
+# wall s: older finger states are not ramped from, and set_gripper waits this
+# long for a fresh one
+FINGER_STATE_TIMEOUT = 0.5
 DETECTION_RETRIES = 2  # queries again after an error (e.g. a too old detection)
 WALL_CAP = 120.0  # s, any sim-time wait ends after this much wall time
 MOTION_WALL_CAP = 900.0  # s, same for a MoveIt goal
@@ -721,6 +723,10 @@ class PlaceServer(Node):
         joint = ARMS[arm]["gripper_joint"]
         ramp = self.param("gripper_ramp_time")
         start = self.finger_state(joint)
+        deadline = time.monotonic() + FINGER_STATE_TIMEOUT
+        while ramp > 0.0 and start is None and time.monotonic() < deadline:
+            time.sleep(0.05)  # the subscriptions run on other executor threads
+            start = self.finger_state(joint)
         if ramp > 0.0 and start is None:
             self.get_logger().warn(f"no fresh state of {joint}: gripper not ramped")
         steps = max(1, round(ramp * GRIPPER_RAMP_RATE)) if start is not None else 1
@@ -1735,7 +1741,9 @@ class PlaceServer(Node):
             retreated = self.cartesian(
                 ARMS[req.arm], motion.retreat_waypoints, "retreat", fraction
             )
-            if not retreated and motion.retreat_fallback:
+            # With the TCP fixed (no lift) the hand cannot rise.
+            fixed = self.param("tcp_height") > 0.0
+            if not retreated and motion.retreat_fallback and not fixed:
                 retreated = self.cartesian(
                     ARMS[req.arm], motion.retreat_fallback, "retreat up", fraction
                 )

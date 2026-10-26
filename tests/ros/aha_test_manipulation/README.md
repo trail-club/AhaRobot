@@ -41,12 +41,12 @@ ros2 launch aha_test_manipulation manip_real.launch.py      # aim_head:=false �
 
 昇降がないため `side` 把持（TCPのzが上）の手先の高さは1つに決まる。`tcp_height` はその高さで、起動時に `frame_config` のモデルの `arm` の
 `link_[r|l]ee` の `base_footprint` からの高さ（腕の関節をすべて0、`joint_[r|l]5` = 0でTCPのzが上）を `frame_moveit.side_grasp_tcp_height` で求める
-（`frame_table_202610.yaml` で右0.452 m、左0.474 m。`joint_[r|l]2`〜`4` は鉛直軸で高さを変えない）。
+（`frame_table_202610.yaml` で右0.432 m、左0.474 m。`joint_[r|l]2`〜`4` は鉛直軸で高さを変えない）。
 `place_server.py` は候補ごとに離す高さ（物体の底面の支持面からの高さ）を、TCPがちょうど `tcp_height` に来る値
 `tcp_height` − (TCPから物体の底面までの高さ) − 支持面の高さ にする（TCPから底面までは `object_in_hand` または持ち方の既定の姿勢から求める）。
 これが `release_height`（0.02 m、物体を面に押し込まないための下限。横からの進入はこの高さで水平に動くため、モデルより低い実際の手先の分も見込む）未満か `max_release_height` より大きい候補は試す前に外す
 （logに `unreachable: the TCP at ... releases ... cm above ...`、マーカーは灰色の点）。
-高さ0.12 mの物体を既定の持ち方で持つと、置ける支持面は床から約0.337〜0.357 m。`top` 把持・`top` 接近は断り（`STATUS_ERROR`）、`auto` は `side` だけを試す。
+高さ0.12 mの物体を既定の持ち方で右手に持つと、置ける支持面は床から約0.317〜0.337 m（ロボット自身の机0.38 mは範囲外）。`top` 把持・`top` 接近は断り（`STATUS_ERROR`）、`auto` は `side` だけを試す。
 
 | 引数（`manip_real.launch.py`） | 既定 | 内容 |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ SRDF・関節上限・controllerを `aha_test_manipulation/frame_moveit.py` で�
 関節状態（`/<arm>/arm/joint_states` の `joint_<r|l>7r`）だけで、指を開いて物体を受け取る／返してもらう。
 一度に大きく閉じるとアーム基板が落ちた例があるため、常に測った指の位置からランプで動かす（`--ramp` 秒かけて `--rate` Hzで指令）。
 `--width`（物体の幅）があればその分だけ閉じて止め、なければ指がゆっくり閉じ続け、指令に状態がついてこなくなった時点
-（物体に当たって動けない）で止めて `--squeeze` 分だけ緩める（`aha_test_manipulation.gripper_ramp`、ROSに依らずテスト可）。
+（物体に当たって動けない）で止め、当たった位置から `--squeeze` だけ閉じた位置を保つ（`aha_test_manipulation.gripper_ramp`、ROSに依らずテスト可）。
 
 ```bash
 ros2 run aha_test_manipulation gripper_handover.py open                              # --open（既定0.03 m）まで開く
@@ -88,11 +88,12 @@ ros2 run aha_test_manipulation gripper_handover.py handover --arm left --open 0.
 | `--arm` | `right` | `right` / `left` |
 | `--open` | 0.03 m | 開く指令（片側） |
 | `--width` | なし | 物体の幅（指の間、m）。なければ当たりを検知して止める |
-| `--squeeze` | 0.003 m | 当たった位置（または `--width` の目標）からさらに緩める量（片側） |
+| `--squeeze` | 0.003 m | 当たった位置（または `--width` の半分）からさらに閉じる量（片側）。0で押し付けない |
 | `--ramp` / `--rate` | 1.0 s / 20 Hz | 測った位置から目標までの時間とその間の指令の頻度 |
 
-最後に測った指の開き（片側）と、そこから求めた物体の幅（`2 × (開き + --squeeze)`）を表示する。
+最後に測った指の開き（片側）と物体の幅（当たりを検知したときは `2 × 当たった位置`、`--width` では `2 × (開き + --squeeze)`）を表示する。
 起動時に指の状態を最大3秒待ち、来なければ中止する。
+`arm_node` はグリッパの指令と一緒に最後の腕の指令を送り直すため、最初に測った腕の姿勢を `/<arm>/arm/joint_command` へ1回送る（トルクを切って動かした腕や基板のリセット後に、古い指令の位置へ跳ばないように）。
 
 ## 設定
 

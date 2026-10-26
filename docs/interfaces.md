@@ -339,11 +339,12 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | 腕とグリッパの関節状態 | `/<side>/arm/joint_states` | `sensor_msgs/msg/JointState` |
 | グリッパへの位置指令 | `/<side>/arm/gripper_joint_command` | `astra_controller_interfaces/msg/JointCommand` |
 
-`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
+`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` と `real.launch.py` の
 `joint_state_publisher` が合流させる（[実機の頭部](#実機の頭部)）。ブリッジとキーボード教示は `/<side>/arm/joint_states` を読む。
 ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
 キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
 昇降とグリッパはブリッジの対象外。グリッパ指令の `name` は `joint_<l|r>7r` だけで、値は片側の指の開き（m）。
+`arm_node` はグリッパ指令を受けると、腕の5関節にも最後の腕の指令（起動時の読みか、最後の `joint_command`）を送り直す。
 試験用の置く動作（[aha_test_manipulation](../tests/ros/aha_test_manipulation/README.md#実機骨組み)）は離すときにこのtopicへ配信する。
 
 ## 独自型

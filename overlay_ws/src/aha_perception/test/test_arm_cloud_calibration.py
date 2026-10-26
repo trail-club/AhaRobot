@@ -75,7 +75,7 @@ def config():
     config = load_frame(share / "config" / "frame_table_202610.yaml")
     # The poses above are in view with this right arm, whatever the robot's
     # calibration in the config.
-    right = {"shoulder_xyz": config["arms"]["right"]["shoulder_xyz"], "yaw": -1.5239}
+    right = {"shoulder_xyz": [0.03, -0.232, 0.222], "yaw": -1.5239}
     return dict(config, arms=dict(config["arms"], right=right))
 
 

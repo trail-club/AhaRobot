@@ -123,9 +123,10 @@ class ContactRamp:
     cannot close further, so the state stays pinned above the still-dropping
     command. ``samples`` consecutive ticks with ``measured - last command >
     gap`` while the measured position closes by less than ``stall`` per tick
-    count as contact (a lagging but moving finger is not). Once that happens the command holds at
-    ``measured - squeeze`` (eases off the contact instead of continuing to
-    squeeze), clamped to the range.
+    count as contact (a lagging but moving finger is not). Once that happens
+    the command holds at ``measured - squeeze`` (``squeeze`` beyond the
+    contact, 0 = no pressing, instead of driving on to the target), clamped
+    to the range.
     """
 
     start: float

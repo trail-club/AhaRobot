@@ -42,8 +42,9 @@ GRIPPER_RAMP_TIME = 1.0
 # Without the lift only joint_<l|r>5 tilts the hand, so a TCP with z up (side
 # grasp) stays at one height (tcp_height, from the frame model): place_server
 # matches it with each spot's release height (RELEASE_HEIGHT to
-# MAX_RELEASE_HEIGHT), a 2 cm band of surface heights per object height near
-# the robot's own table (0.38 m above the floor); the top grasp reaches none.
+# MAX_RELEASE_HEIGHT), a 2 cm band of surface heights per object height (with
+# the right arm's 0.432 m, 0.317-0.337 m for a 0.12 m object held at its
+# middle); the top grasp reaches none.
 # The side approach and retreat therefore move horizontally only, and so does
 # no escape (escape_lift 0). The approach moves at the release height: a real
 # TCP lower than the frame model's would drag the object over the surface, so
