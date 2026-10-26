@@ -1,0 +1,224 @@
+# WireViz YAML. Based only on AHA-LIFT-SCH-001 REV 1.0 (2026-10-25).
+# Logical terminal endpoints; physical connector types, gauge and lengths not specified.
+# Render: wireviz aha_lift_wireviz.yml
+
+metadata:
+  title: AhaRobot GT45-600 Lift Axis - Wiring Harness
+  description: As transcribed from AHA-LIFT-SCH-001 rev1.0, 2026-10-25. Terminal endpoints are logical devices, not specified
+    plug families.
+  notes: Cable lengths, gauge, actual plug/crimp types, and several hardware details are not specified in the source PDF.
+    Do not use as release-to-manufacture without review.
+options:
+  bgcolor: WH
+connectors:
+  MCU:
+    type: ESP32-S3 AstraLiftController
+    pins:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    pinlabels:
+    - GPIO20
+    - GND logic
+    - GPIO19
+    - GPIO14
+    - GND common
+    notes: Logical MCU terminal group only; actual physical pin/header connector not specified. MCU ground pins represent
+      the same 0V net.
+    ignore_in_bom: true
+    loops:
+    - - 2
+      - 5
+  DRV_CTRL:
+    type: DM542 upper terminals
+    pins:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    pinlabels:
+    - PUL+
+    - PUL-
+    - DIR+
+    - DIR-
+    - ENA+ (NC)
+    - ENA- (NC)
+    notes: Terminal order per source drawing. ENA pins are not connected.
+    ignore_in_bom: true
+  DRV_PWR:
+    type: DM542 lower terminals
+    pins:
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    pinlabels:
+    - GND (0V)
+    - +V (24V)
+    - A+
+    - A-
+    - B+
+    - B-
+    notes: 'At +V: 24V red and sensor brown. At GND: 24V black, sensor blue and MCU common GND. Confirm permissible multi-wire
+      terminations.'
+    ignore_in_bom: true
+  MOTOR:
+    type: GT45-600 lift stepper motor
+    pins:
+    - 1
+    - 2
+    - 3
+    - 4
+    pinlabels:
+    - A+ red
+    - A- green
+    - B+ yellow
+    - B- blue
+    notes: Motor lead coil assignments copied from source; verify actual motor datasheet before energizing.
+    ignore_in_bom: true
+  SENSOR:
+    type: STUOB FM-SX674-WR NPN photoelectric switch
+    pins:
+    - 1
+    - 2
+    - 3
+    - 4
+    pinlabels:
+    - BN +24V
+    - BU 0V
+    - BK NO
+    - WH NC (unused)
+    notes: Four pre-attached wire colors copied from source. NC white lead is insulated and left unconnected.
+    ignore_in_bom: true
+  SUPPLY:
+    type: 24V DC main power
+    pins:
+    - 1
+    - 2
+    pinlabels:
+    - 0V (-)
+    - +24V (+)
+    notes: Source unspecified (battery / DC-DC). Fuse/switch wiring and current rating not documented.
+    ignore_in_bom: true
+cables:
+  W_CTRL:
+    category: bundle
+    type: 4 individual black logic wires
+    colors:
+    - BK
+    - BK
+    - BK
+    - BK
+    wirelabels:
+    - BK1 STEP+
+    - BK2 PUL-
+    - BK3 DIR+
+    - BK4 DIR-
+    notes: 4 black wires identified as black 1..4 in source. Gauge/length not given.
+  W_MOTOR:
+    category: bundle
+    type: 4 stepper motor leads
+    colors:
+    - RD
+    - GN
+    - YE
+    - BU
+    wirelabels:
+    - A+
+    - A-
+    - B+
+    - B-
+    notes: Lead colors per attached PDF. Gauge/length not given.
+  W_PWR:
+    category: bundle
+    type: 24V supply conductors
+    colors:
+    - BK
+    - RD
+    wirelabels:
+    - 0V
+    - +24V
+    notes: Thick black and thick red in source; numeric gauge/length not specified.
+  W_SENSOR:
+    category: bundle
+    type: Sensor 4-wire pigtail
+    colors:
+    - BN
+    - BU
+    - BK
+    - WH
+    wirelabels:
+    - Sensor +24V
+    - Sensor 0V
+    - Sensor NO to GPIO14
+    - NC spare insulated
+    notes: Factory leads assumed as depicted; actual termination and length unspecified. White free end insulated.
+  W_GND:
+    type: Common 0V reference
+    wirecount: 1
+    wirelabels:
+    - ESP GND to driver GND
+    notes: Color and wire gauge not specified; explicitly joins ESP32 GND to 24V/driver GND.
+connections:
+- - MCU:
+    - 1
+    - 2
+    - 3
+    - 2
+  - W_CTRL:
+    - 1
+    - 2
+    - 3
+    - 4
+  - DRV_CTRL:
+    - 1
+    - 2
+    - 3
+    - 4
+- - DRV_PWR:
+    - 3
+    - 4
+    - 5
+    - 6
+  - W_MOTOR:
+    - 1
+    - 2
+    - 3
+    - 4
+  - MOTOR:
+    - 1
+    - 2
+    - 3
+    - 4
+- - SUPPLY:
+    - 1
+    - 2
+  - W_PWR:
+    - 1
+    - 2
+  - DRV_PWR:
+    - 1
+    - 2
+- - DRV_PWR:
+    - 2
+    - 1
+  - W_SENSOR:
+    - 1
+    - 2
+  - SENSOR:
+    - 1
+    - 2
+- - MCU: 4
+  - W_SENSOR: 3
+  - SENSOR: 3
+- - SENSOR: 4
+  - W_SENSOR: 4
+- - MCU: 5
+  - W_GND: 1
+  - DRV_PWR: 1
