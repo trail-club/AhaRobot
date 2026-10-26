@@ -62,7 +62,7 @@
 <text text-anchor="start" x="1330.5" y="-575.3" font-family="arial" font-size="14.00">4x</text>
 <text text-anchor="start" x="1038.5" y="-554.3" font-family="arial" font-size="14.00"> </text>
 <text text-anchor="start" x="992" y="-535.3" font-family="arial" font-size="14.00">MCU:1:GPIO20</text>
-<text text-anchor="start" x="1120" y="-535.3" font-family="arial" font-size="14.00"> &#160;&#160;&#160;&#160;BK:BK1 STEP+ &#160;&#160;&#160;</text>
+<text text-anchor="start" x="1120" y="-535.3" font-family="arial" font-size="14.00"> &#160;&#160;&#160;&#160;BK:BK1 PUL+ &#160;&#160;&#160;</text>
 <text text-anchor="start" x="1274" y="-535.3" font-family="arial" font-size="14.00">DRV_CTRL:1:PUL+</text>
 <polygon fill="#000000" stroke="transparent" points="973.5,-527.5 973.5,-529.5 1407.5,-529.5 1407.5,-527.5 973.5,-527.5"/>
 <polygon fill="#000000" stroke="transparent" points="973.5,-525.5 973.5,-527.5 1407.5,-527.5 1407.5,-525.5 973.5,-525.5"/>

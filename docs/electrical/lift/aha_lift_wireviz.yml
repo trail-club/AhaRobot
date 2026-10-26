@@ -114,7 +114,7 @@ cables:
     - BK
     - BK
     wirelabels:
-    - BK1 STEP+
+    - BK1 PUL+
     - BK2 PUL-
     - BK3 DIR+
     - BK4 DIR-
