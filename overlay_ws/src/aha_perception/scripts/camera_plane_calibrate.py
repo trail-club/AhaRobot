@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import re
 import sys
 import time
 from pathlib import Path
@@ -33,6 +32,8 @@ from aha_perception.plane_calibration import (
     correction,
     corrected_mount,
     matrix_rpy,
+    set_camera,
+    transform_matrix,
 )
 
 TARGET_FRAME = "base_footprint"
@@ -66,38 +67,6 @@ def mean_fit(fits) -> PlaneFit:
     return PlaneFit.of(normal, offset)
 
 
-def set_camera(text: str, xyz, rpy) -> str:
-    """Frame config text with ``camera: {xyz, rpy}`` set (replaced or added
-    before ``arms:``)."""
-    line = (
-        "camera: {xyz: ["
-        + ", ".join(f"{v:.4f}" for v in xyz)
-        + "], rpy: ["
-        + ", ".join(f"{v:.4f}" for v in rpy)
-        + "]}"
-    )
-    pattern = re.compile(r"^camera:.*$", re.M)
-    if pattern.search(text):
-        return pattern.sub(line, text, count=1)
-    arms = re.compile(r"^arms:", re.M).search(text)
-    if arms is None:
-        raise ValueError("no 'arms:' in the frame config")
-    return text[: arms.start()] + line + "\n\n" + text[arms.start() :]
-
-
-def matrix_of(transform) -> np.ndarray:
-    t, q = transform.translation, transform.rotation
-    x, y, z, w = q.x, q.y, q.z, q.w
-    m = np.eye(4)
-    m[:3, :3] = [
-        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-    ]
-    m[:3, 3] = (t.x, t.y, t.z)
-    return m
-
-
 def collect(args):
     """(mean plane, mean camera position, base->parent, parent->camera)."""
     import rclpy
@@ -115,7 +84,7 @@ def collect(args):
     def lookup(target, source, stamp):
         for when in (Time.from_msg(stamp), Time()):
             try:
-                return matrix_of(
+                return transform_matrix(
                     buffer.lookup_transform(target, source, when).transform
                 )
             except TransformException:

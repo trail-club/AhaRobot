@@ -37,6 +37,8 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 | `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
 | `camera_plane_calibrate.py` | 高さの分かっている水平面の検出から、骨組みのモデルのカメラの取り付けを校正する（[手順](../aha_bringup/README.md#calibration)） |
+| `camera_arm_calibrate.py` | RVizでクリックしたグリッパ先端と腕のモデルのTFの組から、カメラの水平位置とyawを校正する（[手順](../aha_bringup/README.md#calibration)） |
+| `arm_cloud_calibrate.py` | 複数の姿勢で静止した腕の点群を腕のモデルの表面に合わせ、骨組みのモデルの腕の取り付けyawと関節オフセットを校正する（[手順](../aha_bringup/README.md#calibration)） |
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |

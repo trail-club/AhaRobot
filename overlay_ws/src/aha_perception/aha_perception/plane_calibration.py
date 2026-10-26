@@ -18,11 +18,15 @@ corrected mount is then right for the head pose it was measured in, so
 calibrate in the pose the head is used in and check the residual in others.
 ``corrected_mount`` turns both into a new mount transform (parent link ->
 camera link) given the modelled transforms at the time of the detection.
+
+``moved_mount``, ``matrix_rpy``, ``transform_matrix`` and ``set_camera`` are
+shared with the arm click calibration (camera_arm_calibration.py).
 """
 
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -101,11 +105,19 @@ def corrected_mount(
     """New parent -> camera transform (4x4) after ``fix``: the camera turns
     about its own origin by the correction's rotation and rises by dz, all
     in the target frame; the parent link stays where the model puts it."""
-    camera = base_to_parent @ parent_to_camera
-    turned = np.eye(4)
-    turned[:3, :3] = rotation(fix.roll, fix.pitch) @ camera[:3, :3]
-    turned[:3, 3] = camera[:3, 3] + np.array([0.0, 0.0, fix.dz])
-    return np.linalg.inv(base_to_parent) @ turned
+    origin = (base_to_parent @ parent_to_camera)[:3, 3]
+    motion = np.eye(4)
+    motion[:3, :3] = rotation(fix.roll, fix.pitch)
+    motion[:3, 3] = origin - motion[:3, :3] @ origin + np.array([0.0, 0.0, fix.dz])
+    return moved_mount(base_to_parent, parent_to_camera, motion)
+
+
+def moved_mount(
+    base_to_parent: np.ndarray, parent_to_camera: np.ndarray, motion: np.ndarray
+) -> np.ndarray:
+    """New parent -> camera transform (4x4) after the camera is moved by
+    ``motion`` (4x4, applied in the target frame); the parent link stays."""
+    return np.linalg.inv(base_to_parent) @ motion @ base_to_parent @ parent_to_camera
 
 
 def matrix_rpy(matrix: np.ndarray) -> tuple[float, float, float]:
@@ -119,3 +131,36 @@ def matrix_rpy(matrix: np.ndarray) -> tuple[float, float, float]:
         pitch,
         math.atan2(float(r[1, 0]), float(r[0, 0])),
     )
+
+
+def transform_matrix(transform) -> np.ndarray:
+    """4x4 of a geometry_msgs Transform (translation + unit quaternion)."""
+    t, q = transform.translation, transform.rotation
+    x, y, z, w = q.x, q.y, q.z, q.w
+    m = np.eye(4)
+    m[:3, :3] = [
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ]
+    m[:3, 3] = (t.x, t.y, t.z)
+    return m
+
+
+def set_camera(text: str, xyz, rpy) -> str:
+    """Frame config text with ``camera: {xyz, rpy}`` set (replaced or added
+    before ``arms:``)."""
+    line = (
+        "camera: {xyz: ["
+        + ", ".join(f"{v:.4f}" for v in xyz)
+        + "], rpy: ["
+        + ", ".join(f"{v:.4f}" for v in rpy)
+        + "]}"
+    )
+    pattern = re.compile(r"^camera:.*$", re.M)
+    if pattern.search(text):
+        return pattern.sub(line, text, count=1)
+    arms = re.compile(r"^arms:", re.M).search(text)
+    if arms is None:
+        raise ValueError("no 'arms:' in the frame config")
+    return text[: arms.start()] + line + "\n\n" + text[arms.start() :]

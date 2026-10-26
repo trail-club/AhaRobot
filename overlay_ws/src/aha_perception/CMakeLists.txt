@@ -6,6 +6,8 @@ find_package(ament_cmake_python REQUIRED)
 
 # aha_perception.head_config: head.yaml loader shared by the scripts below
 # aha_perception.head_follow: commanded head position for manual_head.py / imu_head.py
+# aha_perception.plane_calibration / camera_arm_calibration: head camera mount calibration
+# aha_perception.arm_cloud_calibration: arm mount yaw and joint offsets from the point cloud
 # aha_perception.imu_tilt: head camera tilt/roll from the D435i accelerometer
 # aha_perception.planes: plane detection candidates
 # aha_perception.place: place candidates on the detected support planes
@@ -26,6 +28,8 @@ install(
 
 install(
   PROGRAMS
+    scripts/arm_cloud_calibrate.py
+    scripts/camera_arm_calibrate.py
     scripts/camera_plane_calibrate.py
     scripts/head_look_at.py
     scripts/imu_head.py
@@ -49,6 +53,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_depth_noise test/test_depth_noise.py TIMEOUT 120)
   ament_add_pytest_test(test_place test/test_place.py TIMEOUT 120)
   ament_add_pytest_test(test_plane_calibration test/test_plane_calibration.py TIMEOUT 60)
+  ament_add_pytest_test(test_camera_arm_calibration test/test_camera_arm_calibration.py TIMEOUT 60)
+  ament_add_pytest_test(test_arm_cloud_calibration test/test_arm_cloud_calibration.py TIMEOUT 300)
   ament_add_pytest_test(test_surfaces test/test_surfaces.py TIMEOUT 120)
   ament_add_pytest_test(test_furniture test/test_furniture.py TIMEOUT 60)
   ament_add_pytest_test(test_plane_detection_node test/test_plane_detection_node.py TIMEOUT 60)

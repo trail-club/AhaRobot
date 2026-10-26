@@ -57,7 +57,8 @@ The head board must be in Serial Forwarding mode after each power-up ([aha_perce
 
 [`aha_description/frame.py`](../aha_description/aha_description/frame.py) rewrites the xacro URDF (`sim:=false`)
 with the YAML `frame_config`: the table height, the head pan axis, an optional camera mount, each arm's shoulder axis
-and mount yaw (the lifts become fixed joints) and the frame members as slotted profiles (the collision is their outer box).
+and mount yaw (the lifts become fixed joints), optional joint reading offsets of the vertical arm joints (`joint_offsets`)
+and the frame members as slotted profiles (the collision is their outer box).
 The head base (Astra's HeadYaw part) is cut out of the upstream body mesh at build time.
 The YAML marks which values were measured and which come from photos.
 
@@ -75,4 +76,43 @@ ros2 run aha_perception camera_plane_calibrate.py --reference 0.38 --config <fra
 `frame_calibrate.py` also checks the shoulder sign (+90° to the left arm's outside, −90° for the right arm) and the elbow zero.
 `camera_plane_calibrate.py` writes `camera` (link_head_tilt → camera_link); the plane does not give the camera's
 horizontal position or yaw, and the result holds for the head pose it was measured in.
+
+The camera's horizontal position and yaw come next from clicks on the gripper tip, with the head in its working pose.
+The RViz of `real.launch.py` sends Publish Point to the head look-at (a click turns the head), so start RViz on its own:
+
+```bash
+ros2 launch aha_bringup real.launch.py rviz:=false
+rviz2 -d $(ros2 pkg prefix --share aha_perception)/rviz/sim_view.rviz -f base_footprint
+ros2 run aha_perception camera_arm_calibrate.py --config <frame yaml> [--write]
+```
+
+Hide the RobotModel display (a click on the mesh returns the model's point, not the camera's).
+For each of 6 or more poses spread over both arms' reach, hold the gripper (torque off) still with its tip pointing down,
+and click the tip in the point cloud with Publish Point.
+The script pairs each click with the nearest of `link_ree` / `link_lee` from TF (`--offset` moves the point in that link,
+`--radius` toward the camera, as the click lands on the surface facing it), rejects pairs taken while the gripper or the head moved,
+and on `q` fits the camera's horizontal shift and yaw (`u` drops the last pair).
+It prints per-pair residuals and the height difference (not applied), and `--write` writes `camera` with the tilt and height kept.
+With the tip pointing down, an error in the tip position along the gripper only shows in the height difference.
+
+When the arm model and the arm in the point cloud still disagree (mount yaw or a joint zero off), fit them from the cloud,
+after the camera tilt and height (and, with both arms usable, its horizontal pose) are calibrated:
+
+```bash
+ros2 run aha_perception arm_cloud_calibrate.py --config <frame yaml> --arm right [--free shoulder,elbow[,wrist]] [--save snaps.npz] [--write]
+```
+
+Hold the arm (torque off) still in 3 or more clearly different poses over a table, varying the shoulder and the elbow,
+with the forearm and the gripper in the camera's view and nothing in front of them, and press Enter for each
+(`u` drops the last snapshot, `q` fits). A snapshot is the cloud in base_footprint and the arm's joints averaged over 0.5 s;
+it is rejected when the joints moved, the cloud is stale, the pose repeats an earlier one, or the head moved
+(joints reading exactly the same for a second only warn: an arm at rest reads so, as do the frozen readings after an arm board reset).
+The fit puts the cloud points (above the table under the arm, near the model; `--exclude-fingers` leaves the fingers out) on the model surface
+and prints per-snapshot RMS distances and inlier counts, the deltas (`shoulder` is added to `yaw`, `elbow` / `wrist` to
+`joint_offsets` of joint_<l|r>3 / 4), their correlation and how much they change with a snapshot left out.
+`--write` is refused while a check warns (one pose rarely separates the shoulder from the elbow; `--force` writes anyway)
+or when `/robot_description` differs from the config. `--load snaps.npz` fits saved snapshots again.
+With one arm, a camera yaw error moves the arm like a shoulder offset: `--free camera` (horizontal shift and yaw,
+written to `camera`) only works with the shoulder fixed, e.g. `--free elbow,camera`.
+
 Rebuild or restart the launch after `--write` to load the new values.

@@ -15,6 +15,7 @@ from aha_perception.plane_calibration import (
     corrected_mount,
     matrix_rpy,
     rotation,
+    set_camera,
 )
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "camera_plane_calibrate.py"
@@ -127,12 +128,11 @@ def test_pick_plane_takes_the_largest_level_plane_at_the_reference():
 
 
 def test_set_camera_replaces_or_adds_the_entry():
-    script = load_script()
     text = "base_height: 0.38\n\n# camera: design values\n\narms:\n  left: {}\n"
-    added = script.set_camera(text, [0.05, 0.0, -0.01], [1.57, 0.0, 0.0])
+    added = set_camera(text, [0.05, 0.0, -0.01], [1.57, 0.0, 0.0])
     assert (
         "camera: {xyz: [0.0500, 0.0000, -0.0100], rpy: [1.5700, 0.0000, 0.0000]}\n\narms:"
         in added
     )
-    replaced = script.set_camera(added, [0.06, 0.0, 0.0], [1.5, 0.0, 0.0])
+    replaced = set_camera(added, [0.06, 0.0, 0.0], [1.5, 0.0, 0.0])
     assert replaced.count("\ncamera:") == 1 and "xyz: [0.0600" in replaced
