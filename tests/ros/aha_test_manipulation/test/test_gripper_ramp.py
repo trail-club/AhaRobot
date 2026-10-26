@@ -129,3 +129,15 @@ def test_is_stale(samples, expected):
 def test_finger_joint_names():
     assert ramp.finger_joint("right") == "joint_r7r"
     assert ramp.finger_joint("left") == "joint_l7r"
+
+
+def test_contact_ramp_sees_a_contact_at_the_end_of_the_ramp():
+    # A thin object: the fingers stop at 6 mm, met in the last 4 ramp steps
+    # (1.5 mm each), too late for 3 stalled samples within the ramp.
+    r = ramp.ContactRamp(start=0.03, target=0.0, duration=1.0, rate=20.0, squeeze=0.001)
+    measured = r.start
+    while not r.done:
+        command = r.next_command(measured)
+        measured = max(command, 0.006)
+    assert r.holding and r.contact_position == 0.006
+    assert r.next_command(measured) == pytest.approx(0.005)

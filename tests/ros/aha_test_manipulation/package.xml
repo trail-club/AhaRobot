@@ -50,6 +50,8 @@
   <test_depend>aha_test_description</test_depend>
   <test_depend>aha_test_frame</test_depend>
   <test_depend>aha_manipulation</test_depend>
+  <test_depend>aha_bringup</test_depend>
+  <test_depend>astra_controller</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

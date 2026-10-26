@@ -40,6 +40,17 @@ def test_only_the_motion_since_the_readings_last_changed_counts():
     assert feed(watch, moving + settle) is None
 
 
+def test_a_single_frozen_joint_is_flagged():
+    # The wrist reading stops (servo read errors) while the others follow.
+    watch = FrozenWatch(0.5, 0.05)
+    samples = [(0.05 * k, [0.02 * k, 0.03 * k], [0.02 * k, 0.0015]) for k in range(30)]
+    reason = None
+    for t, desired, actual in samples:
+        reason = watch.update(t, desired, actual, ["joint_r2", "joint_r5"]) or reason
+    assert reason and "joint_r5" in reason and "joint_r2" not in reason
+    assert watch.frozen == [1]
+
+
 def test_reset_forgets_the_last_readings():
     watch = FrozenWatch(0.5, 0.05)
     assert feed(watch, [(0.05 * k, [0.1 * k], [0.3]) for k in range(20)])

@@ -12,7 +12,14 @@ import numpy as np
 import pytest
 import yaml
 
-from aha_test_frame.frame import frame_robot, load_frame
+from aha_test_frame.frame import (
+    frame_description,
+    frame_robot,
+    load_frame,
+    replace_joint_offsets,
+    replace_shoulder_xyz,
+    replace_yaw,
+)
 from aha_test_frame.arm_cloud_calibration import (
     ArmModel,
     Snapshot,
@@ -341,3 +348,60 @@ def test_script_helpers():
     assert "no fresh" in script.joint_problem(times[:2], still[:2])
     mean = script.circular_mean([math.pi - 0.01, -math.pi + 0.01])
     assert math.cos(mean) == pytest.approx(-1.0)
+
+
+def test_script_fits_saved_snapshots_and_writes_the_config(
+    tmp_path, config, urdf, model, truth, camera
+):
+    """arm_cloud_calibrate.py --load --write end to end: snapshots saved as
+    the capture keeps them, fitted, and the deltas added to a copy of the
+    installed config whose right arm is the fixture's."""
+    from ament_index_python.packages import get_package_share_directory
+
+    script = load_script()
+    right = config["arms"]["right"]
+    installed = (
+        Path(get_package_share_directory("aha_test_frame"))
+        / "config"
+        / "frame_table_202610.yaml"
+    )
+    text = replace_shoulder_xyz(installed.read_text(), "right", right["shoulder_xyz"])
+    text = replace_joint_offsets(replace_yaw(text, "right", right["yaw"]), "right", {})
+    path = tmp_path / "frame.yaml"
+    path.write_text(text)
+    assert script.model_mismatch(frame_description(path), urdf, "right") == []
+
+    rng = np.random.default_rng(3)
+    mount = model.tree.poses(
+        ["link_head_tilt", "camera_link"], {"joint_head_tilt": HEAD_TILT}
+    )
+    parent = mount["link_head_tilt"]
+    snaps = []
+    for q in POSES:
+        seen = snapshot(truth, q, {"shoulder": 0.07, "elbow": -0.12}, camera, rng)
+        snaps.append(
+            {
+                "points": seen.points,
+                "joints": seen.joints,
+                "camera": camera,
+                "base_to_parent": parent,
+                "parent_to_camera": np.linalg.inv(parent) @ mount["camera_link"],
+            }
+        )
+    saved = tmp_path / "snapshots.npz"
+    script.save(saved, urdf, "right", snaps)
+    argv = ["--config", str(path), "--free", "shoulder,elbow", "--exclude-fingers"]
+    assert script.main([*argv, "--load", str(saved), "--write"]) == 0
+    written = load_frame(path)["arms"]["right"]
+    assert written["yaw"] == pytest.approx(right["yaw"] + 0.07, abs=0.003)
+    assert written["joint_offsets"] == {"joint_r3": pytest.approx(-0.12, abs=0.003)}
+    assert written["shoulder_xyz"] == pytest.approx(right["shoulder_xyz"])
+    assert "frame_column" in frame_description(path)
+
+    # Snapshots of another model (the installed config's right arm) are fitted
+    # but not written.
+    other = tmp_path / "other.npz"
+    script.save(other, frame_description(installed), "right", snaps[:3])
+    before = path.read_text()
+    assert script.main([*argv, "--load", str(other), "--write"]) == 1
+    assert path.read_text() == before
