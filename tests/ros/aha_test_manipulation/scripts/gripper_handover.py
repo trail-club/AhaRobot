@@ -9,8 +9,8 @@
 Commands astra_controller's arm_node directly (JointCommand on
 /<arm>/arm/gripper_joint_command, joint_<r|l>7r, position_cmd per side) instead
 of going through place_server.py. arm_node takes each command as a target at
-full speed, so a single big step (observed: 0.03 -> 0.0 m onto an object)
-browned out the arm board; every ramp here starts from the measured finger
+full speed (closing onto an object reset the arm board, docs/context/motor.md);
+every ramp here starts from the measured finger
 position (``/<arm>/arm/joint_states``) and steps toward the target at --rate
 Hz over --ramp s. The ramp sequence, close target and contact detection are
 aha_test_manipulation.gripper_ramp (ROS free, unit tested).
@@ -28,6 +28,8 @@ import time
 from collections import deque
 
 import rclpy
+import yaml
+from ament_index_python.packages import get_package_share_directory
 from astra_controller_interfaces.msg import JointCommand
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -45,6 +47,7 @@ class GripperNode(Node):
 
     def __init__(self, arm: str):
         super().__init__("gripper_handover")
+        self.side = arm
         self.joint = ramp.finger_joint(arm)
         self.position = None  # latest measured finger position (m, per side)
         # The arm_node's joint_names, in its order.
@@ -76,9 +79,10 @@ class GripperNode(Node):
         """Command the measured arm pose: the arm_node sends every gripper
         command together with its last arm command (its startup reading or the
         last joint_command), which may be far from where the arm is now. The
-        arm command in turn resends the last finger command at full speed
-        (arm_node; only a fix there avoids both). Returns the finger position
-        measured after it."""
+        arm command in turn resends the last finger command at full speed, so
+        the fingers may jump once. Refuses readings outside the arm_node range
+        (it would drop the command). Returns the finger position measured
+        after it."""
         deadline = time.monotonic() + INITIAL_STATE_TIMEOUT
         # The arm_node publishes the arm and the fingers in separate messages.
         while missing := [name for name in self.arm_joints if name not in self.arm]:
@@ -89,10 +93,24 @@ class GripperNode(Node):
             if time.monotonic() > deadline:
                 raise RuntimeError(f"nothing subscribes {self.arm_pub.topic_name}")
             rclpy.spin_once(self, timeout_sec=INITIAL_STATE_POLL)
-        msg = JointCommand(
-            name=list(self.arm_joints),
-            position_cmd=[float(self.arm[name]) for name in self.arm_joints],
+        pose = [float(self.arm[name]) for name in self.arm_joints]
+        outside = [
+            f"{name} {value:+.3f} rad (range {lo:+.3f}..{hi:+.3f})"
+            for name, value, (lo, hi) in zip(self.arm_joints, pose, self.arm_limits())
+            if not lo <= value <= hi
+        ]
+        if outside:
+            # The arm_node drops the whole command, and the gripper commands
+            # would carry its old arm command; often frozen readings.
+            raise RuntimeError(
+                f"arm reading outside the arm_node range: {', '.join(outside)}; "
+                "move the arm into range or restart the arm_node"
+            )
+        self.get_logger().info(
+            "holding the measured arm pose "
+            + ", ".join(f"{n} {v:+.3f}" for n, v in zip(self.arm_joints, pose))
         )
+        msg = JointCommand(name=list(self.arm_joints), position_cmd=pose)
         msg.header.stamp = self.get_clock().now().to_msg()
         self.arm_pub.publish(msg)
         # The fingers may have moved with it: ramp from where they are now.
@@ -100,6 +118,14 @@ class GripperNode(Node):
         while time.monotonic() < deadline:
             rclpy.spin_once(self, timeout_sec=INITIAL_STATE_POLL)
         return self.position
+
+    def arm_limits(self):
+        """(min, max) per arm joint from aha_manipulation config/arm.yaml (the
+        arm trajectory bridge's, inside the arm_node's range)."""
+        path = f"{get_package_share_directory('aha_manipulation')}/config/arm.yaml"
+        with open(path) as f:
+            params = yaml.safe_load(f)[f"aha_{self.side}_arm_bridge"]["ros__parameters"]
+        return [(params[n]["min"], params[n]["max"]) for n in self.arm_joints]
 
     def send(self, value: float):
         msg = JointCommand(name=[self.joint], position_cmd=[float(value)])

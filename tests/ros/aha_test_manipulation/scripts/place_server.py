@@ -109,6 +109,7 @@ from std_msgs.msg import Empty, Float64MultiArray, String
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
+from aha_test_manipulation import gripper_ramp
 from aha_test_manipulation import place_geometry as geo
 from aha_test_manipulation.frozen_watch import FrozenWatch
 from aha_test_manipulation import place_markers as markers
@@ -381,7 +382,10 @@ class PlaceServer(Node):
         # arm_node's own topic, as joint_state_publisher reports 0 (closed)
         # for a finger it has no state of.
         self.fingers = {}
-        self.frozen = None  # why the arm readings looked frozen, until the next goal
+        # Why the arm readings looked frozen, kept until they change (the
+        # arm_node restarted) with the readings seen then ({joint: rad}).
+        self.frozen = None
+        self.frozen_readings = {}
         if self.param("frozen_window") > 0.0:
             # One at a time: FrozenWatch keeps state between samples.
             feedback_group = MutuallyExclusiveCallbackGroup()
@@ -508,16 +512,31 @@ class PlaceServer(Node):
             watch.goal = goal
         feedback = msg.feedback
         reason = watch.update(
-            time.monotonic(), feedback.desired.positions, feedback.actual.positions
+            time.monotonic(),
+            feedback.desired.positions,
+            feedback.actual.positions,
+            feedback.joint_names,
         )
         if reason and self.frozen is None:
+            # The flagged joints only: the others may still read live values.
+            self.frozen_readings = {
+                feedback.joint_names[k]: feedback.actual.positions[k]
+                for k in watch.frozen
+            }
             self.frozen = f"{arm} arm: {reason}"
             self.get_logger().error(self.frozen)
 
     def on_finger_states(self, msg):
         now = time.monotonic()
+        changed = False
         for name, position in zip(msg.name, msg.position):
             self.fingers[name] = (position, now)
+            frozen = self.frozen_readings.get(name)
+            changed |= frozen is not None and frozen != position
+        if changed and self.frozen:
+            self.get_logger().info("arm readings change again: frozen state cleared")
+            self.frozen = None
+            self.frozen_readings = {}
 
     def finger_state(self, joint):
         """The finger's position if fresh (FINGER_STATE_TIMEOUT), else None."""
@@ -774,18 +793,23 @@ class PlaceServer(Node):
             start = self.finger_state(joint)
         if ramp > 0.0 and start is None:
             self.get_logger().warn(f"no fresh state of {joint}: gripper not ramped")
-        steps = max(1, round(ramp * GRIPPER_RAMP_RATE)) if start is not None else 1
-        for i in range(1, steps + 1):
-            value = (
-                float(opening) if i == steps else start + (opening - start) * i / steps
-            )
+        # gripper_handover.py's ramp; the limits are the controller's here.
+        sequence = gripper_ramp.SimpleRamp(
+            float(opening) if start is None else start,
+            float(opening),
+            ramp if start is not None else 0.0,
+            GRIPPER_RAMP_RATE,
+            finger_range=(-math.inf, math.inf),
+        )
+        while not sequence.done:
+            value = sequence.next_command()
             if self.param("gripper_interface") == "arm_node":
                 msg = JointCommand(name=[joint], position_cmd=[value])
                 msg.header.stamp = self.get_clock().now().to_msg()
             else:
                 msg = Float64MultiArray(data=[value, -value])
             pub.publish(msg)
-            if i < steps:
+            if not sequence.done:
                 time.sleep(1.0 / GRIPPER_RAMP_RATE)
 
     def release(self, arm, width):
@@ -1669,7 +1693,6 @@ class PlaceServer(Node):
             self.last_feedback = None
             self.execution_failed = False
             self.moved = False
-            self.frozen = None  # a new goal after the arm_node was restarted
             self.at_place = None
             self.released = None
             result = PlaceObject.Result()

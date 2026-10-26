@@ -1,8 +1,8 @@
 """Ramp sequences and contact detection for a gripper handover (ROS free).
 
 Used by ``scripts/gripper_handover.py`` to open/close a real arm_node gripper
-(joint_[r|l]7r, position_cmd in m per side) without the brownout seen when a
-single full-speed command closed the fingers onto an object (0.03 -> 0.0 m):
+(joint_[r|l]7r, position_cmd in m per side) without a single full-speed
+command (closing onto an object reset the arm board, docs/context/motor.md):
 commands are stepped from the measured finger position instead of jumping,
 and a close without a known object width stops advancing once the measured
 position stops following the command (the fingers are pushing on something),
@@ -154,7 +154,10 @@ class ContactRamp:
 
     @property
     def done(self) -> bool:
-        return self._held is not None or self._step >= self.total_steps
+        # A few ticks at the target after the ramp, so that a contact near
+        # its end is still seen (and eased off) instead of held at the target.
+        settle = self.samples + 1
+        return self._held is not None or self._step >= self.total_steps + settle
 
     @property
     def holding(self) -> bool:

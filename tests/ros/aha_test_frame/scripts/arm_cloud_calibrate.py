@@ -15,11 +15,12 @@ against the arm in RViz).
 'u' drops the last snapshot, 'q' fits
 (aha_test_frame/arm_cloud_calibration.py): the --free parameters
 (shoulder: mount yaw, elbow / wrist: joint_<x>3 / joint_<x>4 offsets,
-camera: horizontal position and yaw) that put the cloud points on the arm
-model. It prints per-snapshot RMS distances and inlier counts, the estimates
-with their observability checks, and the new config values; --write updates
-``yaw`` / ``joint_offsets`` of the arm and, with camera free, ``camera`` in
-the frame config (refused when a check fails, unless --force).
+height: the arm up, camera: horizontal position and yaw) that put the cloud
+points on the arm model. It prints per-snapshot RMS distances and inlier
+counts, the estimates with their observability checks, and the new config
+values; --write updates ``yaw`` / ``joint_offsets`` / ``shoulder_xyz`` (z) of
+the arm and, with camera free, ``camera`` in the frame config (refused when
+a check fails, unless --force).
 
 The model is /robot_description (what TF and the cloud use); it must match
 the frame config (--config) the deltas are added to. --save keeps the
@@ -27,7 +28,7 @@ snapshots in an .npz after each one, --load fits saved snapshots offline.
 --snapshots N --interval S takes N snapshots S seconds apart without input.
 
   ros2 run aha_test_frame arm_cloud_calibrate.py --config <frame.yaml> \
-    --arm right [--free shoulder,elbow[,wrist][,camera]] [--write]
+    --arm right [--free shoulder,elbow[,wrist][,height][,camera]] [--write]
 """
 
 from __future__ import annotations

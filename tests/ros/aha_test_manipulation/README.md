@@ -62,7 +62,7 @@ SRDF・関節上限・controllerを `aha_test_manipulation/frame_moveit.py` で�
   どのgroupも動かさないlinkの組（頭と骨組み）の衝突判定を除外する。group `right_arm` / `left_arm` は `joint_[r|l]2`〜`6` の5関節になる。
 - 関節上限：`joint_[r|l]2`〜`6` の位置・速度・加速度を[軌道ブリッジ](../../../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行)の
   `config/arm.yaml` の範囲に狭める（ブリッジは範囲外の軌道を全体で拒否する）。加速度はブリッジの上限の半分にする
-  （MoveItの時間付けがブリッジの点間の加速度の判定を最大1.4倍超えて、軌道を拒否されたため）。
+  （[試行](../../../docs/context/place.md)で、MoveItの軌道がブリッジの加速度の判定で拒否されたため）。
   開始姿勢が範囲外（例：右肘 `joint_r3` −1.545 rad）だと、MoveItはどの計画も開始姿勢の範囲外として失敗する。
   その場合は範囲内への1点の軌道をブリッジの `/<side>_arm_controller/joint_trajectory` に送ってから使う（ブリッジは測った姿勢から補間する）。
 - controller：`arms`（既定 `right`、`right,left` で両腕）の `/<side>_arm_controller/follow_joint_trajectory` だけで、`lift_controller` はない。
@@ -94,7 +94,8 @@ ros2 run aha_test_manipulation gripper_handover.py handover --arm left --open 0.
 最後に測った指の開き（片側）と物体の幅（当たりを検知したときは `2 × 当たった位置`、`--width` では `2 × (開き + --squeeze)`）を表示する。
 起動時に指の状態を最大3秒待ち、来なければ中止する。
 `arm_node` はグリッパの指令と一緒に最後の腕の指令を送り直すため、最初に測った腕の姿勢を `/<arm>/arm/joint_command` へ1回送る（トルクを切って手で動かした腕が、古い指令の位置へ跳ばないように）。基板のリセット後は読みが止まっていて役に立たないので、`arm_node` を起動し直してから使う。
-この腕の指令で、`arm_node` は最後のグリッパの指令も一度に送り直す（指を手で動かした後や、前の指令が閉じた位置のときは指が一度に動く）。両方を避けるには `arm_node` 側の変更が要る。
+読みが `arm_node` の範囲外なら（範囲外の指令は捨てられる）送らずに中止し、送る姿勢はlogに出す。
+この腕の指令で、`arm_node` は最後のグリッパの指令も一度に送り直す（指を手で動かした後や、前の指令が閉じた位置のときは指が一度に動く）。この道具ではこれを避けられない。
 
 ## 設定
 
@@ -225,8 +226,8 @@ perceptionの `/aha/perception/place/markers` は問い合わせごとの候補�
 | `support_padding` | 0.03 m | planning sceneの支持面の箱を検出の縁から横に広げる量 |
 | `base_spot` / `base_spot_top` | [0.55, 0.45] / [0.38, 0.2] | `suggested_base_pose` で候補を置く台車からの位置 x, \|y\|。`side` は腕の外側寄り（肩から約30°）で、手先の外側に張り出す手首が物の後ろに回り、隣の物や側板に当たりにくい |
 | `group_ratio` | 0.6 | `near` までの距離が `avoid` の各点までの距離のこの倍未満の候補だけを `near` のグループとする（中間の位置はどちらのグループか分からない） |
-| `verify_place` / `verify_margin` / `verify_height_tolerance` / `verify_detections` | true / 0.03 m / 0.04 m / 1 | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限、見えないときに試す新しい検出の数 |
-| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、次のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。次のgoalで解除 |
+| `verify_place` / `verify_margin` / `verify_height_tolerance` / `verify_detections` | true / 0.03 m / 0.04 m / 1 | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限、確認に使う検出の数（最初を含む） |
+| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、関節ごとに、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、以後のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。止まった関節の読み（`/<arm>/arm/joint_states`）が変われば（`arm_node` の起動し直し）解除する。静止中に止まった読みは検出しない |
 
 ## ROSインターフェース
 

@@ -15,6 +15,7 @@ robot_state_publisher（骨組みのモデル）、静的TF `odom` → `base_foo
 `/head_controller/joint_states` と腕の `/<side>/arm/joint_states` を `/joint_states` に合流させる `joint_state_publisher`、
 [`arms.launch.py`](../../../overlay_ws/src/aha_bringup/launch/arms.launch.py)（`arm_node`）、腕の軌道ブリッジ、頭のサーボ、D435i、点群、平面検出、RVizを起動する。
 `base_footprint` は床、`base_link` はカメラの柱の下の天板の上。
+状態のない関節（`use_left:=false` の左腕、`head:=none` の頭）は0として出るので、MoveItはその腕がゼロ姿勢にあるものとして衝突を判定する。使わない腕は実機でもそこから離して置く。
 
 | 引数 | 既定 | 内容 |
 | --- | --- | --- |
@@ -23,7 +24,8 @@ robot_state_publisher（骨組みのモデル）、静的TF `odom` → `base_foo
 | `right_device` / `left_device` / `head_port` | `/dev/ttyUSB2` / `/dev/ttyUSB0` / `/dev/ttyUSB1` | 3枚の基板（最初の接続時、[記録](../../../docs/context/motor.md)）。番号はUSBの認識順で変わるので、差し直した後は `/dev/serial/by-path/`（ハブの口）で確かめる |
 | `trajectory_bridge` / `record` | `true` / `false` | 腕の軌道ブリッジ（`aha_manipulation` の `arm_trajectory_bridge.py`）と rosbag（`arms.launch.py`、そちらの既定は `true`） |
 | `head` | `servo` | `servo`、`manual`（指令した角度を頭の状態にする）、`imu`（サーボなしでtiltをD435iのIMUから求める）、`none` |
-| `camera` / `planes` / `rviz` | `true` | D435i（IMUは `head:=imu` のときだけ）と点群／平面検出（`furniture_config`）／RViz |
+| `camera` / `planes` / `rviz` | `true` | D435i（IMUは `head:=imu` のときだけ）と点群／平面検出／RViz |
+| `furniture_config` | なし | 平面検出の家具の設定（[aha_perception](../../../overlay_ws/src/aha_perception/README.md#家具の設定)） |
 
 軌道ブリッジのスクリプトは実行権限なしでインストールされ、`--symlink-install` のビルドでは `ros2 run` から起動できないため、
 `arms.launch.py` のブリッジは止め（`trajectory_bridge:=false`）、同じノード名と設定で `python3` から起動する。
@@ -85,7 +87,7 @@ ros2 run aha_test_frame arm_cloud_calibrate.py --config <frame yaml> --arm right
 その相関と1姿勢を抜いたときの変化を表示する。
 チェックが警告している間（1姿勢では肩と肘をほとんど分けられない。`--force` で書く）と、`/robot_description` が設定と違うときは `--write` しない。
 `--load snaps.npz` で保存した姿勢を計算し直す。
-片腕では、カメラのyawのずれは肩のずれと同じように腕を動かすため、`--free camera`（水平のずれとyaw、`camera` に書く）は肩を固定したとき（例 `--free elbow,camera`）だけ使える。
+片腕では、カメラのyawのずれは肩のずれと同じように腕を動かす。`--free camera`（水平のずれとyaw、`camera` に書く）を `shoulder` と同時に使うと分けられず、警告が出て `--write` しないので、肩を固定する（例 `--free elbow,camera`）。
 
 ## テスト
 
