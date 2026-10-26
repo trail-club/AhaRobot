@@ -1,6 +1,7 @@
 # 配線資料
 
 配線ごとに `docs/electrical/<対象名>/` を作り、WireViz YAML・WireViz出力SVG・機器配置SVG・元資料をまとめて管理する。
+各ディレクトリの `README.md` には、その回路図固有の補足説明を記載する。
 
 ## 資料一覧
 
