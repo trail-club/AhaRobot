@@ -1,0 +1,12 @@
+{
+  "motion": "forward 0.30m then reverse 0.30m",
+  "speed_m_per_s": 0.08,
+  "forward_encoder_m": 0.301366,
+  "reverse_encoder_m": 0.30132345550514156,
+  "final_to_start_lidar_m": 0.010584398247435293,
+  "final_to_start_yaw_deg": -0.7054933189742822,
+  "final_to_start_icp_inlier_ratio": 0.9903147699757869,
+  "one_way_registration": "failed existing bidirectional consistency criteria; no radius update",
+  "radii_modified": false,
+  "final_state": "all three wheel goal velocities zero and torque OFF; readback verified"
+}

@@ -1,0 +1,146 @@
+{
+  "status": "evaluated_with_direction_dependent_residuals",
+  "date": "2026-10-25",
+  "all_8_motion_segment_registrations_passed": true,
+  "settings_unchanged_during_evaluation": true,
+  "rows": [
+    {
+      "name": "timed_forward",
+      "mode": "constant_time",
+      "odom_x_m": 0.028393552491994208,
+      "odom_y_m": 0.00038452182482023644,
+      "odom_deg": -0.022560212140144472,
+      "lidar_x_m": 0.028476567610687394,
+      "lidar_y_m": 0.0017028518800441999,
+      "lidar_deg": -0.04610673439288322,
+      "inlier": 0.9912663755458515,
+      "requested_duration_s": 1.0,
+      "first_to_last_publish_s": 0.9951061339816079,
+      "publish_and_stop_duration_s": 1.2174903249833733,
+      "command_integral_m": 0.03,
+      "command_integral_deg": 0.0
+    },
+    {
+      "name": "timed_backward",
+      "mode": "constant_time",
+      "odom_x_m": -0.02782253942594592,
+      "odom_y_m": -0.0006483802217828557,
+      "odom_deg": 0.04512042428028849,
+      "lidar_x_m": -0.027346170049151464,
+      "lidar_y_m": -0.00019813558749143527,
+      "lidar_deg": -0.05977408080037088,
+      "inlier": 0.9879032258064516,
+      "requested_duration_s": 1.0,
+      "first_to_last_publish_s": 0.999858730006963,
+      "publish_and_stop_duration_s": 1.2048967459704727,
+      "command_integral_m": -0.03,
+      "command_integral_deg": 0.0
+    },
+    {
+      "name": "target_forward",
+      "mode": "encoder_target",
+      "odom_x_m": 0.03132836179583667,
+      "odom_y_m": 0.0006406879270995052,
+      "odom_deg": 0.25944243961166025,
+      "lidar_x_m": 0.03151628712029715,
+      "lidar_y_m": 0.0023808832644094113,
+      "lidar_deg": 0.1711533985208831,
+      "inlier": 0.9777777777777777
+    },
+    {
+      "name": "target_backward",
+      "mode": "encoder_target",
+      "odom_x_m": -0.0313518966724762,
+      "odom_y_m": -0.00040628179966570706,
+      "odom_deg": -0.2932827578218768,
+      "lidar_x_m": -0.030639280729488804,
+      "lidar_y_m": 4.4464758734516784e-05,
+      "lidar_deg": -0.4254032268674326,
+      "inlier": 0.9793388429752066
+    },
+    {
+      "name": "rotation_left",
+      "mode": "encoder_target",
+      "odom_x_m": -0.0005377935766281297,
+      "odom_y_m": 0.0005696699880562192,
+      "odom_deg": 360.1737868174061,
+      "lidar_x_m": -0.029554812830391488,
+      "lidar_y_m": -0.034341970818135156,
+      "lidar_deg": 346.7882104539521,
+      "inlier": 0.7671232876712328
+    },
+    {
+      "name": "rotation_right",
+      "mode": "encoder_target",
+      "odom_x_m": 0.0003673988160228993,
+      "odom_y_m": -0.00013360033173797118,
+      "odom_deg": -360.1286663931253,
+      "lidar_x_m": -0.004206037472460385,
+      "lidar_y_m": 0.001446348691754598,
+      "lidar_deg": -358.66946328459466,
+      "inlier": 1.0
+    },
+    {
+      "name": "timed_rotation_left",
+      "mode": "constant_time",
+      "odom_x_m": 2.5244859089001266e-05,
+      "odom_y_m": -0.00015043772457620016,
+      "odom_deg": 20.507232835391157,
+      "lidar_x_m": -0.0029605520626126538,
+      "lidar_y_m": 0.010932913185090785,
+      "lidar_deg": 19.32965466266775,
+      "inlier": 0.7745901639344263,
+      "requested_duration_s": 2.0,
+      "first_to_last_publish_s": 1.9996917550452054,
+      "publish_and_stop_duration_s": 2.2217219119193032,
+      "command_integral_m": 0.0,
+      "command_integral_deg": 22.918311805232932
+    },
+    {
+      "name": "timed_rotation_right",
+      "mode": "constant_time",
+      "odom_x_m": -2.6499756044084805e-05,
+      "odom_y_m": 5.477311050233438e-05,
+      "odom_deg": -20.292910820059802,
+      "lidar_x_m": 0.0013045089247767522,
+      "lidar_y_m": 0.0011088010930010684,
+      "lidar_deg": -20.560231231499472,
+      "inlier": 0.6830985915492958,
+      "requested_duration_s": 2.0,
+      "first_to_last_publish_s": 1.999982459936291,
+      "publish_and_stop_duration_s": 2.2019192760344595,
+      "command_integral_m": 0.0,
+      "command_integral_deg": -22.918311805232932
+    },
+    {
+      "name": "return_to_start",
+      "mode": "net_return",
+      "odom_x_m": 0.0003607446675379479,
+      "odom_y_m": 0.00016832163156620548,
+      "odom_deg": 0.24816233354210618,
+      "lidar_x_m": -0.030125159174631155,
+      "lidar_y_m": -0.031231767232824524,
+      "lidar_deg": -11.868620397155752,
+      "inlier": 0.8309859154929577
+    }
+  ],
+  "net_return_position_difference_m": 0.04339295449473561,
+  "net_return_heading_difference_deg": -11.868620397155752,
+  "timing_note": "Raw report publish_loop_duration_s includes approximately 0.2 s of repeated stop commands; use first_to_last_publish_s for nonzero command timestamps. Average velocity includes start and stop transients.",
+  "rotation_note": "LiDAR angular displacement unwrapped to nearest encoder revolution; does not independently count turns.",
+  "motor_stop_readback": {
+    "7": {
+      "torque": 0,
+      "goal_velocity": 0
+    },
+    "8": {
+      "torque": 0,
+      "goal_velocity": 0
+    },
+    "9": {
+      "torque": 0,
+      "goal_velocity": 0
+    }
+  },
+  "physical_video": "Operator agreed to film; file not received or reviewed."
+}

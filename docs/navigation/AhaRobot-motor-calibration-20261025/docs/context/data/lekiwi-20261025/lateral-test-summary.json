@@ -1,0 +1,24 @@
+{
+  "rotation_encoder_degrees": 90.1280475,
+  "motion": "left 90 degrees, right 0.30 m in two segments, left return 0.30 m in two segments",
+  "lateral_distance_source": "encoder targets; second outbound LiDAR registration inconclusive",
+  "return_lidar_position_difference_m": 0.0035789669613931043,
+  "return_lidar_heading_difference_degrees": -2.8370115436679413,
+  "return_registration_inlier_ratio": 0.9561752988047809,
+  "limitation": "First 15 cm right segment showed about 2.1 cm forward displacement by LiDAR. Rotation LiDAR registration and second outbound segment were inconclusive. Calibration unchanged.",
+  "motor_readback": {
+    "7": {
+      "torque": 0,
+      "goal_velocity": 0
+    },
+    "8": {
+      "torque": 0,
+      "goal_velocity": 0
+    },
+    "9": {
+      "torque": 0,
+      "goal_velocity": 0
+    }
+  },
+  "final_heading": "approximately 90 degrees left of original heading"
+}
