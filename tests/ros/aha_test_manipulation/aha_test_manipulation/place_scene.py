@@ -32,6 +32,10 @@ ARMS = {
             f"link_{side[0]}ee",
         ],
         "gripper_topic": f"/{side}_gripper_controller/commands",
+        # Real arm: arm_node's gripper command (one finger, the other mirrors it).
+        "gripper_joint_topic": f"/{side}/arm/gripper_joint_command",
+        "gripper_joint": f"joint_{side[0]}7r",
+        "gripper_state_topic": f"/{side}/arm/joint_states",  # arm_node's own
     }
     for side in ("right", "left")
 }
@@ -353,16 +357,17 @@ class PlaceScene:
                 [scene.detach_object(held_id, ARMS[arm]["tcp"])],
             )
 
-    def add_placed(self, req, motion):
-        """Keep the released object as a world object at the place pose;
-        where the hand still touches it, allow those collisions."""
+    def add_placed(self, req, motion, padding=0.0):
+        """Keep the released object as a world object at the place pose,
+        ``padding`` larger on every side; where the hand still touches it,
+        allow those collisions."""
         self.apply(
             [
                 scene.collision_object(
                     PLACED_OBJECT_ID,
                     self.frame,
                     scene.BOX,
-                    req.size,
+                    [float(v) + 2.0 * padding for v in req.size],
                     motion.object_pose,
                 )
             ]
