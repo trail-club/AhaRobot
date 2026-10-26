@@ -121,7 +121,7 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
   制限は [config/arm.yaml](config/arm.yaml)。位置の制限は `arm_node` の可動域
   （[パッチ](../../../patches/README.md)の `ARM_PROFILES`）に合わせる。`arm_node` は1関節でも範囲外の指令を捨てる。
 - actionは、実測が補間の現在値から `path_tolerance` を超えて離れたとき、または関節状態が `state_timeout` 途絶えたときに中断する。
-  `frozen_timeout`（0より大きいとき）では、`start_tolerance` を超えて動かす指令の後、全関節の読みが0.5 s同じ値のままなら中断する
+  `frozen_timeout`（0より大きいとき）では、最終点の時刻より前に、全関節の読みが0.5 s同じ値のまま、読みが最後に変わってから指令が `start_tolerance` を超えて動いたら中断する
   （腕の基板がリセットされると `arm_node` は最後の値を出し続ける）。待機中に全関節が `frozen_timeout` の間同じ値なら警告だけ出す。
   最終点から `goal_tolerance` 以内に入れば成功、最終点の時刻から `goal_time` 秒以内に入らなければ中断する。
   goalの `path_tolerance` / `goal_tolerance` / `goal_time_tolerance` が指定されていればそれを使う。

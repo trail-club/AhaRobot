@@ -31,9 +31,9 @@ Behaviour:
     With `frozen_timeout`, every joint reading the same value for that long
     is logged as possibly frozen (an arm board reset leaves the arm_node
     publishing its last values); an arm at rest can read the same, so it
-    does not stop planning. A goal aborts (no hold) when, after commanding
-    more than `start_tolerance` of motion, every reading stays the same for
-    FROZEN_MOVING_S.
+    does not stop planning. A goal aborts (no hold) when, before the last
+    point's time, every reading stays the same for FROZEN_MOVING_S while the
+    command moves more than `start_tolerance` since they last changed.
   - Action: feedback every FEEDBACK_PERIOD s. Aborts when a joint is more
     than `path_tolerance` (or the goal's path_tolerance) from the sample of
     the current time, or when the state goes stale; succeeds when every joint
@@ -357,7 +357,6 @@ class ArmTrajectoryBridge(Node):
         deadline = plan.end_time + (extra if extra > 0 else self.cfg.goal_time)
 
         feedback = FollowJointTrajectory.Feedback(joint_names=names)
-        first = None  # the first sampled command
         while True:
             time.sleep(FEEDBACK_PERIOD)
             if self.stopping.is_set() or not self.context.ok():
@@ -392,21 +391,23 @@ class ArmTrajectoryBridge(Node):
                 return self._abort(goal_handle, result, seq, hold=False)
 
             desired = plan.sample(now)
-            if first is None:
-                first = dict(desired)
-            commanded = max(abs(desired[n] - first[n]) for n in names)
             if (
                 self.cfg.frozen_timeout > 0
-                and commanded > self.cfg.start_tolerance
+                and now < plan.end_time
                 and unchanged > FROZEN_MOVING_S
             ):
-                result.error_code = Result.PATH_TOLERANCE_VIOLATED
-                result.error_string = (
-                    f"every joint read the same value for {unchanged:.1f} s while "
-                    f"commanded {commanded:.3f} rad: frozen readings (arm board "
-                    "reset?), restart the arm_node"
-                )
-                return self._abort(goal_handle, result, seq, hold=False)
+                # Motion commanded since the readings last changed: an arm at
+                # rest at the end of the trajectory does not count.
+                since = plan.sample(now - unchanged)
+                commanded = max(abs(desired[n] - since[n]) for n in names)
+                if commanded > self.cfg.start_tolerance:
+                    result.error_code = Result.PATH_TOLERANCE_VIOLATED
+                    result.error_string = (
+                        f"every joint read the same value for {unchanged:.1f} s "
+                        f"while commanded {commanded:.3f} rad: frozen readings "
+                        "(arm board reset or torque off?)"
+                    )
+                    return self._abort(goal_handle, result, seq, hold=False)
             feedback.header.stamp = self.get_clock().now().to_msg()
             feedback.desired.positions = [desired[n] for n in names]
             feedback.actual.positions = [current[n] for n in names]
