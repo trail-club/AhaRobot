@@ -1,0 +1,68 @@
+{
+  "scene_type": "laundry",
+  "world_name": "laundry_room",
+  "entities": {"robot_model": "aha_robot"},
+  "robot_spawn": {"x": -0.9, "y": 0.0, "z": 0.0, "yaw": 0.0},
+  "initial_lift": 0.02,
+  "arena": {
+    "interior": [[0.0, -1.8], [4.2, 1.8]],
+    "wall_height": 1.2,
+    "wall_thickness": 0.05,
+    "door_width": 0.9,
+    "door_height": 2.0,
+    "floor": "oak"
+  },
+  "laundry_area": [[2.7, -1.75], [4.15, -1.75], [4.15, 1.75], [2.7, 1.75]],
+  "washer": {"position": [3.84, -0.3], "yaw": 3.14159265, "finish": "graphite"},
+  "table": {"position": [3.855, 0.78], "yaw": 1.57079633},
+  "basket": {"position": [3.78, -0.98], "yaw": 0.0, "color": "white"},
+  "garments": {
+    "washer": [2, 4],
+    "basket": [6, 8],
+    "table": 1,
+    "designs": {
+      "charcoal": 4, "navy": 2, "black": 2, "white": 2, "heather_gray": 2, "red": 1,
+      "royal_blue": 1, "lime": 1, "sky_blue": 1, "yellow": 1, "stripes": 1, "olive": 1,
+      "maroon": 1, "orange": 1
+    },
+    "sizes": {"S": 1, "M": 3, "L": 3, "XL": 1}
+  },
+  "placement": {"table_offset": [0.0, -0.05]},
+  "cloth": {
+    "spacing": 0.035,
+    "step": 0.005,
+    "substeps": 4,
+    "thickness": 0.004,
+    "contact_offset": 0.0025,
+    "stretch_compliance": 1e-8,
+    "bend_compliance": 1.0,
+    "damping": 0.6,
+    "cloth_friction": 0.45,
+    "sleep_speed": 0.04,
+    "sleep_delay": 0.6,
+    "grasp_close_gap": 0.016,
+    "grasp_open_gap": 0.024,
+    "pinch_margin": 0.006,
+    "friction": {
+      "robot:link_r7": 1.0, "robot:link_l7": 1.0, "robot": 0.5, "folding_table": 0.6,
+      "laundry_basket": 0.5, "washing_machine": 0.35, "floor": 0.6, "ground": 0.6, "arena": 0.4
+    }
+  },
+  "grippers": [
+    {"name": "right", "finger_a": "link_r7r", "finger_b": "link_r7l",
+     "pad_a": [[-0.168, 0.002, 0.005], [-0.075, 0.0165, 0.029]],
+     "pad_b": [[-0.168, 0.002, -0.029], [-0.075, 0.0165, -0.005]]},
+    {"name": "left", "finger_a": "link_l7r", "finger_b": "link_l7l",
+     "pad_a": [[-0.168, 0.002, 0.005], [-0.075, 0.0165, 0.029]],
+     "pad_b": [[-0.168, 0.002, -0.029], [-0.075, 0.0165, -0.005]]}
+  ],
+  "lighting": {"intensity": 0.75, "direction": [-0.1, 0.06, -1.0], "ambient": 0.48},
+  "sensors": {"depth_noise_stddev": 0.005, "depth_dropout": 0.01, "rgb_noise_stddev": 0.003},
+  "randomization": {
+    "robot_xy": 0.05, "robot_yaw": 0.08, "basket_xy": 0.06, "basket_yaw": 0.25,
+    "light_intensity": [0.6, 0.95], "ambient": [0.38, 0.55],
+    "washer_finish": ["graphite", "graphite", "white"],
+    "basket_color": ["white", "white", "blue"],
+    "floor": ["oak", "oak", "walnut"]
+  }
+}

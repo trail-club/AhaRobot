@@ -16,5 +16,21 @@
     "min_clearance": 0.10, "pick_hold_time": 1.0,
     "object_target": "destination_position", "xy_tolerance": "table_half_size",
     "z_tolerance": 0.015, "max_object_speed": 0.03, "max_angular_speed": 0.15
+  },
+  "doing_laundry": {
+    "instruction": "Go to the laundry area, take the T-shirts out of the washing machine and the laundry basket, and fold them neatly on the table.",
+    "criterion": "laundry", "timeout": 420.0, "hold_time": 1.0,
+    "scene": "laundry_scene.json",
+    "points": {
+      "navigation": 15, "basket_pick": 100, "multiple_pick": -100, "folding": 800,
+      "washer_door": 300, "washer_removal": 300, "washer_floor": -200,
+      "basket_transport": 300, "transport_loss": -200, "additional_folding": 400,
+      "stacking": 100
+    },
+    "max_score": 4415, "max_additional_folds": 5, "max_stacked": 6,
+    "door_open_angle": 0.8, "basket_load_fraction": 0.6, "basket_min_travel": 0.4,
+    "basket_reach": 0.6, "stack_overlap": 0.6,
+    "fold": {"flat_height": 0.04, "bunched_height": 0.06, "max_side_ratio": 0.75,
+             "min_folded_fraction": 0.4, "max_speed": 0.05}
   }
 }

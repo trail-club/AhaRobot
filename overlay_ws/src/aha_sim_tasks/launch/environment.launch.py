@@ -1,5 +1,6 @@
 """Launch the evaluation scene and robot, without a policy or scorer."""
 
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -38,20 +39,31 @@ def _launch_scene(context):
     configuration = Path(LaunchConfiguration("scene_config").perform(context))
     scene = load_scene(configuration)
     temporary = TemporaryDirectory(prefix="aha-task-scene-")
-    world = Path(temporary.name) / "task_tables.sdf"
+    cameras = LaunchConfiguration("cameras").perform(context).lower() == "true"
+    ground_truth = (
+        LaunchConfiguration("ground_truth").perform(context).lower() == "true"
+    )
     try:
-        world.write_text(
-            expand_world(
-                share / "worlds/task_tables.sdf.xacro",
-                configuration,
-                cameras=LaunchConfiguration("cameras").perform(context).lower()
-                == "true",
-                ground_truth=LaunchConfiguration("ground_truth")
-                .perform(context)
-                .lower()
-                == "true",
+        if scene.get("scene_type") == "laundry":
+            from aha_sim_tasks.laundry_scene import build_world
+
+            if ground_truth:
+                raise ValueError("The laundry scene has no ground-truth IK mode")
+            # The laundry system reads the resolved scene when the world loads.
+            resolved = Path(temporary.name) / "scene.json"
+            resolved.write_text(json.dumps(scene))
+            world = Path(temporary.name) / "laundry_room.sdf"
+            world.write_text(build_world(scene, resolved, cameras=cameras))
+        else:
+            world = Path(temporary.name) / "task_tables.sdf"
+            world.write_text(
+                expand_world(
+                    share / "worlds/task_tables.sdf.xacro",
+                    configuration,
+                    cameras=cameras,
+                    ground_truth=ground_truth,
+                )
             )
-        )
     except Exception:
         temporary.cleanup()
         raise
@@ -159,6 +171,7 @@ def generate_launch_description():
                 arguments=[
                     "/evaluation/state@std_msgs/msg/String[gz.msgs.StringMsg",
                     "/evaluation/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
+                    "/evaluation/start@std_msgs/msg/Empty]gz.msgs.Empty",
                 ],
                 remappings=[("/evaluation/clock", "/clock")],
                 output="screen",
