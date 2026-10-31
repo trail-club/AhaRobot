@@ -8,6 +8,15 @@ import numpy as np
 
 from .scene import approach_target, bounds_corners, load_scene
 
+
+def make_evaluator(task, start_time, trace=None):
+    if task.criterion == "laundry":
+        from .laundry_evaluation import LaundryEvaluator
+
+        return LaundryEvaluator(task, start_time, trace=trace)
+    return Evaluator(task, start_time, trace=trace)
+
+
 TASK_ALIASES = {
     f"{verb}_apple": f"{verb}_object" for verb in ("approach", "pick", "place")
 }
@@ -33,7 +42,22 @@ class Task:
     parameters: dict
 
 
-def load_tasks(path: Path, scene=None) -> dict[str, Task]:
+def _laundry_parameters(entry, scene):
+    """Scene-dependent geometry used by the laundry score sheet."""
+    from .laundry_scene import table_frame
+
+    (x, y, _), yaw = table_frame(scene)
+    region = scene["laundry"]["regions"]["table"]
+    entry.update(
+        laundry_area=[list(p) for p in scene["laundry_area"]],
+        table_center=[x, y],
+        table_yaw=yaw,
+        table_half=region["top_half"],
+    )
+    return entry
+
+
+def load_tasks(path: Path, scene=None, laundry_scene=None) -> dict[str, Task]:
     scene = load_scene(path.with_name("scene.json")) if scene is None else scene
     tasks = {}
     for task_id, entry in json.loads(path.read_text()).items():
@@ -42,14 +66,28 @@ def load_tasks(path: Path, scene=None) -> dict[str, Task]:
             key: entry.pop(key)
             for key in ("instruction", "criterion", "timeout", "hold_time")
         }
-        common["instruction"] = common["instruction"].format(
-            object=scene["object"]["label"]
-        )
-        if common["criterion"] not in ("approach", "pick", "place"):
+        if common["criterion"] not in ("approach", "pick", "place", "laundry"):
             raise ValueError(f"Unknown criterion for {task_id}")
         for key in ("timeout", "hold_time"):
             if not math.isfinite(common[key]) or common[key] <= 0:
                 raise ValueError(f"{task_id}: {key} must be finite and positive")
+        if common["criterion"] == "laundry":
+            if laundry_scene is None:
+                if scene.get("scene_type") == "laundry":
+                    laundry_scene = scene
+                else:
+                    laundry_scene = load_scene(path.with_name(entry["scene"]))
+            tasks[task_id] = Task(
+                task_id=task_id,
+                parameters=_laundry_parameters(entry, laundry_scene),
+                **common,
+            )
+            continue
+        if scene.get("scene_type") == "laundry":
+            continue  # object tasks need a table-top scene
+        common["instruction"] = common["instruction"].format(
+            object=scene["object"]["label"]
+        )
         # Named targets are resolved once from the same geometry as the world.
         if entry.get("robot_target") == "source_approach":
             entry["robot_target"] = approach_target(scene)
@@ -74,7 +112,7 @@ def load_tasks(path: Path, scene=None) -> dict[str, Task]:
             entry["xy_tolerance"] = [entry["xy_tolerance"]] * 2
         tasks[task_id] = Task(task_id=task_id, parameters=entry, **common)
     for alias, canonical in TASK_ALIASES.items():
-        if canonical in tasks:
+        if canonical in tasks and tasks[canonical].criterion != "laundry":
             from dataclasses import replace
 
             tasks[alias] = replace(tasks[canonical], task_id=alias)
@@ -113,6 +151,12 @@ class Evaluator:
                 bounds_corners(task.parameters.get("object_size", [0, 0, 0])),
             )
         )
+
+    def finish(self, state=None, ended=False):
+        """Close the episode early: only an already achieved success counts."""
+        if self.result is None:
+            self.result = "ended" if ended else "timeout"
+        return self.result
 
     def update(self, state: WorldState) -> str | None:
         previous = self.previous_time

@@ -23,6 +23,7 @@ def test_slow_policy_is_called_each_step_and_commands_are_refreshed(monkeypatch)
         observation_ready=lambda: True,
         observation=lambda: node.world.sim_time,
         apply=commands.append,
+        start_episode=lambda: None,
         fresh=lambda: wall - received < 2,
     )
 

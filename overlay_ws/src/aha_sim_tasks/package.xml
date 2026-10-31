@@ -9,6 +9,9 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
   <depend>gz_sim_vendor</depend>
   <depend>gz_plugin_vendor</depend>
+  <depend>gz_rendering_vendor</depend>
+  <depend>gz_ogre_next_vendor</depend>
+  <build_depend>eigen</build_depend>
   <build_depend>nlohmann-json-dev</build_depend>
   <exec_depend>aha_bringup</exec_depend>
   <exec_depend>aha_description</exec_depend>
