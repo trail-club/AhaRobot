@@ -71,7 +71,7 @@ jobs:
             - Preserve technical meaning and certainty while improving readability.
 
           claude_args: |
-            --model claude-sonnet-5-5
+            --model claude-opus-5-5
             --effort high
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
 
