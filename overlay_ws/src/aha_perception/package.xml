@@ -2,11 +2,12 @@
 <package format="3">
   <name>aha_perception</name>
   <version>0.1.0</version>
-  <description>Camera pipeline and object detection for AhaRobot. Owner: perception squad.</description>
+  <description>Camera pipeline, object detection and audio (Silero VAD + Smart Turn + ASR + Kokoro TTS) for AhaRobot. Owner: perception squad.</description>
   <maintainer email="dev@trail-club.local">trail-club perception squad</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <exec_depend>aha_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
@@ -14,6 +15,13 @@
   <exec_depend>image_transport</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <!-- audio: Python ML deps (torch / nemo / qwen-asr / kokoro ...) are installed by docker/audio/Dockerfile, not rosdep. -->
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

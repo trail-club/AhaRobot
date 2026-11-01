@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AhaRobot Audio Debug</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --accent: #2f6fde; --speech: #2fa36b; --vad: #2f6fde; --turn: #d9822b; --mute: #9aa1ae;
+  --bad: #d64545; --warn: #c98a12; --chip: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b2029; --text: #e6e9ef; --muted: #8d95a5; --line: #2b313d;
+    --accent: #6b9cff; --speech: #45c486; --vad: #6b9cff; --turn: #f0a04b; --mute: #5d6473;
+    --bad: #ff6b6b; --warn: #e8b33a; --chip: #252b36;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+h1 { font-size: 16px; margin: 0; font-weight: 650; }
+h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; padding: 16px;
+  max-width: 1400px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  background: var(--chip); font-size: 12px; white-space: nowrap; }
+.chip.state { min-width: 0; max-width: min(420px, 100%); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* 折り返しても言語切り替えは常に右端に置く */
+.lang-ctl { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--mute); }
+.dot.on { background: var(--speech); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--text); padding: 5px 14px; }
+.seg button.active { background: var(--accent); color: #fff; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--chip); color: var(--text);
+  border-radius: 8px; padding: 6px 12px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+textarea, input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; width: 100%; }
+textarea { resize: vertical; min-height: 64px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+canvas { width: 100%; height: 180px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+@media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { background: var(--bg); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.kpi .label { font-size: 11px; color: var(--muted); }
+.list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.item .text { font-size: 17px; word-break: break-word; }
+.item .text.empty { color: var(--muted); font-style: italic; font-size: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin-top: 4px;
+  font-variant-numeric: tabular-nums; }
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 6px; background: var(--bg); }
+.bar span:nth-child(1) { background: var(--turn); } .bar span:nth-child(2) { background: var(--accent); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td code { font-size: 11px; word-break: break-all; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 12px; }
+#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 5;
+  max-width: calc(100vw - 32px); }
+.toast { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+.toast.error { border-left-color: var(--bad); } .toast.warn { border-left-color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>AhaRobot Audio Debug</h1>
+  <span class="chip"><span class="dot" id="connDot"></span><span id="connText">接続中…</span></span>
+  <span class="chip state"><span class="dot" id="stateDot"></span><span id="stateText" class="ellipsis">—</span></span>
+  <span class="chip"><span class="dot" id="ttsDot"></span>TTS <span id="ttsState">待機</span></span>
+  <div class="lang-ctl">
+    <span class="muted">認識言語</span>
+    <div class="seg" id="langSeg"></div>
+  </div>
+</header>
+
+<main>
+  <div class="stack">
+    <section>
+      <h2>ライブ入力（直近 10 秒）</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="label">入力レベル</div><div class="big" id="kLevel">— dB</div></div>
+        <div class="kpi"><div class="label">VAD 確率</div><div class="big" id="kVad">—</div></div>
+        <div class="kpi"><div class="label">話し終わり確率</div><div class="big" id="kTurn">—</div></div>
+        <div class="kpi"><div class="label">遅延 中央値（直近20）</div><div class="big" id="kLat">— ms</div></div>
+      </div>
+      <canvas id="scope"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--muted)"></i>入力レベル</span>
+        <span><i style="background:var(--speech)"></i>発話区間</span>
+        <span><i style="background:var(--vad)"></i>VAD 確率</span>
+        <span><i style="background:var(--turn)"></i>Smart Turn 確率（点）</span>
+        <span><i style="background:var(--mute);opacity:.4"></i>ミュート（TTS 再生中）</span>
+      </div>
+      <div class="muted" id="dropInfo"></div>
+    </section>
+
+    <section>
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0">認識結果</h2><span class="spacer"></span>
+        <button id="listenBtn">Listen テスト</button>
+        <button id="clearBtn">クリア</button>
+      </div>
+      <div class="list" id="asrList"><div class="muted">話しかけると、ここに認識結果が出ます。</div></div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section>
+      <h2>ホットワード（1 行に 1 語）</h2>
+      <textarea id="hotwords" placeholder="Charlie&#10;orange juice"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="hotBtn">適用</button>
+        <span class="muted" id="hotNote"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>TTS テスト（英語）</h2>
+      <textarea id="ttsInput">Hello, I am AhaRobot. What would you like to drink?</textarea>
+      <div class="row" style="margin-top:8px">
+        <select id="voice" style="width:auto"></select>
+        <span class="spacer"></span>
+        <button id="stopBtn">停止</button>
+        <button class="primary" id="speakBtn">話す</button>
+      </div>
+      <div class="list" id="ttsList" style="margin-top:10px;max-height:220px"></div>
+    </section>
+
+    <section>
+      <h2>使用中のモデル</h2>
+      <div style="overflow-x:auto"><table id="models"><tr><td class="muted">ノードの起動を待っています…</td></tr></table></div>
+      <div class="muted" id="pkgs" style="margin-top:8px"></div>
+    </section>
+  </div>
+</main>
+<div id="toasts"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const WINDOW_S = 10;
+const toDb = (rms) => 20 * Math.log10(Math.max(rms, 1e-5));
+const trimList = (list, max) => { while (list.childElementCount > max) list.lastElementChild.remove(); };
+let ws, frames = [], latencies = [], asrState = null, ttsActive = false, models = {}, lastFrame = null;
+let dirty = true;
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { $('connDot').className = 'dot on'; $('connText').textContent = '接続済み'; };
+  ws.onclose = () => { $('connDot').className = 'dot bad'; $('connText').textContent = '切断（再接続中）';
+    setTimeout(connect, 1500); };
+  ws.onmessage = (ev) => handle(JSON.parse(ev.data));
+}
+const send = (obj) => { if (!ws || ws.readyState !== 1) return false; ws.send(JSON.stringify(obj)); return true; };
+
+function handle(m) {
+  dirty = true;
+  switch (m.type) {
+    case 'frames':
+      for (const f of m.frames) { frames.push(f); lastFrame = f; if (f.turn !== undefined) $('kTurn').textContent = f.turn.toFixed(2); }
+      // 非表示タブでは draw() が止まるので、受信時に古いフレームを捨てる
+      if (lastFrame) frames = frames.filter(f => f.t > lastFrame.t - WINDOW_S - 1);
+      $('dropInfo').textContent = m.dropped ? `取りこぼしたオーディオブロック: ${m.dropped}` : '';
+      break;
+    case 'asr': addAsr(m); break;
+    case 'asr_error': toast('error', `ASR エラー: ${m.error}`); break;
+    case 'asr_state': asrState = m; break;
+    case 'tts': addTts(m); break;
+    case 'tts_active': ttsActive = m.active; break;
+    case 'models': models = m.models; renderModels(); break;
+    case 'notice': toast(m.level, m.text); break;
+  }
+}
+
+function renderState() {
+  const s = asrState;
+  const seg = $('langSeg');
+  if (s && seg.childElementCount !== s.languages.length) {
+    seg.innerHTML = s.languages.map(l => `<button data-lang="${l}">${l === 'ja' ? '日本語' : l === 'en' ? 'English' : l}</button>`).join('');
+    seg.querySelectorAll('button').forEach(b => b.onclick = () => send({cmd: 'set_language', language: b.dataset.lang}));
+  }
+  seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', s && b.dataset.lang === s.language));
+  if (s && document.activeElement !== $('hotwords') && !$('hotwords').dataset.dirty) $('hotwords').value = s.hotwords.join('\n');
+  $('ttsDot').className = 'dot' + (ttsActive ? ' on' : '');
+  $('ttsState').textContent = ttsActive ? '再生中' : '待機';
+  const speech = lastFrame && lastFrame.speech;
+  const muted = (s && s.muted) || (lastFrame && lastFrame.muted);
+  $('stateDot').className = 'dot' + (muted ? ' warn' : speech ? ' on' : '');
+  const stateText = (muted ? 'ミュート' : speech ? '発話を検出中' : '待機中')
+    + (s ? ` · ${s.model ?? '未ロード'}` : '') + (s && s.listen_active ? ' · Listen 実行中' : '');
+  if ($('stateText').textContent !== stateText) { $('stateText').textContent = stateText; $('stateText').title = stateText; }
+}
+
+function addAsr(m) {
+  const list = $('asrList');
+  if (list.firstElementChild && list.firstElementChild.classList.contains('muted')) list.innerHTML = '';
+  latencies.push(m.latency); latencies = latencies.slice(-20);
+  const sorted = [...latencies].sort((a, b) => a - b);
+  $('kLat').textContent = `${Math.round(sorted[Math.floor(sorted.length / 2)] * 1000)} ms`;
+  const wait = m.endpoint_delay, asr = m.asr_seconds, total = Math.max(m.latency, 1e-3);
+  const reason = {turn: 'Smart Turn で確定', silence: '無音タイムアウト', max_length: '最大長'}[m.end_reason] || m.end_reason;
+  const hw = m.hotwords.length ? (m.hotwords_applied ? `ホットワード ${m.hotwords.length} 語を反映` : `ホットワード未対応モデル`) : '';
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.innerHTML = `
+    <div class="text ${m.text ? '' : 'empty'}">${m.text ? esc(m.text) : '（空の認識結果）'}</div>
+    <div class="meta">
+      <span>#${m.id}</span><span>${esc(m.language)}</span><span>${esc(m.model)}</span>
+      <span><b>${Math.round(m.latency * 1000)} ms</b>（確定待ち ${Math.round(wait * 1000)} + 認識 ${Math.round(asr * 1000)}）</span>
+      <span>発話 ${m.speech_seconds.toFixed(1)} s</span><span>${reason}${m.turn_prob >= 0 ? ` (${m.turn_prob.toFixed(2)})` : ''}</span>
+      ${hw ? `<span>${hw}</span>` : ''}
+    </div>
+    <div class="bar"><span style="width:${wait / total * 100}%"></span><span style="width:${asr / total * 100}%"></span></div>
+    <div class="row" style="margin-top:6px"><audio controls preload="none" src="/segments/${esc(m.wav)}" style="height:28px;max-width:100%"></audio></div>`;
+  list.prepend(el);
+  trimList(list, 50);
+}
+
+function addTts(m) {
+  const el = document.createElement('div');
+  el.className = 'item';
+  const status = {done: '完了', canceled: '停止', error: 'エラー'}[m.status] || m.status;
+  el.innerHTML = `<div>${esc(m.text)}</div><div class="meta"><span>${status}</span><span>${esc(m.voice)}</span>
+    <span>最初の音まで <b>${m.ttfa == null ? '—' : Math.round(m.ttfa * 1000) + ' ms'}</b></span>
+    <span>合成 ${Math.round(m.synth_seconds * 1000)} ms / 音声 ${m.audio_seconds.toFixed(1)} s</span></div>`;
+  $('ttsList').prepend(el);
+  trimList($('ttsList'), 20);
+}
+
+function renderModels() {
+  const rows = [];
+  const pkgs = {};
+  for (const rec of Object.values(models)) {
+    Object.assign(pkgs, rec.packages);
+    for (const [key, x] of Object.entries(rec.models)) {
+      const link = x.repo ? `<a href="https://huggingface.co/${esc(x.repo)}/tree/${esc(x.revision)}" target="_blank" rel="noopener">${esc(x.tag)}</a>` : esc(x.tag);
+      rows.push(`<tr><td>${esc(x.kind)}</td><td><code>${link}</code>${x.file ? `<br><span class="muted">${esc(x.file)}</span>` : ''}</td>
+        <td>${esc(x.license)}</td><td>${esc(x.device)}</td><td>${x.load_seconds}s</td><td class="muted">${esc(rec.node)}</td></tr>`);
+      if (x.voices && !$('voice').options.length) {
+        $('voice').innerHTML = x.voices.map(v => `<option ${v === x.default_voice ? 'selected' : ''}>${esc(v)}</option>`).join('');
+      }
+    }
+  }
+  $('models').innerHTML = rows.length
+    ? `<tr><th>種類</th><th>モデル @ リビジョン</th><th>ライセンス</th><th>デバイス</th><th>ロード</th><th>ノード</th></tr>${rows.join('')}`
+    : '<tr><td class="muted">ノードの起動を待っています…</td></tr>';
+  $('pkgs').textContent = Object.entries(pkgs).map(([k, v]) => `${k} ${v}`).join(' · ');
+}
+
+function toast(level, text) {
+  const el = document.createElement('div');
+  el.className = `toast ${level}`; el.textContent = text;
+  $('toasts').append(el); setTimeout(() => el.remove(), 4000);
+}
+
+// ---- scope -------------------------------------------------------------
+const canvas = $('scope'), ctx = canvas.getContext('2d');
+let colors;
+function loadColors() {
+  const style = getComputedStyle(document.documentElement);
+  const css = (name) => style.getPropertyValue(name).trim();
+  colors = {line: css('--line'), muted: css('--muted'), speech: css('--speech'), vad: css('--vad'), turn: css('--turn'), mute: css('--mute')};
+  dirty = true;
+}
+loadColors();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', loadColors);
+function draw() {
+  requestAnimationFrame(draw);
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; dirty = true; }
+  if (!dirty) return;
+  dirty = false;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const now = frames.length ? frames[frames.length - 1].t : 0;
+  const x = (t) => w - (now - t) / WINDOW_S * w;
+  const bw = Math.max(1, w / (WINDOW_S * 1000 / 32));
+  const {line: cLine, muted: cMuted, speech: cSpeech, vad: cVad, turn: cTurn, mute: cMute} = colors;
+  ctx.strokeStyle = cLine; ctx.lineWidth = 1;
+  for (const p of [0.25, 0.5, 0.75]) { ctx.beginPath(); ctx.moveTo(0, h * p); ctx.lineTo(w, h * p); ctx.stroke(); }
+  for (const f of frames) {
+    const xi = x(f.t);
+    const band = f.muted ? [cMute, .25] : f.speech ? [cSpeech, .14] : null;
+    if (band) { [ctx.fillStyle, ctx.globalAlpha] = band; ctx.fillRect(xi - bw, 0, bw + .5, h); ctx.globalAlpha = 1; }
+    const lh = Math.max(0, Math.min(1, (toDb(f.rms) + 70) / 70)) * h;
+    ctx.fillStyle = f.speech ? cSpeech : cMuted; ctx.fillRect(xi - bw, h - lh, Math.max(1, bw - .5), lh);
+  }
+  ctx.strokeStyle = cVad; ctx.lineWidth = 2; ctx.beginPath();
+  frames.forEach((f, i) => { const y = h - f.vad * h; i ? ctx.lineTo(x(f.t), y) : ctx.moveTo(x(f.t), y); });
+  ctx.stroke();
+  ctx.fillStyle = cTurn;
+  for (const f of frames) if (f.turn !== undefined) { ctx.beginPath(); ctx.arc(x(f.t), h - f.turn * h, 4, 0, 7); ctx.fill(); }
+  ctx.fillStyle = cMuted; ctx.font = '11px system-ui';
+  for (const f of frames) if (f.end) ctx.fillText(f.end === 'too_short' ? '短すぎ' : '確定', x(f.t) + 3, 12);
+  if (lastFrame) {
+    $('kLevel').textContent = `${toDb(lastFrame.rms).toFixed(0)} dB`;
+    $('kVad').textContent = lastFrame.vad.toFixed(2);
+  }
+  renderState();
+}
+
+// ---- controls ----------------------------------------------------------
+$('hotwords').oninput = () => { $('hotwords').dataset.dirty = '1'; $('hotNote').textContent = '未適用'; };
+$('hotBtn').onclick = () => {
+  send({cmd: 'set_hotwords', hotwords: $('hotwords').value.split(/\n|,/)});
+  delete $('hotwords').dataset.dirty; $('hotNote').textContent = '';
+};
+$('speakBtn').onclick = () => {
+  const text = $('ttsInput').value.trim();
+  if (!text) { toast('warn', '話すテキストを入力してください'); return; }
+  if (!send({cmd: 'speak', text, voice: $('voice').value})) toast('error', 'UI サーバーに接続されていません');
+};
+$('stopBtn').onclick = () => send({cmd: 'cancel_speak'});
+$('listenBtn').onclick = () => send({cmd: 'listen', timeout: 10});
+$('clearBtn').onclick = () => { $('asrList').innerHTML = ''; latencies = []; $('kLat').textContent = '— ms'; };
+
+connect();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

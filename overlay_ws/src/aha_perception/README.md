@@ -1,12 +1,13 @@
 # aha_perception
 
-RGB-D カメラからの物体検出・トラッキング・人物認識を担当する。
+RGB-D カメラからの物体検出・トラッキング・人物認識と、音声（ASR / TTS）を担当する。
 
 ## ディレクトリ
 
-- `launch/` — `camera.launch.py`, `detection.launch.py`
-- `config/` — モデル/しきい値の YAML
+- `launch/` — `camera.launch.py`, `detection.launch.py`, `audio.launch.py`
+- `config/` — モデル/しきい値の YAML（音声は `config/audio/`）
 - `rviz/` — `perception.rviz`
+- `aha_perception/audio/`, `scripts/audio_*` — 音声スタック（別コンテナ `aha_audio` で動かす。詳細は [`docs/audio.md`](docs/audio.md)）
 
 ## 契約
 

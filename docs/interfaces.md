@@ -41,6 +41,8 @@ REP-105 / REP-103 に沿った命名を基本にする。新しい frame を足�
 | Map | `/map` | `nav_msgs/OccupancyGrid` |
 | 検出物体 | `/aha/perception/objects` | `aha_msgs/DetectedObjectArray` |
 | 検出人物 | `/aha/perception/people` | `aha_msgs/DetectedObjectArray` |
+| 音声認識結果 | `/aha/perception/audio/transcript` | `aha_msgs/SpeechTranscript` |
+| TTS 発話中 | `/aha/perception/audio/tts_active` | `std_msgs/Bool` |
 
 - 生 sensor は vendor 標準寄せ (`/camera/*`, `/scan`, `/imu/*`)
 - 班固有の内部/デバッグ topic は `/aha/<squad>/*` に置くと衝突しにくい
@@ -53,6 +55,11 @@ REP-105 / REP-103 に沿った命名を基本にする。新しい frame を足�
 | `set_nav_goal` | `aha_msgs/srv/SetNavGoal` | 上位タスクからの薄いラッパ |
 | `pick_object` | `aha_msgs/action/PickObject` | 掴む一連の動作 |
 | `move_group` | `moveit_msgs/action/MoveGroup` | MoveIt 標準 |
+| `/aha/perception/audio/listen` | `aha_msgs/action/Listen` | 次の発話を 1 つ聞いて文字起こし（言語・ホットワード指定可） |
+| `/aha/perception/audio/speak` | `aha_msgs/action/Speak` | 英語テキストを読み上げ（cancel 可） |
+
+音声認識の言語切り替えは `aha_audio_asr` の parameter `language`（`ja` / `en`）。TTS は英語のみ。
+詳細は [`overlay_ws/src/aha_perception/docs/audio.md`](../overlay_ws/src/aha_perception/docs/audio.md)。
 
 ## 4. Frame ID 命名
 

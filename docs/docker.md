@@ -70,6 +70,24 @@ rviz2 -d /app/overlay_ws/install/aha_navigation/share/aha_navigation/rviz/nav.rv
 | `make down` | コンテナ停止・削除（全 overlay + profile）|
 | `make clean` | overlay_ws の build/install/log 削除 |
 
+## 音声コンテナ（aha_audio）
+
+ASR / TTS は重い ML 依存（PyTorch cu128・NeMo・Qwen3-ASR・Kokoro）を持つので、別イメージ `trail/aharobot-audio` で動かす。
+開発コンテナとは host network と同じ `ROS_DOMAIN_ID`（既定 1）で通信する。
+
+| コマンド | 内容 |
+|---|---|
+| `make audio-build` | 音声イメージを build |
+| `make audio-up` / `make audio-down` | 起動 / 停止（コンテナ名 `aharobot_aha_audio_1`） |
+| `make audio-ws-build` | コンテナ内で `aha_msgs` と `aha_perception` を colcon build |
+| `make audio-run` | ASR + TTS + デバッグ UI（<http://localhost:8765>）を起動 |
+| `make audio-lock` | イメージ内の Python パッケージ全版を `docker/audio/requirements.lock` に記録 |
+
+- マイクとスピーカーは、ホストの PulseAudio / PipeWire（`/run/user/$UID/pulse/native`）経由で使う。
+- モデルは named volume `aharobot_aha_audio_hf` にキャッシュする。
+- NVIDIA ドライバ R570 以上と nvidia-container-toolkit が必要。
+- 詳細は [`overlay_ws/src/aha_perception/docs/audio.md`](../overlay_ws/src/aha_perception/docs/audio.md)。
+
 ## トラブルシューティング
 
 - **Linux で GUI が出ない**: `xhost +local:docker` または `LIBGL_ALWAYS_SOFTWARE=1 ./run_docker_container.py --novnc`

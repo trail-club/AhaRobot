@@ -2,7 +2,7 @@
 <package format="3">
   <name>aha_msgs</name>
   <version>0.1.0</version>
-  <description>Cross-team custom msg / srv / action for AhaRobot (nav / manip / perception).</description>
+  <description>Cross-team custom msg / srv / action for AhaRobot (nav / manip / perception / speech).</description>
   <maintainer email="dev@trail-club.local">trail-club</maintainer>
   <license>Apache-2.0</license>
 

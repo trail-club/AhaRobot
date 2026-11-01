@@ -13,8 +13,11 @@ find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/DetectedObject.msg
   msg/DetectedObjectArray.msg
+  msg/SpeechTranscript.msg
   srv/SetNavGoal.srv
   action/PickObject.action
+  action/Listen.action
+  action/Speak.action
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs builtin_interfaces
 )
 

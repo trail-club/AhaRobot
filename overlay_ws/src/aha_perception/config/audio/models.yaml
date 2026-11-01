@@ -1,0 +1,61 @@
+# ============================================================================
+# 音声スタック (aha_perception audio) のモデル台帳 (single source of truth)
+#
+# 音声スタックが使うモデルはすべてここに登録する。ノードは起動時にこの台帳の
+# repo / revision をそのまま Hugging Face から取得するため、ここに書いた版以外は
+# 読み込まれない。モデルを変えるときは「このファイルだけ」を書き換え、
+# docs/audio.md の表と一緒に PR に含めること。
+#
+# 実際に読み込まれたモデルは実行時に /aha/perception/audio/models (std_msgs/String, JSON,
+# transient_local) にも出力され、デバッグ UI の「モデル」欄で確認できる。
+# 各認識結果 (aha_msgs/SpeechTranscript.model) にも "<repo>@<revision[:7]>" が入る。
+# ============================================================================
+
+asr:
+  parakeet_en:
+    engine: nemo                          # nemo.collections.asr ASRModel
+    repo: nvidia/parakeet-tdt-0.6b-v2
+    revision: ae9ad07059c7c739ffaf932226a8fe64ae2620b0   # HF main @ 2026-06-29
+    file: parakeet-tdt-0.6b-v2.nemo
+    license: CC-BY-4.0
+    note: 英語専用 FastConformer-TDT 600M。Open ASR 平均 WER 6.05%。
+  qwen3_asr:
+    engine: qwen3_asr                     # qwen_asr.Qwen3ASRModel (transformers backend)
+    repo: Qwen/Qwen3-ASR-1.7B
+    revision: 7278e1e70fe206f11671096ffdd38061171dd6e5   # HF main @ 2026-01-30
+    license: Apache-2.0
+    language_names:                       # 実際は 52 言語対応。本スタックでは ja 用
+      en: English
+      ja: Japanese
+    note: 日本語用。context (system prompt) で語彙バイアス可能。
+
+vad:
+  silero:
+    package: silero-vad                   # pip package に重み同梱 (版は docker/audio/requirements.txt)
+    license: MIT
+
+turn:
+  smart_turn:
+    repo: pipecat-ai/smart-turn-v3        # onnxruntime (CPU) で実行
+    revision: f766f81d3cfdf7737ac64aad813d91bbfd56bf93   # HF main @ 2026-01-07
+    file: smart-turn-v3.2-cpu.onnx
+    license: BSD-2-Clause
+    note: 発話の「話し終わり」確率。Whisper 特徴量 (8 s) を入力に取る多言語モデル。
+
+tts:
+  kokoro:
+    repo: hexgrad/Kokoro-82M              # kokoro.KPipeline / KModel
+    revision: f3ff3571791e39611d31c381e3a41a3af07b4987   # HF main @ 2025-04-10
+    license: Apache-2.0
+    sample_rate: 24000
+    lang_code: a                          # a = American English (TTS は英語のみ)
+    voice: af_heart
+    note: 82M 非自己回帰 TTS。英語専用で運用 (日本語 TTS は使わない)。
+
+# 言語ごとに使う ASR。aha_audio_asr の language パラメータで切り替える。
+# (TTS は英語のみなので言語切り替えの対象外)
+languages:
+  en:
+    asr: parakeet_en
+  ja:
+    asr: qwen3_asr
