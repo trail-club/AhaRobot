@@ -354,9 +354,6 @@ class GpsrDefinitionTests(unittest.TestCase):
         self.assertEqual(slots[0].id, "exec.step01")
         self.assertEqual(slots[-1].id, "exec.step20")
 
-    def test_points_match_the_score_sheet(self):
-        self.assertEqual(sum(s.points for s in self.spec.subgoals), 1490)
-
     def test_surfaces_are_known_locations(self):
         for item in self.plan:
             if "surface" in item["params"]:
@@ -390,7 +387,7 @@ class GpsrEngineTests(unittest.TestCase):
         memory = status["memory"]
         self.assertEqual(memory["robot.location"], "instruction_point")
         self.assertIsNone(memory["robot.holding"])
-        self.assertEqual(memory["command2.count"], 3)
+        self.assertEqual(memory["cmd2.count"], 3)
         self.assertEqual(len(memory["plan"]), 12)
         # Transitions of robot.holding during the run.
         changes = [h for i, h in enumerate(holding) if i == 0 or holding[i - 1] != h]

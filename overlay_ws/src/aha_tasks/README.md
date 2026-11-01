@@ -60,7 +60,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | キー | 内容 |
 | --- | --- |
 | `task` / `title` / `rulebook` / `time_limit` | 識別子、表示名、ルールの出典、制限時間（秒） |
-| `locations` | `map` frameの地点 `[x, y, yaw]`（m、rad） |
+| `locations` | `map` frameの地点 `[x, y, yaw]`（m、rad）。障害物から0.6 m以上離す（壁や家具に寄せるとNav2が止まる） |
 | `initial_state` | 開始時のタスクの記憶 |
 | `skills` | スキル名と実装 `"module:Class"`。`null` は未実装 |
 | `subgoals` | 実行順のサブゴール。`id`、`title`、`group`、`skill`、`params`、`mock`、`points`、`note` |
@@ -77,7 +77,7 @@ PYTHONPATH=overlay_ws/src/aha_tasks python3 overlay_ws/src/aha_tasks/scripts/tas
 ## スキルの追加
 
 `aha_tasks.core.Skill` を継承し、タスク定義の `skills` に登録する。
-インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation` を使える。
+インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation`・`skills`（名前からインスタンス。未実装は `None`）を使える。
 
 ```python
 from aha_tasks.core import Skill, SkillResult
@@ -144,7 +144,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | 地点 | 使い方 | sim上の場所 |
 | --- | --- | --- |
 | `dining_table` | 食卓 | `dining_table` の+y側 |
-| `dishwasher` | 食洗機 | worldにないため、食卓の近くの壁（`inside_wall_side_right`）の前に置いた代替地点 |
+| `dishwasher` | 食洗機 | worldにないため、食卓の近くの壁（`inside_wall_center_vertical_front`）の前に置いた代替地点 |
 | `trash_box` | ゴミ箱と床のゴミ | `trash_box` の−x側 |
 | `shelf` | 棚 | `shelf` の−y側 |
 | `tall_table` | ボウル・スプーン・洗剤タブの指定の台 | `tall_table` の−y側 |
@@ -169,34 +169,6 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
 タスク固有のスキルのparamsは `perceive_shelf`（`surface`、`objects`、`output`）、`open_container`（`object`）、`pour`（`object`、`target`）。
 
-## Doing Laundry Challenge
-
-[ルールブック §5.4](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を46サブゴールに分ける。
-`points` は得点表の最大点で、合計は総計の4415。減点は `note` に書く。
-実装済みのスキルは `navigate` のみで、洗濯機と衣類の操作はmockで通過する。
-
-| 地点 | 位置 |
-| --- | --- |
-| `washing_machine` | worldの洗濯機の前 |
-| `laundry_basket` | worldのバスケットの前 |
-| `folding_table` | 畳む台の固定の代替地点。worldの `long_table` の前 |
-
-入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
-worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類のモデルはない。
-
-順序は、洗濯機の扉を開ける、1枚をバスケットへ移す、バスケットを台の横へ運ぶ（`basket.carry` は持つ・移動・置くを1スキルにまとめる）、台の1枚を畳む（`shirt0.*`）、バスケットの衣類を取って畳み重ねる（`shirt1.*`〜`shirt6.*`）。
-`shirtN.*` は `folding_table` への `navigate` から始まるため、単独で選んでもロボットは台へ移動する。
-`shirt0.*` は0点で、`shirt0.state` のみを変える。台が空の配置では選択から外しても後続の記憶は変わらない。
-
-洗濯機とバスケットを飛ばす場合は `start.*,shirt1.*` を選ぶ。バスケットは記憶上台の横にあるため、実物は手で置く。
-
-| 記憶 | 内容 |
-| --- | --- |
-| `robot.holding` | 持っている衣類（`washer_shirt`、`shirtN`）。置くと `null` |
-| `basket.location` | バスケットのある地点。`laundry_basket`、運ぶと `folding_table` |
-| `table.stack` | 重ねた枚数。`shirtN.stack` で `N` |
-| `shirtN.state` | `placed`、`spread`、`folded`、`stacked` |
-
 ## General Purpose Service Robot Challenge
 
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
@@ -211,7 +183,7 @@ worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類�
 ```
 
 `command` は1〜3、`action` は `skills` のスキル名。`mock` は省略できる。
-`run_plan_step`（params `{"index": i}`）は、計画の `i` 番目の手順を同名のスキルへ振り分ける。`self.runtime.skills` からスキルのインスタンスを参照する。
+`run_plan_step`（params `{"index": i}`）は、計画の `i` 番目の手順を同名のスキルへ振り分ける。
 
 - **検証**: `validate_plan(plan, spec)` はROSなしで呼べる。不正な形、枠の数を超える長さ、未宣言の `action`、タスクの流れ用の `action`（`run_plan_step` など）、`locations` にない `location` と `mock` の `robot.location`、実装済みスキルの `validate` に通らないparamsを拒否する。`mock` の計画は起動時に、記憶の計画は枠の実行ごとに全手順を検証する。不正なら最初の枠で移動前に失敗する。
 - **手順がない枠**: 即座に成功する。記憶に計画がなければ失敗する。
@@ -247,3 +219,31 @@ worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類�
 
 `instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
 審判がタイマーを止める間も、GUIの経過時間は止まらない。
+
+## Doing Laundry Challenge
+
+[ルールブック §5.4](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を41サブゴールに分ける。
+`points` は得点表の最大点で、合計は総計の4415。減点は `note` に書く。
+実装済みのスキルは `navigate` のみで、洗濯機と衣類の操作はmockで通過する。
+
+| 地点 | 位置 |
+| --- | --- |
+| `washing_machine` | worldの洗濯機の前 |
+| `laundry_basket` | worldのバスケットの前 |
+| `folding_table` | 畳む台の固定の代替地点。worldの `long_table` の前 |
+
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類のモデルはない。
+
+順序は、洗濯機の扉を開ける、1枚をバスケットへ移す、バスケットを台の横へ運ぶ（`basket.carry` は持つ・移動・置くを1スキルにまとめる）、台の1枚を畳む（`shirt0.*`）、バスケットの衣類を取って畳み重ねる（`shirt1.*`〜`shirt6.*`）。
+台への `navigate` は `shirt0.*` と `shirt1.*` の先頭のみ。`shirt2.*` 以降は記憶上の位置が台なので、実装済みのスキルを実行する前に移動する（状態の同期）。
+`shirt0.*` は0点で、`shirt0.state` のみを変える。台が空の配置では選択から外しても後続の記憶は変わらない。
+
+洗濯機とバスケットを飛ばす場合は `start.*,shirt1.*` を選ぶ。バスケットは記憶上台の横にあるため、実物は手で置く。
+
+| 記憶 | 内容 |
+| --- | --- |
+| `robot.holding` | 持っている衣類（`washer_shirt`、`shirtN`）。置くと `null` |
+| `basket.location` | バスケットのある地点。`laundry_basket`、運ぶと `folding_table` |
+| `table.stack` | 重ねた枚数。`shirtN.stack` で `N` |
+| `shirtN.state` | `placed`、`spread`、`folded`、`stacked` |
