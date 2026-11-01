@@ -126,3 +126,45 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 待つ時間は `timeout`（`find_person` / `locate_guests` は30 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s）で変更できる。
 `memorize_person` をmockにした場合は外見を覚えないため、後の `locate_guests` はその客を見分けられない。
 
+## Pick and Place Challenge
+
+[ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を71サブゴールに分ける。
+実装済みのスキルは `navigate` のみで、他はmockで通過する。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=pick_and_place subgoals:='dishwasher.*'
+```
+
+既定の順序は、ゴミ、食洗機（扉の開閉は1回）、棚、朝食、補助台。物体は1個ずつ運ぶ。
+`points` は得点表の最大点で、合計は総計の3515。負の項目は `note` に書く。
+得点表の認識・取得・配置は12個分で物体は14個あるため、補助台の2個を枠の外として0 ptにする（`note` に数える場合の点を書く）。
+First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載せる。
+
+| 地点 | 使い方 | sim上の場所 |
+| --- | --- | --- |
+| `dining_table` | 食卓 | `dining_table` の+y側 |
+| `dishwasher` | 食洗機 | worldにないため、食卓の近くの壁（`inside_wall_side_right`）の前に置いた代替地点 |
+| `trash_box` | ゴミ箱と床のゴミ | `trash_box` の−x側 |
+| `shelf` | 棚 | `shelf` の−y側 |
+| `tall_table` | ボウル・スプーン・洗剤タブの指定の台 | `tall_table` の−y側 |
+| `long_table` | 補助台 | `long_table` の−y側 |
+
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。物体のモデルは配置しない。
+
+### 記憶の受け渡し
+
+`perceive_objects` は `<output>.<役割>` に物体を出力し、`pick_object` / `place_object` の `object` はそのキーを指す。
+把持中の物体は `robot.holding` に持ち、置くと `null` になる。
+
+| サブゴール | 出力 |
+| --- | --- |
+| `table.perceive` | `table.cutlery` / `.cup` / `.plate` / `.trash` / `.other1` / `.other2` |
+| `trash.floor.perceive` | `trash.floor` |
+| `tab.perceive` | `dishwasher.tab` |
+| `cabinet.perceive` | `cabinet.categories`（段ごとのカテゴリ） |
+| `breakfast.perceive_tableware` / `.perceive_food` | `breakfast.bowl` / `.spoon` / `.cereal` / `.milk` |
+| `extra.perceive` | `extra.obj1` / `.obj2` |
+
+ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
+タスク固有のスキルのparamsは `perceive_shelf`（`surface`、`objects`、`output`）、`open_container`（`object`）、`pour`（`object`、`target`）。
+
