@@ -1,9 +1,10 @@
 """Run a plan in fixed subgoal slots: validate it and dispatch its steps to skills.
 
 A plan is the list ``memory["plan"]`` of ``{"command": 1-3, "action": "<skill>",
-"params": {...}, "mock": {...}}``; ``mock`` is optional and only used while the
-skill is not implemented. Each ``run_plan_step`` subgoal runs one step, so the
-engine's checkpoints, rollback and retries apply per step.
+"params": {...}, "mock": {...}}``; ``mock`` is optional and holds the state to assume
+while the skill is not implemented or when the step is not run. Each
+``run_plan_step`` subgoal runs one step, so the engine's checkpoints, rollback and
+retries apply per step.
 """
 
 import copy
@@ -88,6 +89,22 @@ class RunPlanStep(Skill):
                     validate_plan(subgoal.mock[PLAN], spec)
                 except ValueError as error:
                     raise ValueError(f"mock of {subgoal.id}: {error}") from None
+
+    def assumed(self, params, memory):
+        plan = memory.get(PLAN)
+        try:
+            validate_plan(plan, self.runtime.spec)
+        except ValueError:
+            return {}  # execute reports it if the slot runs
+        index = params["index"]
+        if index >= len(plan):
+            return {}
+        step = plan[index]
+        mock = step.get("mock", {})
+        skill = self.runtime.skills.get(step["action"])
+        if skill is None:
+            return mock
+        return {**skill.assumed(step["params"], memory), **mock}
 
     def execute(self, ctx):
         plan = ctx.memory.get(PLAN)

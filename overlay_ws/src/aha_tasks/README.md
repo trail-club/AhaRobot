@@ -98,6 +98,7 @@ class AskNameAndDrink(Skill):
 
 成功時の `outputs` はタスクの記憶へ追加され、後続が `ctx.memory` から読む。
 `expected(params)` は成功後とmock時に記憶へ追加する状態。ロボットを動かすスキルは `robot.location` を出力する。
+実行しない場合の状態が記憶で変わるスキルは `assumed(params, memory)` を上書きする（既定は `expected(params)`）。
 `execute` はタスク用threadで呼ばれる。`ctx.cancelled` を監視し、中断時は速やかに戻る。
 
 ## Human Robot Interaction Challenge
@@ -189,7 +190,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 - **手順がない枠**: 即座に成功する。記憶に計画がなければ失敗する。
 - **未実装のスキル**: 成功として通過し、手順の `mock` を記憶へ追加する。メッセージに未実装と出る。`mock` の `robot.location` にはNav2で移動する。
 - **実装済みのスキル**: `execute` の `outputs` と `expected(params)` が `run_plan_step` の出力として記憶へ入る。失敗はそのサブゴールの失敗として扱われ、ロールバック・再試行が手順単位で働く。
-- **部分実行**: `exec.*` を選択外にすると、その手順の結果は記憶へ反映されない。`exec.step05` だけを選ぶと、手前の手順の `robot.location` と `robot.holding` がないまま実行する。
+- **選択外・スキップ**: 枠を実行しない場合は、手順の `expected(params)` と `mock` を記憶へ追加する。`exec.step05` だけを選ぶと、手前の手順の `robot.location` へNav2で移動してから実行する。到達できない地点へ移動する手順をスキップすると、次に実行する枠はその地点への移動で失敗する。
 
 | 手順 | params | 生成器の命令 |
 | --- | --- | --- |

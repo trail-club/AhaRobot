@@ -43,6 +43,10 @@ class Skill:
         """State that holds after success; also assumed when the subgoal is mocked."""
         return {}
 
+    def assumed(self, params, memory):
+        """State assumed when the subgoal is not selected, skipped or mocked."""
+        return self.expected(params)
+
     def execute(self, ctx):
         """Return a SkillResult (or bool). Exceptions count as failure."""
         raise NotImplementedError

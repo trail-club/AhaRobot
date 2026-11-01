@@ -334,6 +334,27 @@ class RunPlanStepTests(unittest.TestCase):
         self.assertFalse(result.success)
 
 
+class RunPlanStepAssumedTests(unittest.TestCase):
+    def assumed(self, plan, index=0, skills=None):
+        return slot(skills).assumed({"index": index}, {"plan": plan})
+
+    def test_unimplemented_step_assumes_its_mock(self):
+        plan = [step("todo", mock={"robot.holding": "cola"})]
+        self.assertEqual(self.assumed(plan), {"robot.holding": "cola"})
+
+    def test_implemented_step_assumes_expected_and_mock(self):
+        plan = [step("fake", {"item": "x"}, mock={"robot.holding": "cola"})]
+        self.assertEqual(
+            self.assumed(plan, skills={"fake": FakeSkill()}),
+            {"fake.item": "x", "robot.holding": "cola"},
+        )
+
+    def test_nothing_is_assumed_without_a_step(self):
+        self.assertEqual(self.assumed([step("todo")], index=1), {})
+        self.assertEqual(slot().assumed({"index": 0}, {}), {})
+        self.assertEqual(self.assumed([step("teleport", mock={"x": 1})]), {})
+
+
 class GpsrDefinitionTests(unittest.TestCase):
     def setUp(self):
         self.spec, _ = load_task(GPSR)
@@ -464,7 +485,7 @@ class GpsrEngineTests(unittest.TestCase):
         self.assertEqual(status["memory"]["robot.location"], "instruction_point")
         self.assertIn("plan", status["memory"])
 
-    def test_partial_run_does_not_see_earlier_steps(self):
+    def test_partial_run_assumes_earlier_steps(self):
         seen = []
 
         class Probe(Skill):
@@ -473,15 +494,63 @@ class GpsrEngineTests(unittest.TestCase):
                 return True
 
         # Step 5 is answer_question; steps 1-4 are bypassed as they are not selected.
-        engine, _ = gpsr_engine(overrides={"answer_question": Probe(None)})
+        navigation = FakeNavigation()
+        engine, runtime = gpsr_engine(
+            navigation, {"answer_question": Probe(None)}, restore=True
+        )
         status = run(engine, "exec.step05")
         self.assertEqual(status["state"], "completed", status["message"])
         by_id = records(status)
         self.assertEqual(by_id["exec.step04"]["status"], "bypassed")
         self.assertEqual(by_id["exec.step05"]["status"], "succeeded")
-        self.assertEqual(seen[0]["robot.location"], "instruction_point")
-        self.assertNotIn("robot.holding", seen[0])
+        self.assertEqual(seen[0]["robot.location"], "bedroom")
+        self.assertEqual(seen[0]["robot.holding"], "cola")
         self.assertEqual(len(seen[0]["plan"]), 12)
+        self.assertEqual(navigation.goals, [runtime.spec.locations["bedroom"]])
+
+    def test_skipped_navigation_assumes_its_destination(self):
+        seen = []
+
+        class Probe(Skill):
+            def execute(self, ctx):
+                seen.append(ctx.memory)
+                return True
+
+        # Goals: instruction point, kitchen table, bedroom, then the failing office.
+        navigation = FakeNavigation(fail=[3])
+        engine, runtime = gpsr_engine(
+            navigation,
+            {"find_described_person": Probe(None)},
+            restore=True,
+            policy="skip",
+        )
+        status = run(engine)
+        by_id = records(status)
+        self.assertEqual(by_id["exec.step06"]["status"], "skipped")
+        self.assertEqual(by_id["exec.step07"]["status"], "succeeded")
+        self.assertEqual(seen[1]["robot.location"], "office")
+        locations = runtime.spec.locations
+        self.assertEqual(navigation.goals[3:5], [locations["office"]] * 2)
+
+    def test_skipped_step_assumes_its_mock(self):
+        seen = []
+
+        class Dropping(Skill):
+            def execute(self, ctx):
+                return SkillResult(False, "dropped")
+
+        class Probe(Skill):
+            def execute(self, ctx):
+                seen.append(ctx.memory)
+                return True
+
+        engine, _ = gpsr_engine(
+            overrides={"pick_object": Dropping(None), "answer_question": Probe(None)},
+            policy="skip",
+        )
+        status = run(engine)
+        self.assertEqual(records(status)["exec.step02"]["status"], "skipped")
+        self.assertEqual(seen[0]["robot.holding"], "cola")
 
     def test_selecting_later_subgoals_keeps_the_plan_and_location(self):
         engine, _ = gpsr_engine()
