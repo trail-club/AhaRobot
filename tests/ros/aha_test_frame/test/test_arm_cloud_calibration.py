@@ -4,6 +4,7 @@ the ROS-free helpers of scripts/arm_cloud_calibrate.py."""
 
 import importlib.util
 import math
+import re
 import struct
 import sys
 from pathlib import Path
@@ -80,10 +81,14 @@ def config():
 
     share = Path(get_package_share_directory("aha_test_frame"))
     config = load_frame(share / "config" / "frame_table_202610.yaml")
-    # The poses above are in view with this right arm, whatever the robot's
-    # calibration in the config.
+    # The poses above are in view with this right arm, head and camera,
+    # whatever the robot's calibration in the config.
     right = {"shoulder_xyz": [0.03, -0.232, 0.222], "yaw": -1.5239}
-    return dict(config, arms=dict(config["arms"], right=right))
+    head = dict(config["head"], pan_xyz=[0.12, 0.0, 0.402])
+    camera = {"xyz": [0.0476, -0.0146, 0.0], "rpy": [1.5410, 0.0101, 0.0005]}
+    return dict(
+        config, head=head, camera=camera, arms=dict(config["arms"], right=right)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -367,6 +372,11 @@ def test_script_fits_saved_snapshots_and_writes_the_config(
     )
     text = replace_shoulder_xyz(installed.read_text(), "right", right["shoulder_xyz"])
     text = replace_joint_offsets(replace_yaw(text, "right", right["yaw"]), "right", {})
+    # The fixture's head and camera too.
+    camera_line = "camera: " + yaml.safe_dump(config["camera"], default_flow_style=True)
+    text = re.sub(r"^camera: .*$", camera_line.strip(), text, count=1, flags=re.M)
+    pan = ", ".join(str(v) for v in config["head"]["pan_xyz"])
+    text = re.sub(r"^(\s*pan_xyz: ).*$", rf"\g<1>[{pan}]", text, count=1, flags=re.M)
     path = tmp_path / "frame.yaml"
     path.write_text(text)
     assert script.model_mismatch(frame_description(path), urdf, "right") == []
