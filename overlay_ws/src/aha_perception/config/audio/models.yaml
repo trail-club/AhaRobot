@@ -24,10 +24,17 @@ asr:
     repo: Qwen/Qwen3-ASR-1.7B
     revision: 7278e1e70fe206f11671096ffdd38061171dd6e5   # HF main @ 2026-01-30
     license: Apache-2.0
-    language_names:                       # 実際は 52 言語対応。本スタックでは ja 用
+    language_names:                       # 実際は 52 言語対応。本スタックでは ja-qwen 用
       en: English
-      ja: Japanese
-    note: 日本語用。context (system prompt) で語彙バイアス可能。
+      ja-qwen: Japanese
+    note: Haas との比較用の日本語モデル。context (system prompt) で語彙バイアス可能。
+  haas_ja:
+    engine: haas                          # haas_asr
+    repo: third-intelligence/Haas-ja-v1.0
+    revision: 660728d39019e5e065046154beca44ac9a66a540   # HF main @ 2026-10-30
+    file: Haas-ja-v1.0.nemo
+    license: Apache-2.0
+    note: 日本語用。FastConformer-TDT (予測ネットワークが KDA)。Linux + CUDA のみ。
 
 vad:
   silero:
@@ -58,4 +65,6 @@ languages:
   en:
     asr: parakeet_en
   ja:
+    asr: haas_ja
+  ja-qwen:                                # 比較用。聞き取るのは日本語で、モデルが Qwen3-ASR
     asr: qwen3_asr

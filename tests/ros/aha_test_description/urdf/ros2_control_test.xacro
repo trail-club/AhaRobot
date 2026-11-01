@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<!--
+  Test only: aha_description's ros2_control.xacro with the lift starting 1 cm
+  above its lower stop in Gazebo (initial_value), inside the 0.005 m lower
+  bound of aha_test_manipulation's joint_limits.yaml (MoveIt refuses a start
+  state outside it). Fixed here: sim.launch.py's initial_lift is not used.
+  Keep the joints in step with aha_description/urdf/ros2_control.xacro.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="pos_joint" params="name initial:=''">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <xacro:if value="${initial == ''}">
+        <state_interface name="position"/>
+      </xacro:if>
+      <xacro:unless value="${initial == ''}">
+        <state_interface name="position">
+          <param name="initial_value">${initial}</param>
+        </state_interface>
+      </xacro:unless>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="vel_joint" params="name">
+    <joint name="${name}">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="aha_ros2_control" params="sim">
+    <ros2_control name="aha_hardware" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+
+      <!-- Drive wheels -->
+      <xacro:vel_joint name="left_wheel_joint"/>
+      <xacro:vel_joint name="right_wheel_joint"/>
+
+      <!-- Lift, 1 cm above the lower stop at start -->
+      <xacro:pos_joint name="joint_l1" initial="0.01"/>
+      <xacro:pos_joint name="joint_r1" initial="0.01"/>
+
+      <!-- Left arm -->
+      <xacro:pos_joint name="joint_l2"/>
+      <xacro:pos_joint name="joint_l3"/>
+      <xacro:pos_joint name="joint_l4"/>
+      <xacro:pos_joint name="joint_l5"/>
+      <xacro:pos_joint name="joint_l6"/>
+      <xacro:pos_joint name="joint_l7r"/>
+      <xacro:pos_joint name="joint_l7l"/>
+
+      <!-- Right arm -->
+      <xacro:pos_joint name="joint_r2"/>
+      <xacro:pos_joint name="joint_r3"/>
+      <xacro:pos_joint name="joint_r4"/>
+      <xacro:pos_joint name="joint_r5"/>
+      <xacro:pos_joint name="joint_r6"/>
+      <xacro:pos_joint name="joint_r7r"/>
+      <xacro:pos_joint name="joint_r7l"/>
+
+      <!-- Head -->
+      <xacro:pos_joint name="joint_head_pan"/>
+      <xacro:pos_joint name="joint_head_tilt"/>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

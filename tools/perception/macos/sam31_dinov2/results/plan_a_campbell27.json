@@ -1,0 +1,2766 @@
+{
+ "1011-01": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "red snack can",
+   "projector device",
+   "service bell"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "red snack can",
+    "score": 0.9609756469726562,
+    "kept": false,
+    "bbox_xyxy": [
+     0,
+     83,
+     98,
+     480
+    ]
+   }
+  ],
+  "selected": [],
+  "matches": [],
+  "keep": [],
+  "objects": [],
+  "seconds": 30.8,
+  "vlm_seconds": 28.8
+ },
+ "1011-02": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "metal food can",
+   "canned food container",
+   "food can with tab"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal food can",
+    "score": 0.9804878830909729,
+    "kept": true,
+    "bbox_xyxy": [
+     328,
+     137,
+     427,
+     266
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal food can",
+    "score": 0.976608157157898,
+    "kept": false,
+    "bbox_xyxy": [
+     16,
+     0,
+     242,
+     244
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal food can",
+    "score": 0.8012422323226929,
+    "kept": false,
+    "bbox_xyxy": [
+     505,
+     0,
+     640,
+     56
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.6,
+     "height_cm": 8.6,
+     "depth_m": 0.406,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.7,
+     "height_cm": 11.6,
+     "depth_m": 0.287,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.6,
+     "height_cm": 8.6,
+     "depth_m": 0.406,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.5,
+     "height_cm": 4.4,
+     "depth_m": 0.471,
+     "cut_off": true
+    }
+   }
+  ],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    328,
+    137,
+    427,
+    266
+   ]
+  ],
+  "seconds": 24.3,
+  "vlm_seconds": 22.8
+ },
+ "1011-03": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "food can",
+   "metal can",
+   "canned food"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal can",
+    "score": 0.9804878830909729,
+    "kept": true,
+    "bbox_xyxy": [
+     397,
+     152,
+     526,
+     310
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     115,
+     0,
+     303,
+     272
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal can",
+    "score": 0.6332378387451172,
+    "kept": false,
+    "bbox_xyxy": [
+     590,
+     0,
+     640,
+     96
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 7.7,
+     "height_cm": 9.5,
+     "depth_m": 0.363,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 9.0,
+     "height_cm": 13.1,
+     "depth_m": 0.291,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.7,
+     "height_cm": 9.5,
+     "depth_m": 0.363,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.8,
+     "height_cm": 7.3,
+     "depth_m": 0.458,
+     "cut_off": true
+    }
+   }
+  ],
+  "keep": [
+   1,
+   2
+  ],
+  "objects": [
+   [
+    397,
+    152,
+    526,
+    310
+   ],
+   [
+    115,
+    0,
+    303,
+    272
+   ]
+  ],
+  "seconds": 38.4,
+  "vlm_seconds": 36.8
+ },
+ "1011-04": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "food can",
+   "canned container",
+   "metal can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "food can",
+    "score": 0.9843749403953552,
+    "kept": true,
+    "bbox_xyxy": [
+     477,
+     151,
+     635,
+     348
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": false,
+    "bbox_xyxy": [
+     185,
+     0,
+     365,
+     315
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 8.3,
+     "height_cm": 10.3,
+     "depth_m": 0.317,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 8.3,
+     "height_cm": 14.5,
+     "depth_m": 0.279,
+     "cut_off": true
+    }
+   }
+  ],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    477,
+    151,
+    635,
+    348
+   ]
+  ],
+  "seconds": 35.6,
+  "vlm_seconds": 34.0
+ },
+ "1011-05": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "small red can",
+   "metal pull-tab can",
+   "canned food container"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "canned food container",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     77,
+     131,
+     250,
+     423
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "canned food container",
+    "score": 0.9649122953414917,
+    "kept": true,
+    "bbox_xyxy": [
+     339,
+     301,
+     442,
+     443
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "canned food container",
+    "score": 0.9179486632347107,
+    "kept": false,
+    "bbox_xyxy": [
+     482,
+     30,
+     640,
+     242
+    ]
+   }
+  ],
+  "selected": [
+   2
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.1,
+     "height_cm": 9.8,
+     "depth_m": 0.418,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 9.4,
+     "height_cm": 15.8,
+     "depth_m": 0.328,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.1,
+     "height_cm": 9.8,
+     "depth_m": 0.418,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 12.5,
+     "height_cm": 16.8,
+     "depth_m": 0.48,
+     "cut_off": true
+    }
+   }
+  ],
+  "keep": [
+   2
+  ],
+  "objects": [
+   [
+    339,
+    301,
+    442,
+    443
+   ]
+  ],
+  "seconds": 31.8,
+  "vlm_seconds": 30.3
+ },
+ "1011-06": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "can of food",
+   "food can",
+   "metal food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "can of food",
+    "score": 0.9883041381835938,
+    "kept": true,
+    "bbox_xyxy": [
+     361,
+     94,
+     483,
+     272
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "can of food",
+    "score": 0.9804878830909729,
+    "kept": false,
+    "bbox_xyxy": [
+     74,
+     0,
+     276,
+     234
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "food can",
+    "score": 0.6878048777580261,
+    "kept": false,
+    "bbox_xyxy": [
+     591,
+     0,
+     640,
+     53
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.604938268661499,
+    "kept": true,
+    "bbox_xyxy": [
+     113,
+     43,
+     223,
+     99
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 10.1,
+     "depth_m": 0.343,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.9,
+     "height_cm": 12.6,
+     "depth_m": 0.327,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 10.1,
+     "depth_m": 0.343,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.5,
+     "height_cm": 3.8,
+     "depth_m": 0.431,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 10.1,
+     "depth_m": 0.343,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.6,
+     "height_cm": 2.9,
+     "depth_m": 0.309,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   4
+  ],
+  "objects": [
+   [
+    361,
+    94,
+    483,
+    272
+   ],
+   [
+    113,
+    43,
+    223,
+    99
+   ]
+  ],
+  "seconds": 69.4,
+  "vlm_seconds": 67.8
+ },
+ "1011-07": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "metal food can",
+   "pull-tab can",
+   "food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal food can",
+    "score": 0.9843749403953552,
+    "kept": true,
+    "bbox_xyxy": [
+     398,
+     186,
+     536,
+     378
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.9843749403953552,
+    "kept": true,
+    "bbox_xyxy": [
+     33,
+     0,
+     297,
+     330
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 7.0,
+     "height_cm": 9.8,
+     "depth_m": 0.308,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.5,
+     "height_cm": 14.4,
+     "depth_m": 0.265,
+     "cut_off": true
+    }
+   }
+  ],
+  "keep": [
+   1,
+   2
+  ],
+  "objects": [
+   [
+    398,
+    186,
+    536,
+    378
+   ],
+   [
+    33,
+    0,
+    297,
+    330
+   ]
+  ],
+  "seconds": 48.2,
+  "vlm_seconds": 46.7
+ },
+ "1011-08": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "food can",
+   "canned food container",
+   "metal food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal food can",
+    "score": 0.9804878830909729,
+    "kept": true,
+    "bbox_xyxy": [
+     350,
+     135,
+     472,
+     314
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     33,
+     0,
+     257,
+     283
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "food can",
+    "score": 0.7730495929718018,
+    "kept": false,
+    "bbox_xyxy": [
+     551,
+     0,
+     640,
+     98
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.5428571701049805,
+    "kept": false,
+    "bbox_xyxy": [
+     94,
+     86,
+     208,
+     145
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.0,
+     "depth_m": 0.34,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.1,
+     "height_cm": 14.1,
+     "depth_m": 0.301,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.0,
+     "depth_m": 0.34,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.3,
+     "height_cm": 7.0,
+     "depth_m": 0.432,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.0,
+     "depth_m": 0.34,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.6,
+     "height_cm": 2.9,
+     "depth_m": 0.298,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   2
+  ],
+  "objects": [
+   [
+    350,
+    135,
+    472,
+    314
+   ],
+   [
+    33,
+    0,
+    257,
+    283
+   ]
+  ],
+  "seconds": 39.9,
+  "vlm_seconds": 38.2
+ },
+ "1011-09": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "red snack can",
+   "metal can",
+   "can with pull tab"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal can",
+    "score": 0.976608157157898,
+    "kept": false,
+    "bbox_xyxy": [
+     200,
+     212,
+     333,
+     480
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal can",
+    "score": 0.9726027250289917,
+    "kept": false,
+    "bbox_xyxy": [
+     368,
+     394,
+     465,
+     480
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal can",
+    "score": 0.518796980381012,
+    "kept": false,
+    "bbox_xyxy": [
+     550,
+     176,
+     640,
+     380
+    ]
+   }
+  ],
+  "selected": [],
+  "matches": [],
+  "keep": [],
+  "objects": [],
+  "seconds": 17.5,
+  "vlm_seconds": 15.8
+ },
+ "1011-10": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned food",
+   "metal can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     362,
+     163,
+     454,
+     317
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal can",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     167,
+     0,
+     326,
+     328
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "campbell",
+    "score": 0.6246334314346313,
+    "kept": false,
+    "bbox_xyxy": [
+     220,
+     118,
+     298,
+     168
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.5857605338096619,
+    "kept": true,
+    "bbox_xyxy": [
+     384,
+     202,
+     453,
+     239
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.7,
+     "height_cm": 11.2,
+     "depth_m": 0.439,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.7,
+     "height_cm": 22.1,
+     "depth_m": 0.408,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.7,
+     "height_cm": 11.2,
+     "depth_m": 0.439,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.2,
+     "height_cm": 3.3,
+     "depth_m": 0.402,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.7,
+     "height_cm": 11.2,
+     "depth_m": 0.439,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 4.8,
+     "height_cm": 2.6,
+     "depth_m": 0.424,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   4
+  ],
+  "objects": [
+   [
+    362,
+    163,
+    454,
+    317
+   ]
+  ],
+  "seconds": 23.1,
+  "vlm_seconds": 21.6
+ },
+ "1011-11": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned soup",
+   "red and white can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "red and white can",
+    "score": 0.9649122953414917,
+    "kept": true,
+    "bbox_xyxy": [
+     365,
+     279,
+     457,
+     430
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "red and white can",
+    "score": 0.9649122953414917,
+    "kept": false,
+    "bbox_xyxy": [
+     191,
+     131,
+     330,
+     446
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "campbell",
+    "score": 0.6717948913574219,
+    "kept": false,
+    "bbox_xyxy": [
+     236,
+     237,
+     307,
+     284
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.5775577425956726,
+    "kept": true,
+    "bbox_xyxy": [
+     391,
+     314,
+     453,
+     350
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 11.4,
+     "depth_m": 0.457,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.0,
+     "height_cm": 22.6,
+     "depth_m": 0.435,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 11.4,
+     "depth_m": 0.457,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.0,
+     "height_cm": 3.3,
+     "depth_m": 0.427,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.9,
+     "height_cm": 11.4,
+     "depth_m": 0.457,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 4.5,
+     "height_cm": 2.6,
+     "depth_m": 0.445,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   4
+  ],
+  "objects": [
+   [
+    365,
+    279,
+    457,
+    430
+   ]
+  ],
+  "seconds": 26.8,
+  "vlm_seconds": 25.4
+ },
+ "1011-12": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned food",
+   "food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": false,
+    "bbox_xyxy": [
+     120,
+     20,
+     306,
+     382
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.9726027250289917,
+    "kept": true,
+    "bbox_xyxy": [
+     332,
+     180,
+     433,
+     330
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "food can",
+    "score": 0.7815700173377991,
+    "kept": false,
+    "bbox_xyxy": [
+     445,
+     26,
+     570,
+     198
+    ]
+   }
+  ],
+  "selected": [
+   2
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.4,
+     "height_cm": 11.0,
+     "depth_m": 0.444,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.5,
+     "height_cm": 22.4,
+     "depth_m": 0.375,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.4,
+     "height_cm": 11.0,
+     "depth_m": 0.444,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.9,
+     "height_cm": 16.4,
+     "depth_m": 0.577,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   2
+  ],
+  "objects": [
+   [
+    332,
+    180,
+    433,
+    330
+   ]
+  ],
+  "seconds": 20.8,
+  "vlm_seconds": 19.2
+ },
+ "1011-13": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned soup",
+   "tomato soup can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "tomato soup can",
+    "score": 0.6952381134033203,
+    "kept": false,
+    "bbox_xyxy": [
+     104,
+     43,
+     291,
+     394
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "tomato soup can",
+    "score": 0.6908212304115295,
+    "kept": true,
+    "bbox_xyxy": [
+     317,
+     201,
+     420,
+     351
+    ]
+   }
+  ],
+  "selected": [
+   2
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.5,
+     "height_cm": 11.0,
+     "depth_m": 0.443,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.9,
+     "height_cm": 22.4,
+     "depth_m": 0.387,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   2
+  ],
+  "objects": [
+   [
+    317,
+    201,
+    420,
+    351
+   ]
+  ],
+  "seconds": 15.1,
+  "vlm_seconds": 13.6
+ },
+ "1011-14": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned soup",
+   "metal can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal can",
+    "score": 0.9609756469726562,
+    "kept": true,
+    "bbox_xyxy": [
+     336,
+     222,
+     425,
+     369
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal can",
+    "score": 0.9064327478408813,
+    "kept": false,
+    "bbox_xyxy": [
+     148,
+     56,
+     294,
+     388
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal can",
+    "score": 0.5395683646202087,
+    "kept": false,
+    "bbox_xyxy": [
+     485,
+     87,
+     606,
+     256
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.6,
+     "height_cm": 10.9,
+     "depth_m": 0.451,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 9.6,
+     "height_cm": 21.9,
+     "depth_m": 0.399,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.6,
+     "height_cm": 10.9,
+     "depth_m": 0.451,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.4,
+     "height_cm": 16.0,
+     "depth_m": 0.572,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    336,
+    222,
+    425,
+    369
+   ]
+  ],
+  "seconds": 21.5,
+  "vlm_seconds": 20.1
+ },
+ "1011-15": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can"
+  ],
+  "candidates": [],
+  "selected": [],
+  "matches": [],
+  "keep": [],
+  "objects": [],
+  "seconds": 5.1,
+  "vlm_seconds": 4.3
+ },
+ "1011-16": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "campbell",
+    "score": 0.5704697966575623,
+    "kept": false,
+    "bbox_xyxy": [
+     357,
+     147,
+     421,
+     183
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "campbell",
+    "score": 0.5428571701049805,
+    "kept": true,
+    "bbox_xyxy": [
+     238,
+     256,
+     295,
+     283
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "campbell",
+    "score": 0.5311355590820312,
+    "kept": false,
+    "bbox_xyxy": [
+     45,
+     166,
+     100,
+     211
+    ]
+   }
+  ],
+  "selected": [
+   2
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 4.0,
+     "height_cm": 1.9,
+     "depth_m": 0.425,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 4.7,
+     "height_cm": 2.6,
+     "depth_m": 0.444,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 4.0,
+     "height_cm": 1.9,
+     "depth_m": 0.425,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.1,
+     "height_cm": 2.6,
+     "depth_m": 0.346,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   2
+  ],
+  "objects": [
+   [
+    238,
+    256,
+    295,
+    283
+   ]
+  ],
+  "seconds": 41.1,
+  "vlm_seconds": 40.3
+ },
+ "1011-17": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned food",
+   "metal food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal food can",
+    "score": 0.96875,
+    "kept": true,
+    "bbox_xyxy": [
+     196,
+     121,
+     297,
+     285
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal food can",
+    "score": 0.9375000596046448,
+    "kept": false,
+    "bbox_xyxy": [
+     30,
+     0,
+     211,
+     315
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal food can",
+    "score": 0.6717948913574219,
+    "kept": false,
+    "bbox_xyxy": [
+     289,
+     27,
+     452,
+     277
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 11.0,
+     "depth_m": 0.406,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.0,
+     "height_cm": 17.4,
+     "depth_m": 0.335,
+     "cut_off": true
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 11.0,
+     "depth_m": 0.406,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 10.6,
+     "height_cm": 16.3,
+     "depth_m": 0.395,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    196,
+    121,
+    297,
+    285
+   ]
+  ],
+  "seconds": 15.0,
+  "vlm_seconds": 13.2
+ },
+ "1011-18": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "small soup can",
+   "canned food container",
+   "metal food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "metal food can",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     105,
+     94,
+     286,
+     427
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "metal food can",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     456,
+     29,
+     560,
+     325
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "metal food can",
+    "score": 0.96875,
+    "kept": true,
+    "bbox_xyxy": [
+     262,
+     239,
+     359,
+     385
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "canned food container",
+    "score": 0.9569892287254333,
+    "kept": false,
+    "bbox_xyxy": [
+     329,
+     145,
+     475,
+     361
+    ]
+   }
+  ],
+  "selected": [
+   3
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.4,
+     "height_cm": 11.2,
+     "depth_m": 0.464,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.9,
+     "height_cm": 22.0,
+     "depth_m": 0.4,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 2,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.4,
+     "height_cm": 11.2,
+     "depth_m": 0.464,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 8.0,
+     "height_cm": 22.7,
+     "depth_m": 0.465,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 7.4,
+     "height_cm": 11.2,
+     "depth_m": 0.464,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 11.1,
+     "height_cm": 16.5,
+     "depth_m": 0.463,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   3
+  ],
+  "objects": [
+   [
+    262,
+    239,
+    359,
+    385
+   ]
+  ],
+  "seconds": 16.0,
+  "vlm_seconds": 14.2
+ },
+ "1018-01": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned food",
+   "food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "food can",
+    "score": 0.9726027250289917,
+    "kept": true,
+    "bbox_xyxy": [
+     224,
+     129,
+     407,
+     431
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "campbell",
+    "score": 0.7104072570800781,
+    "kept": true,
+    "bbox_xyxy": [
+     227,
+     171,
+     400,
+     239
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.1,
+     "height_cm": 10.1,
+     "depth_m": 0.202,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.6,
+     "height_cm": 2.2,
+     "depth_m": 0.197,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   2
+  ],
+  "objects": [
+   [
+    224,
+    129,
+    407,
+    431
+   ]
+  ],
+  "seconds": 26.0,
+  "vlm_seconds": 23.9
+ },
+ "1018-02": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "food can",
+   "metal can",
+   "cylindrical can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "cylindrical can",
+    "score": 0.9804878830909729,
+    "kept": true,
+    "bbox_xyxy": [
+     211,
+     105,
+     375,
+     375
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    211,
+    105,
+    375,
+    375
+   ]
+  ],
+  "seconds": 16.3,
+  "vlm_seconds": 14.9
+ },
+ "1018-03": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "cylindrical can",
+   "soup can",
+   "food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "cylindrical can",
+    "score": 0.9883041381835938,
+    "kept": true,
+    "bbox_xyxy": [
+     212,
+     82,
+     420,
+     417
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    212,
+    82,
+    420,
+    417
+   ]
+  ],
+  "seconds": 15.7,
+  "vlm_seconds": 14.3
+ },
+ "1018-04": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "canned food",
+   "metal soup container"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "canned food",
+    "score": 0.9609756469726562,
+    "kept": true,
+    "bbox_xyxy": [
+     245,
+     95,
+     385,
+     323
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "canned food",
+    "score": 0.949367105960846,
+    "kept": false,
+    "bbox_xyxy": [
+     454,
+     37,
+     616,
+     315
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "canned food",
+    "score": 0.921951174736023,
+    "kept": false,
+    "bbox_xyxy": [
+     16,
+     50,
+     178,
+     304
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.8128654956817627,
+    "kept": false,
+    "bbox_xyxy": [
+     466,
+     189,
+     602,
+     230
+    ]
+   },
+   {
+    "number": 5,
+    "phrase": "campbell",
+    "score": 0.7538461089134216,
+    "kept": true,
+    "bbox_xyxy": [
+     249,
+     141,
+     379,
+     195
+    ]
+   },
+   {
+    "number": 6,
+    "phrase": "campbell",
+    "score": 0.604938268661499,
+    "kept": true,
+    "bbox_xyxy": [
+     276,
+     260,
+     345,
+     281
+    ]
+   },
+   {
+    "number": 7,
+    "phrase": "campbell",
+    "score": 0.5114504098892212,
+    "kept": false,
+    "bbox_xyxy": [
+     20,
+     93,
+     165,
+     194
+    ]
+   }
+  ],
+  "selected": [
+   1,
+   5,
+   6
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.4,
+     "height_cm": 10.4,
+     "depth_m": 0.277,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.9,
+     "height_cm": 11.9,
+     "depth_m": 0.259,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.4,
+     "height_cm": 10.4,
+     "depth_m": 0.277,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 7.5,
+     "height_cm": 11.8,
+     "depth_m": 0.282,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.4,
+     "height_cm": 10.4,
+     "depth_m": 0.277,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.9,
+     "height_cm": 1.8,
+     "depth_m": 0.262,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 7,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.4,
+     "height_cm": 10.4,
+     "depth_m": 0.277,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.6,
+     "height_cm": 4.6,
+     "depth_m": 0.274,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1,
+   5,
+   6
+  ],
+  "objects": [
+   [
+    245,
+    95,
+    385,
+    323
+   ]
+  ],
+  "seconds": 29.3,
+  "vlm_seconds": 27.8
+ },
+ "1018-05": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "tomato can",
+   "canned food can",
+   "food can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "canned food can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     213,
+     170,
+     340,
+     369
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.9726027250289917,
+    "kept": false,
+    "bbox_xyxy": [
+     413,
+     133,
+     543,
+     365
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "food can",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     25,
+     115,
+     159,
+     351
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.827957034111023,
+    "kept": false,
+    "bbox_xyxy": [
+     426,
+     251,
+     537,
+     281
+    ]
+   }
+  ],
+  "selected": [
+   1
+  ],
+  "matches": [
+   {
+    "number": 2,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.5,
+     "height_cm": 10.1,
+     "depth_m": 0.308,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.7,
+     "height_cm": 12.0,
+     "depth_m": 0.312,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.5,
+     "height_cm": 10.1,
+     "depth_m": 0.308,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.7,
+     "height_cm": 11.8,
+     "depth_m": 0.304,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 1,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.5,
+     "height_cm": 10.1,
+     "depth_m": 0.308,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.7,
+     "height_cm": 1.5,
+     "depth_m": 0.31,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   1
+  ],
+  "objects": [
+   [
+    213,
+    170,
+    340,
+    369
+   ]
+  ],
+  "seconds": 19.9,
+  "vlm_seconds": 18.4
+ },
+ "1018-06": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "soup can",
+    "score": 0.6831682920455933,
+    "kept": false,
+    "bbox_xyxy": [
+     465,
+     165,
+     601,
+     421
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "soup can",
+    "score": 0.6831682920455933,
+    "kept": true,
+    "bbox_xyxy": [
+     48,
+     182,
+     204,
+     418
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "soup can",
+    "score": 0.6683937907218933,
+    "kept": false,
+    "bbox_xyxy": [
+     245,
+     162,
+     381,
+     409
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.6167664527893066,
+    "kept": false,
+    "bbox_xyxy": [
+     465,
+     287,
+     521,
+     321
+    ]
+   },
+   {
+    "number": 5,
+    "phrase": "campbell",
+    "score": 0.5747508406639099,
+    "kept": false,
+    "bbox_xyxy": [
+     282,
+     206,
+     366,
+     239
+    ]
+   },
+   {
+    "number": 6,
+    "phrase": "campbell",
+    "score": 0.5311355590820312,
+    "kept": false,
+    "bbox_xyxy": [
+     292,
+     349,
+     322,
+     363
+    ]
+   }
+  ],
+  "selected": [
+   2
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.3,
+     "depth_m": 0.264,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.5,
+     "height_cm": 12.3,
+     "depth_m": 0.291,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.3,
+     "depth_m": 0.264,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.5,
+     "height_cm": 11.8,
+     "depth_m": 0.289,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.3,
+     "depth_m": 0.264,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 2.7,
+     "height_cm": 1.7,
+     "depth_m": 0.297,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 5,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.3,
+     "depth_m": 0.264,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.9,
+     "height_cm": 1.5,
+     "depth_m": 0.283,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 6,
+    "reference": 2,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.8,
+     "height_cm": 10.3,
+     "depth_m": 0.264,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 1.4,
+     "height_cm": 0.7,
+     "depth_m": 0.289,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   2
+  ],
+  "objects": [
+   [
+    48,
+    182,
+    204,
+    418
+   ]
+  ],
+  "seconds": 34.1,
+  "vlm_seconds": 33.4
+ },
+ "1018-07": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can",
+   "food can",
+   "canned soup"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": false,
+    "bbox_xyxy": [
+     448,
+     71,
+     587,
+     326
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     53,
+     98,
+     196,
+     319
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "food can",
+    "score": 0.976608157157898,
+    "kept": true,
+    "bbox_xyxy": [
+     303,
+     111,
+     416,
+     301
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "food can",
+    "score": 0.96875,
+    "kept": false,
+    "bbox_xyxy": [
+     193,
+     61,
+     305,
+     281
+    ]
+   },
+   {
+    "number": 5,
+    "phrase": "campbell",
+    "score": 0.6483516097068787,
+    "kept": false,
+    "bbox_xyxy": [
+     303,
+     241,
+     358,
+     268
+    ]
+   },
+   {
+    "number": 6,
+    "phrase": "campbell",
+    "score": 0.6363636255264282,
+    "kept": false,
+    "bbox_xyxy": [
+     305,
+     138,
+     374,
+     170
+    ]
+   },
+   {
+    "number": 7,
+    "phrase": "campbell",
+    "score": 0.5114504098892212,
+    "kept": false,
+    "bbox_xyxy": [
+     496,
+     116,
+     582,
+     152
+    ]
+   }
+  ],
+  "selected": [
+   3
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.4,
+     "height_cm": 11.8,
+     "depth_m": 0.281,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 2,
+    "reference": 3,
+    "same": true,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.6,
+     "height_cm": 10.3,
+     "depth_m": 0.281,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 4,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.2,
+     "height_cm": 12.1,
+     "depth_m": 0.333,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 5,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.0,
+     "height_cm": 1.5,
+     "depth_m": 0.331,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 6,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.6,
+     "height_cm": 1.7,
+     "depth_m": 0.314,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 7,
+    "reference": 3,
+    "same": false,
+    "reference_size": {
+     "width_cm": 6.0,
+     "height_cm": 10.2,
+     "depth_m": 0.324,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.8,
+     "height_cm": 1.6,
+     "depth_m": 0.271,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   2,
+   3
+  ],
+  "objects": [
+   [
+    53,
+    98,
+    196,
+    319
+   ],
+   [
+    303,
+    111,
+    416,
+    301
+   ]
+  ],
+  "seconds": 61.7,
+  "vlm_seconds": 60.2
+ },
+ "1018-08": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "soup can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "soup can",
+    "score": 0.7697842121124268,
+    "kept": false,
+    "bbox_xyxy": [
+     134,
+     41,
+     270,
+     278
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "soup can",
+    "score": 0.7460317611694336,
+    "kept": false,
+    "bbox_xyxy": [
+     406,
+     27,
+     529,
+     279
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "soup can",
+    "score": 0.7299578189849854,
+    "kept": true,
+    "bbox_xyxy": [
+     98,
+     77,
+     156,
+     249
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "soup can",
+    "score": 0.6952381134033203,
+    "kept": true,
+    "bbox_xyxy": [
+     260,
+     75,
+     318,
+     245
+    ]
+   },
+   {
+    "number": 5,
+    "phrase": "campbell",
+    "score": 0.507692277431488,
+    "kept": false,
+    "bbox_xyxy": [
+     450,
+     71,
+     525,
+     112
+    ]
+   }
+  ],
+  "selected": [
+   4
+  ],
+  "matches": [
+   {
+    "number": 1,
+    "reference": 4,
+    "same": false,
+    "reference_size": {
+     "width_cm": 3.6,
+     "height_cm": 10.5,
+     "depth_m": 0.375,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 6.9,
+     "height_cm": 12.1,
+     "depth_m": 0.308,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 2,
+    "reference": 4,
+    "same": false,
+    "reference_size": {
+     "width_cm": 3.6,
+     "height_cm": 10.5,
+     "depth_m": 0.375,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 5.9,
+     "height_cm": 12.1,
+     "depth_m": 0.291,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 3,
+    "reference": 4,
+    "same": true,
+    "reference_size": {
+     "width_cm": 3.6,
+     "height_cm": 10.5,
+     "depth_m": 0.375,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.5,
+     "height_cm": 10.5,
+     "depth_m": 0.371,
+     "cut_off": false
+    }
+   },
+   {
+    "number": 5,
+    "reference": 4,
+    "same": false,
+    "reference_size": {
+     "width_cm": 3.6,
+     "height_cm": 10.5,
+     "depth_m": 0.375,
+     "cut_off": false
+    },
+    "size": {
+     "width_cm": 3.5,
+     "height_cm": 1.9,
+     "depth_m": 0.28,
+     "cut_off": false
+    }
+   }
+  ],
+  "keep": [
+   3,
+   4
+  ],
+  "objects": [
+   [
+    98,
+    77,
+    156,
+    249
+   ],
+   [
+    260,
+    75,
+    318,
+    245
+   ]
+  ],
+  "seconds": 26.5,
+  "vlm_seconds": 25.8
+ },
+ "1018-09": {
+  "prompt": "campbell",
+  "phrases": [
+   "campbell",
+   "beverage can",
+   "aluminum can",
+   "drink can"
+  ],
+  "candidates": [
+   {
+    "number": 1,
+    "phrase": "drink can",
+    "score": 0.9298245906829834,
+    "kept": false,
+    "bbox_xyxy": [
+     380,
+     84,
+     517,
+     332
+    ]
+   },
+   {
+    "number": 2,
+    "phrase": "drink can",
+    "score": 0.9259259104728699,
+    "kept": false,
+    "bbox_xyxy": [
+     172,
+     71,
+     307,
+     329
+    ]
+   },
+   {
+    "number": 3,
+    "phrase": "campbell",
+    "score": 0.5508772134780884,
+    "kept": false,
+    "bbox_xyxy": [
+     441,
+     130,
+     516,
+     163
+    ]
+   },
+   {
+    "number": 4,
+    "phrase": "campbell",
+    "score": 0.5,
+    "kept": false,
+    "bbox_xyxy": [
+     458,
+     276,
+     489,
+     288
+    ]
+   }
+  ],
+  "selected": [],
+  "matches": [],
+  "keep": [],
+  "objects": [],
+  "seconds": 14.5,
+  "vlm_seconds": 13.1
+ }
+}

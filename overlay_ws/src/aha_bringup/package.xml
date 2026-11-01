@@ -9,6 +9,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>aha_description</exec_depend>
+  <exec_depend>aha_arm_teleop</exec_depend>
+  <exec_depend>astra_controller</exec_depend>
   <exec_depend>aha_gazebo</exec_depend>
   <exec_depend>aha_navigation</exec_depend>
   <exec_depend>aha_manipulation</exec_depend>
@@ -21,7 +23,14 @@
   <exec_depend>diff_drive_controller</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>forward_command_controller</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
+  <exec_depend>ros2bag</exec_depend>
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

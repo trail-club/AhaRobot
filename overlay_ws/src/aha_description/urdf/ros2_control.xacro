@@ -2,11 +2,10 @@
 <!--
   ros2_control block for AhaRobot.
 
-  Design note:
-    Upstream joint <limit> tags are all effort=0 velocity=0. We do NOT patch
-    those in the URDF (would require rewriting the upstream file). Instead we
-    enforce real limits at the controller layer via config/joint_limits.yaml
-    (loaded by joint_limits_interface).
+  Joint limits:
+    Upstream joint <limit> tags are all effort=0 velocity=0. At build time,
+    scripts/patch_limits.py writes urdf/astra_description_patched.urdf into
+    the install tree. aha_robot.urdf.xacro includes that generated copy.
 
   Joints exposed to controllers:
     - drive: left_wheel_joint, right_wheel_joint         (velocity)
@@ -20,10 +19,14 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="pos_joint" params="name">
+  <xacro:macro name="pos_joint" params="name initial:=0.0">
     <joint name="${name}">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <xacro:if value="${float(initial) > 0.0}">
+          <param name="initial_value">${initial}</param>
+        </xacro:if>
+      </state_interface>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
@@ -55,8 +58,8 @@
       <xacro:vel_joint name="right_wheel_joint"/>
 
       <!-- Lift (left + right; treated as 2 DoF for now) -->
-      <xacro:pos_joint name="joint_l1"/>
-      <xacro:pos_joint name="joint_r1"/>
+      <xacro:pos_joint name="joint_l1" initial="$(arg initial_lift)"/>
+      <xacro:pos_joint name="joint_r1" initial="$(arg initial_lift)"/>
 
       <!-- Left arm -->
       <xacro:pos_joint name="joint_l2"/>

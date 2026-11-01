@@ -1,99 +1,379 @@
-# AhaRobot 班間 Interface ガイド
+# ROSインターフェース
 
-navigation / manipulation / perception 3班が並行開発するときの **共有メモ**。
-「まず参照する場所」を決めておくのが目的で、厳密なルールではない。
-食い違いが出たら Issue か Slack で相談し、決まったらここを更新する。
+標準シミュレーション、頭部カメラ、人の認識、実機の頭部・アームの入出力。controller設定は
+[controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
-- 対象: ROS 2 Jazzy
-- 適用: `overlay_ws/src/aha_*`
+## Controller
 
----
+| 名前 | 種類 |
+| --- | --- |
+| `joint_state_broadcaster` | JointStateBroadcaster |
+| `diff_drive_controller` | DiffDriveController |
+| `left_arm_controller` / `right_arm_controller` | JointTrajectoryController |
+| `lift_controller` / `head_controller` | JointTrajectoryController |
+| `left_gripper_controller` / `right_gripper_controller` | ForwardCommandController（position） |
 
-## 1. TF Tree（想定）
+`controller_manager` の更新周期は100 Hz。odom frameは `odom`、base frameは `base_footprint`。
+ロボットのlink / joint定義は [URDF](../overlay_ws/src/aha_description/urdf/aha_robot.urdf.xacro)を参照。
+`/clock` はGazeboからROSへbridgeする。
 
-```
-map
- └── odom                       ← nav 系 (slam_toolbox / amcl)
-      └── base_footprint        ← EKF or ground truth
-           └── base_link        ← URDF fixed
-                ├── left_wheel_link, right_wheel_link, caster_link
-                ├── (arm chain) link_l1..l7 / link_r1..r7
-                ├── head_pan_link → head_tilt_link
-                │    └── camera_link
-                │         └── camera_optical_frame   ← REP-103 optical
-                └── (lidar_link) ← 実機搭載時
-```
+## シミュレーションの入出力
 
-REP-105 / REP-103 に沿った命名を基本にする。新しい frame を足したくなったら
-`aha_description/urdf/` に入れて、ここにも追記する（できれば）。
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| ベース速度指令 | `/diff_drive_controller/cmd_vel` | `geometry_msgs/msg/TwistStamped` |
+| 車輪odom | `/diff_drive_controller/odom` | `nav_msgs/msg/Odometry` |
+| 関節状態 | `/joint_states` | `sensor_msgs/msg/JointState` |
+| シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock` |
+| TF | `/tf` / `/tf_static` | `tf2_msgs/msg/TFMessage` |
+| 軌道指令 | `/<controller>/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 軌道action | `/<controller>/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| グリッパ位置指令 | `/left_gripper_controller/commands` / `/right_gripper_controller/commands` | `std_msgs/msg/Float64MultiArray` |
 
-## 2. Topic 命名の目安
+軌道の `<controller>` は `left_arm_controller` / `right_arm_controller` / `lift_controller` /
+`head_controller`。関節配列の名前・順序は `controllers.yaml` に従う。
+`lift_controller` は部分関節goalも受け付け、指定しない軸を保持する。
+グリッパは同ファイルの2関節の順序で位置を指定する。
+`teleop_base.sh` はteleopの `/cmd_vel` を速度指令topicへremapする。
 
-| 用途 | Topic | Type |
-|---|---|---|
-| 速度指令 | `/cmd_vel` | `geometry_msgs/TwistStamped`（Nav2 Jazzy 標準） |
-| Wheel odom | `/odom` | `nav_msgs/Odometry` |
-| Joint状態 | `/joint_states` | `sensor_msgs/JointState` |
-| LiDAR | `/scan` | `sensor_msgs/LaserScan` |
-| RGB | `/camera/color/image_raw` | `sensor_msgs/Image` |
-| Depth | `/camera/depth/image_rect_raw` | `sensor_msgs/Image` |
-| Camera info | `/camera/color/camera_info` | `sensor_msgs/CameraInfo` |
-| Map | `/map` | `nav_msgs/OccupancyGrid` |
-| 検出物体 | `/aha/perception/objects` | `aha_msgs/DetectedObjectArray` |
-| 検出人物 | `/aha/perception/people` | `aha_msgs/DetectedObjectArray` |
-| 音声認識結果 | `/aha/perception/audio/transcript` | `aha_msgs/SpeechTranscript` |
-| TTS 発話中 | `/aha/perception/audio/tts_active` | `std_msgs/Bool` |
+標準launchに `/cmd_vel` / `/odom` へのremapや `map` frameの配信はない。
+`sim.launch.py world_tf:=true`（既定 `false`）は初期位置（`spawn_x` / `spawn_y` / `spawn_yaw`）から
+`world` → `odom`（`use_nav:=true` では `world` → `map`）の静的TFを配信する。`odom` の原点は初期位置の床（`map` はslam_toolboxの起動時の `odom`）とみなす。
 
-- 生 sensor は vendor 標準寄せ (`/camera/*`, `/scan`, `/imu/*`)
-- 班固有の内部/デバッグ topic は `/aha/<squad>/*` に置くと衝突しにくい
+## タスク評価
 
-## 3. Action / Service（現時点の想定）
+[aha_sim_tasks](../overlay_ws/src/aha_sim_tasks/README.md) はepisodeごとに独立したGazebo partitionで
+シミュレーションを起動する。通常のpolicyと評価用のROS domainは別々だが、それぞれ全episode共通。
+policyは別プロセス・別Gazebo partitionで動き、
+通常は観測とActionだけをIPCで交換する。既存controllerへの指令は評価側のROS adapterが配信するため、
+標準シミュレーションのtopic / frameは変更しない。評価用topicをpolicy側のdomainへbridgeしない。
+domain設定・policy API・分離の保証範囲はパッケージのREADMEを参照。
 
-| 名前 | Type | 用途 |
-|---|---|---|
-| `navigate_to_pose` | `nav2_msgs/action/NavigateToPose` | Nav2 標準 |
-| `set_nav_goal` | `aha_msgs/srv/SetNavGoal` | 上位タスクからの薄いラッパ |
-| `pick_object` | `aha_msgs/action/PickObject` | 掴む一連の動作 |
-| `move_group` | `moveit_msgs/action/MoveGroup` | MoveIt 標準 |
-| `/aha/perception/audio/listen` | `aha_msgs/action/Listen` | 次の発話を 1 つ聞いて文字起こし（言語・ホットワード指定可） |
-| `/aha/perception/audio/speak` | `aha_msgs/action/Speak` | 英語テキストを読み上げ（cancel 可） |
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
+| 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
+| step実行時のGazebo制御 | `/world/<world>/control`（`task_tables`、Doing Laundryは `laundry_room`） | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+| episode開始の合図（Doing Laundryのアリーナドアを開く） | `/evaluation/start` | `std_msgs/msg/Empty`（Gazebo `gz.msgs.Empty` へbridge） |
+| Gazebo GUIの衣類表示（Doing Laundry） | `/marker`（namespace `aha_laundry`） | Gazebo Transport service: `gz.msgs.Marker` → `gz.msgs.Empty` |
 
-音声認識の言語切り替えは `aha_audio_asr` の parameter `language`（`ja` / `en`）。TTS は英語のみ。
-詳細は [`overlay_ws/src/aha_perception/docs/audio.md`](../overlay_ws/src/aha_perception/docs/audio.md)。
+`--step-duration` 使用時は評価側だけがworld controlを呼び、推論中にpauseし、
+Actionを100 msごとのphysics実行に適用する。policyのObservation / Action型やROS topicは共通。
+Codexへの観測変換・判断ログと実行方法は [policy評価](../overlay_ws/src/aha_sim_tasks/README.md#codexによるpolicy評価)を参照。
+評価側の全カメラのRGB・深度・CameraInfo購読はbridgeと同じreliable（履歴10）とし、
+pauseや動画記録の負荷がある場合も同一stampの組を受け取る。
 
-## 4. Frame ID 命名
+`/evaluation/state` は1つのJSONに `schema_version: 2`、`frame_id: "world"`、
+`stamp` / `contact_window_start`（それぞれ整数の `sec` / `nanosec`）、
+`robot_pose`（world x / y / yaw）、`object_position`（world x / y / z）、
+`object_orientation`（qx / qy / qz / qw）、`finger_contacts`（0 / 1 / 2）、
+`simultaneous_grasp`（窓内の同じphysics stepで両指接触）、
+`destination_contact`（窓内に配置先の天板へ接触）を持つ。物体位置は衝突形状中心へ揃えたlink原点。
+poseと接触数を別topicから組み合わせない。adapterは旧schema 1も読めるが、配置先接触がないため汎用placeの成功には使えない。
+`environment.launch.py ground_truth:=true` のときだけ、同じサンプルに
+`ground_truth.robot_world_pose`（URDF rootの `base_footprint` のworld姿勢、x / y / z / qx / qy / qz / qw）と
+`ground_truth.joint_positions`（Gazebo physicsの関節名→位置、m / rad）を追加する。
+既定は `false` で、通常の評価stateにこの追加情報はない。
+指接触数は直前の50 ms窓内に対象物体へ接触した右グリッパの指の数。
+窓内の和集合とholdの意味は [Grasp model](../overlay_ws/src/aha_sim_tasks/README.md#grasp-model) を参照。
+姿勢・時刻は窓の終端で、成功判定はこのstateの `stamp` を使う。
+重複・逆順のstateは速度履歴とfreshnessも更新しない。
+pickは同時の両指接触と天板からの持ち上げ、placeのreleaseは0本の接触で判定する。
+角速度は連続する物体quaternionから求める。物体の全collisionを接触集計に含める。
+この観測系は物体の運動を変更しない。通常のpolicyには `/joint_states`、車輪odom、シミュレーション時刻、
+タスクID・言語指示を渡す。既定では頭部RGB-D・左右の手首RGBカメラを描画し、画像・校正・画像時刻のbase_linkからのTFを
+policyへ渡す。`--no-cameras` で描画とカメラ観測を除く。外部の画像topicは
+`--head-image-topic` の指定時のみsensor-data QoSで購読する。このとき内蔵カメラは無効になり、
+`--cameras` との併用はエラーになる。
+world poseの座標はworld、通常のpolicyのodom座標は `odom`。
+真値IK評価では、評価側がphysics関節位置と同じstampの
+`/evaluation/joint_states`（`sensor_msgs/msg/JointState`、20 Hz）を配信する。
+MoveItの状態入力はこのtopicへremapする。
+MoveItへ渡す状態のみ、関節下限・上限の外にあるGazeboの物理限界（0.005 m / rad外側）と
+その数値誤差までの値を境界へ補正する。
+IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
+真値policyの観測・実行・制約は
+[Pick with ground-truth IK](../overlay_ws/src/aha_sim_tasks/README.md#pick-with-ground-truth-ik) を参照。
+Doing Laundryの `/evaluation/state` は `schema_version: 3`、`task: "laundry"`、`frame_id: "world"`、`stamp` と、
+`robot_pose`（world x / y / yaw、ロボット生成前は `null`）、`started` / `start_time`、
+`washer_door_angle` / `arena_door_angle`（rad）、`basket_pose`（x / y / z / qx / qy / qz / qw）、
+`grippers`（左右の指パッド間隔 `gap`、閉判定 `closed`、保持粒子数 `particles`、パッド中心 `center`）、
+`garments`、`stacks` を持つ。`garments` の各要素は `id`、初期位置 `origin`（`washer` / `basket` / `table`）、
+粒子の割合 `fractions`（ドラム内・かご内・机上・床）、直前の窓での床接触 `touched_floor`、
+グリッパごとの保持粒子数 `held_by`、接触相手 `contacts`、粒子の平均速度 `speed`、中心、机上で静止したときの形状 `fold` を含む。
+`stacks` は机上の衣類どうしの重なり（`below` / `above` / `overlap`）。採点の定義はパッケージのREADMEを参照。
+このstateは衣類・家具を動かさない。評価側が送る `/evaluation/start` はアリーナドアだけを開く。
+評価はcontrollerの速度・関節位置指令を発行する。
+評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。
+標準launchの `bridge_clock` は既定で `true`。
 
-- `map` / `odom` / `base_footprint` / `base_link` — REP-105
-- カメラ: `<camera>_link`（機械的）/ `<camera>_optical_frame`（光学系, REP-103）
-- 検出結果は原則 `camera_optical_frame` で出す。map/base_link への変換は consumer 側で TF
+## MoveIt
 
-## 5. QoS の目安
+`sim.launch.py use_manip:=true` で [aha_manipulation](../overlay_ws/src/aha_manipulation/README.md) が起動する。
+モデルframeは `base_footprint`、右腕groupは `right_arm`、IK/FKのtipは `link_ree`。
 
-- **sensor_data**: `BEST_EFFORT`, `KEEP_LAST(5)` — image / depth / scan / odom / joint_states
-- **reliable**: `RELIABLE`, `KEEP_LAST(10)` — cmd_vel, detections, service response
-- **transient_local**: latch — map, static_tf, camera_info
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| IK | `/compute_ik` | `moveit_msgs/srv/GetPositionIK` |
+| FK | `/compute_fk` | `moveit_msgs/srv/GetPositionFK` |
+| 計画・軌道実行 | `/move_action` | `moveit_msgs/action/MoveGroup` |
+| Planning sceneの取得・更新 | `/get_planning_scene` / `/apply_planning_scene` | `moveit_msgs/srv/GetPlanningScene` / `ApplyPlanningScene` |
+| 監視用planning scene | `/monitored_planning_scene` | `moveit_msgs/msg/PlanningScene` |
+| 計画した軌道 | `/display_planned_path` | `moveit_msgs/msg/DisplayTrajectory` |
+| MoveIt用の関節状態 | `/aha/manipulation/joint_states` | `sensor_msgs/msg/JointState` |
+| 手先目標と誤差の表示 | `/aha/manipulation/eef_goal/markers` | `visualization_msgs/msg/MarkerArray` |
 
-subscriber 側で publisher に合わせる。詰まったら `ros2 topic info -v` で確認。
+状態入力は既定で `/joint_states`。`manip_joint_states_topic` で変更できる。
+move_groupとRVizは、この入力の関節限界の外 `limit_tolerance`（既定1e-6 m / rad）以内の値を限界へ補正した
+`/aha/manipulation/joint_states` を読む。
+`sim.launch.py` はGazeboの物理限界までを補正する値（`aha_gazebo.model.LIMIT_TOLERANCE`）を渡す。
+実行先は `/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory`。
+同じcontrollerへのtopic指令とMoveItのaction実行を同時に行わない。
 
-## 6. Node / パラメータ命名の目安
+## SLAM（シミュレーションのみ）
 
-- 班 node は `aha_<squad>_<機能>` にすると grep しやすい
-  - 例: `aha_nav_docking`, `aha_perception_yolo`, `aha_manip_pick_server`
+`sim.launch.py use_nav:=true` で [aha_navigation](../overlay_ws/src/aha_navigation/README.md) が起動する。
+`use_nav:=false`（既定）では `/scan` のbridge、`/map`、`map` frameはない。
 
-## 7. Launch 統合ポイント
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 2D LiDAR（frame `laser_link`、10 Hz） | `/scan` | `sensor_msgs/msg/LaserScan` |
+| 占有格子地図 | `/map` | `nav_msgs/msg/OccupancyGrid` |
 
-`aha_bringup/launch/sim.launch.py` から各班の launch を include する形を想定:
+slam_toolboxは `/scan` と `odom` → `base_footprint` から `map` → `odom` のTFを配信する。
+LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）には含まれない。
 
-```python
-IncludeLaunchDescription(...aha_navigation/launch/nav2.launch.py, condition=IfCondition(use_nav))
-IncludeLaunchDescription(...aha_manipulation/launch/move_group.launch.py, condition=IfCondition(use_manip))
-IncludeLaunchDescription(...aha_perception/launch/detection.launch.py, condition=IfCondition(use_perception))
-```
+## 固定地図のnavigation（シミュレーションのみ）
 
-launch arg: `use_nav`, `use_manip`, `use_perception`（デフォルト false）。
+[localized_nav.launch.py](../overlay_ws/src/aha_navigation/README.md#固定地図での移動シミュレーションのみ)はSLAMの代わりに
+map_serverが `/map`、AMCLが `map → odom` を配信する。SLAMと同時に起動しない。
+Nav2は `/diff_drive_controller/odom` を読み、`/diff_drive_controller/cmd_vel`（TwistStamped）へ送信するため、
+teleopなどから同時に速度指令を送らない。ゴールは `/navigate_to_pose`（`nav2_msgs/action/NavigateToPose`、frame `map`）。
 
-## 8. 変更するとき
+## サブゴールタスクの実行
 
-- topic 名 / msg フィールド / frame 名を変える時は、他班の影響が出やすいので一言相談する
-- 決まったらこのドキュメントを更新
-- 既存名を消すときは、しばらく alias を残せると安全
+[aha_tasks](../overlay_ws/src/aha_tasks/README.md)の `task_runner` が提供する。runnerはロボット1台につき1つ。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| タスクの状態 | `/aha/tasks/status` | `std_msgs/msg/String`（JSON） |
+| 実行の操作 | `/aha/tasks/command` | `aha_msgs/srv/TaskCommand` |
+| 地点の表示（frame `map`） | `/aha/tasks/locations` | `visualization_msgs/msg/MarkerArray` |
+| Web GUI（`task_monitor`） | `http://localhost:8765/` | HTTP |
+
+topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
+形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
+GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
+
+## 頭部カメラ
+
+| Topic | 型 |
+| --- | --- |
+| `/camera/color/image_raw` | `sensor_msgs/msg/Image`（rgb8） |
+| `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image`（32FC1のm、RealSenseドライバでは16UC1のmm） |
+| `/camera/depth/points` | `sensor_msgs/msg/PointCloud2` |
+| `/camera/imu` | `sensor_msgs/msg/Imu`（RealSenseドライバのみ、accel・gyro、`camera_imu_optical_frame`） |
+
+| 経路 | 起動 | 上3topicの配信元 |
+| --- | --- | --- |
+| シミュレーション | `sim.launch.py use_perception:=true` | Gazeboの `rgbd_camera`（640×480、15 Hz）を `ros_gz_bridge` で変換 |
+| 実機カメラ | [カメラツール](../tools/perception/macos/pointcloud/README.md)、`camera_view.launch.py` | `stream_realsense.py` からrosbridge経由 |
+| 実機の頭部とカメラ | `real_head_camera.launch.py camera:=true` | 同上 |
+| 実機（RealSenseドライバ） | `real_head_camera.launch.py camera:=true camera_source:=realsense`、`camera_view.launch.py camera_source:=realsense`、`realsense.launch.py` | `realsense2_camera_node`（既定640×480、15 fps） |
+
+シミュレーションで `depth_noise:=d435i_filtered`（または `d435i_raw`）を付けると、bridgeのDepthは
+`/camera/depth_registered/image_rect_clean` に出て、`sim_depth_noise.py` が実機D435i相当のノイズを加えた
+`/camera/depth_registered/image_rect` を配信する（[Depthノイズ](../overlay_ws/src/aha_perception/README.md#depthノイズ)）。
+`/camera/depth/points` はどの経路も [pointcloud.launch.py](../overlay_ws/src/aha_perception/launch/pointcloud.launch.py)
+の `depth_image_proc` が生成する。`/camera/imu` 以外のtopicは `camera_color_optical_frame` を使い、
+RGB・CameraInfo・RGBへ位置合わせしたDepthは同じ時刻を持つ。
+`stream_realsense.py` の3topicがrosbridgeへ要求するQoSはRELIABLE / VOLATILE / KEEP_LAST(5)。
+RealSenseドライバは位置合わせしたDepthのCameraInfoを `/camera/depth_registered/camera_info` にも出し、
+`/camera/depth/image_rect_raw` など位置合わせ前のtopicも出す（`publish_tf` は無効、赤外線は配信しない）。
+
+TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固定joint）で、
+`robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
+取付位置は [頭部ブラケット](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)の設計値。
+
+## 手首カメラ（シミュレーション）
+
+| Topic | 型 | frame |
+| --- | --- | --- |
+| `/camera/left_wrist/image_raw` | `sensor_msgs/msg/Image`（rgb8） | `left_wrist_camera_optical_frame` |
+| `/camera/left_wrist/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
+| `/camera/right_wrist/image_raw` | `sensor_msgs/msg/Image`（rgb8） | `right_wrist_camera_optical_frame` |
+| `/camera/right_wrist/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
+
+両カメラは640×480、15 Hz。画像とCameraInfoは同じ時刻・optical frameを持つ。
+TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
+`{left,right}_wrist_camera_optical_frame`（固定joint）で、robot_state_publisherが配信する。
+既存の手首カメラ部品のCAD配置に合わせ、グリッパ上側のレンズ位置を使う。
+取付位置・光学特性・表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
+実機のURDFには手首カメラはない。
+
+`sim.launch.py use_perception:=true` またはタスク評価の既定設定で
+`camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
+シミュレーションの頭部3topicはRELIABLE / VOLATILE / KEEP_LAST(10)、
+手首の画像・CameraInfoはreliable（RELIABLE / VOLATILE / KEEP_LAST(10)）。
+既存のsensor-data QoSの購読とも互換性がある。
+`sim.launch.py cameras:=false` / 評価の `--no-cameras` は全カメラセンサを除く。
+
+## 頭部の注視
+
+`sim_view.launch.py`（`use_perception:=true` と `real_head_camera.launch.py` の既定 `rviz:=true` で起動）の
+`head_look_at.py` が扱う。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 注視点の指令（任意のframe） | `/aha/perception/look_at` | `geometry_msgs/msg/PointStamped` |
+| 注視点と視線の表示 | `/aha/perception/look_at/markers` | `visualization_msgs/msg/MarkerArray` |
+
+`head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
+RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
+
+## 平面検出
+
+`plane_detection.launch.py`（`perception.launch.py` / `real_head_camera.launch.py` の `planes:=true` で起動）の
+`plane_detection_node.py` が扱う。設定は [aha_perception](../overlay_ws/src/aha_perception/README.md#平面検出のノード)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 入力Depth（32FC1 m / 16UC1 mm） | `/camera/depth_registered/image_rect` | `sensor_msgs/msg/Image` |
+| 入力の内部パラメータ | `/camera/color/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| 平面（法線・オフセット・重心・凸包・ラベル） | `/aha/perception/planes` | `aha_msgs/msg/PlaneArray` |
+| 平面のインライア点（x, y, z, rgb） | `/aha/perception/planes/cloud` | `sensor_msgs/msg/PointCloud2` |
+| 平面の凸包とラベル | `/aha/perception/planes/markers` | `visualization_msgs/msg/MarkerArray` |
+| 追跡した面（ID・ラベル・段・平面） | `/aha/perception/surfaces` | `aha_msgs/msg/SurfaceArray` |
+| 置き場所の候補（service） | `/aha/perception/get_place_candidates` | `aha_msgs/srv/GetPlaceCandidates` |
+| 置き場所の候補と障害物の表示（service呼び出し時） | `/aha/perception/place/markers` | `visualization_msgs/msg/MarkerArray` |
+| 家具の段の表示（`furniture_config` の指定時のみ、transient local） | `/aha/perception/furniture/markers` | `visualization_msgs/msg/MarkerArray` |
+
+入力はbest effortで購読し、出力はRELIABLE。出力のframeは `base_footprint`（パラメータ `target_frame`）、
+時刻は入力Depthの時刻。Depthのframe（`camera_color_optical_frame`）から `base_footprint` へのTFを使う。
+出力する平面は水平面と壁（ラベル `wall`）だけ。`Plane.id` は同じ検出の `PlaneArray` 内の番号。
+家具の段に対応した面の平面は、凸包を家具の設定の外形（`furniture_clip_margin` 広げた範囲）で切り取って出す（重心・高さは切り取る前の値で、凸包の外になることがある）。
+`surfaces` は検出ごとに、`odom`（パラメータ `tracking_frame`、TFがない間は `base_footprint`）で追跡した全ての面を `id` 順に出す。`odom` で追跡を始めた後にTFが取れない検出では、面を更新せず `surfaces` も出さない。
+`Surface.id` は検出をまたいで同じ面を指し、再利用しない（同じ面と分かった2つの面は古いIDにまとめる）。
+視野外の面も残し（`visible` false）、`plane` は `tracking_frame` での平滑化した平面（`plane.id` = `id`）。
+`object_categories` は今は空。追跡の規則は [aha_perception](../overlay_ws/src/aha_perception/README.md#面の追跡)を参照。
+`furniture` / `furniture_level` は家具の設定（パラメータ `furniture_config`、[家具の設定](../overlay_ws/src/aha_perception/README.md#家具の設定)）で
+その面が対応した家具の名前と段（1が設定の一番下の段）。対応しない面・設定なしでは空 / 0。
+対応には `tracking_frame` から設定のframeへのTFを使い、TFがない間は対応しない。
+`planes/cloud` は面のID（`Surface.id`）ごとに色分けしたインライア点（追跡前の平面は灰色）。
+`planes/markers` はDELETEALLの後、平面ごとに凸包（ns `hull`）と文字（ns `label`、面のIDと、水平面は床からの高さ、壁は面積）を出す。
+`place/markers` はservice呼び出しごとにDELETEALLの後、候補ごとに clearance を半径とする円盤（ns `clearance`）と
+中心の球（ns `center`）を、障害物ごとに箱（ns `obstacle`）を、要求の除外領域（`exclude_regions`）ごとに箱（ns `exclude`）を出す。順位は出さない（試す順は呼び出し側が決める）。
+`furniture/markers` は起動時に1回、設定のframeで段ごとに家具の外形の長方形（ns `level`）と `<名前> <段>` の文字（ns `label`）を出す。
+
+`get_place_candidates` は最新の検出（`max_detection_age` 3 s以内、wall clock）で、
+`object_size`（x, y の底面と高さ z、m）の物体を置ける面上の点を返す。
+`surface_labels` が空なら机と棚板、`near` の `frame_id` が空でなければ検出の時刻のTF（なければ最新）で `base_footprint` へ変換し、その点に近い順に並べる（`approach_from` も同じ）。
+`restrict_height` がtrueなら、高さが `surface_height`（`base_footprint` のz）から `height_tolerance`（0以下は0.03 m）以内の支持面だけを使う。
+`exclude_regions`（`aha_msgs/PlaceObstacle` の箱、検出の時刻の `base_footprint` として扱う、`plane_id` は無視）の中とカメラから見てその後ろの点は
+候補にも障害物の箱にも使わず、その下の支持面（物体の高さまで）は見えていないものとする。
+`surface_ids` が空でなければ、最新の検出でその `Surface.id` に対応した平面だけを支持面にし、`surface_labels` が空ならラベルで絞らない。
+`furniture` が空でなければ、最新の検出でその家具の `furniture_level`（0は物体の高さが入るすべての段）に対応した面だけを支持面にする
+（`surface_ids` もあれば両方に含まれる面、ラベルの扱いは `surface_ids` と同じ）。
+`clearance`（m）は候補の物体の底面（外接円、`approach_from` があれば置く向きの長方形）と障害物の間に `obstacle_margin` に加えて空ける距離で、支持面の縁までの距離は変えない。
+`approach_from`（空なら外接円）と `yaw_offsets` は置く向きで、候補は `oriented` とその向きの `pose` を返す。
+`pose` の姿勢はz軸が面の法線、x軸が面内で `oriented` なら確かめた物体の向き、そうでなければ向き0（`base_footprint` のx方向）を向く。
+応答の `view_point` は要求した段の上面の中心（段0では段の高さの平均）を設定から求めて `tracking_frame` で表した点
+（TFがなければ `base_footprint`、家具の指定がないかTFがなければ `frame_id` が空）。段が見えていない場合に頭を向ける先に使う。
+候補の `pose` は検出の時刻（`stamp`）の `base_footprint` で、その後に台車が動いた場合は `stamp` のTFで変換する。
+`plane_id` は同じ検出の `Plane.id`（`/aha/perception/planes` の同じ時刻のメッセージと共通）、
+`surface_id` はその面の `Surface.id`（まだIDがなければ0）、`planes` は候補を探した支持面、`stamp` は使った検出のDepthの時刻。
+`obstacles` は検出のすべての支持面（ラベル・高さ・IDの指定によらない、床を除く）の上の物体の箱（`aha_msgs/PlaceObstacle`、`base_footprint`）で、
+`plane_id` の支持面は `planes` に含まれないことがある（`/aha/perception/planes` の同じ時刻のメッセージにはある）。
+家具の段に対応した面の箱は切り取る前の凸包で作るため、`planes` の凸包から外にはみ出すことがある。
+検出がない・古い・引数やTFが不正、家具の設定がない・家具や段が設定にない場合は `success` がfalseで `status` が `STATUS_ERROR`。
+それ以外は `success` がtrueで、合う支持面がない（`surface_ids` の面や家具の段が最新の検出にない場合、合う平面に有効な点が3点未満の場合を含む）と `STATUS_NO_SURFACE`、
+置ける場所がない（物体の高さ `object_size.z` が段の上の空き（次の段の高さ − 板の厚さ − 段の高さ）を超える場合を含む。
+家具を指定しない要求でも、段に対応した面では空きから面の高さの誤差を引いた高さを超える物体は置けない）と
+`STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
+呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
+
+## 物体検出（シミュレーションのみ）
+
+`perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
+`sim_object_detector.py` がGazeboの真の姿勢から頭部カメラに見える物体を出す。実機の物体検出器はまだない。
+判定・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)を参照。
+
+| 用途 | Topic | 型 |
+| --- | --- | --- |
+| 検出した物体（ラベル・track ID・姿勢・大きさ） | `/aha/perception/objects` | `aha_msgs/msg/DetectedObjectArray` |
+
+frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`）、時刻は判定に使ったDepthの時刻、2 Hz以下（RELIABLE）。
+`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
+`pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
+
+## 人の認識
+
+[people.launch.py](../overlay_ws/src/aha_perception/README.md#人の認識)の `person_perception.py` が扱う。
+入力は頭部カメラの3 topic（色・位置合わせ済みDepth・CameraInfo、同じ時刻の組）で、RELIABLEで購読する（パラメータ `reliable: false` でbest effort）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 追跡中の人 | `/aha/perception/people` | `aha_msgs/msg/PersonArray` |
+| 人の表示 | `/aha/perception/people/markers` | `visualization_msgs/msg/MarkerArray` |
+| 外見を名前で覚える | `/aha/perception/remember_person` | `aha_msgs/srv/RememberPerson` |
+| 外見の特徴（VLM） | `/aha/perception/describe_person` | `aha_msgs/srv/DescribePerson` |
+
+`PersonArray` は処理した画像ごとに、追跡中の全員を配信する。`header.frame_id` は `target_frame`（既定 `map`）、`header.stamp` は画像の時刻。
+各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
+`id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
+名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+
+## 音声
+
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 音声認識結果 | `/aha/perception/audio/transcript` | `aha_msgs/msg/SpeechTranscript` |
+| TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
+| 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
+| 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+
+音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`）。TTSは英語のみ。
+
+## 実機の頭部
+
+`real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の
+`servo_trajectory_bridge.py` で、シミュレーションと同じ名前・型の `/head_controller/joint_trajectory` と
+`/head_controller/follow_joint_trajectory` を提供する。
+頭の関節状態は `/head_controller/joint_states` から、腕とグリッパは `arms.launch.py` の `/<side>/arm/joint_states` から、
+`joint_state_publisher` が `/joint_states` へ合流させる。それ以外の関節と、`arms.launch.py` を起動していない腕は0を配信する。シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+サーボなし（`head:=manual` / `head:=imu`）では、ブリッジの代わりに `manual_head.py` / `imu_head.py` が
+`/head_controller/joint_trajectory` を受けて `/head_controller/joint_states` を出す
+（`head:=imu` のtiltは `/camera/imu` から求める）。`follow_joint_trajectory` はない。
+
+## 実機のアーム
+
+`aha_bringup` の `arms.launch.py` は、左右の `arm_node`（upstream astra_controller、`/<side>/arm` namespace）と、
+[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行) の `arm_trajectory_bridge.py` を起動する。
+ブリッジはシミュレーションと同じ名前・型の軌道入力を提供する。`<side>` は `left` / `right`。
+シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 軌道指令 | `/<side>_arm_controller/joint_trajectory` | `trajectory_msgs/msg/JointTrajectory` |
+| 軌道action | `/<side>_arm_controller/follow_joint_trajectory` | `control_msgs/action/FollowJointTrajectory` |
+| 腕への位置指令 | `/<side>/arm/joint_command` | `astra_controller_interfaces/msg/JointCommand` |
+| 腕とグリッパの関節状態 | `/<side>/arm/joint_states` | `sensor_msgs/msg/JointState` |
+
+`arm_node` の関節状態は `/joint_states` に直接は出さない。`/joint_states` には `real_head_camera.launch.py` の
+`joint_state_publisher` が合流させる（[実機の頭部](#実機の頭部)）。ブリッジとキーボード教示は `/<side>/arm/joint_states` を読む。
+ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
+キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
+昇降とグリッパはブリッジの対象外。
+
+## 独自型
+
+[aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
+`Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
+`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。
+型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
+置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
+シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

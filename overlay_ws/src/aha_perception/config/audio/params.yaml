@@ -2,6 +2,9 @@
 /**:
   ros__parameters:
     segments_dir: /tmp/aha_audio/segments   # ASR が書き出し、デバッグ UI が配信する (両者で共有)
+    # 推論先は launch 引数 target:=dgx|trailpc|local で選ぶ
+    request_timeout: 30.0                   # 推論 1 回の応答待ち (秒)
+    startup_timeout: 1800.0                 # 推論先の起動とモデル読み込みの待ち (秒。初回はイメージ構築を含む)
 
 aha_audio_asr:
   ros__parameters:

@@ -1,4 +1,4 @@
-# 音声コンテナ (aha_audio): ROS 2 Jazzy + PyTorch (CUDA 12.8) + NeMo / Qwen3-ASR / Kokoro.
+# 音声コンテナ (aha_audio): ROS 2 Jazzy + PyTorch (CUDA 12.8) + NeMo / Haas / Qwen3-ASR / Kokoro.
 # 開発コンテナ (docker/Dockerfile) とは分けて、重い ML 依存をこちらに閉じ込める。
 FROM ros:jazzy
 
@@ -7,7 +7,7 @@ WORKDIR /app/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip python3-colcon-common-extensions python3-yaml \
-      build-essential cmake git curl sudo \
+      build-essential cmake git curl sudo openssh-client \
       libportaudio2 libasound2-plugins alsa-utils pulseaudio-utils \
       libsndfile1 ffmpeg sox espeak-ng \
  && apt-get clean \

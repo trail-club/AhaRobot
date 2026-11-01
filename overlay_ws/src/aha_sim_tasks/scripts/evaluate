@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from aha_sim_tasks.runner import main
+
+raise SystemExit(main())

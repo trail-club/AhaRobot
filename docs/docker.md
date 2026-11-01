@@ -1,78 +1,75 @@
-# Docker で開発する
+# 開発コンテナ
 
-## 前提
+## 起動フロー
 
-- Docker Engine 24+ / Docker Desktop 4.30+
-- docker compose v2
-- 対応 OS: **Linux (native X11)** / **macOS (Docker Desktop)** / **Windows (WSL2 + Docker Desktop)**
-
-## 初回
+### 1. 取得・起動（ホスト）
 
 ```bash
 git clone --recursive git@github.com:trail-club/AhaRobot.git
 cd AhaRobot
-
-# イメージ build (10〜20 分)
-./run_docker_container.py --rebuild
+./run_docker_container.py --rebuild  # 初回・Dockerfile変更時
 ```
 
-## 起動 & シェルへ
+既にclone済みなら、リポジトリ直下で `git submodule update --init --recursive` を実行する。
+通常起動は `./run_docker_container.py`。起動後にコンテナ内シェルへ入る。
+起動だけなら `--no-enter`、後から入る場合はホストで `make shell` を使う。
+コンテナ名は `aharobot_aha_project_1`、リポジトリは `/app` にマウントされる。
+
+### 2. GUIに接続する
+
+LinuxはX11、macOS / WSL2はNoVNCを自動使用する。NVIDIA GPUはLinux / WSL2で自動検出する。
+LinuxでNoVNCを使うには `--novnc`、GPUを無効にするには `--no-gpu` を起動コマンドに付ける。
+
+1. NoVNCでは、ホストのブラウザで [http://localhost:8080/vnc.html](http://localhost:8080/vnc.html) を開く。
+2. **Connect** を押す（パスワード不要）。コンテナ内で起動したGazebo / RVizが表示される。
+
+macOS / LinuxのNoVNCでは、GUIを起動するコンテナ内シェルで `export DISPLAY=display:0` を実行する。
+WSL2の表示先は自動設定される。
+
+コンテナ内のWebサーバーは、Linuxでは同じportで開ける。
+macOSではhost networkがDocker DesktopのVM内に閉じるため、ホストで `make forward` を実行し、`http://localhost:18765/` を開く。
+[タスクのWeb GUI](../overlay_ws/src/aha_tasks/README.md)の待ち受けアドレスは環境変数 `AHA_GUI_HOST` で、
+コンテナ起動時にLinuxは `127.0.0.1`、macOSは転送のため `0.0.0.0`（VM外には公開されない）に設定される。
+転送するportは `FORWARD_PORT`（既定8765）、ホスト側は `1<port>`。転送用コンテナは `make down` で停止する。WSL2では未確認。
+
+### 3. ビルド・シミュレーション起動（コンテナ内）
 
 ```bash
-./run_docker_container.py            # ホスト自動判定 (NoVNC / X11, NVIDIA GPU も自動検出)
-./run_docker_container.py --no-enter # 起動だけ (別ターミナルで make shell)
-./run_docker_container.py --no-gpu   # NVIDIA 検出されても CPU で動かす
-./run_docker_container.py --novnc    # Linux でも NoVNC を強制
-```
-
-コンテナ名は常に `aharobot_aha_project_1`。
-
-## プラットフォーム別の挙動
-
-| ホスト | GUI 経路 | 追加 compose |
-|---|---|---|
-| Linux (X11)          | ホストの X server            | なし |
-| Linux + NVIDIA       | ホスト X + GPU passthrough  | `docker-compose.gpu.yml` |
-| macOS                | NoVNC (auto)                 | (base の `--profile darwin`) |
-| WSL (Windows)        | NoVNC (auto)                 | `docker-compose.wsl-novnc.yml` |
-| WSL + NVIDIA         | NoVNC + GPU                  | `.gpu.yml` + `.wsl-novnc.yml` |
-
-**NoVNC の使い方 (macOS / WSL)**:
-1. `./run_docker_container.py` 起動後にブラウザで [http://localhost:8080/vnc.html](http://localhost:8080/vnc.html)
-2. **Connect** クリック（パスワード不要）
-3. コンテナ内で起動した GUI（Gazebo / RViz など）がそこに映る
-
-## コンテナ内での典型作業
-
-```bash
-# build
 cd /app/overlay_ws
 colcon build --symlink-install
 source install/setup.bash
-
-# sim
-ros2 launch aha_bringup sim.launch.py world:=home.sdf
-
-# 各班 launch 併用
-ros2 launch aha_bringup sim.launch.py use_nav:=true use_perception:=true
-
-# rviz (別 shell から)
-rviz2 -d /app/overlay_ws/install/aha_navigation/share/aha_navigation/rviz/nav.rviz
+ros2 launch aha_bringup sim.launch.py
 ```
 
-## Makefile ショートカット
+world・初期位置・GUIなしの設定は [Japan Open起動設定](sobits-rcjo2026.md)を参照。
+
+### 4. 別ターミナルでの操作・終了
+
+ホストの別ターミナルで、リポジトリ直下から `make shell` で入り、コンテナ内で実行する。
+
+```bash
+source /app/overlay_ws/install/setup.bash
+ros2 run aha_bringup teleop_base.sh
+```
+
+RVizも別ターミナルで `make shell` と同じsetupの読み込み後、`ros2 launch aha_description view_robot.launch.py` で起動する。
+各プログラムを `Ctrl+C`、シェルを `exit` で終了する。コンテナの停止・削除はホストで `make down`。
+
+## ショートカット（ホストのリポジトリ直下）
 
 | コマンド | 内容 |
-|---|---|
-| `make build` | イメージ build |
-| `make up` | base compose のみで起動（NoVNC/GPU/WSL は `run_docker_container.py`）|
-| `make shell` | 既存コンテナに shell |
-| `make down` | コンテナ停止・削除（全 overlay + profile）|
-| `make clean` | overlay_ws の build/install/log 削除 |
+| --- | --- |
+| `make build` | イメージをビルド |
+| `make up` | base Composeのみで起動。NoVNC・GPU・WSLは起動スクリプトを使う |
+| `make ws-build` | 起動済みコンテナで `aha_bringup` までビルド |
+| `make sim` | 起動済みコンテナでシミュレーション起動 |
+| `make clean` | workspaceのbuild / install / logを削除 |
+| `make forward` | macOSでコンテナ内のportをホストへ転送 |
+| `make test` | [PR前の動作確認](../AGENTS.md#動作確認) |
 
 ## 音声コンテナ（aha_audio）
 
-ASR / TTS は重い ML 依存（PyTorch cu128・NeMo・Qwen3-ASR・Kokoro）を持つので、別イメージ `trail/aharobot-audio` で動かす。
+ASR / TTS のノードは重い ML 依存（PyTorch cu128・NeMo・Haas・Qwen3-ASR・Kokoro）を持つので、別イメージ `trail/aharobot-audio` で動かす。モデルは既定でDGX Sparkで動かす。
 開発コンテナとは host network と同じ `ROS_DOMAIN_ID`（既定 1）で通信する。
 
 | コマンド | 内容 |
@@ -80,19 +77,18 @@ ASR / TTS は重い ML 依存（PyTorch cu128・NeMo・Qwen3-ASR・Kokoro）を�
 | `make audio-build` | 音声イメージを build |
 | `make audio-up` / `make audio-down` | 起動 / 停止（コンテナ名 `aharobot_aha_audio_1`） |
 | `make audio-ws-build` | コンテナ内で `aha_msgs` と `aha_perception` を colcon build |
-| `make audio-run` | ASR + TTS + デバッグ UI（<http://localhost:8765>）を起動 |
+| `make audio-run SSH_USER=<Unixユーザー名>` | ASR + TTS + デバッグ UI（<http://localhost:8765>）を起動。推論先は `AUDIO_TARGET=dgx\|trailpc\|local` で選ぶ |
 | `make audio-lock` | イメージ内の Python パッケージ全版を `docker/audio/requirements.lock` に記録 |
 
 - マイクとスピーカーは、ホストの PulseAudio / PipeWire（`/run/user/$UID/pulse/native`）経由で使う。
-- モデルは named volume `aharobot_aha_audio_hf` にキャッシュする。
+- `local` のモデルは named volume `aharobot_aha_audio_hf` にキャッシュする。
+- 推論先へのSSHにはホストのssh-agentを使う。`make audio-up` の前に `ssh-add -l` で鍵を確認する。
 - NVIDIA ドライバ R570 以上と nvidia-container-toolkit が必要。
 - 詳細は [`overlay_ws/src/aha_perception/docs/audio.md`](../overlay_ws/src/aha_perception/docs/audio.md)。
 
-## トラブルシューティング
+## 問題の切り分け
 
-- **Linux で GUI が出ない**: `xhost +local:docker` または `LIBGL_ALWAYS_SOFTWARE=1 ./run_docker_container.py --novnc`
-- **macOS で Gazebo が重い**: GPU 無し + software rendering なので想定内。開発は headless smoke test + 実描画は Linux 機で。
-- **WSL で NoVNC 画面が真っ黒**: `./run_docker_container.py --no-enter` で up 後、`docker logs aharobot_novnc_1` を確認。NoVNC が起動しきる前にブラウザを開くと空になることがある（10〜20 秒待って再接続）
-- **NVIDIA GPU が使われない**: `docker exec aharobot_aha_project_1 nvidia-smi` で見えるか確認。見えなければ nvidia-container-toolkit の設定が不足
-- **`rosdep` の deps 未解決**: コンテナ内で `sudo apt update && rosdep update` → `rosdep install --from-paths /app/overlay_ws/src --ignore-src -r -y`
-- **`upstream/*` が空**: ホスト側で `git submodule update --init --recursive`
+- LinuxのX11でGUIが出ない: ホストで `xhost +local:docker`、または `--novnc` を使う。
+- NoVNCが黒い・接続できない: 10–20秒待って再接続し、ホストで `docker logs aharobot_novnc_1` を確認する。
+- GPUが使えない: ホストで `docker exec aharobot_aha_project_1 nvidia-smi` を確認する。
+- rosdepの未解決: コンテナ初期化ログを確認する。

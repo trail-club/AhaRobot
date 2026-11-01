@@ -1,0 +1,100 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SAM 3.1 で商品名の物を見つける：方式の比較</title><style>
+:root{--bg:#f6f6f4;--fg:#222;--card:#fff;--line:#ddd;--muted:#666;--ok:#178a35;--ng:#c62828}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#161616;--fg:#ddd;
+--card:#1f1f1f;--line:#333;--muted:#999;--ok:#5fd27c;--ng:#ff7b7b}}
+body{font:14px -apple-system,"Hiragino Sans",sans-serif;margin:0 auto;padding:16px;
+max-width:1400px;background:var(--bg);color:var(--fg)}
+table{border-collapse:collapse;background:var(--card);margin:8px 0 24px}
+td,th{border:1px solid var(--line);padding:4px 8px;vertical-align:top;text-align:left}
+img{max-width:100%;border-radius:4px}td img{width:240px}.ok{color:var(--ok)}
+.ng{color:var(--ng)}small,.muted{color:var(--muted)}a{color:inherit}.nowrap{white-space:nowrap}
+</style><h1>SAM 3.1 で商品名の物を見つける：方式の比較</h1><p>SAM 3.1 は「缶」「ボトル」のような種類の言葉には強いが、「pringles」「キャンベル」のような商品名では
+見た目の似た別の商品も拾う（2026-10-11、「pringles」でプリングルズ 0.84、キャンベル缶 0.74）。
+商品名の物だけを見つけるために試した方式と、方式を選んだ経緯をまとめる。
+使い方と再実行の方法は <a href="README.md">README.md</a>、条件・結果・不明点の記録は <a href="../../../../docs/context/perception.md">物体検出の検証記録</a>、全写真の結果は
+<code>python report.py</code> で手元に作るレポートを参照する。</p>
+
+<h2>結論</h2>
+<p><b>SAM 3.1＋DINOv2（参照画像との見比べ）を選んだ。</b>
+キャンベル缶の27枚で、正解した写真が最も多く（23/27）、1枚 0.4 秒と案A（平均 28 秒）より約70倍速い。
+検出では Qwen を使わず、裏向きの缶も参照画像の背面・側面と見比べて見つけられた。
+SAM 3.1 に渡す種類の言葉は、登録のときに Qwen が参照画像を1回見て決める（固有名詞をそのまま渡すと候補から漏れる）。
+Qwen を使わない場合は、種類の言葉を自分で指定する。
+ただし、しきい値は同じ27枚で選んだ値で、撮影場所が変わると点数が下がる（下の「注意点」）。
+使い方（参照画像の撮影 → 場面の撮影 → <code>dino.py detect</code>）は <a href="README.md">README.md</a> にある。本体の <code>sam31/interactive.py --vlm</code> は案Aのまま。</p>
+
+<h2>経緯</h2>
+<table>
+<tr><th>日付</th><th>試したこと</th><th>結果と判断</th></tr>
+<tr><td class="nowrap">10-11</td><td>案A：Qwen が言い換え → SAM 3.1 で候補 → Qwen が番号で選ぶ</td>
+<td>5つの言葉で全部正解。ただし同じ商品が2つあると1つしか選ばない → 元の写真も渡し「全部選ぶ」と指示して解決。裏向きのプリングルズを見逃す（19回中17回正解）。</td></tr>
+<tr><td class="nowrap">10-11</td><td>案A＋照合：選ばれなかった候補を、選ばれた物と横に並べて「同じ商品か」聞く</td>
+<td>高さをそろえて並べると、大きさの違うキャンベル缶まで「同じ」になり 14/19 に悪化。</td></tr>
+<tr><td class="nowrap">10-13</td><td>照合で実際の大きさをそろえ、深度から測った cm も伝える</td>
+<td>19/19。裏向きのプリングルズを拾い、キャンベル缶は大きさの違いで除外。1回 12〜30 秒。</td></tr>
+<tr><td class="nowrap">10-13</td><td>案B：Qwen に対象の枠を描かせ、SAM 3.1 に枠を渡す</td>
+<td>枠だけ（B1）は 17/19、速い（約4秒）が裏向きを見逃す。枠＋形の言葉＋照合（B2）は 19/19、約16秒。</td></tr>
+<tr><td class="nowrap">10-13</td><td>Qwen を使わず、SAM 3.1 に参照画像を渡す方法を調査</td>
+<td>SAM 3 のお手本の枠は同じ画像の中でしか使えない（facebookresearch/sam3 issue #426）。参照画像を横に並べて1枚にする方法がある（MoveIt Pro、FSS-SAM3）。参照画像を撮る <code>sam31/reference.sh</code> を作った。</td></tr>
+<tr><td class="nowrap">10-18</td><td>プリングルズが手元になく、対象をキャンベル トマトスープ缶に変更。参照画像4方向を撮影し、新しい場面9枚を追加（計27枚）</td>
+<td>同じ27枚と同じ正解で各方式を比べる。案Aも「campbell」で実行し直した（19/27）。</td></tr>
+<tr><td class="nowrap">10-18</td><td>参照を並べる方式（SAM 3.1だけ）</td>
+<td>どの条件でもコカ・コーラ缶やプリングルズがキャンベル缶とほぼ同じ点数になり、最良でも 8/27。SAM 3.1 は参照画像を「この商品」ではなく「缶という種類」として扱う → 不採用。</td></tr>
+<tr><td class="nowrap">10-18</td><td>SAM 3.1＋DINOv2：「can」で缶を全部出し、1つずつ参照画像4方向と見た目を比べる</td>
+<td>DINOv2 large で 23/27、0.4 秒 → 採用。</td></tr>
+<tr><td class="nowrap">10-18</td><td>固有名詞1つで使えるように、SAM 3.1 に渡す言葉を5通り比べた</td>
+<td>固有名詞のままだとキャンベル缶28個中4個が候補に出ず、object では3個しか出ない。Qwen が参照画像から決めた言葉（cylindrical can）は人が決めた can と同じ 23/27 → 採用（登録時に1回、約10秒）。</td></tr>
+</table>
+
+<h2>各方式の流れ</h2>
+<h3>案A（実装済み：<code>interactive.sh --vlm</code>）</h3>
+<p>① Qwen が言葉を英語の言い換え（例：「metal food can」）に広げる → ② SAM 3.1 でしきい値 0.3 の候補を出す
+→ ③ Qwen に元の写真と番号付きの候補図を見せ、対象を全部選ばせる
+→ ④ 選ばれなかった候補を、選ばれた物と実際の大きさで横に並べ、cm の大きさも添えて「同じ商品か」を聞く（照合）。</p>
+<p><img src="img/a_candidates.jpg" alt="案Aの候補図"> <img src="img/a_match_boxes.jpg" alt="照合で比べた2つ">
+<img src="img/a_match_pair.jpg" alt="照合で Qwen に見せた画像"><br>
+<small>19回の #13。左：SAM 3.1 の候補。中：照合で比べた A と B。右：Qwen に見せた横並びの画像。裏向きのプリングルズを照合で拾った。</small></p>
+
+<h3>案B（検証のみ）</h3>
+<p>B1：Qwen に対象の枠を描かせ（0〜1000の座標）、SAM 3.1 に枠を渡し、枠に重なるマスクだけ残す。
+B2：1回の問い合わせで枠と「cylindrical can」のような形の言葉を受け取り、SAM 3.1 に枠と言葉を渡す。
+枠に重なるマスクは採用し、枠の外の似た物は案Aの照合にかける。言葉が商品名のままのときは、(a)「container」を使う、
+(b) 枠の中だけを見せて聞き直す。</p>
+<p><img src="img/b2_overlay.jpg" alt="案B2の結果"><br>
+<small>19回の #13（b）。赤の太枠＝Qwenの枠、緑＝枠の中のマスク、青＝照合で同じ商品と判断して追加。</small></p>
+
+<h3>参照を並べる方式（SAM 3.1だけ、不採用）</h3>
+<p>撮影画像の右に参照画像（正面だけ、または4方向を2×2）を並べ、参照の物に枠を付けて SAM 3.1 に渡す。言葉はなし・「can」・「soup can」・「campbell's tomato soup」を試した。</p>
+<p><img src="img/collage_canvas.jpg" alt="SAM 3.1 に渡した画像"> <img src="img/collage_1018-05.jpg" alt="参照を並べる方式の結果"><br>
+<small>左：SAM 3.1 に渡した1枚（右側が参照4方向）。右：1018-05（キャンベル缶が裏向き）で「正面＋soup can」の点数。コカ・コーラ缶とサッポロ缶もほぼ同じ点数になる。</small></p>
+
+<h3>SAM 3.1＋DINOv2（採用）</h3>
+<p>① SAM 3.1 に「can」と言って缶の候補を全部出す → ② 候補ごとにマスクで背景を消して正方形に切り出す
+→ ③ DINOv2 で参照画像4方向との似ている度合い（コサイン類似度）を測り、一番高い値を候補の点数にする
+→ ④ 点数がしきい値（large で 0.52）以上なら採用。</p>
+<p>種類の言葉（SAM 3.1 に渡す <code>can</code> など）は、登録のときに Qwen が参照画像の中央の物を1回見て決め、参照画像と一緒に保存する。
+検出のときは保存した言葉を使うので、Qwen は使わない。言葉を自分で指定すれば Qwen なしでも使える。</p>
+<p><img src="img/references.jpg" alt="参照画像4方向"><br><small>参照画像（<code>sam31/reference.sh --name campbell</code> で撮影）。</small></p>
+<p><img src="img/dino_1018-05.jpg" alt="DINOv2 の点数"> <img src="img/dino_1018-05_crops.jpg" alt="候補の切り出し"><br>
+<small>1018-05。キャンベル缶（裏向き）は背面の参照と最も似ていて高い点数、コカ・コーラ缶とサッポロ缶は 0.4 前後。右は DINOv2 に渡した切り出し。</small></p>
+
+<h2>結果</h2>
+<h3>19回の実行（プリングルズなど、14枚の写真）：案Aと案B</h3>
+<table><tr><th>方式</th><th>正解した写真</th><th>見つけた / 誤り / 見逃し</th><th>1枚の時間（平均）</th><th>最長</th></tr><tr><th>案A 選択のみ</th><td><b>17 / 19</b></td><td>22 / 0 / 2</td><td>31.32 秒</td><td>107.30 秒</td></tr><tr><th>案A 選択＋照合</th><td><b>19 / 19</b></td><td>24 / 0 / 0</td><td>31.32 秒</td><td>107.30 秒</td></tr><tr><th>案B1 Qwenの枠だけ</th><td><b>17 / 19</b></td><td>22 / 0 / 2</td><td>3.66 秒</td><td>11.59 秒</td></tr><tr><th>案B2 枠＋言葉＋照合（a: container）</th><td><b>19 / 19</b></td><td>24 / 0 / 0</td><td>16.29 秒</td><td>41.60 秒</td></tr><tr><th>案B2 枠＋言葉＋照合（b: 聞き直し）</th><td><b>19 / 19</b></td><td>24 / 0 / 0</td><td>15.49 秒</td><td>43.30 秒</td></tr></table>
+<h3>キャンベル缶の27枚（2026-10-11の18枚＋10-18の9枚）：案A・参照を並べる方式・DINOv2</h3>
+<table><tr><th>方式</th><th>正解した写真</th><th>見つけた / 誤り / 見逃し</th><th>1枚の時間（平均）</th><th>最長</th><th>しきい値</th></tr><tr><th>案A（SAM 3.1＋Qwen）</th><td><b>19 / 27</b></td><td>24 / 5 / 4</td><td>28.31 秒</td><td>69.40 秒</td><td>-</td></tr><tr><th>参照を並べる（front+soup can）</th><td><b>8 / 27</b></td><td>23 / 21 / 5</td><td>0.41 秒</td><td>0.99 秒</td><td>0.88</td></tr><tr><th>SAM 3.1＋DINOv2 small</th><td><b>17 / 27</b></td><td>17 / 0 / 11</td><td>0.37 秒</td><td>0.39 秒</td><td>0.73</td></tr><tr><th>SAM 3.1＋DINOv2 base</th><td><b>19 / 27</b></td><td>25 / 10 / 3</td><td>0.37 秒</td><td>0.39 秒</td><td>0.65</td></tr><tr><th>SAM 3.1＋DINOv2 large</th><td><b>23 / 27</b></td><td>25 / 1 / 3</td><td>0.39 秒</td><td>0.40 秒</td><td>0.52</td></tr></table>
+<p><small>時間は DGX での処理時間で、写真の転送は含まない。しきい値は同じ写真で一番良い値を選んだので、しきい値を使う方式の正解数は甘め。
+案Aの27枚は言葉「campbell」で実行し、照合でキャンベル缶の隣の缶を加えた写真が4枚、見逃しが3枚あった。案Bはキャンベル缶の27枚では試していない。</small></p>
+
+<h3>SAM 3.1 に渡す言葉（キャンベル缶の27枚、DINOv2 large）</h3>
+<table><tr><th>SAM 3.1 に渡す言葉</th><th>キャンベル缶が候補に出た数</th><th>候補の数（平均）</th><th>正解した写真（しきい値）</th><th>見つけた / 誤り / 見逃し</th><th>しきい値 0.52 のまま</th><th>1枚の時間</th></tr><tr><th>① 種類を人が決める（can）</th><td>28 / 28</td><td>2.9</td><td><b>23 / 27</b>（0.52）</td><td>25 / 1 / 3</td><td>23 / 27</td><td>0.39 秒</td></tr><tr><th>② 固有名詞をそのまま（campbell&#x27;s tomato soup）</th><td>24 / 28</td><td>1.9</td><td><b>21 / 27</b>（0.51）</td><td>23 / 2 / 5</td><td>21 / 27</td><td>0.38 秒</td></tr><tr><th>③ object に固定</th><td>3 / 28</td><td>0.6</td><td><b>2 / 27</b>（0.47）</td><td>2 / 0 / 26</td><td>2 / 27</td><td>0.35 秒</td></tr><tr><th>④ 種類を Qwen が決める（cylindrical can）</th><td>28 / 28</td><td>2.9</td><td><b>23 / 27</b>（0.52）</td><td>24 / 2 / 4</td><td>23 / 27</td><td>0.38 秒</td></tr><tr><th>⑤ よくある種類7語をまとめて</th><td>28 / 28</td><td>3.5</td><td><b>23 / 27</b>（0.52）</td><td>25 / 1 / 3</td><td>23 / 27</td><td>2.44 秒</td></tr></table>
+<p><small>DINOv2 は候補の中からしか選べないので、キャンベル缶が候補に出ることが前提になる。</small></p>
+
+<h2>注意点（DINOv2）</h2>
+<ul>
+<li>しきい値1つで全部を正しく分けられてはいない。キャンベル缶の点数は、参照画像と同じ日に撮った写真で 0.78〜0.95、別の部屋の古い写真で 0.47〜0.80、隠れた缶・端で切れた缶で 0.34〜0.55。ほかの物は 0.20〜0.52、最高は栄養成分表示の面を向けたプリングルズの 0.61。</li>
+<li>写真の中で比べると、27枚中25枚でキャンベル缶が1番の点数だった。</li>
+<li>まちがえた4枚：端で切れてふたしか見えない（1011-01）、サッポロ缶の陰の細い部分（1018-08）、裏向きのプリングルズ（1011-15）、点数の差が 0.01（1011-18）。</li>
+<li>商品ごとに参照画像（4方向）を撮る必要がある。</li>
+</ul>
+</html>

@@ -56,10 +56,18 @@ Visualization Manager:
       Name: Odom
       Enabled: true
       Topic:
-        Value: /odom
+        Value: /diff_drive_controller/odom
       Keep: 100
       Position Tolerance: 0.1
       Angle Tolerance: 0.1
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Task Locations
+      Enabled: true
+      Topic:
+        Value: /aha/tasks/locations
+        Depth: 1
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
   Global Options:
     Fixed Frame: map
     Frame Rate: 30

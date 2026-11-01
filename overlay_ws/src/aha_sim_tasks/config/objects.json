@@ -1,0 +1,6 @@
+{
+  "apple": {"label": "apple", "model": "ycb_013_apple"},
+  "orange": {"label": "orange", "model": "ycb_017_orange"},
+  "soup_can": {"label": "tomato soup can", "model": "ycb_010_tomato_soup_can"},
+  "gelatin_box": {"label": "gelatin box", "model": "ycb_009_gelatin_box"}
+}

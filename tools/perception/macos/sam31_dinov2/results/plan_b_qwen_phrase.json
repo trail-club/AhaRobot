@@ -1,0 +1,267 @@
+{
+ "01": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [0, 175, 152, 997]}]}",
+  "boxes": [
+   [
+    0,
+    84,
+    97,
+    479
+   ]
+  ],
+  "seconds": 9.9,
+  "phrase": "cylindrical can"
+ },
+ "02": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [20, 10, 379, 512]}]}",
+  "boxes": [
+   [
+    13,
+    5,
+    243,
+    246
+   ]
+  ],
+  "seconds": 27.6,
+  "phrase": "cylindrical can"
+ },
+ "03": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [117, 271, 392, 882]}]}",
+  "boxes": [
+   [
+    75,
+    130,
+    251,
+    423
+   ]
+  ],
+  "seconds": 2.3,
+  "phrase": "pringles"
+ },
+ "04": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [112, 0, 434, 495]}]}",
+  "boxes": [
+   [
+    72,
+    0,
+    278,
+    238
+   ]
+  ],
+  "seconds": 12.0,
+  "phrase": "cylindrical can"
+ },
+ "05": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [312, 440, 520, 997]}]}",
+  "boxes": [
+   [
+    200,
+    211,
+    333,
+    479
+   ]
+  ],
+  "seconds": 2.1,
+  "phrase": "pringles"
+ },
+ "06": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [262, 5, 507, 687]}]}",
+  "boxes": [
+   [
+    168,
+    2,
+    324,
+    330
+   ]
+  ],
+  "seconds": 8.9,
+  "phrase": "pringles"
+ },
+ "07": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [297, 270, 515, 927]}]}",
+  "boxes": [
+   [
+    190,
+    130,
+    330,
+    445
+   ]
+  ],
+  "seconds": 2.6,
+  "phrase": "pringles"
+ },
+ "08": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [187, 45, 479, 802]}]}",
+  "boxes": [
+   [
+    120,
+    22,
+    307,
+    385
+   ]
+  ],
+  "seconds": 10.6,
+  "phrase": "cylindrical can"
+ },
+ "09": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [162, 90, 457, 827]}]}",
+  "boxes": [
+   [
+    104,
+    43,
+    292,
+    397
+   ]
+  ],
+  "seconds": 3.4,
+  "phrase": "pringles"
+ },
+ "10": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [230, 120, 460, 815]}]}",
+  "boxes": [
+   [
+    147,
+    58,
+    294,
+    391
+   ]
+  ],
+  "seconds": 4.0,
+  "phrase": "pringles"
+ },
+ "11": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [22, 132, 332, 825]}, {\"bbox_2d\": [522, 37, 700, 640]}]}",
+  "boxes": [
+   [
+    14,
+    63,
+    212,
+    396
+   ],
+   [
+    334,
+    18,
+    448,
+    307
+   ]
+  ],
+  "seconds": 3.2,
+  "phrase": "cylindrical can"
+ },
+ "12": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [39, 58, 287, 862]}, {\"bbox_2d\": [507, 92, 667, 717]}]}",
+  "boxes": [
+   [
+    25,
+    28,
+    184,
+    414
+   ],
+   [
+    324,
+    44,
+    427,
+    344
+   ]
+  ],
+  "seconds": 7.0,
+  "phrase": "cylindrical can"
+ },
+ "13": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [47, 1, 327, 662]}]}",
+  "boxes": [
+   [
+    30,
+    0,
+    209,
+    318
+   ]
+  ],
+  "seconds": 26.9,
+  "phrase": "cylindrical can"
+ },
+ "14": {
+  "answer": "{\"phrase\": \"pringles\", \"objects\": [{\"bbox_2d\": [164, 197, 447, 890]}, {\"bbox_2d\": [707, 65, 872, 682]}]}",
+  "boxes": [
+   [
+    105,
+    95,
+    286,
+    427
+   ],
+   [
+    452,
+    31,
+    558,
+    327
+   ]
+  ],
+  "seconds": 2.9,
+  "phrase": "pringles"
+ },
+ "15": {
+  "answer": "{\"phrase\": \"cylindrical can\", \"objects\": [{\"bbox_2d\": [317, 450, 462, 767]}]}",
+  "boxes": [
+   [
+    203,
+    216,
+    296,
+    368
+   ]
+  ],
+  "seconds": 2.3,
+  "phrase": "cylindrical can"
+ },
+ "16": {
+  "answer": "{\"phrase\": \"campbell's soup\", \"objects\": [{\"bbox_2d\": [305, 250, 465, 600]}]}",
+  "boxes": [
+   [
+    195,
+    120,
+    298,
+    288
+   ]
+  ],
+  "seconds": 2.3,
+  "phrase": "campbell's soup"
+ },
+ "17": {
+  "answer": "{\"phrase\": \"エリエール\", \"objects\": [{\"bbox_2d\": [447, 57, 703, 582]}]}",
+  "boxes": [
+   [
+    286,
+    27,
+    450,
+    279
+   ]
+  ],
+  "seconds": 6.7,
+  "phrase": "エリエール"
+ },
+ "18": {
+  "answer": "{\"phrase\": \"プリングルス\", \"objects\": [{\"bbox_2d\": [45, 0, 327, 662]}]}",
+  "boxes": [
+   [
+    29,
+    0,
+    209,
+    318
+   ]
+  ],
+  "seconds": 4.0,
+  "phrase": "プリングルス"
+ },
+ "19": {
+  "answer": "{\"phrase\": \"banana\", \"objects\": [{\"bbox_2d\": [607, 632, 937, 850]}]}",
+  "boxes": [
+   [
+    388,
+    303,
+    600,
+    408
+   ]
+  ],
+  "seconds": 2.9,
+  "phrase": "banana"
+ }
+}

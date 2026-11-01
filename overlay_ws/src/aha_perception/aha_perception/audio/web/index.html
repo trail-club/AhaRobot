@@ -193,7 +193,7 @@ function renderState() {
   const s = asrState;
   const seg = $('langSeg');
   if (s && seg.childElementCount !== s.languages.length) {
-    seg.innerHTML = s.languages.map(l => `<button data-lang="${l}">${l === 'ja' ? '日本語' : l === 'en' ? 'English' : l}</button>`).join('');
+    seg.innerHTML = s.languages.map(l => `<button data-lang="${l}">${{en: 'English', ja: '日本語', 'ja-qwen': '日本語（Qwen）'}[l] || l}</button>`).join('');
     seg.querySelectorAll('button').forEach(b => b.onclick = () => send({cmd: 'set_language', language: b.dataset.lang}));
   }
   seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', s && b.dataset.lang === s.language));

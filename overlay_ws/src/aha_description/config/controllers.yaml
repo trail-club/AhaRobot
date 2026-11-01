@@ -68,6 +68,7 @@ right_gripper_controller:
 lift_controller:
   ros__parameters:
     joints: [joint_l1, joint_r1]
+    allow_partial_joints_goal: true
     command_interfaces: [position]
     state_interfaces:   [position, velocity]
 

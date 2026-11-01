@@ -1,0 +1,37 @@
+{
+  "scene": "desk_clutter_raw",
+  "note": "robot on a desk; cluttered room, near tilted object on the left; base_footprint = desk top",
+  "filter_label": "raw",
+  "target_frame": "base_footprint",
+  "depth_frame": "camera_color_optical_frame",
+  "depth_encoding": "32FC1",
+  "base_height": null,
+  "ros_time": 1791105388.6078565,
+  "captured_at": "2026-10-04T18:16:20+09:00",
+  "interval": 0.5,
+  "topics": {
+    "depth": "/camera/depth_registered/image_rect",
+    "color": "/camera/color/image_raw",
+    "camera_info": "/camera/color/camera_info",
+    "joint_states": "/joint_states"
+  },
+  "distortion_model": "plumb_bob",
+  "d": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "latest_tf_frames": [],
+  "format_version": 1,
+  "frame_count": 10,
+  "width": 640,
+  "height": 480,
+  "depth_unit": "mm",
+  "head_joint_names": [
+    "joint_head_pan",
+    "joint_head_tilt"
+  ],
+  "color_file": "color.jpg"
+}

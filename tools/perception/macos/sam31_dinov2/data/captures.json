@@ -1,0 +1,110 @@
+{
+ "1011-01": {
+  "path": ".cache-sam31/results/interactive/20261011-151247-077c0147/0001/capture/rgbd.npz",
+  "scene": "作業机。プリングルズ（手前・端で切れる）、キャンベル缶（画面下端で切れる）、除菌シート容器"
+ },
+ "1011-02": {
+  "path": ".cache-sam31/results/interactive/20261011-151247-077c0147/0002/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-03": {
+  "path": ".cache-sam31/results/interactive/20261011-151247-077c0147/0003/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-04": {
+  "path": ".cache-sam31/results/interactive/20261011-151247-077c0147/0004/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-05": {
+  "path": ".cache-sam31/results/interactive/20261011-152228-14e92724/0001/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-06": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0001/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-07": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0002/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-08": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0003/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-09": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0004/capture/rgbd.npz",
+  "scene": "作業机を上から。プリングルズ、キャンベル缶（裏・横向き）、レモン、バナナ"
+ },
+ "1011-10": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0007/capture/rgbd.npz",
+  "scene": "机。プリングルズ、キャンベル缶（正面）、除菌シート容器、レモン、バナナ"
+ },
+ "1011-11": {
+  "path": ".cache-sam31/results/interactive/20261011-153326-ed46951a/0008/capture/rgbd.npz",
+  "scene": "机。プリングルズ、キャンベル缶（正面）、除菌シート容器、レモン、バナナ"
+ },
+ "1011-12": {
+  "path": ".cache-sam31/results/interactive/20261011-165621-d2665a39/0001/capture/rgbd.npz",
+  "scene": "机。プリングルズ、キャンベル缶（正面）、除菌シート容器、レモン、バナナ"
+ },
+ "1011-13": {
+  "path": ".cache-sam31/results/interactive/20261011-165819-6ed14d18/0003/capture/rgbd.npz",
+  "scene": "机。プリングルズ、キャンベル缶（正面）、除菌シート容器、レモン、バナナ"
+ },
+ "1011-14": {
+  "path": ".cache-sam31/results/interactive/20261011-165819-6ed14d18/0005/capture/rgbd.npz",
+  "scene": "机。プリングルズ、キャンベル缶（正面）、除菌シート容器、レモン、バナナ"
+ },
+ "1011-15": {
+  "path": ".cache-sam31/results/interactive/20261011-165819-6ed14d18/0010/capture/rgbd.npz",
+  "scene": "机。プリングルズ2本（1本は裏向き）、キャンベル缶、除菌シート容器、レモン、バナナ"
+ },
+ "1011-16": {
+  "path": ".cache-sam31/results/interactive/20261011-172150-ba163257/0001/capture/rgbd.npz",
+  "scene": "机。プリングルズ2本（1本は裏向き）、キャンベル缶、除菌シート容器、レモン、バナナ"
+ },
+ "1011-17": {
+  "path": ".cache-sam31/results/interactive/20261011-173432-ed922ccc/0001/capture/rgbd.npz",
+  "scene": "机。プリングルズ2本（1本は裏向き）、キャンベル缶、除菌シート容器、レモン、バナナ"
+ },
+ "1011-18": {
+  "path": ".cache-sam31/results/interactive/20261011-174612-56146469/0001/capture/rgbd.npz",
+  "scene": "机。プリングルズ2本（1本は裏向き）、キャンベル缶、除菌シート容器、レモン、バナナ"
+ },
+ "1018-01": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0001/capture/rgbd.npz",
+  "scene": "キャンベル缶だけ（正面）"
+ },
+ "1018-02": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0002/capture/rgbd.npz",
+  "scene": "キャンベル缶だけ（裏向き）"
+ },
+ "1018-03": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0003/capture/rgbd.npz",
+  "scene": "キャンベル缶だけ（横向き）"
+ },
+ "1018-04": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0004/capture/rgbd.npz",
+  "scene": "キャンベル缶＋コカ・コーラ缶＋サッポロ缶（正面）"
+ },
+ "1018-05": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0005/capture/rgbd.npz",
+  "scene": "同上でキャンベル缶が裏向き"
+ },
+ "1018-06": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0006/capture/rgbd.npz",
+  "scene": "同上で並びを変え、キャンベル缶が裏向き"
+ },
+ "1018-07": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0007/capture/rgbd.npz",
+  "scene": "キャンベル缶2つ（1つは裏向き）＋ほかの缶"
+ },
+ "1018-08": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0008/capture/rgbd.npz",
+  "scene": "キャンベル缶がサッポロ缶の陰に隠れる"
+ },
+ "1018-09": {
+  "path": ".cache-sam31/results/interactive/20261018-171907-f54f5f21/0009/capture/rgbd.npz",
+  "scene": "キャンベル缶なし（ほかの缶だけ）"
+ }
+}

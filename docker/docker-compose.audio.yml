@@ -9,6 +9,7 @@ services:
       - PULSE_SERVER=unix:/run/user/${USER_ID}/pulse/native
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - SSH_AUTH_SOCK=/run/ssh-agent.sock        # 推論先への接続に使う。鍵はコンテナへコピーしない
     network_mode: host
     ipc: host
     user: "${USER_ID}:${GROUP_ID}"
@@ -16,6 +17,7 @@ services:
       - ../:/app/
       - /run/user/${USER_ID}/pulse:/run/user/${USER_ID}/pulse
       - aha_audio_hf:/opt/hf-cache
+      - ${SSH_AUTH_SOCK:-/dev/null}:/run/ssh-agent.sock
     devices:
       - /dev/snd:/dev/snd
     command: tail -f /dev/null

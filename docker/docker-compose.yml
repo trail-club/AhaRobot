@@ -6,6 +6,8 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
       - QT_X11_NO_MITSHM=1
       - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
+      # Web GUI bind address; macOS needs 0.0.0.0 for `make forward`.
+      - AHA_GUI_HOST=${AHA_GUI_HOST:-127.0.0.1}
     network_mode: host
     ipc: host
     privileged: true

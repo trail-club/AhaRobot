@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 import queue
 import threading
 import time
@@ -13,11 +14,22 @@ from math import gcd
 
 import numpy as np
 
-SAMPLE_RATE = 16000                           # ASR / VAD パイプラインのサンプルレート
+SAMPLE_RATE = 16000  # ASR / VAD パイプラインのサンプルレート
+
+
+def encode_pcm(audio: np.ndarray) -> str:
+    """Base64 of little-endian float32 samples, for the worker protocol."""
+    return base64.b64encode(np.asarray(audio, dtype="<f4").tobytes()).decode("ascii")
+
+
+def decode_pcm(text: str) -> np.ndarray:
+    return np.frombuffer(base64.b64decode(text, validate=True), dtype="<f4").astype(
+        np.float32
+    )
 
 
 def _device(spec: str):
-    if spec == '':
+    if spec == "":
         return None
     return int(spec) if spec.isdigit() else spec
 
@@ -43,8 +55,13 @@ class MicStream:
         self.dropped = 0
         block = int(round(frame * capture_rate / SAMPLE_RATE))
         self._stream = sd.InputStream(
-            device=_device(device), samplerate=capture_rate, channels=1, dtype='float32',
-            blocksize=block, callback=self._callback)
+            device=_device(device),
+            samplerate=capture_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=block,
+            callback=self._callback,
+        )
 
     def _callback(self, indata, frames, time_info, status):
         try:
@@ -67,9 +84,11 @@ class MicStream:
                 block, t = self._q.get(timeout=0.2)
             except queue.Empty:
                 continue
-            pending = np.concatenate([pending, resample(block, self.capture_rate, SAMPLE_RATE)])
+            pending = np.concatenate(
+                [pending, resample(block, self.capture_rate, SAMPLE_RATE)]
+            )
             while len(pending) >= self.frame:
-                out, pending = pending[:self.frame], pending[self.frame:]
+                out, pending = pending[: self.frame], pending[self.frame :]
                 yield out, t
 
 
@@ -82,7 +101,11 @@ class Speaker:
         self.rate = playback_rate
         self.block = int(playback_rate * block_ms / 1000)
         self._stream = sd.OutputStream(
-            device=_device(device), samplerate=playback_rate, channels=1, dtype='float32')
+            device=_device(device),
+            samplerate=playback_rate,
+            channels=1,
+            dtype="float32",
+        )
         self._stream.start()
 
     def play(self, audio: np.ndarray, src_rate: int, cancelled) -> bool:
@@ -91,7 +114,7 @@ class Speaker:
         for i in range(0, len(audio), self.block):
             if cancelled():
                 return False
-            self._stream.write(audio[i:i + self.block])
+            self._stream.write(audio[i : i + self.block])
         return True
 
     def close(self) -> None:

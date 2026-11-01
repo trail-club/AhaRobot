@@ -1,0 +1,57 @@
+{
+ "03": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 9.0
+ },
+ "05": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.4
+ },
+ "06": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.3
+ },
+ "07": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.3
+ },
+ "09": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.1
+ },
+ "10": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.2
+ },
+ "14": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.1
+ },
+ "16": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 3.5
+ },
+ "17": {
+  "phrase": "plastic jar",
+  "ok": true,
+  "seconds": 2.4
+ },
+ "18": {
+  "phrase": "cylindrical can",
+  "ok": true,
+  "seconds": 2.1
+ },
+ "19": {
+  "phrase": "banana",
+  "ok": false,
+  "seconds": 1.7
+ }
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Task Monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="heading">
+      <h1 id="task-title">Task Monitor</h1>
+      <p id="task-meta" class="muted"></p>
+    </div>
+    <div class="status-line">
+      <span id="state" class="badge">接続中</span>
+      <span id="clock" class="clock" title="経過時間 / 制限時間（実時間）">--:--</span>
+      <span id="online" class="online" title="task_runnerとの接続">runner</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel controls" aria-label="実行操作">
+      <div class="row">
+        <button id="start" class="primary">選択を実行</button>
+        <label class="field">失敗時
+          <select id="policy"></select>
+        </label>
+        <span class="spacer"></span>
+        <span id="selection-count" class="muted"></span>
+        <button id="select-all">全選択</button>
+        <button id="select-none">全解除</button>
+      </div>
+      <div id="active" class="row active" hidden>
+        <span id="current" class="current"></span>
+        <span class="spacer"></span>
+        <button id="retry" title="失敗したサブゴールを、直前の状態から再実行">再試行</button>
+        <button id="rewind" title="1つ前に実行したサブゴールの状態へ戻して再開">1つ前から</button>
+        <button id="skip" title="失敗を記録し、mockの状態を仮定して次へ">スキップ</button>
+        <button id="abort" class="danger">中断</button>
+      </div>
+      <p id="message" class="message" role="status"></p>
+      <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <div class="layout">
+      <section class="panel" aria-label="サブゴール">
+        <p class="legend muted small">
+          <span class="chip s-succeeded">成功</span>
+          <span class="chip s-failed">失敗</span>
+          <span class="chip s-unsupported">未実装</span>
+          <span class="chip s-bypassed">省略</span>
+          <span class="chip s-skipped">スキップ</span>
+          チェックしたサブゴールだけを実行し、それ以外は設定のmock状態を仮定する。Shift+クリックで範囲選択。
+        </p>
+        <div id="subgoals"></div>
+      </section>
+      <aside>
+        <section class="panel">
+          <h2>タスクの記憶</h2>
+          <p class="muted small">次のサブゴールへ渡る状態。失敗時は直前のサブゴール完了時へ戻る。</p>
+          <table id="memory" class="kv"></table>
+          <h3>ロボットの実状態</h3>
+          <table id="realized" class="kv"></table>
+        </section>
+        <section class="panel">
+          <h2>ログ</h2>
+          <ol id="log" class="log"></ol>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

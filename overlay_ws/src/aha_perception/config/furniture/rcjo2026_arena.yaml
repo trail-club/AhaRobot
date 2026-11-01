@@ -1,0 +1,44 @@
+# Furniture of the simulated RCJO2026 arena (aha_perception.furniture).
+#
+# Frame: Gazebo "world". The sim has no world (or map) frame by default; run
+#   ros2 launch aha_bringup sim.launch.py world_tf:=true use_perception:=true \
+#     planes:=true furniture_config:=<this file>
+# world_tf:=true publishes world -> odom from the spawn pose, so this file is
+# valid for any spawn_x / spawn_y / spawn_yaw. Without that TF the surfaces
+# are not associated (warning). On the real robot, write the poses in map.
+#
+# Geometry from the SDF of the models included by
+# sobits_gazebo_worlds/worlds/rcjo2026_arena.world.xacro (model pose, then the
+# collision boxes of the boards / table tops; top height = box center z +
+# half its thickness). Only furniture with horizontal tops is listed.
+frame: world
+furniture:
+  # model://shelf at (3.2, 3.5), yaw 1.57: boards 0.4 x 0.6 x 0.02 at
+  # z 0.01 / 0.30 / 0.60 / 0.90 / 1.19, side panels at local y +-0.31, back
+  # panel (visual only) at local x +0.21: the open side faces world -y.
+  # Level 1 (0.02 m) is at floor height and is never associated.
+  - name: shelf
+    category: shelf
+    pose: {x: 3.2, y: 3.5, yaw: 1.57}
+    size: {x: 0.40, y: 0.60}
+    levels: [0.02, 0.31, 0.61, 0.91, 1.20]
+    board_thickness: 0.02
+  # model://dining_table at (-2.0, -2.25): top 1.2 x 1.8 x 0.04 at z 0.78.
+  - name: dining_table
+    category: table
+    pose: {x: -2.0, y: -2.25, yaw: 0.0}
+    size: {x: 1.20, y: 1.80}
+    levels: [0.80]
+    board_thickness: 0.04
+  # model://wrc_long_table at (2.0, -0.5): top 1.2 x 0.4 x 0.02 at z 0.39.
+  - name: long_table
+    category: table
+    pose: {x: 2.0, y: -0.5, yaw: 0.0}
+    size: {x: 1.20, y: 0.40}
+    levels: [0.40]
+  # model://wrc_tall_table at (0.75, -0.5): top 0.4 x 0.4 x 0.02 at z 0.59.
+  - name: tall_table
+    category: table
+    pose: {x: 0.75, y: -0.5, yaw: 0.0}
+    size: {x: 0.40, y: 0.40}
+    levels: [0.60]

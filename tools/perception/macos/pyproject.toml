@@ -1,0 +1,13 @@
+[project]
+name = "aharobot-perception-macos"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "numpy>=1.26,<3",
+    "websocket-client>=1.8,<2",
+    "Pillow>=11,<13",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.7.11"

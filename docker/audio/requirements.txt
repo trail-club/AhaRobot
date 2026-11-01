@@ -1,8 +1,9 @@
 # 音声コンテナ (aha_audio)の Python 依存 (トップレベルのみ pin)。
 # 解決後の全バージョンは requirements.lock に記録する (make audio-lock)。
 # torch / torchaudio は constraints.txt で CUDA 12.8 版 (RTX 50 / sm_120 対応) に固定。
-nemo_toolkit[asr]==3.0.0        # Parakeet (ASR, en)
-qwen-asr==0.0.6                 # Qwen3-ASR (ASR, ja)
+# Haas (ASR, ja)。NeMo も連れてくる (>=2.7.3,<2.8) ので Parakeet (ASR, en) もこの版で動く
+haas-asr @ git+https://github.com/third-intelligence/Haas-ASR.git@acc614f68769dcbfae9dba96b48439c4a66295af
+qwen-asr==0.0.6                 # Qwen3-ASR (ASR, ja-qwen)
 kokoro==0.9.4                   # Kokoro-82M (TTS, en)
 misaki[en]==0.9.4               # Kokoro の英語 G2P
 silero-vad==6.2.3               # VAD

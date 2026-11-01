@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<!--
+  Test only: AhaRobot for the place test bed in Gazebo (sim only). Pass it to
+  aha_bringup sim.launch.py as robot_xacro:=$(ros2 pkg prefix
+  aha_test_description)/share/aha_test_description/urdf/aha_robot_test.urdf.xacro.
+
+  aha_description's aha_robot.urdf.xacro with:
+    - the lift starting 1 cm above its stop (ros2_control_test.xacro): the
+      test bed MoveIt config bounds the lift at 0.005 m and refuses a start
+      state on the stop
+    - config/controllers.yaml, aha_description's with
+      config/controllers_overrides.yaml (scripts/merge_controllers.py):
+      lift_controller aborts goals it does not reach
+    - a DetachableJoint per arm welding a model named aha_held_object_<arm>
+      (link "link") to link_<r|l>6 when the first one appears and on the
+      attach topic, released on the detach topic; gz topics take
+      gz.msgs.Empty, .../state publishes "attached" / "detached"
+      (aha_test_manipulation manip.launch.py bridges them to ROS)
+  Keep the composition in step with aha_description/urdf/aha_robot.urdf.xacro.
+-->
+<robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="sim" default="true"/>
+  <xacro:arg name="cameras" default="$(arg sim)"/>
+  <xacro:arg name="camera_rgb_noise_stddev" default="0.003"/>
+  <!-- Passed by sim.launch.py; the test lift start is fixed in ros2_control_test.xacro. -->
+  <xacro:arg name="initial_lift" default="0.0"/>
+  <xacro:arg name="lidar" default="$(arg sim)"/>
+  <xacro:arg name="controllers_yaml" default="$(find aha_test_description)/config/controllers.yaml"/>
+
+  <xacro:include filename="$(find aha_description)/urdf/astra_description_patched.urdf"/>
+
+  <xacro:include filename="$(find aha_description)/urdf/mobile_base.xacro"/>
+  <xacro:aha_mobile_base parent="base_link"/>
+
+  <xacro:include filename="$(find aha_test_description)/urdf/ros2_control_test.xacro"/>
+  <xacro:aha_ros2_control sim="true"/>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(arg controllers_yaml)</parameters>
+    </plugin>
+  </gazebo>
+
+  <xacro:macro name="aha_held_object_joint" params="arm parent">
+    <gazebo>
+      <plugin filename="gz-sim-detachable-joint-system"
+              name="gz::sim::systems::DetachableJoint">
+        <parent_link>${parent}</parent_link>
+        <child_model>aha_held_object_${arm}</child_model>
+        <child_link>link</child_link>
+        <attach_topic>/aha/sim/held_object/${arm}/attach</attach_topic>
+        <detach_topic>/aha/sim/held_object/${arm}/detach</detach_topic>
+        <output_topic>/aha/sim/held_object/${arm}/state</output_topic>
+        <suppress_child_warning>true</suppress_child_warning>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+  <xacro:aha_held_object_joint arm="right" parent="link_r6"/>
+  <xacro:aha_held_object_joint arm="left" parent="link_l6"/>
+
+  <xacro:include filename="$(find aha_description)/urdf/sensors.xacro"/>
+  <xacro:aha_sensors sim="true" cameras="$(arg cameras)"/>
+
+  <xacro:if value="$(arg lidar)">
+    <xacro:include filename="$(find aha_description)/urdf/lidar.xacro"/>
+    <xacro:aha_sim_lidar/>
+  </xacro:if>
+
+</robot>
