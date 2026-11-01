@@ -168,3 +168,31 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
 タスク固有のスキルのparamsは `perceive_shelf`（`surface`、`objects`、`output`）、`open_container`（`object`）、`pour`（`object`、`target`）。
 
+## Doing Laundry Challenge
+
+[ルールブック §5.4](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を46サブゴールに分ける。
+`points` は得点表の最大点で、合計は総計の4415。減点は `note` に書く。
+実装済みのスキルは `navigate` のみで、洗濯機と衣類の操作はmockで通過する。
+
+| 地点 | 位置 |
+| --- | --- |
+| `washing_machine` | worldの洗濯機の前 |
+| `laundry_basket` | worldのバスケットの前 |
+| `folding_table` | 畳む台の固定の代替地点。worldの `long_table` の前 |
+
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類のモデルはない。
+
+順序は、洗濯機の扉を開ける、1枚をバスケットへ移す、バスケットを台の横へ運ぶ（`basket.carry` は持つ・移動・置くを1スキルにまとめる）、台の1枚を畳む（`shirt0.*`）、バスケットの衣類を取って畳み重ねる（`shirt1.*`〜`shirt6.*`）。
+`shirtN.*` は `folding_table` への `navigate` から始まるため、単独で選んでもロボットは台へ移動する。
+`shirt0.*` は0点で、`shirt0.state` のみを変える。台が空の配置では選択から外しても後続の記憶は変わらない。
+
+洗濯機とバスケットを飛ばす場合は `start.*,shirt1.*` を選ぶ。バスケットは記憶上台の横にあるため、実物は手で置く。
+
+| 記憶 | 内容 |
+| --- | --- |
+| `robot.holding` | 持っている衣類（`washer_shirt`、`shirtN`）。置くと `null` |
+| `basket.location` | バスケットのある地点。`laundry_basket`、運ぶと `folding_table` |
+| `table.stack` | 重ねた枚数。`shirtN.stack` で `N` |
+| `shirtN.state` | `placed`、`spread`、`folded`、`stacked` |
+

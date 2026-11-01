@@ -1,0 +1,87 @@
+{
+  "task": "doing_laundry",
+  "title": "Doing Laundry Challenge",
+  "rulebook": {
+    "name": "RoboCup@Home",
+    "version": "2027 Rev-1",
+    "section": "5.4",
+    "revision": "2026-10-14",
+    "url": "https://robocupathome.github.io/RuleBook/rulebook/master.pdf"
+  },
+  "time_limit": 420,
+  "locations": {
+    "spawn": [-2.0, 1.5, 0.0],
+    "washing_machine": [1.375, -2.15, -1.570796],
+    "laundry_basket": [2.3, -2.5, -1.570796],
+    "folding_table": [2.0, -1.25, 1.570796]
+  },
+  "initial_state": {"robot.location": "spawn", "robot.holding": null, "basket.location": "laundry_basket", "table.stack": 0},
+  "skills": {
+    "navigate": "aha_tasks.skills:Navigate",
+    "wait_door_open": null,
+    "operate_appliance": null,
+    "pick_cloth": null,
+    "place_cloth": null,
+    "carry_basket": null,
+    "spread_cloth": null,
+    "fold_cloth": null,
+    "stack_cloth": null
+  },
+  "subgoals": [
+    {"id": "start.wait_door", "group": "開始", "title": "ドアが開くのを待つ", "skill": "wait_door_open", "note": "ドアが開くと開始する。代替の開始合図は −100"},
+    {"id": "start.go_to_laundry", "group": "開始", "title": "洗濯場所へ移動する", "skill": "navigate", "params": {"location": "washing_machine"}, "points": 15, "note": "人に環境を変えてもらうと1件 −40"},
+
+    {"id": "washer.open_door", "group": "洗濯機", "title": "洗濯機の扉を開ける", "skill": "operate_appliance", "params": {"appliance": "washing_machine", "part": "door", "action": "open"}, "points": 300, "note": "扉は最初閉じている。人が開けると減点"},
+    {"id": "washer.pick", "group": "洗濯機", "title": "洗濯機から衣類を取り出す", "skill": "pick_cloth", "params": {"cloth": "washer_shirt", "source": "washing_machine"}, "points": 300, "mock": {"robot.holding": "washer_shirt"}, "note": "取り出した時点で得点する（1枚以上で1回。洗濯機には2〜4枚）。衣類が床に触れると −200"},
+    {"id": "washer.go_to_basket", "group": "洗濯機", "title": "衣類を持ってバスケットへ移動する", "skill": "navigate", "params": {"location": "laundry_basket"}},
+    {"id": "washer.place", "group": "洗濯機", "title": "取り出した衣類をバスケットへ入れる", "skill": "place_cloth", "params": {"cloth": "washer_shirt", "surface": "laundry_basket"}, "mock": {"robot.holding": null}, "note": "得点は washer.pick に計上。衣類が床に触れると −200"},
+
+    {"id": "basket.carry", "group": "バスケット", "title": "バスケットを台の横へ運ぶ", "skill": "carry_basket", "params": {"location": "folding_table"}, "points": 300, "mock": {"robot.location": "folding_table", "basket.location": "folding_table", "robot.holding": null}, "note": "両腕で持って運び、台に手が届く位置へ置く。洗濯物を落とす・失うと −200"},
+
+    {"id": "shirt0.go_to_table", "group": "台の上の衣類", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt0.spread", "group": "台の上の衣類", "title": "台の丸まった衣類を広げる", "skill": "spread_cloth", "params": {"cloth": "shirt0", "surface": "folding_table"}, "mock": {"shirt0.state": "spread"}, "note": "Setupでは台に丸まった1枚があるが、Referee Instructionsでは台は空。台が空なら選ばない。得点は shirt1〜6 に計上するので0点"},
+    {"id": "shirt0.fold", "group": "台の上の衣類", "title": "台の衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt0", "surface": "folding_table"}, "mock": {"shirt0.state": "folded"}, "note": "後続の作業面を空けて台に残す。記憶は shirt0.state だけを変える"},
+
+    {"id": "shirt1.go_to_table", "group": "衣類1", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt1.pick", "group": "衣類1", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt1", "source": "basket"}, "points": 100, "mock": {"robot.holding": "shirt1"}, "note": "複数枚同時に取ると −100。人の手渡しは減点"},
+    {"id": "shirt1.place", "group": "衣類1", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt1", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt1.state": "placed"}, "note": "畳む前に台へ置く。床で畳まない"},
+    {"id": "shirt1.spread", "group": "衣類1", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt1", "surface": "folding_table"}, "mock": {"shirt1.state": "spread"}, "note": "人が広げる・整えると −200"},
+    {"id": "shirt1.fold", "group": "衣類1", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt1", "surface": "folding_table"}, "points": 800, "mock": {"shirt1.state": "folded"}, "note": "品質で最大 −800（付録A）。人の補助で最大 −800（最小12.5%、部分25%、全部100%）"},
+    {"id": "shirt1.stack", "group": "衣類1", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt1", "surface": "folding_table"}, "points": 100, "mock": {"shirt1.state": "stacked", "table.stack": 1}, "note": "きれいに重ねる（6×100）"},
+
+    {"id": "shirt2.go_to_table", "group": "衣類2", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt2.pick", "group": "衣類2", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt2", "source": "basket"}, "mock": {"robot.holding": "shirt2"}, "note": "得点は shirt1.pick の1回のみ。複数枚同時に取ると −100"},
+    {"id": "shirt2.place", "group": "衣類2", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt2", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt2.state": "placed"}},
+    {"id": "shirt2.spread", "group": "衣類2", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt2", "surface": "folding_table"}, "mock": {"shirt2.state": "spread"}, "note": "人が広げる・整えると −100"},
+    {"id": "shirt2.fold", "group": "衣類2", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt2", "surface": "folding_table"}, "points": 400, "mock": {"shirt2.state": "folded"}, "note": "追加の衣類（5×400）。品質で最大 −400。人の補助で最大 −400"},
+    {"id": "shirt2.stack", "group": "衣類2", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt2", "surface": "folding_table"}, "points": 100, "mock": {"shirt2.state": "stacked", "table.stack": 2}},
+
+    {"id": "shirt3.go_to_table", "group": "衣類3", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt3.pick", "group": "衣類3", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt3", "source": "basket"}, "mock": {"robot.holding": "shirt3"}, "note": "得点は shirt1.pick の1回のみ。複数枚同時に取ると −100"},
+    {"id": "shirt3.place", "group": "衣類3", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt3", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt3.state": "placed"}},
+    {"id": "shirt3.spread", "group": "衣類3", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt3", "surface": "folding_table"}, "mock": {"shirt3.state": "spread"}, "note": "人が広げる・整えると −100"},
+    {"id": "shirt3.fold", "group": "衣類3", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt3", "surface": "folding_table"}, "points": 400, "mock": {"shirt3.state": "folded"}, "note": "追加の衣類（5×400）。品質で最大 −400。人の補助で最大 −400"},
+    {"id": "shirt3.stack", "group": "衣類3", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt3", "surface": "folding_table"}, "points": 100, "mock": {"shirt3.state": "stacked", "table.stack": 3}},
+
+    {"id": "shirt4.go_to_table", "group": "衣類4", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt4.pick", "group": "衣類4", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt4", "source": "basket"}, "mock": {"robot.holding": "shirt4"}, "note": "得点は shirt1.pick の1回のみ。複数枚同時に取ると −100"},
+    {"id": "shirt4.place", "group": "衣類4", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt4", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt4.state": "placed"}},
+    {"id": "shirt4.spread", "group": "衣類4", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt4", "surface": "folding_table"}, "mock": {"shirt4.state": "spread"}, "note": "人が広げる・整えると −100"},
+    {"id": "shirt4.fold", "group": "衣類4", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt4", "surface": "folding_table"}, "points": 400, "mock": {"shirt4.state": "folded"}, "note": "追加の衣類（5×400）。品質で最大 −400。人の補助で最大 −400"},
+    {"id": "shirt4.stack", "group": "衣類4", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt4", "surface": "folding_table"}, "points": 100, "mock": {"shirt4.state": "stacked", "table.stack": 4}},
+
+    {"id": "shirt5.go_to_table", "group": "衣類5", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt5.pick", "group": "衣類5", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt5", "source": "basket"}, "mock": {"robot.holding": "shirt5"}, "note": "得点は shirt1.pick の1回のみ。複数枚同時に取ると −100"},
+    {"id": "shirt5.place", "group": "衣類5", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt5", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt5.state": "placed"}},
+    {"id": "shirt5.spread", "group": "衣類5", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt5", "surface": "folding_table"}, "mock": {"shirt5.state": "spread"}, "note": "人が広げる・整えると −100"},
+    {"id": "shirt5.fold", "group": "衣類5", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt5", "surface": "folding_table"}, "points": 400, "mock": {"shirt5.state": "folded"}, "note": "追加の衣類（5×400）。品質で最大 −400。人の補助で最大 −400"},
+    {"id": "shirt5.stack", "group": "衣類5", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt5", "surface": "folding_table"}, "points": 100, "mock": {"shirt5.state": "stacked", "table.stack": 5}},
+
+    {"id": "shirt6.go_to_table", "group": "衣類6", "title": "台へ移動する", "skill": "navigate", "params": {"location": "folding_table"}},
+    {"id": "shirt6.pick", "group": "衣類6", "title": "バスケットから衣類を1枚取る", "skill": "pick_cloth", "params": {"cloth": "shirt6", "source": "basket"}, "mock": {"robot.holding": "shirt6"}, "note": "得点は shirt1.pick の1回のみ。複数枚同時に取ると −100"},
+    {"id": "shirt6.place", "group": "衣類6", "title": "衣類を台に置く", "skill": "place_cloth", "params": {"cloth": "shirt6", "surface": "folding_table"}, "mock": {"robot.holding": null, "shirt6.state": "placed"}},
+    {"id": "shirt6.spread", "group": "衣類6", "title": "衣類を台の上で広げる", "skill": "spread_cloth", "params": {"cloth": "shirt6", "surface": "folding_table"}, "mock": {"shirt6.state": "spread"}, "note": "人が広げる・整えると −100"},
+    {"id": "shirt6.fold", "group": "衣類6", "title": "衣類を畳む", "skill": "fold_cloth", "params": {"cloth": "shirt6", "surface": "folding_table"}, "points": 400, "mock": {"shirt6.state": "folded"}, "note": "追加の衣類（5×400）。品質で最大 −400。人の補助で最大 −400"},
+    {"id": "shirt6.stack", "group": "衣類6", "title": "畳んだ衣類を重ねる", "skill": "stack_cloth", "params": {"cloth": "shirt6", "surface": "folding_table"}, "points": 100, "mock": {"shirt6.state": "stacked", "table.stack": 6}}
+  ]
+}
