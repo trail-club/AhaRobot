@@ -1,5 +1,6 @@
 """Person skills against fake people messages and services (no ROS graph)."""
 
+import itertools
 import math
 import os
 import sys
@@ -57,10 +58,13 @@ class FakeClient:
 class FakePeople(People):
     """People without ROS: a settable latest message and recorded calls."""
 
+    now = staticmethod(time.monotonic)
+
     def __init__(self, message=None, features=("glasses",)):
         self.lock = threading.Lock()
         self.message, self.received = message, time.monotonic()
         self.looked = []
+        self.panned = []
         self.remember = FakeClient(
             "remember", lambda r: SimpleNamespace(success=True, message="ok")
         )
@@ -75,6 +79,9 @@ class FakePeople(People):
 
     def look_at(self, frame, point):
         self.looked.append((frame, point))
+
+    def look_towards(self, pan):
+        self.panned.append(pan)
 
 
 class FakeNavigation:
@@ -212,6 +219,17 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertIn("VLM timeout", result.message)
 
 
+class WaitTests(unittest.TestCase):
+    def test_timeout_counts_the_node_clock(self):
+        people = FakePeople(people_message())
+        people.now = itertools.count(0.0, 100.0).__next__  # a fast simulation clock
+        started = time.monotonic()
+        found, reason = people.wait_for(lambda m: None, 1000.0, threading.Event())
+        self.assertIsNone(found)
+        self.assertIn("Not found", reason)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+
 class LocateGuestsTests(unittest.TestCase):
     def test_outputs_each_named_guest_wherever_they_sit(self):
         people = FakePeople(
@@ -234,6 +252,31 @@ class LocateGuestsTests(unittest.TestCase):
             context({"guests": ["guest1", "guest2"], "timeout": 0.2})
         )
         self.assertFalse(result.success)
+
+    def test_guests_seen_at_different_head_poses_are_all_located(self):
+        people = FakePeople(people_message(person(12, 0.75, 2.5, "guest1")))
+
+        def second_guest_comes_into_view():
+            time.sleep(0.25)
+            people._on_people(people_message(person(13, 1.75, 2.5, "guest2")))
+
+        thread = threading.Thread(target=second_guest_comes_into_view)
+        thread.start()
+        result = LocateGuests(runtime(people)).execute(
+            context({"guests": ["guest1", "guest2"], "timeout": 5.0, "dwell": 0.1})
+        )
+        thread.join()
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest1.track"], 12)
+        self.assertEqual(result.outputs["guest2.track"], 13)
+
+    def test_head_scans_and_ends_straight(self):
+        people = FakePeople(people_message(person(12, 0.75, 2.5, "guest1")))
+        LocateGuests(runtime(people)).execute(
+            context({"guests": ["guest1", "guest2"], "timeout": 0.35, "dwell": 0.1})
+        )
+        self.assertEqual(people.panned[:3], [0.0, 0.4, -0.4])
+        self.assertEqual(people.panned[-1], 0.0)
 
     def test_guest_list_is_validated(self):
         spec = SimpleNamespace(locations={})
