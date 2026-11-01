@@ -271,7 +271,9 @@ class Session:
                     **self._hotword_state(link, language),
                 }
             for loop in loops:
-                thread = threading.Thread(target=loop, args=(link,), daemon=True)
+                thread = threading.Thread(
+                    target=self._run, args=(link, loop), daemon=True
+                )
                 link.threads.append(thread)
                 thread.start()
             if o.listen:
@@ -362,7 +364,15 @@ class Session:
         self.cancelled.set()
         self._close(self.link)
 
-    def _lost(self, link: Link, reason: str) -> None:
+    def _run(self, link: Link, loop) -> None:
+        try:
+            loop(link)
+        except Exception as exc:
+            self._lost(
+                link, str(exc), "音声の処理が止まりました。もう一度接続してください。"
+            )
+
+    def _lost(self, link: Link, reason: str, message: str = "") -> None:
         with self.lock:
             if self.events.state["status"] != "ready":
                 return
@@ -370,7 +380,8 @@ class Session:
         name = TARGET_NAMES.get(link.target, link.target)
         print(f"[audio] {reason}", file=sys.stderr, flush=True)
         self._shutdown(
-            "error", f"{name} との接続が切れました。もう一度接続してください。"
+            "error",
+            message or f"{name} との接続が切れました。もう一度接続してください。",
         )
 
     def _watch(self, link: Link) -> None:

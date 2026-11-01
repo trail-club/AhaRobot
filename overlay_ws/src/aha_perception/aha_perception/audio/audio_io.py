@@ -10,7 +10,7 @@ import base64
 import queue
 import threading
 import time
-from math import gcd
+from math import ceil, gcd
 
 import numpy as np
 
@@ -43,13 +43,45 @@ def resample(x: np.ndarray, src: int, dst: int) -> np.ndarray:
     return resample_poly(x, dst // g, src // g).astype(np.float32)
 
 
+class StreamResampler:
+    """Resamples consecutive blocks as one signal.
+
+    resample_poly treats the input as zero outside what it is given, so resampling
+    each block alone leaves a click at every block edge. This holds back the samples
+    the filter still needs and returns only output it computed from real neighbours.
+    """
+
+    def __init__(self, src: int, dst: int):
+        g = gcd(src, dst)
+        self.up, self.down = dst // g, src // g
+        half_filter = 10 * max(self.up, self.down)  # resample_poly's default
+        # A whole number of `down` steps, so that the output lines up exactly.
+        self.context = ceil(half_filter / self.up / self.down) * self.down
+        self.pending = np.zeros(0, dtype=np.float32)
+
+    def push(self, block: np.ndarray) -> np.ndarray:
+        if self.up == self.down:
+            return block
+        from scipy.signal import resample_poly
+
+        self.pending = np.concatenate([self.pending, block])
+        edges = 2 * self.context
+        usable = (len(self.pending) - edges) // self.down * self.down
+        if usable <= 0:
+            return np.zeros(0, dtype=np.float32)
+        out = resample_poly(self.pending[: usable + edges], self.up, self.down)
+        self.pending = self.pending[usable:]
+        start = self.context * self.up // self.down
+        return out[start : start + usable * self.up // self.down].astype(np.float32)
+
+
 class MicStream:
     """Delivers fixed-size float32 mono frames at SAMPLE_RATE with capture timestamps."""
 
     def __init__(self, device: str, capture_rate: int, frame: int):
         import sounddevice as sd
 
-        self.capture_rate = capture_rate
+        self.resampler = StreamResampler(capture_rate, SAMPLE_RATE)
         self.frame = frame
         self._q: queue.Queue[tuple[np.ndarray, float]] = queue.Queue(maxsize=200)
         self.dropped = 0
@@ -84,9 +116,7 @@ class MicStream:
                 block, t = self._q.get(timeout=0.2)
             except queue.Empty:
                 continue
-            pending = np.concatenate(
-                [pending, resample(block, self.capture_rate, SAMPLE_RATE)]
-            )
+            pending = np.concatenate([pending, self.resampler.push(block)])
             while len(pending) >= self.frame:
                 out, pending = pending[: self.frame], pending[self.frame :]
                 yield out, t

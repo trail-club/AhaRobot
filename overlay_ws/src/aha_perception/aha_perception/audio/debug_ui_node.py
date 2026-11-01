@@ -34,6 +34,7 @@ from .common import (
     latched_qos,
     notice_json,
 )
+from .web_access import allowed
 
 
 class DebugUiNode(Node):
@@ -190,6 +191,13 @@ def build_app(node: DebugUiNode) -> web.Application:
         resources.files(__package__).joinpath("web/index.html").read_text("utf-8")
     )
     segments_dir = node.get_parameter("segments_dir").value
+    bind_host = node.get_parameter("host").value
+
+    @web.middleware
+    async def same_site(request, handler):
+        if not allowed(request.host, request.headers.get("Origin"), bind_host):
+            raise web.HTTPForbidden()
+        return await handler(request)
 
     async def index(_):
         return web.Response(text=index_html, content_type="text/html")
@@ -216,7 +224,7 @@ def build_app(node: DebugUiNode) -> web.Application:
         node.ws_clients.discard(ws)
         return ws
 
-    app = web.Application()
+    app = web.Application(middlewares=[same_site])
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/segments/{name}", segment)

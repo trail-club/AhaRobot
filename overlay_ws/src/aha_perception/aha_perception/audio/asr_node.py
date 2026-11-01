@@ -119,8 +119,10 @@ class AsrNode(AudioModelNode):
             self.get_parameter("capture_rate").value,
             FRAME,
         )
-        threading.Thread(target=self._capture_loop, name="capture", daemon=True).start()
-        threading.Thread(target=self._asr_loop, name="asr", daemon=True).start()
+        for name, loop in (("capture", self._capture_loop), ("asr", self._asr_loop)):
+            threading.Thread(
+                target=self.watched, args=(loop,), name=name, daemon=True
+            ).start()
         self.mic.start()
         self.create_timer(1.0, self._publish_state)
         self.get_logger().info(f"ready: language={self.language}, asr={engine.tag}")
@@ -229,7 +231,11 @@ class AsrNode(AudioModelNode):
             language = req.language if req and req.language else self.language
             hotwords = self._hotwords(req.hotwords if req else [])
 
-            wav = self._save_segment(seg_id, seg)
+            try:
+                wav = self._save_segment(seg_id, seg)
+            except Exception as e:  # the WAV is for the debug UI only
+                self.get_logger().warn(f"could not save segment {seg_id}: {e!r}")
+                wav = ""
 
             self._recognizing = True
             try:

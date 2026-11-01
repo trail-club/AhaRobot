@@ -228,7 +228,7 @@ function addAsr(m) {
       ${hw ? `<span>${hw}</span>` : ''}
     </div>
     <div class="bar"><span style="width:${wait / total * 100}%"></span><span style="width:${asr / total * 100}%"></span></div>
-    <div class="row" style="margin-top:6px"><audio controls preload="none" src="/segments/${esc(m.wav)}" style="height:28px;max-width:100%"></audio></div>`;
+    ${m.wav ? `<div class="row" style="margin-top:6px"><audio controls preload="none" src="/segments/${esc(m.wav)}" style="height:28px;max-width:100%"></audio></div>` : ''}`;
   list.prepend(el);
   trimList(list, 50);
 }

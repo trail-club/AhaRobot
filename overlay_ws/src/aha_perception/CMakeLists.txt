@@ -60,6 +60,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
   ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)
   ament_add_pytest_test(test_person_perception test/test_person_perception.py TIMEOUT 120)
+  ament_add_pytest_test(test_audio_node test/test_audio_node.py TIMEOUT 60)
 endif()
 
 ament_package()

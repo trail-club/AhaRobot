@@ -249,6 +249,17 @@ class ListeningTests(Base):
         self.wait(lambda: self.items("heard"))
         self.assertEqual(self.items("heard")[0]["text"], "en:Aha")
 
+    def test_stopped_capture_is_reported_and_cleans_up(self):
+        self.connect()
+
+        def broken(frame, now, muted=False):
+            raise RuntimeError("onnxruntime failed")
+
+        self.segmenter.push = broken
+        self.wait_status("error")
+        self.assertIn("音声の処理", self.events.state["error"])
+        self.assertTrue(self.worker.closed.is_set())
+
     def test_failed_request_is_a_notice_and_listening_continues(self):
         self.connect()
         self.engine.error = RequestError("bad audio")

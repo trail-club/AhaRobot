@@ -14,7 +14,13 @@ sys.path.insert(
 )
 
 from aha_perception import dgx  # noqa: E402
-from aha_perception.audio import asr_engines, audio_io, remote, worker  # noqa: E402
+from aha_perception.audio import (  # noqa: E402
+    asr_engines,
+    audio_io,
+    remote,
+    web_access,
+    worker,
+)
 from aha_perception.audio.model_registry import ModelEntry, Registry  # noqa: E402
 from aha_perception.audio.tts_engine import split_sentences  # noqa: E402
 
@@ -308,6 +314,63 @@ class SentenceTests(unittest.TestCase):
 
     def test_blank_text_has_no_sentences(self):
         self.assertEqual(split_sentences(" \n "), [])
+
+
+class WebAccessTests(unittest.TestCase):
+    def test_loopback_page_is_answered(self):
+        self.assertTrue(
+            web_access.allowed("localhost:8765", "http://localhost:8765", "127.0.0.1")
+        )
+        self.assertTrue(web_access.allowed("127.0.0.1:9000", None, "127.0.0.1"))
+
+    def test_other_sites_are_refused(self):
+        self.assertFalse(
+            web_access.allowed(
+                "localhost:8765", "https://attacker.example", "127.0.0.1"
+            )
+        )
+        self.assertFalse(web_access.allowed("localhost:8765", "null", "127.0.0.1"))
+
+    def test_rebound_name_is_refused_on_loopback_only(self):
+        self.assertFalse(web_access.allowed("attacker.example:8765", None, "127.0.0.1"))
+        self.assertTrue(
+            web_access.allowed("robot.local:8765", "http://robot.local:8765", "0.0.0.0")
+        )
+        self.assertFalse(
+            web_access.allowed("robot.local:8765", "http://attacker.example", "0.0.0.0")
+        )
+
+
+class StreamResamplerTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            import scipy  # noqa: F401
+        except ImportError:
+            self.skipTest("scipy is not installed")
+
+    def resampled(self, rate, block):
+        tone = 1000.0
+        signal = np.sin(2 * np.pi * tone * np.arange(rate) / rate).astype(np.float32)
+        resampler = audio_io.StreamResampler(rate, audio_io.SAMPLE_RATE)
+        parts = [
+            resampler.push(signal[start : start + block])
+            for start in range(0, len(signal), block)
+        ]
+        out = np.concatenate(parts)
+        delay = resampler.context / rate
+        times = delay + np.arange(len(out)) / audio_io.SAMPLE_RATE
+        return out, np.sin(2 * np.pi * tone * times)
+
+    def test_blocks_join_without_clicks(self):
+        for rate, block in ((48000, 1536), (44100, 1411)):
+            out, expected = self.resampled(rate, block)
+            self.assertGreater(len(out), 15000)
+            self.assertLess(np.abs(out - expected).max(), 0.02, rate)
+
+    def test_the_pipeline_rate_passes_through(self):
+        block = np.ones(512, dtype=np.float32)
+        resampler = audio_io.StreamResampler(audio_io.SAMPLE_RATE, audio_io.SAMPLE_RATE)
+        self.assertIs(resampler.push(block), block)
 
 
 if __name__ == "__main__":

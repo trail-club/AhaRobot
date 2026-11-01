@@ -72,6 +72,7 @@ class AudioModelNode(Node):
         self.request_timeout = self.get_parameter("request_timeout").value
         self.startup_timeout = self.get_parameter("startup_timeout").value
         self.worker = None
+        self.loop_failure: str | None = None
         self.pub_debug = self.create_publisher(String, TOPIC_DEBUG, 50)
         self.pub_models = self.create_publisher(String, TOPIC_MODELS, latched_qos())
 
@@ -86,8 +87,18 @@ class AudioModelNode(Node):
 
     @property
     def error(self) -> str | None:
-        """Why this node cannot go on: the connection to the worker was lost."""
+        """Why this node cannot go on: a loop stopped or the worker connection was lost."""
+        if self.loop_failure is not None:
+            return self.loop_failure
         return self.worker.failure if self.worker is not None else None
+
+    def watched(self, loop) -> None:
+        """Run a thread's loop; an exception ends the node instead of the thread alone."""
+        try:
+            loop()
+        except Exception as e:
+            self.loop_failure = f"{loop.__name__}: {e!r}"
+            self.get_logger().error(self.loop_failure)
 
     def start_worker(self, roles: list[str]) -> None:
         get = lambda name: self.get_parameter(name).value  # noqa: E731
