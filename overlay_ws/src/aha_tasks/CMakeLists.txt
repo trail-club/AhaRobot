@@ -8,5 +8,6 @@ install(PROGRAMS scripts/task_runner scripts/task_monitor DESTINATION lib/${PROJ
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_people_skills test/test_people_skills.py TIMEOUT 60)
+  ament_add_pytest_test(test_gpsr_plan test/test_gpsr_plan.py TIMEOUT 60)
 endif()
 ament_package()

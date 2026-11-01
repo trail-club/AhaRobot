@@ -7,6 +7,7 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
 | `config/<task>.json` | タスク定義 |
@@ -196,3 +197,53 @@ worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類�
 | `table.stack` | 重ねた枚数。`shirtN.stack` で `N` |
 | `shirtN.state` | `placed`、`spread`、`folded`、`stacked` |
 
+## General Purpose Service Robot Challenge
+
+[ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
+3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
+実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
+実装済みのスキルは `navigate` と `run_plan_step`。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+
+### 計画
+
+```json
+{"command": 1, "action": "pick_object", "params": {"object": "cola", "surface": "kitchen_table"}, "mock": {"robot.holding": "cola"}}
+```
+
+`command` は1〜3、`action` は `skills` のスキル名。`mock` は省略できる。
+`run_plan_step`（params `{"index": i}`）は、計画の `i` 番目の手順を同名のスキルへ振り分ける。`self.runtime.skills` からスキルのインスタンスを参照する。
+
+- **検証**: `validate_plan(plan, spec)` はROSなしで呼べる。不正な形、枠の数を超える長さ、未宣言の `action`、タスクの流れ用の `action`（`run_plan_step` など）、`locations` にない `location` と `mock` の `robot.location`、実装済みスキルの `validate` に通らないparamsを拒否する。`mock` の計画は起動時に、記憶の計画は枠の実行ごとに全手順を検証する。不正なら最初の枠で移動前に失敗する。
+- **手順がない枠**: 即座に成功する。記憶に計画がなければ失敗する。
+- **未実装のスキル**: 成功として通過し、手順の `mock` を記憶へ追加する。メッセージに未実装と出る。`mock` の `robot.location` にはNav2で移動する。
+- **実装済みのスキル**: `execute` の `outputs` と `expected(params)` が `run_plan_step` の出力として記憶へ入る。失敗はそのサブゴールの失敗として扱われ、ロールバック・再試行が手順単位で働く。
+- **部分実行**: `exec.*` を選択外にすると、その手順の結果は記憶へ反映されない。`exec.step05` だけを選ぶと、手前の手順の `robot.location` と `robot.holding` がないまま実行する。
+
+| 手順 | params | 生成器の命令 |
+| --- | --- | --- |
+| `navigate` | `location` | goToLoc |
+| `find_object` | `object`、`location` | findObjInRoom、findObj |
+| `pick_object` / `place_object` | `object`、`surface` | takeObjFromPlcmt、takeObj、bringMeObjFromPlcmt / placeObjOnPlcmt、putObjInTrash（`surface: trashbin`） |
+| `deliver_object` | `object`、`person`（`operator` は命令した人） | bringMeObjFromPlcmt、deliverObjTo* |
+| `find_described_person` | `name` / `gesture` / `pose` / `clothing`、`location` | findPrsInRoom、meetPrsAtBeac、greet*、talkInfoToGestPrsInRoom |
+| `say` / `answer_question` | `text` / `question` | 挨拶 / talkInfo、talkInfoToGestPrsInRoom |
+| `count` | `target`、`location`、`output` | countObjOnPlcmt、countPrsInRoom、countClothPrsInRoom |
+| `describe` | `target`、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt、tellPrsInfo* |
+| `tell_info` | `key`（記憶のキー）、`person` | `count` / `describe` の結果を伝える |
+| `follow_person` / `guide_person` | `person`、`location`（`follow_person` は省略可） | follow* / guide* |
+
+`find_described_person` は名前・ジェスチャ・姿勢・服で探す。HICの `find_person`（名前のない最も近い人）とは別のスキル。
+
+### 地点
+
+部屋・家具のラベルは[CompetitionTemplate](https://github.com/RoboCupAtHome/CompetitionTemplate)の語彙を `_` 区切りにしたもので、RCJO2026 simの部屋・家具を割り当てる。simにない語彙は登録しない。
+
+| 部屋 | simの部屋 | 家具（simのモデル） |
+| --- | --- | --- |
+| `bedroom` | Bed Room | `bed` |
+| `kitchen` | Dining Room | `kitchen_table`（`dining_table`）、`sofa`（`couch_right`） |
+| `office` | Study Room | `chairs`（`chair_left` / `chair_right`）、`shelf` |
+| `living_room` | Living Room / Laundry Area | `desk`（`long_table`）、`side_tables`（`tall_table`）、`trashbin`（`trash_box`） |
+
+`instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+審判がタイマーを止める間も、GUIの経過時間は止まらない。
