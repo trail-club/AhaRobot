@@ -19,6 +19,7 @@ from aha_perception.people import (  # noqa: E402
     Detection,
     Gallery,
     PersonTracker,
+    bbox_of,
     decode_image,
     decode_mask,
     describe_crop,
@@ -29,6 +30,7 @@ from aha_perception.people import (  # noqa: E402
     parse_features,
     parse_match,
     rotation_matrix,
+    split_sideways,
 )
 
 
@@ -51,6 +53,23 @@ class MaskTests(unittest.TestCase):
         encoded = encode_mask(np.ones((4, 4), bool))
         with self.assertRaises(ValueError):
             decode_mask(encoded, (3, 3))
+
+    def test_people_side_by_side_in_one_mask_are_split(self):
+        mask = np.zeros((20, 40), bool)
+        mask[2:18, 2:10] = True
+        mask[2:18, 25:35] = True
+        left, right = split_sideways(mask)
+        self.assertEqual(bbox_of(left), [2, 2, 10, 18])
+        self.assertEqual(bbox_of(right), [25, 2, 35, 18])
+
+    def test_a_small_gap_or_a_speck_makes_no_second_person(self):
+        mask = np.zeros((40, 40), bool)
+        mask[:, 5:15] = True
+        mask[:, 18:30] = True  # 3 empty columns: an arm beside the body
+        mask[0, 38] = True
+        parts = split_sideways(mask)
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(bbox_of(parts[0]), [5, 0, 30, 40])
 
     def test_jpeg_round_trip_is_close(self):
         rgb = np.zeros((16, 16, 3), np.uint8)
@@ -170,7 +189,8 @@ class DescribeTests(unittest.TestCase):
             parse_features('{"other": []}')
 
     def test_match_prompt_and_reply(self):
-        self.assertIn("photo 2 shows a person now", match_prompt(1))
+        self.assertIn("the last photo, photo 2, shows a person now", match_prompt(1))
+        self.assertIn("The last photo is not a choice", match_prompt(1))
         self.assertIn("one of photos 1 to 3", match_prompt(3))
         with self.assertRaises(ValueError):
             match_prompt(4)
