@@ -281,6 +281,38 @@ def place_motion(
     )
 
 
+def release_for_tcp_height(
+    tcp_height: float, surface_z: float, height: float, hand: np.ndarray
+) -> float:
+    """Release height (object bottom above the surface at ``surface_z``) that
+    puts the TCP at ``tcp_height`` (base z) when the object of ``height``,
+    held at ``hand`` (T_tcp_object), is placed upright: the TCP is then
+    inverse(hand)[2, 3] above the object center at any yaw."""
+    return tcp_height - (inverse(hand)[2, 3] + height / 2) - surface_z
+
+
+def fixed_tcp_release(
+    tcp_height: float,
+    surface_z: float,
+    height: float,
+    hand: np.ndarray,
+    min_release: float,
+    max_release: float,
+) -> tuple[float, str | None]:
+    """(release height, None) for a TCP fixed at ``tcp_height``
+    (``release_for_tcp_height``), or (release height, why) when it is below
+    ``min_release`` (the object would be pushed into the surface) or above
+    ``max_release`` (dropped from too high)."""
+    release = release_for_tcp_height(tcp_height, surface_z, height, hand)
+    if min_release - 1e-9 <= release <= max_release + 1e-9:
+        return release, None
+    return release, (
+        f"the TCP at {tcp_height:.3f} m releases {release * 100:.1f} cm above "
+        f"the {surface_z:.3f} m surface (allowed {min_release * 100:.1f} to "
+        f"{max_release * 100:.1f} cm)"
+    )
+
+
 def descent_column(
     motion: PlaceMotion, size, margin: float, params: MotionParams | None = None
 ) -> tuple[np.ndarray, tuple[float, float, float]]:

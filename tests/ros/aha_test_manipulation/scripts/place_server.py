@@ -16,7 +16,9 @@ furniture_level and clearance through) with the arms and the held object exclude
 obstacle boxes into the planning scene (aha_test_manipulation.place_scene, which
 also keeps the robot's state valid against the boxes without removing any;
 if the hand is at a real object, lift it first) and keep the candidates the
-arm reaches (IK).
+arm reaches (IK). With ``tcp_height`` (no lift) the release height of each
+spot puts the side-grasp TCP at that height, and spots it does not fit are
+dropped.
 
 Per candidate, allowed approach and yaw: the descent column
 (place_geometry.descent_column) clear of the perceived boxes known so far,
@@ -86,11 +88,12 @@ from aha_msgs.srv import GetPlaceCandidates
 from aha_test_msgs.action import PlaceObject
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import PointStamped, PoseStamped
+from control_msgs.action import FollowJointTrajectory
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import MoveItErrorCodes
 from moveit_msgs.srv import GetCartesianPath, GetPositionIK
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.duration import Duration as RclpyDuration
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
@@ -106,7 +109,9 @@ from std_msgs.msg import Empty, Float64MultiArray, String
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
+from aha_test_manipulation import gripper_ramp
 from aha_test_manipulation import place_geometry as geo
+from aha_test_manipulation.frozen_watch import FrozenWatch
 from aha_test_manipulation import place_markers as markers
 from aha_test_manipulation import place_selection as selection
 from aha_test_manipulation import scene_objects as scene
@@ -115,9 +120,19 @@ from aha_test_manipulation.moveit_requests import joint_goal, named_states
 from aha_test_manipulation.place_scene import ARMS, PlaceScene
 from aha_test_manipulation.place_selection import PlaceError
 from aha_test_ui.publisher import UiPublisher
+from astra_controller_interfaces.msg import JointCommand
 
 HEAD_JOINTS = ("joint_head_pan", "joint_head_tilt")
+# gripper_interface -> (message type, ARMS topic key)
+GRIPPER_INTERFACES = {
+    "controller": (Float64MultiArray, "gripper_topic"),
+    "arm_node": (JointCommand, "gripper_joint_topic"),
+}
 MAX_REFRESHES = 3  # fresh candidate lists after spots found blocked
+GRIPPER_RAMP_RATE = 20.0  # Hz, gripper commands during gripper_ramp_time
+# wall s: older finger states are not ramped from, and set_gripper waits this
+# long for a fresh one
+FINGER_STATE_TIMEOUT = 0.5
 DETECTION_RETRIES = 2  # queries again after an error (e.g. a too old detection)
 WALL_CAP = 120.0  # s, any sim-time wait ends after this much wall time
 MOTION_WALL_CAP = 900.0  # s, same for a MoveIt goal
@@ -236,6 +251,9 @@ class PlaceServer(Node):
         # exclude_regions: growth of the arm link boxes and the held object box
         p("arm_padding", 0.02)
         p("held_padding", 0.02)
+        # Growth of the released object's box in the planning scene (after the
+        # retreat), so that the return keeps away from where it may really be.
+        p("placed_padding", 0.0)
         p("late_check", True)  # fresh detection at the pre-place pose
         p("late_check_timeout", 5.0)  # wall s
         # Descent column growth (place_geometry.descent_column, with the
@@ -248,6 +266,14 @@ class PlaceServer(Node):
         p("base_settle_timeout", 5.0)  # sim s, wait for the base to stop
         p("max_replans", 2)
         p("release_height", 0.01)  # m above the surface when the goal has 0
+        # Fixed side-grasp TCP height (m, planning frame z; 0 = off): without
+        # the lift the TCP with z up stays at one height and KDL has no
+        # position tolerance, so each spot's release height puts the TCP
+        # exactly there (place_geometry.fixed_tcp_release). Spots needing
+        # less than release_height or more than max_release_height are
+        # dropped; side grasp and side approach only.
+        p("tcp_height", 0.0)
+        p("max_release_height", 0.04)
         p("top_tilt", geo.DEFAULT_TOP_TILT)
         p("yaw_offsets", [0.0, 0.35, -0.35])  # rad, added to the approach direction
         # rad, tried after yaw_offsets, toward the arm's side (negative for
@@ -284,6 +310,19 @@ class PlaceServer(Node):
         p("service_timeout", 10.0)  # wall s
         p("motion_timeout", 60.0)  # sim s per MoveIt goal
         p("gripper_open", geo.FINGER_MAX_OPENING)  # finger limit per side
+        # "controller": [finger r, finger l] Float64MultiArray on the arm's
+        # gripper_topic (ForwardCommandController, simulation); "arm_node":
+        # JointCommand of joint_<l|r>7r on /<arm>/arm/gripper_joint_command
+        # (real arm, astra_controller arm_node).
+        p("gripper_interface", "controller")
+        p("gripper_ramp_time", 0.0)  # wall s from the finger state, 0 = one command
+        # Frozen arm readings (an arm board reset; frozen_watch.FrozenWatch) from
+        # the arm trajectory bridge's feedback: readings unchanged for
+        # frozen_window s (0 = off) while the command moves more than
+        # frozen_motion rad. The running motion is not canceled (the bridge
+        # would hold the frozen reading); the next MoveIt goal is refused.
+        p("frozen_window", 0.0)
+        p("frozen_motion", 0.05)
         p("finger_clearance", 0.005)  # object fit check, per side and to the palm
         p("release_margin", 0.01)  # per side beyond the object at release
         p("release_topic", "")  # "{arm}" is replaced; empty = no release hook
@@ -294,6 +333,7 @@ class PlaceServer(Node):
         p("verify_place", True)
         p("verify_margin", 0.03)  # m, horizontal from the box
         p("verify_height_tolerance", 0.04)  # m, box bottom to the support height
+        p("verify_detections", 1)  # fresh detections tried before "not seen"
 
         group = ReentrantCallbackGroup()
         self.busy = threading.Lock()
@@ -328,10 +368,51 @@ class PlaceServer(Node):
         self.execute_client = ActionClient(
             self, ExecuteTrajectory, "/execute_trajectory", callback_group=group
         )
+        interface = self.param("gripper_interface")
+        if interface not in GRIPPER_INTERFACES:
+            raise ValueError(
+                f"gripper_interface {interface!r}, use {sorted(GRIPPER_INTERFACES)}"
+            )
+        msg_type, topic_key = GRIPPER_INTERFACES[interface]
         self.gripper_pubs = {
-            arm: self.create_publisher(Float64MultiArray, cfg["gripper_topic"], 10)
+            arm: self.create_publisher(msg_type, cfg[topic_key], 10)
             for arm, cfg in ARMS.items()
         }
+        # Finger state with its receive time (wall s): on the real arm from the
+        # arm_node's own topic, as joint_state_publisher reports 0 (closed)
+        # for a finger it has no state of.
+        self.fingers = {}
+        # Why the arm readings looked frozen, kept until they change (the
+        # arm_node restarted) with the readings seen then ({joint: rad}).
+        self.frozen = None
+        self.frozen_readings = {}
+        if self.param("frozen_window") > 0.0:
+            # One at a time: FrozenWatch keeps state between samples.
+            feedback_group = MutuallyExclusiveCallbackGroup()
+            for arm in ARMS:
+                watch = FrozenWatch(
+                    self.param("frozen_window"), self.param("frozen_motion")
+                )
+                self.create_subscription(
+                    FollowJointTrajectory.Impl.FeedbackMessage,
+                    f"/{arm}_arm_controller/follow_joint_trajectory/_action/feedback",
+                    lambda msg, arm=arm, watch=watch: self.on_bridge_feedback(
+                        arm, watch, msg
+                    ),
+                    10,
+                    callback_group=feedback_group,
+                )
+        # The arm_node's own states: finger positions for the ramp and the
+        # readings that clear a frozen state.
+        if interface == "arm_node" or self.param("frozen_window") > 0.0:
+            for cfg in ARMS.values():
+                self.create_subscription(
+                    JointState,
+                    cfg["gripper_state_topic"],
+                    self.on_finger_states,
+                    10,
+                    callback_group=group,
+                )
         self.look_pub = self.create_publisher(
             PointStamped, self.param("look_at_topic"), 10
         )
@@ -379,6 +460,11 @@ class PlaceServer(Node):
             cancel_callback=self.on_cancel,
             callback_group=group,
         )
+        if self.param("tcp_height") > 0.0:
+            self.get_logger().info(
+                f"fixed side-grasp TCP height {self.param('tcp_height'):.4f} m, "
+                f"release up to {self.param('max_release_height'):.3f} m"
+            )
         self.get_logger().info("place server ready on /aha/manipulation/place")
 
     # --- parameters and subscriptions -------------------------------------------------
@@ -418,6 +504,48 @@ class PlaceServer(Node):
 
         self.wait_for(lambda: find() is not None, timeout)
         return find()
+
+    def on_bridge_feedback(self, arm, watch, msg):
+        # A new controller goal starts afresh: readings at rest between goals
+        # are constant and must not count against its first samples.
+        goal = bytes(msg.goal_id.uuid)
+        if watch.goal != goal:
+            watch.reset()
+            watch.goal = goal
+        feedback = msg.feedback
+        reason = watch.update(
+            time.monotonic(),
+            feedback.desired.positions,
+            feedback.actual.positions,
+            feedback.joint_names,
+        )
+        if reason and self.frozen is None:
+            # The flagged joints only: the others may still read live values.
+            self.frozen_readings = {
+                feedback.joint_names[k]: feedback.actual.positions[k]
+                for k in watch.frozen
+            }
+            self.frozen = f"{arm} arm: {reason}"
+            self.get_logger().error(self.frozen)
+
+    def on_finger_states(self, msg):
+        now = time.monotonic()
+        changed = False
+        for name, position in zip(msg.name, msg.position):
+            self.fingers[name] = (position, now)
+            frozen = self.frozen_readings.get(name)
+            changed |= frozen is not None and frozen != position
+        if changed and self.frozen:
+            self.get_logger().info("arm readings change again: frozen state cleared")
+            self.frozen = None
+            self.frozen_readings = {}
+
+    def finger_state(self, joint):
+        """The finger's position if fresh (FINGER_STATE_TIMEOUT), else None."""
+        if self.param("gripper_interface") != "arm_node":
+            return self.joints.get(joint)
+        position, stamp = self.fingers.get(joint, (None, -math.inf))
+        return position if time.monotonic() - stamp < FINGER_STATE_TIMEOUT else None
 
     def on_joint_states(self, msg):
         self.joints.update(zip(msg.name, msg.position))
@@ -488,6 +616,8 @@ class PlaceServer(Node):
         """Send a MoveIt goal and wait for its result; a cancel of the place
         goal cancels it and raises Canceled."""
         self.check_cancel()
+        if self.frozen:
+            raise PlaceError(f"{what}: {self.frozen}", Result.STATUS_EXECUTION_FAILED)
         if not client.wait_for_server(timeout_sec=self.param("service_timeout")):
             raise PlaceError(f"{what}: action server not available")
         handle = self.wait_future(
@@ -518,6 +648,8 @@ class PlaceServer(Node):
         finally:
             self.active_motion = None
         self.check_cancel()
+        if self.frozen:
+            raise PlaceError(f"{what}: {self.frozen}", Result.STATUS_EXECUTION_FAILED)
         return future.result().result
 
     def note_error(self, code):
@@ -556,7 +688,7 @@ class PlaceServer(Node):
         if self.released is not None:
             req, motion = self.released
             self.released = None
-            self.planning_scene.add_placed(req, motion)
+            self.planning_scene.add_placed(req, motion, self.param("placed_padding"))
 
     # --- MoveIt requests -----------------------------------------------------------------
 
@@ -581,7 +713,8 @@ class PlaceServer(Node):
             return None
         state = response.solution.joint_state
         values = dict(zip(state.name, state.position))
-        return {name: values[name] for name in cfg["joints"]}
+        # A fixed lift (frame model) is not in the group nor the solution.
+        return {name: values[name] for name in cfg["joints"] if name in values}
 
     def move_to_joints(self, cfg, joints, what):
         goal = joint_goal(
@@ -647,9 +780,39 @@ class PlaceServer(Node):
     # --- gripper and release ---------------------------------------------------------
 
     def set_gripper(self, arm, opening):
-        self.gripper_pubs[arm].publish(
-            Float64MultiArray(data=[float(opening), -float(opening)])
+        """Finger position ``opening`` (m per side) through gripper_interface;
+        with ``gripper_ramp_time`` the command moves there from the finger's
+        state in steps (arm_node takes each command as a target at full speed)."""
+        pub = self.gripper_pubs[arm]
+        if pub.get_subscription_count() == 0:
+            self.get_logger().warn(f"nothing subscribes {pub.topic_name}")
+        joint = ARMS[arm]["gripper_joint"]
+        ramp = self.param("gripper_ramp_time")
+        start = self.finger_state(joint)
+        deadline = time.monotonic() + FINGER_STATE_TIMEOUT
+        while ramp > 0.0 and start is None and time.monotonic() < deadline:
+            time.sleep(0.05)  # the subscriptions run on other executor threads
+            start = self.finger_state(joint)
+        if ramp > 0.0 and start is None:
+            self.get_logger().warn(f"no fresh state of {joint}: gripper not ramped")
+        # gripper_handover.py's ramp; the limits are the controller's here.
+        sequence = gripper_ramp.SimpleRamp(
+            float(opening) if start is None else start,
+            float(opening),
+            ramp if start is not None else 0.0,
+            GRIPPER_RAMP_RATE,
+            finger_range=(-math.inf, math.inf),
         )
+        while not sequence.done:
+            value = sequence.next_command()
+            if self.param("gripper_interface") == "arm_node":
+                msg = JointCommand(name=[joint], position_cmd=[value])
+                msg.header.stamp = self.get_clock().now().to_msg()
+            else:
+                msg = Float64MultiArray(data=[value, -value])
+            pub.publish(msg)
+            if not sequence.done:
+                time.sleep(1.0 / GRIPPER_RAMP_RATE)
 
     def release(self, arm, width):
         """Open the fingers ``release_margin`` beyond the object (y size, the
@@ -1066,6 +1229,22 @@ class PlaceServer(Node):
             ]
         return yaws
 
+    def release_at(self, req, point):
+        """(release height, why it is out of range or None) at a surface
+        point: the goal's, or with ``tcp_height`` the one that puts the TCP
+        at that height."""
+        tcp_height = self.param("tcp_height")
+        if tcp_height <= 0.0:
+            return req.release_height, None
+        return geo.fixed_tcp_release(
+            tcp_height,
+            float(point[2]),
+            req.size[2],
+            req.hand,
+            req.release_height,
+            self.param("max_release_height"),
+        )
+
     def motion(self, req, point, yaw, approach):
         return geo.place_motion(
             point,
@@ -1073,7 +1252,7 @@ class PlaceServer(Node):
             yaw,
             req.grasp,
             approach,
-            req.release_height,
+            self.release_at(req, point)[0],
             self.param("top_tilt"),
             self.motion_params(),
             req.hand,
@@ -1081,9 +1260,10 @@ class PlaceServer(Node):
 
     def reachable(self, req, candidates, obstacles=()):
         """The first ``max_candidates`` candidates (in order) within
-        ``reach_limits`` of the shoulder whose place pose has an IK solution
-        for an allowed approach and yaw offset with the descent column clear
-        of ``obstacles`` (perceived boxes) at that yaw. The others checked on
+        ``reach_limits`` of the shoulder (with ``tcp_height``, at a height the
+        release height allows) whose place pose has an IK solution for an
+        allowed approach and yaw offset with the descent column clear of
+        ``obstacles`` (perceived boxes) at that yaw. The others checked on
         the way are dropped on the marker board."""
         cfg = ARMS[req.arm]
         shoulder = self.lookup(self.param("planning_frame"), cfg["shoulder"])[:2, 3]
@@ -1095,6 +1275,11 @@ class PlaceServer(Node):
             if not selection.within_reach(point, shoulder, reach):
                 self.explain(req, point, "beyond reach_limits")
                 self.board.drop(point, "reach")
+                return False
+            _, error = self.release_at(req, point)
+            if error:
+                self.explain(req, point, error)
+                self.board.drop(point, "height")
                 return False
             yaws = self.candidate_yaws(req, candidate, point, shoulder)
             blocked = 0
@@ -1214,6 +1399,14 @@ class PlaceServer(Node):
             approaches = [approach]
         else:
             raise PlaceError(f"unknown approach {approach!r}")
+        if self.param("tcp_height") > 0.0:
+            # No lift: the TCP stays at tcp_height and cannot descend.
+            if geo.TOP in (grasp, approach):
+                raise PlaceError(
+                    f"{geo.TOP} grasp and approach reach no surface with the TCP "
+                    f"fixed at {self.param('tcp_height'):.3f} m (no lift)"
+                )
+            approaches = [geo.SIDE]
         size = (goal.object_size.x, goal.object_size.y, goal.object_size.z)
         if min(size) <= 0:
             raise PlaceError(
@@ -1619,7 +1812,9 @@ class PlaceServer(Node):
             retreated = self.cartesian(
                 ARMS[req.arm], motion.retreat_waypoints, "retreat", fraction
             )
-            if not retreated and motion.retreat_fallback:
+            # With the TCP fixed (no lift) the hand cannot rise.
+            fixed = self.param("tcp_height") > 0.0
+            if not retreated and motion.retreat_fallback and not fixed:
                 retreated = self.cartesian(
                     ARMS[req.arm], motion.retreat_fallback, "retreat up", fraction
                 )
@@ -1663,7 +1858,8 @@ class PlaceServer(Node):
 
     def verify(self, req, motion, surface_height):
         """Whether a detection after the return sees an object standing at the
-        place spot (perception's obstacle boxes); None without a detection."""
+        place spot (perception's obstacle boxes), trying up to
+        ``verify_detections`` fresh detections; None without a detection."""
         point = motion.place_pose[:3, 3]
         since = None
         if self.param("aim_head"):
@@ -1672,35 +1868,44 @@ class PlaceServer(Node):
             target.point.x, target.point.y, target.point.z = (float(v) for v in point)
             since = self.aim_head(req, target)
         since = since or self.get_clock().now()
-        if not self.wait_detection(since, self.param("detection_timeout")):
-            self.get_logger().warn("no detection after the return: place not verified")
-            return None
-        request = GetPlaceCandidates.Request()
-        request.object_size.x, request.object_size.y, request.object_size.z = (
-            float(v) for v in req.size
-        )
-        request.max_candidates = 1
-        request.exclude_regions = [
-            scene.obstacle_msg(box) for box in self.exclude_regions(req)
-        ]
-        response = self.call(self.candidates_client, request, "get_place_candidates")
-        if not response.success:
-            self.get_logger().warn(f"place not verified: {response.message}")
-            return None
-        seen = scene.object_at(
-            response.obstacles,
-            point,
-            surface_height,
-            self.param("verify_margin"),
-            self.param("verify_height_tolerance"),
-        )
-        if not seen:
-            self.get_logger().error(
+        tries = max(1, self.param("verify_detections"))
+        for attempt in range(tries):
+            if attempt:
+                since = self.get_clock().now()
+            if not self.wait_detection(since, self.param("detection_timeout")):
+                self.get_logger().warn(
+                    "no detection after the return: place not verified"
+                )
+                return None
+            request = GetPlaceCandidates.Request()
+            request.object_size.x, request.object_size.y, request.object_size.z = (
+                float(v) for v in req.size
+            )
+            request.max_candidates = 1
+            request.exclude_regions = [
+                scene.obstacle_msg(box) for box in self.exclude_regions(req)
+            ]
+            response = self.call(
+                self.candidates_client, request, "get_place_candidates"
+            )
+            if not response.success:
+                self.get_logger().warn(f"place not verified: {response.message}")
+                return None
+            if scene.object_at(
+                response.obstacles,
+                point,
+                surface_height,
+                self.param("verify_margin"),
+                self.param("verify_height_tolerance"),
+            ):
+                return True
+            self.get_logger().warn(
                 f"no object at the place spot ({point[0]:.2f}, {point[1]:.2f}) on "
                 f"the {surface_height:.2f} m support after the return "
-                f"({len(response.obstacles)} obstacle boxes)"
+                f"({len(response.obstacles)} obstacle boxes, detection "
+                f"{attempt + 1} of {tries})"
             )
-        return seen
+        return False
 
     def recover(self, arm):
         """Return to return_state with the object still in the hand (best effort)."""
