@@ -46,6 +46,7 @@ from .segmenter import FRAME, Segment, Segmenter, SegmenterConfig, SileroVad, Sm
 class _ListenRequest:
     language: str
     hotwords: list[str]
+    accepted: float = field(default_factory=time.time)  # wall time, as Segment
     done: threading.Event = field(default_factory=threading.Event)
     transcript: SpeechTranscript | None = None
 
@@ -236,6 +237,8 @@ class AsrNode(AudioModelNode):
                 continue
             with self._request_lock:
                 req = self._request
+            if req is not None and seg.speech_end_time < req.accepted:
+                req = None  # 受理より前の発話 (キューに残っていた) は goal に使わない
             language = req.language if req and req.language else self.language
             hotwords = self._hotwords(req.hotwords if req else [])
 
