@@ -83,6 +83,7 @@ class AsrNode(AudioModelNode):
 
         torch.set_num_threads(1)  # プロセス全体に効く (Silero VAD も ASR エンジンも)
         self.engines: dict[str, ASREngine] = {}
+        self._loading = False
         cfg = SegmenterConfig(
             **{
                 name: self.get_parameter(f"segmenter.{name}").value
@@ -134,20 +135,24 @@ class AsrNode(AudioModelNode):
     def _engine_for(self, lang: str) -> ASREngine:
         key = self.registry.language(lang)["asr"]
         if key not in self.engines:
-            if self.remote:
-                self.engines[key] = load_remote_engine(
-                    self.registry,
-                    key,
-                    self.worker,
-                    self.target,
-                    self.startup_timeout,
-                    self.request_timeout,
-                    self.get_logger(),
-                )
-            else:
-                self.engines[key] = load_engine(
-                    self.registry, key, self.device, self.get_logger()
-                )
+            self._loading = True  # Listen の上限時刻を読み込みの分だけ延ばす
+            try:
+                if self.remote:
+                    self.engines[key] = load_remote_engine(
+                        self.registry,
+                        key,
+                        self.worker,
+                        self.target,
+                        self.startup_timeout,
+                        self.request_timeout,
+                        self.get_logger(),
+                    )
+                else:
+                    self.engines[key] = load_engine(
+                        self.registry, key, self.device, self.get_logger()
+                    )
+            finally:
+                self._loading = False
             self.publish_models()
         return self.engines[key]
 
@@ -309,8 +314,13 @@ class AsrNode(AudioModelNode):
         hard_deadline = deadline + self.segmenter.cfg.max_segment_s + 5.0
         result = Listen.Result()
         feedback = Listen.Feedback()
+        last = time.time()
         try:
             while not req.done.wait(0.1):
+                now = time.time()
+                if self._loading:  # 未ロードの言語は初回の認識で読み込む (数十秒かかる)
+                    hard_deadline += now - last
+                last = now
                 if goal_handle.is_cancel_requested:
                     goal_handle.canceled()
                     result.message = "canceled"
