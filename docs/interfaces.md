@@ -335,7 +335,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
 | 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
 
-音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`）。TTSは英語のみ。
+音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 
 ## 実機の頭部
 

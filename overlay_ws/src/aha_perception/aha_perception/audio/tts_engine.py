@@ -3,12 +3,46 @@
 from __future__ import annotations
 
 import re
+import threading
 
 import numpy as np
 
 from .model_registry import Registry
 
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?;:])\s+|\n+")
+
+
+class Turns:
+    """Speak goals take turns in the order they arrive (threading.Lock wakes waiters in
+    no particular order). A goal cancelled while waiting gives up its turn."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.next = 0
+        self.serving = 0
+        self.finished: set[int] = set()
+
+    def take(self) -> int:
+        with self.cond:
+            self.next += 1
+            return self.next - 1
+
+    def wait(self, turn: int, cancelled) -> bool:
+        """True when `turn` may play; False if cancelled first."""
+        with self.cond:
+            while self.serving != turn:
+                if cancelled():
+                    return False
+                self.cond.wait(0.1)
+            return True
+
+    def finish(self, turn: int) -> None:
+        with self.cond:
+            self.finished.add(turn)
+            while self.serving in self.finished:
+                self.finished.remove(self.serving)
+                self.serving += 1
+            self.cond.notify_all()
 
 
 def split_sentences(text: str) -> list[str]:

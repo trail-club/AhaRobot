@@ -68,3 +68,4 @@ languages:
     asr: haas_ja
   ja-qwen:                                # 比較用。聞き取るのは日本語で、モデルが Qwen3-ASR
     asr: qwen3_asr
+    code: ja                              # SpeechTranscript.language に入れる値

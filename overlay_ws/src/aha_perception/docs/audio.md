@@ -76,7 +76,7 @@ make audio-run SSH_USER=<Unixユーザー名> AUDIO_TARGET=trailpc      # 推論
 make audio-run AUDIO_TARGET=local                                  # このマシンの GPU
 ```
 
-ブラウザで <http://localhost:8765> を開く。`local` の初回起動時は、モデルを named volume `aharobot_aha_audio_hf` に取得する（合計約 7 GB）。
+ブラウザで <http://localhost:8768> を開く。`local` の初回起動時は、モデルを named volume `aharobot_aha_audio_hf` に取得する（合計約 7 GB）。
 
 ### マイク / スピーカーの選択
 
@@ -116,13 +116,13 @@ ros2 action send_goal /aha/perception/audio/listen aha_msgs/action/Listen "{time
 ros2 action send_goal /aha/perception/audio/speak aha_msgs/action/Speak "{text: 'Hello, I am AhaRobot.'}"
 ```
 
-## ホットワード（現状は仕組みのみ）
+## ホットワード
 
 `hotwords` パラメータと `Listen.goal.hotwords` は、どちらも ASR エンジンまで届く。
 
 - **Qwen3-ASR（ja-qwen）**：`context`（system prompt）に語彙として入れる。
 - **Haas（ja）**：GPU phrase boosting で語を強調し、認識結果を指定の表記にする。`Haas=ハース` のように読みを付ける。読みを付けないと、モデルが書けない綴り（`Haas`）は強調されない。読みが複数あれば `Haas=ハース` と `Haas=バース` のように分けて並べる。
-- **Parakeet（en）**：未実装で、受け取っても無視する。NeMo の GPU phrase boosting（`boosting_tree`）で実装する予定。デバッグ UI では「ホットワード未対応モデル」と表示される。
+- **Parakeet（en）**：受け取っても無視する。デバッグ UI では「ホットワード未対応モデル」と表示される。
 
 ## デバッグ UI
 
@@ -133,19 +133,7 @@ ros2 action send_goal /aha/perception/audio/speak aha_msgs/action/Speak "{text: 
 
 UI は既定で `127.0.0.1` にだけ bind する。認証がないので、別 PC から見るとき（`host: 0.0.0.0`）は信頼できるネットワークでだけ使う。
 
-## 実測値（2026-09-27, `target:=local`, RTX 5090 Laptop, ループバック入力）
-
-`ja` が Qwen3-ASR だったときの値である。Haas の値は [測定・検証記録](../../../../docs/context/audio.md) を参照する。
-
-`dgx` / `trailpc` の測定は [音声の検証記録](../../../../docs/context/audio.md) を参照する。
-
-| 項目 | 値 |
-|---|---|
-| 英語：話し終わり → 認識結果 | 約 325 ms（確定待ち 224 + Parakeet 33） |
-| 日本語：話し終わり → 認識結果 | 460〜670 ms（確定待ち 224 + Qwen3-ASR 210〜410）。JSUT 3 文をすべて正しく認識 |
-| TTS：goal → 最初の音 | 約 50 ms（Kokoro。4 秒の文を約 100 ms で合成） |
-| Smart Turn / Silero VAD | 27 ms / 回、1 ms / フレーム（CPU） |
-| VRAM | ASR ノード 8.5 GB（Parakeet＋Qwen3-ASR）、TTS ノード 1.0 GB |
+測定値は [音声の検証記録](../../../../docs/context/audio.md) にある。
 
 日本語を使わないときは `preload_languages: [en]` にすると、Haas を読み込まずに VRAM を節約できる。その場合は `ja` に切り替えた最初の発話で読み込むので、その 1 回だけ待つ。
 

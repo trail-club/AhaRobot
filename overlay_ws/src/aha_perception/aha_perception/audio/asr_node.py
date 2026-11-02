@@ -8,7 +8,7 @@ Topics
 Actions
   /aha/perception/audio/listen      aha_msgs/action/Listen
 Parameters
-  language (ja|en), hotwords (string[]) は実行中に変更可。
+  language (ja|en|ja-qwen), hotwords (string[]) は実行中に変更可。
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from aha_msgs.action import Listen
 from aha_msgs.msg import SpeechTranscript
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.action import GoalResponse
-from rclpy.parameter import Parameter
 from rclpy.time import Time
 from std_msgs.msg import Bool
 
@@ -56,7 +55,7 @@ class AsrNode(AudioModelNode):
         super().__init__("aha_audio_asr")
         self.declare_parameter("language", "en")
         self.declare_parameter("preload_languages", ["en", "ja"])
-        self.declare_parameter("hotwords", Parameter.Type.STRING_ARRAY)
+        self.declare_parameter("hotwords", [""])  # rclpy cannot type an empty list
         self.declare_parameter("input_device", "")
         self.declare_parameter("capture_rate", SAMPLE_RATE)
         self.declare_parameter("listen_timeout", 10.0)
@@ -253,7 +252,7 @@ class AsrNode(AudioModelNode):
             latency = time.time() - seg.speech_end_time
             msg = SpeechTranscript(
                 text=text,
-                language=language,
+                language=self.registry.language_code(language),
                 model=engine.tag,
                 audio_duration=float(len(seg.audio) / SAMPLE_RATE),
                 latency=float(latency),

@@ -77,7 +77,7 @@ ASR / TTS のノードは重い ML 依存（PyTorch cu128・NeMo・Haas・Qwen3-
 | `make audio-build` | 音声イメージを build |
 | `make audio-up` / `make audio-down` | 起動 / 停止（コンテナ名 `aharobot_aha_audio_1`） |
 | `make audio-ws-build` | コンテナ内で `aha_msgs` と `aha_perception` を colcon build |
-| `make audio-run SSH_USER=<Unixユーザー名>` | ASR + TTS + デバッグ UI（<http://localhost:8765>）を起動。推論先は `AUDIO_TARGET=dgx\|trailpc\|local` で選ぶ |
+| `make audio-run SSH_USER=<Unixユーザー名>` | ASR + TTS + デバッグ UI（<http://localhost:8768>）を起動。推論先は `AUDIO_TARGET=dgx\|trailpc\|local` で選ぶ |
 | `make audio-lock` | イメージ内の Python パッケージ全版を `docker/audio/requirements.lock` に記録 |
 
 - マイクとスピーカーは、ホストの PulseAudio / PipeWire（`/run/user/$UID/pulse/native`）経由で使う。

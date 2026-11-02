@@ -1,6 +1,6 @@
 """aha_audio_debug_ui: ブラウザで音声スタックの状態をリアルタイムに見るための Web UI.
 
-http://localhost:8765 を開く。/aha/perception/audio/{debug,models,tts_active} を WebSocket で
+http://localhost:8768 を開く。/aha/perception/audio/{debug,models,tts_active} を WebSocket で
 中継し、UI からの操作 (言語切り替え・ホットワード・TTS テスト・Listen テスト) を
 parameter / action として各ノードへ送る。
 """
@@ -41,7 +41,7 @@ class DebugUiNode(Node):
     def __init__(self, loop: asyncio.AbstractEventLoop):
         super().__init__("aha_audio_debug_ui")
         self.declare_parameter("host", "127.0.0.1")
-        self.declare_parameter("port", 8765)
+        self.declare_parameter("port", 8768)
         self.declare_parameter("segments_dir", SEGMENTS_DIR)
         self.declare_parameter("asr_node", "aha_audio_asr")
 

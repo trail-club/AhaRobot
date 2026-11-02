@@ -95,6 +95,10 @@ class Registry:
                 f'language "{lang}" is not in {self.path} (known: {", ".join(self.languages)})'
             ) from e
 
+    def language_code(self, lang: str) -> str:
+        """The language itself ("ja" for "ja-qwen"), for SpeechTranscript.language."""
+        return self.language(lang).get("code", lang)
+
     @property
     def languages(self) -> list[str]:
         return list(self.raw.get("languages", {}))

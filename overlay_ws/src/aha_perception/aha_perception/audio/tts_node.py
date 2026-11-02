@@ -10,7 +10,6 @@ Topics
 
 from __future__ import annotations
 
-import threading
 import time
 from dataclasses import dataclass
 
@@ -21,7 +20,7 @@ from std_msgs.msg import Bool
 from .audio_io import Speaker
 from .common import ACTION_SPEAK, TOPIC_TTS_ACTIVE, AudioModelNode, spin_multithreaded
 from .remote import RemoteTts
-from .tts_engine import KokoroTts, split_sentences
+from .tts_engine import KokoroTts, Turns, split_sentences
 
 
 @dataclass
@@ -55,7 +54,7 @@ class TtsNode(AudioModelNode):
             self.get_parameter("output_device").value,
             self.get_parameter("playback_rate").value,
         )
-        self._play_lock = threading.Lock()
+        self._turns = Turns()
         self.pub_active.publish(Bool(data=False))
         self._action = self.serve_action(
             Speak, ACTION_SPEAK, self._execute, self._on_goal
@@ -103,18 +102,23 @@ class TtsNode(AudioModelNode):
         accepted = time.time()
         sentences = split_sentences(text)
         stats = _PlayStats()
-        with self._play_lock:
-            self.pub_active.publish(Bool(data=True))
-            try:
-                self._play(sentences, voice, goal_handle, accepted, stats)
-            except Exception as e:
-                self.get_logger().error(f"TTS failed: {e!r}")
-                goal_handle.abort()
-                result.message = repr(e)
-                self._report(text, voice, stats, "error")
-                return result
-            finally:
-                self.pub_active.publish(Bool(data=False))
+        turn = self._turns.take()
+        try:
+            # Cancelled while waiting: give up without synthesizing or muting the ASR.
+            if self._turns.wait(turn, lambda: goal_handle.is_cancel_requested):
+                self.pub_active.publish(Bool(data=True))
+                try:
+                    self._play(sentences, voice, goal_handle, accepted, stats)
+                finally:
+                    self.pub_active.publish(Bool(data=False))
+        except Exception as e:
+            self.get_logger().error(f"TTS failed: {e!r}")
+            goal_handle.abort()
+            result.message = repr(e)
+            self._report(text, voice, stats, "error")
+            return result
+        finally:
+            self._turns.finish(turn)
 
         completed = not goal_handle.is_cancel_requested
         result.time_to_first_audio = float(stats.ttfa or 0.0)

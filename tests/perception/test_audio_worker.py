@@ -22,7 +22,7 @@ from aha_perception.audio import (  # noqa: E402
     worker,
 )
 from aha_perception.audio.model_registry import ModelEntry, Registry  # noqa: E402
-from aha_perception.audio.tts_engine import split_sentences  # noqa: E402
+from aha_perception.audio.tts_engine import Turns, split_sentences  # noqa: E402
 
 FAKE_WORKER = (
     Path(__file__).resolve().parents[2]
@@ -314,6 +314,60 @@ class SentenceTests(unittest.TestCase):
 
     def test_blank_text_has_no_sentences(self):
         self.assertEqual(split_sentences(" \n "), [])
+
+
+class TurnsTests(unittest.TestCase):
+    def test_goals_play_in_arrival_order(self):
+        import threading
+
+        turns = Turns()
+        order, threads = [], []
+        tickets = [turns.take() for _ in range(4)]
+
+        def play(turn):
+            self.assertTrue(turns.wait(turn, lambda: False))
+            order.append(turn)
+            turns.finish(turn)
+
+        for turn in reversed(tickets):  # started out of order
+            thread = threading.Thread(target=play, args=(turn,))
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        self.assertEqual(order, tickets)
+
+    def test_cancelled_waiter_gives_up_its_turn(self):
+        turns = Turns()
+        first, second, third = turns.take(), turns.take(), turns.take()
+        self.assertFalse(turns.wait(second, lambda: True))
+        turns.finish(second)
+        turns.finish(first)
+        self.assertTrue(turns.wait(third, lambda: False))
+
+
+class LanguageCodeTests(unittest.TestCase):
+    def test_comparison_model_reports_its_language(self):
+        registry = Registry(
+            path="test",
+            raw={
+                "languages": {"ja": {"asr": "a"}, "ja-qwen": {"asr": "b", "code": "ja"}}
+            },
+        )
+        self.assertEqual(registry.language_code("ja-qwen"), "ja")
+        self.assertEqual(registry.language_code("ja"), "ja")
+
+    def test_the_real_ledger_maps_every_language_to_ja_or_en(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "overlay_ws/src/aha_perception/config/audio/models.yaml"
+        )
+        try:
+            registry = Registry.load(str(path))
+        except ImportError:
+            self.skipTest("pyyaml is not installed")
+        codes = {registry.language_code(key) for key in registry.languages}
+        self.assertEqual(codes, {"ja", "en"})
 
 
 class WebAccessTests(unittest.TestCase):

@@ -3,6 +3,30 @@
 音声認識と発話のモデルを別のマシンで動かす方式の、実機での確認を日付順に記録する。
 使い方は [音声スタック](../../overlay_ws/src/aha_perception/docs/audio.md)・[Macの対話ツール](../../tools/perception/macos/audio/README.md) を参照する。
 
+## 2026-09-27 — `target:=local` での遅延（trailpc）
+
+### 条件
+
+- `target:=local`（ノードと同じプロセスの GPU）、RTX 5090 Laptop。
+- 音声はループバック入力。日本語は JSUT の 3 文。
+- このとき `ja` のモデルは Qwen3-ASR だった（今の `ja-qwen`）。
+- 測定の回数とばらつきの求め方は記録が残っていない。
+
+### 結果
+
+| 項目 | 値 |
+|---|---|
+| 英語：話し終わり → 認識結果 | 約 325 ms（確定待ち 224 + Parakeet 33） |
+| 日本語：話し終わり → 認識結果 | 460〜670 ms（確定待ち 224 + Qwen3-ASR 210〜410）。JSUT 3 文をすべて正しく認識 |
+| TTS：goal → 最初の音 | 約 50 ms（Kokoro。4 秒の文を約 100 ms で合成） |
+| Smart Turn / Silero VAD | 27 ms / 回、1 ms / フレーム（CPU） |
+| VRAM | ASR ノード 8.5 GB（Parakeet＋Qwen3-ASR）、TTS ノード 1.0 GB |
+
+### 確認していないこと
+
+- 人の声とロボットのマイクからの入力。
+- Haas での同じ測定。
+
 ## 2026-11-01 — DGX Spark と trailpc でのモデルの動作と速度
 
 ### 条件

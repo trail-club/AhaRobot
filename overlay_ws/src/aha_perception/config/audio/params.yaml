@@ -39,4 +39,4 @@ aha_audio_tts:
 aha_audio_debug_ui:
   ros__parameters:
     host: 127.0.0.1                # 別 PC から見るなら 0.0.0.0 (認証なしなので注意)
-    port: 8765
+    port: 8768
