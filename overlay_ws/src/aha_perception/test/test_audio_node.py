@@ -31,6 +31,23 @@ def test_loop_that_ends_normally_is_no_error():
     assert AudioModelNode.error.fget(node) is None
 
 
+def test_mic_unmutes_when_the_tts_node_is_gone():
+    """A TTS node that dies mid-speech never publishes tts_active=False."""
+    from aha_perception.audio.asr_node import AsrNode
+
+    publishers = [1]
+    node = types.SimpleNamespace(
+        _tts_active=True,
+        _muted_until=0.0,
+        count_publishers=lambda topic: publishers[0],
+        get_logger=lambda: Mock(),
+    )
+    assert AsrNode._muted(node)
+    publishers[0] = 0
+    assert not AsrNode._muted(node)
+    assert node._tts_active is False
+
+
 def test_listen_outlasts_a_model_load_past_the_hard_deadline():
     """The hard deadline (timeout + max_segment_s + 5 s) does not count model loading."""
     from aha_msgs.msg import SpeechTranscript

@@ -190,6 +190,10 @@ class AsrNode(AudioModelNode):
             )
 
     def _muted(self) -> bool:
+        # TTS ノードが再生中に落ちると False が届かないので、publisher が消えたらミュートを解く
+        if self._tts_active and self.count_publishers(TOPIC_TTS_ACTIVE) == 0:
+            self.get_logger().warn("tts_active publisher is gone; unmuting the mic")
+            self._tts_active = False
         return self._tts_active or time.time() < self._muted_until
 
     def _capture_loop(self) -> None:
