@@ -42,9 +42,8 @@ from aha_perception.people import (
     decode_mask,
     describe_crop,
     encode_image,
-    measure,
+    measure_people,
     rotation_matrix,
-    split_sideways,
 )
 
 PEOPLE_TOPIC = "/aha/perception/people"
@@ -244,10 +243,9 @@ class PersonPerception(Node):
         fx, fy, cx, cy = info.k[0], info.k[4], info.k[2], info.k[5]
         detections = []
         for person in response["people"]:
-            for mask in split_sideways(decode_mask(person, rgb.shape[:2])):
-                measured = measure(mask, depth, fx, fy, cx, cy)
-                if measured is None:
-                    continue
+            for mask, measured in measure_people(
+                decode_mask(person, rgb.shape[:2]), depth, fx, fy, cx, cy
+            ):
                 detections.append(
                     Detection(
                         centre=rotation @ measured.centre + translation,

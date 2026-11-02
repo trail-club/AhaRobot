@@ -27,6 +27,7 @@ from aha_perception.people import (  # noqa: E402
     encode_mask,
     match_prompt,
     measure,
+    measure_people,
     parse_features,
     parse_match,
     rotation_matrix,
@@ -101,6 +102,80 @@ class MeasureTests(unittest.TestCase):
         np.testing.assert_allclose(
             rotation_matrix(0, 0, half, half) @ [1, 0, 0], [0, 1, 0], atol=1e-9
         )
+
+
+class MeasurePeopleTests(unittest.TestCase):
+    F, CX, CY = 525.0, 320.0, 240.0
+    WIDTH = 0.45  # m
+
+    def setUp(self):
+        self.mask = np.zeros((480, 640), bool)
+        self.depth = np.full((480, 640), 5.0, np.float32)
+
+    def add_person(self, x, z, top=60, bottom=470):
+        """A person of WIDTH centred x m right of the camera, z m in front of it."""
+        left = int(self.CX + (x - self.WIDTH / 2) * self.F / z)
+        right = int(self.CX + (x + self.WIDTH / 2) * self.F / z)
+        self.mask[top:bottom, left:right] = True
+        self.depth[top:bottom, left:right] = z
+
+    def people(self):
+        return measure_people(self.mask, self.depth, self.F, self.F, self.CX, self.CY)
+
+    def test_person_behind_a_door_frame_stays_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 314:326] = False
+        self.assertEqual(len(split_sideways(self.mask)), 2)
+        [(mask, measured)] = self.people()
+        self.assertEqual(bbox_of(mask), bbox_of(self.mask))
+        self.assertAlmostEqual(measured.centre[0], 0.0, delta=0.05)
+
+    def test_person_behind_two_posts_stays_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 280:290] = False
+        self.mask[:, 340:350] = False
+        self.assertEqual(len(split_sideways(self.mask)), 3)
+        self.assertEqual(len(self.people()), 1)
+
+    def test_different_heights_of_one_person_stay_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 314:326] = False
+        self.mask[300:, :320] = False  # a table hides the left legs
+        self.mask[:200, 320:] = False  # a shelf hides the right shoulder
+        self.assertEqual(len(self.people()), 1)
+
+    def test_people_side_by_side_stay_apart(self):
+        for gap in (1.0, 0.5):
+            with self.subTest(gap=gap):
+                self.setUp()
+                self.add_person(-gap / 2, 2.0)
+                self.add_person(gap / 2, 2.0)
+                left, right = self.people()
+                self.assertAlmostEqual(
+                    right[1].centre[0] - left[1].centre[0], gap, delta=0.02
+                )
+
+    def test_a_person_farther_away_stays_apart(self):
+        self.add_person(-0.6, 1.5)
+        self.add_person(-0.4, 3.0)  # only 0.2 m to the side
+        self.assertEqual(len(split_sideways(self.mask)), 2)
+        near, far = self.people()
+        self.assertAlmostEqual(far[1].centre[2] - near[1].centre[2], 1.5, delta=0.01)
+
+    def test_each_of_two_occluded_people_stays_one(self):
+        self.add_person(-0.6, 2.0)
+        self.add_person(0.6, 2.0)
+        self.mask[:, 155:165] = False
+        self.mask[:, 475:485] = False
+        self.assertEqual(len(split_sideways(self.mask)), 4)
+        self.assertEqual(len(self.people()), 2)
+
+    def test_part_without_depth_is_dropped(self):
+        self.add_person(-0.5, 2.0)
+        self.add_person(0.5, 2.0)
+        self.depth[:, 320:] = np.nan
+        [(mask, _)] = self.people()
+        self.assertLess(bbox_of(mask)[2], 320)
 
 
 class TrackerTests(unittest.TestCase):

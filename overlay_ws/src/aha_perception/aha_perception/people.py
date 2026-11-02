@@ -32,6 +32,9 @@ DESCRIBE_PAD = 0.1
 # this many empty image columns; parts below the share of its area are dropped.
 SPLIT_GAP = 5
 SPLIT_MIN_SHARE = 0.05
+# Parts of a split mask closer than this on the floor plane (m) are one person
+# behind something thin, such as a door frame: less than a person's width.
+SAME_PERSON_M = 0.4
 # Remembered people per match request: with the person asked about, the
 # Qwen3.8 server's limit of 4 images.
 MAX_REFERENCES = 3
@@ -138,6 +141,31 @@ def measure(mask, depth_m, fx, fy, cx, cy) -> Measurement | None:
     return Measurement(
         centre=np.median(points, axis=0), head=np.median(points[upper], axis=0)
     )
+
+
+def measure_people(
+    mask, depth_m, fx, fy, cx, cy
+) -> list[tuple[np.ndarray, Measurement]]:
+    """Each person in one SAM mask with their own mask and position, left to right.
+
+    The mask's parts stay separate people only when depth puts them a person's
+    width apart. Height is ignored: an occluder can leave different heights visible.
+    """
+    people = []
+    for part in split_sideways(mask):
+        measured = measure(part, depth_m, fx, fy, cx, cy)
+        if measured is None:
+            continue
+        if people:
+            offset = people[-1][1].centre - measured.centre
+            if math.hypot(offset[0], offset[2]) < SAME_PERSON_M:
+                joined = people[-1][0] | part
+                measured = measure(joined, depth_m, fx, fy, cx, cy)
+                if measured is not None:
+                    people[-1] = (joined, measured)
+                continue
+        people.append((part, measured))
+    return people
 
 
 def rotation_matrix(x, y, z, w) -> np.ndarray:
