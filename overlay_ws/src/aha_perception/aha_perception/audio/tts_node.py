@@ -110,6 +110,8 @@ class TtsNode(AudioModelNode):
                 try:
                     self._play(sentences, voice, goal_handle, accepted, stats)
                 finally:
+                    # Keep the ASR muted until the last sound has left the speaker.
+                    self.speaker.drain()
                     self.pub_active.publish(Bool(data=False))
         except Exception as e:
             self.get_logger().error(f"TTS failed: {e!r}")

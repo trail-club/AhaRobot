@@ -427,5 +427,43 @@ class StreamResamplerTests(unittest.TestCase):
         self.assertIs(resampler.push(block), block)
 
 
+class FakeOutputStream:
+    latency = 0.2
+
+    def __init__(self, **kwargs):
+        self.calls = []
+
+    def start(self):
+        self.calls.append("start")
+
+    def write(self, block):
+        self.calls.append(len(block))
+
+    def abort(self):
+        self.calls.append("abort")
+
+
+class SpeakerTests(unittest.TestCase):
+    def setUp(self):
+        fake = types.SimpleNamespace(OutputStream=FakeOutputStream)
+        with patch.dict(sys.modules, {"sounddevice": fake}):
+            self.speaker = audio_io.Speaker("", 1000, block_ms=100)
+        self.stream = self.speaker._stream
+
+    def test_drain_waits_for_the_queued_sound(self):
+        self.assertTrue(self.speaker.play(np.zeros(250), 1000, lambda: False))
+        with patch.object(audio_io.time, "sleep") as sleep:
+            self.speaker.drain()
+        self.assertAlmostEqual(sleep.call_args.args[0], 0.2, delta=0.05)
+
+    def test_cancel_drops_the_queued_sound(self):
+        self.speaker.play(np.zeros(100), 1000, lambda: False)
+        self.assertFalse(self.speaker.play(np.zeros(100), 1000, lambda: True))
+        self.assertEqual(self.stream.calls, ["start", 100, "abort", "start"])
+        with patch.object(audio_io.time, "sleep") as sleep:
+            self.speaker.drain()
+        self.assertEqual(sleep.call_args.args[0], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

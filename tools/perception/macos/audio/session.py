@@ -545,6 +545,7 @@ class Session:
             self.events.change(item, status="failed", error=str(exc))
             self._lost(link, str(exc))
         finally:
+            link.speaker.drain()
             self.muted_until = time.time() + MUTE_TAIL_S
             self.speaking.clear()
             if not self.options.listen:

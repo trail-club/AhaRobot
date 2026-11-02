@@ -137,15 +137,28 @@ class Speaker:
             dtype="float32",
         )
         self._stream.start()
+        self._sounding_until = 0.0
 
     def play(self, audio: np.ndarray, src_rate: int, cancelled) -> bool:
-        """Play `audio`; returns False if `cancelled()` became true midway."""
+        """Play `audio`; returns False if `cancelled()` became true midway.
+
+        Returns once the last block is queued, so the device still holds up to
+        `latency` seconds of sound; call `drain` after the last chunk."""
         audio = resample(audio.astype(np.float32), src_rate, self.rate)
         for i in range(0, len(audio), self.block):
             if cancelled():
+                # Drop what is queued so playback stops now.
+                self._stream.abort()
+                self._stream.start()
+                self._sounding_until = 0.0
                 return False
             self._stream.write(audio[i : i + self.block])
+            self._sounding_until = time.monotonic() + self._stream.latency
         return True
+
+    def drain(self) -> None:
+        """Wait until the queued sound has been heard."""
+        time.sleep(max(0.0, self._sounding_until - time.monotonic()))
 
     def close(self) -> None:
         self._stream.stop()

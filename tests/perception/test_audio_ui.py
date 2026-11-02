@@ -112,6 +112,9 @@ class FakeSpeaker:
                 return False
         return True
 
+    def drain(self):
+        pass
+
     def close(self):
         pass
 
