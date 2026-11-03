@@ -19,6 +19,8 @@ REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
 LOOK_AT_TOPIC = "/aha/perception/look_at"
 STALE_AFTER = 2.0  # s (wall clock) without a people message
+CLOCK_STALL_TIMEOUT = 10.0  # s (wall clock) without the wait clock advancing
+MIN_GUEST_SEPARATION = 0.4  # m; closer sightings may be the same person
 LOOK_FRAME = "base_footprint"  # on the floor, so LOOK_HEIGHT is above the floor
 LOOK_DISTANCE, LOOK_HEIGHT = 2.0, 1.2  # m; about level from the head camera
 SCAN_PANS = (0.0, 0.4, -0.4)  # rad, + = the robot's left
@@ -124,10 +126,20 @@ class People:
 
     def wait_for(self, choose, timeout, cancelled):
         """Poll the latest people until `choose(message)` returns a value."""
-        deadline = self.now() + timeout
-        while self.now() < deadline:
+        last_time = self.now()
+        deadline = last_time + timeout
+        last_progress = time.monotonic()
+        while (now := self.now()) < deadline:
             if cancelled.is_set():
                 return None, "Cancelled"
+            wall_now = time.monotonic()
+            if now > last_time:
+                last_time, last_progress = now, wall_now
+            elif wall_now - last_progress >= CLOCK_STALL_TIMEOUT:
+                return None, (
+                    f"No /clock progress for {CLOCK_STALL_TIMEOUT:.0f} s; "
+                    "is simulation running?"
+                )
             message = self.latest()
             if message is not None:
                 found = choose(message)
@@ -293,6 +305,9 @@ class LocateGuests(Skill):
     head stays `dwell` s at each of SCAN_PANS, long enough for the VLM to name a
     track, because the seats need not fit in one image. Names come from
     appearance, so guests who swapped seats are still told apart.
+    Sightings are accumulated only in map, with at least 0.4 m between guests.
+    Output tracks may already be forgotten; later skills should use names or
+    positions to reacquire guests.
     """
 
     @classmethod
@@ -323,8 +338,35 @@ class LocateGuests(Skill):
             if now >= next_look:
                 people.look_towards(next(pans))
                 next_look = now + dwell
+            # Camera-frame positions from different head poses are not comparable.
+            if message.header.frame_id != "map" or any(
+                m.header.frame_id != "map" for m, _ in seen.values()
+            ):
+                seen.clear()
             for person in message.people:
                 if person.visible and person.name in guests:
+                    for name, (_, previous) in list(seen.items()):
+                        if name == person.name:
+                            continue
+                        if message.header.frame_id == "map":
+                            distance = math.dist(
+                                planar(previous.position), planar(person.position)
+                            )
+                        else:
+                            distance = math.dist(
+                                (
+                                    previous.position.x,
+                                    previous.position.y,
+                                    previous.position.z,
+                                ),
+                                (
+                                    person.position.x,
+                                    person.position.y,
+                                    person.position.z,
+                                ),
+                            )
+                        if previous.id == person.id or distance < MIN_GUEST_SEPARATION:
+                            del seen[name]
                     seen[person.name] = (message, person)
             return seen if all(g in seen for g in guests) else None
 

@@ -1,0 +1,35 @@
+# 音声スタック (aha_perception の audio) 用コンテナ。開発コンテナとは別プロセスで、
+# host network + 同じ ROS_DOMAIN_ID で topic / action をやり取りする。
+#   make audio-build && make audio-up
+services:
+  aha_audio:
+    image: ${AUDIO_IMAGE:-trail/aharobot-audio}:latest
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-1}
+      - PULSE_SERVER=unix:/run/user/${USER_ID}/pulse/native
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - SSH_AUTH_SOCK=/run/ssh-agent.sock        # 推論先への接続に使う。鍵はコンテナへコピーしない
+    network_mode: host
+    ipc: host
+    user: "${USER_ID}:${GROUP_ID}"
+    volumes:
+      - ../:/app/
+      - /run/user/${USER_ID}/pulse:/run/user/${USER_ID}/pulse
+      - aha_audio_hf:/opt/hf-cache
+      - ${SSH_AUTH_SOCK:-/dev/null}:/run/ssh-agent.sock
+    devices:
+      - /dev/snd:/dev/snd
+    command: tail -f /dev/null
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  aha_audio_hf:

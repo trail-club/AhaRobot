@@ -326,6 +326,19 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 `id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
 
+## 音声
+
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 音声認識結果 | `/aha/perception/audio/transcript` | `aha_msgs/msg/SpeechTranscript` |
+| TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
+| 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
+| 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+
+音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
+
 ## 実機の頭部
 
 `real_head_camera.launch.py` は [aha_servo](../overlay_ws/src/aha_servo/README.md) の

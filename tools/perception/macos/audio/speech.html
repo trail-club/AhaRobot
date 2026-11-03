@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AhaRobot 発話</title>
+<link rel="stylesheet" href="/page.css">
+<script src="/page.js"></script>
+</head>
+<body>
+<header>
+  <h1>AhaRobot 発話</h1>
+  <span class="spacer"></span>
+  <span class="chip"><span class="dot" id="statusDot"></span><span id="statusText">読み込み中</span></span>
+</header>
+
+<main>
+  <section class="card" id="connect" hidden>
+    <p class="error" id="error" role="alert" hidden></p>
+    <div class="fields">
+      <div class="field">
+        <h2>推論先</h2>
+        <div class="seg" id="targets" role="group" aria-label="推論先"></div>
+      </div>
+      <div class="field" id="userField">
+        <h2><label for="user">ユーザー名（DGX・trailpc共通）</label></h2>
+        <input id="user" autocomplete="username" spellcheck="false" placeholder="例: shogo.sunohara">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="connectButton">接続する</button>
+      <button type="button" id="cancelButton" hidden>中止する</button>
+      <span class="step" id="step" role="status"></span>
+    </div>
+  </section>
+
+  <section class="card" id="speakCard" hidden>
+    <div class="live">
+      <div class="now" id="now" role="status">読み上げる文を入力してください</div>
+      <button type="button" id="disconnectButton">切断する</button>
+    </div>
+    <form id="speakForm">
+      <h2><label for="text">読み上げる文（英語）</label></h2>
+      <textarea id="text" class="speech-text" rows="4" spellcheck="false" placeholder="Please bring the orange juice from the kitchen."></textarea>
+      <p class="hint" id="speakHint"></p>
+      <div class="samples" id="samples" role="group" aria-label="例文">
+        <button type="button">Hello, I am AhaRobot.</button>
+        <button type="button">Please wait a moment.</button>
+        <button type="button">I found the orange juice. I will bring it to you.</button>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <h2><label for="voice">声</label></h2>
+          <select id="voice"></select>
+        </div>
+        <button type="submit" class="primary" id="speakButton">読み上げる</button>
+        <button type="button" id="stopButton" hidden>止める</button>
+      </div>
+    </form>
+  </section>
+
+  <section id="history" aria-label="読み上げた文" aria-live="polite">
+    <p class="empty" id="empty"></p>
+  </section>
+</main>
+
+<script>
+const HINT = 'Enterで読み上げ、Shift+Enterで改行します。文ごとに区切って合成します。';
+const GENDERS = { f: '女性', m: '男性' };
+
+let state = {};
+let targets = {};
+let target = 'dgx';
+const entries = new Map();
+
+function voiceName(voice) {
+  const [, name = voice] = voice.split('_');
+  return `${name[0].toUpperCase()}${name.slice(1)}（${GENDERS[voice[1]] || ''}）`;
+}
+
+function renderVoices() {
+  const select = $('voice');
+  const voices = state.voices || [];
+  if (select.options.length === voices.length) return;
+  select.replaceChildren();
+  for (const [gender, label] of Object.entries(GENDERS)) {
+    const group = document.createElement('optgroup');
+    group.label = label;
+    for (const voice of voices.filter((name) => name[1] === gender)) {
+      group.append(new Option(voiceName(voice), voice));
+    }
+    if (group.children.length) select.append(group);
+  }
+  const saved = remembered('voice');
+  select.value = voices.includes(saved) ? saved : state.voice;
+}
+
+function emptyText() {
+  if (state.status === 'ready') return '読み上げた文がここに並びます。もう一度再生もできます。';
+  if (state.status === 'connecting') return '接続が終わると、文を入力できます。';
+  return '推論先を選んで「接続する」を押してください。';
+}
+
+function speechProgress() {
+  const current = [...entries.values()].at(-1)?.item;
+  if (!current || current.status !== 'speaking') return '読み上げています';
+  return `読み上げています（${Math.min(current.played + 1, current.sentences)} / ${current.sentences} 文）`;
+}
+
+function render() {
+  const ready = renderConnection(state, targets);
+  const speaking = state.activity === 'speaking';
+  $('speakCard').hidden = !ready;
+  selectButtons($('targets'), target);
+
+  $('now').textContent = speaking ? speechProgress() : '読み上げる文を入力してください';
+  $('speakButton').hidden = speaking;
+  $('stopButton').hidden = !speaking;
+  for (const { node } of entries.values()) node.querySelector('button').disabled = speaking || !ready;
+
+  $('empty').textContent = emptyText();
+  $('empty').hidden = entries.size > 0;
+  checkEnglish(HINT);
+}
+
+function metaOf(item) {
+  const voice = voiceName(item.voice);
+  if (item.status === 'failed') return `${voice}・読み上げられませんでした（${item.error}）`;
+  if (item.status === 'speaking') return `${voice}・読み上げ中`;
+  const stopped = item.status === 'stopped' ? `${item.played} / ${item.sentences} 文で止めました・` : '';
+  const first = item.first_audio_ms == null ? '' : `・最初の音まで ${item.first_audio_ms} ms`;
+  return `${stopped}${voice}${first}`;
+}
+
+function say(text, voice) {
+  return post('/api/speak', { text, voice });
+}
+
+function renderEntry(item) {
+  if (item.kind !== 'said') return;
+  let entry = entries.get(item.id);
+  if (!entry) {
+    const node = document.createElement('article');
+    const body = document.createElement('div');
+    body.append(document.createElement('div'), document.createElement('div'));
+    body.lastChild.className = 'meta';
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = 'もう一度';
+    again.addEventListener('click', () => say(entry.item.text, entry.item.voice).catch(showHint));
+    node.append(body, again);
+    entry = { node, item };
+    entries.set(item.id, entry);
+    $('history').prepend(node);
+  }
+  entry.item = item;
+  entry.node.className = `entry ${item.status}`;
+  entry.node.querySelector('div > div').textContent = item.text;
+  entry.node.querySelector('.meta').textContent = metaOf(item);
+}
+
+function onEvent(event) {
+  if (event.type === 'item') {
+    renderEntry(event.item);
+  } else if (event.type === 'snapshot') {
+    state = event.state;
+    for (const { node } of entries.values()) node.remove();
+    entries.clear();
+    event.history.forEach(renderEntry);
+  } else if (event.type === 'state') {
+    Object.assign(state, event.state);
+  }
+  renderVoices();
+  render();
+}
+
+$('targets').addEventListener('click', ({ target: button }) => {
+  if (!button.dataset.value) return;
+  target = button.dataset.value;
+  remember('target', target);
+  render();
+});
+bindControls(
+  () => ({ target, language: 'en', user: $('user').value.trim() }),
+  (text) => say(text, $('voice').value),
+  () => checkEnglish(HINT),
+);
+$('voice').addEventListener('change', () => remember('voice', $('voice').value));
+$('samples').addEventListener('click', ({ target: button }) => {
+  if (button.tagName !== 'BUTTON') return;
+  $('text').value = button.textContent;
+  checkEnglish(HINT);
+  $('text').focus();
+});
+(async () => {
+  const defaults = await loadDefaults();
+  ({ targets } = defaults);
+  target = remembered('target') || defaults.target;
+  listenEvents(onEvent);
+})();
+</script>
+</body>
+</html>

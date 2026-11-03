@@ -16,7 +16,9 @@ find_package(ament_cmake_python REQUIRED)
 # aha_perception.tf_jump: TF listener that detects sim restarts
 # aha_perception.object_list: object labels, categories, sizes and sim model names
 # aha_perception.sim_object_detection: visibility and corruption of simulated detections
-# aha_perception.people, aha_perception.dgx: person perception core and DGX worker client for person_perception.py
+# aha_perception.people: person perception core for person_perception.py
+# aha_perception.dgx: client of the workers on GPU hosts (SSH + Docker)
+# aha_perception.audio: ASR / TTS stack (web/ is installed with it)
 ament_python_install_package(${PROJECT_NAME})
 
 install(
@@ -26,6 +28,9 @@ install(
 
 install(
   PROGRAMS
+    scripts/audio_asr_node
+    scripts/audio_debug_ui
+    scripts/audio_tts_node
     scripts/head_look_at.py
     scripts/imu_head.py
     scripts/manual_head.py
@@ -55,6 +60,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
   ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)
   ament_add_pytest_test(test_person_perception test/test_person_perception.py TIMEOUT 120)
+  ament_add_pytest_test(test_audio_node test/test_audio_node.py TIMEOUT 60)
 endif()
 
 ament_package()

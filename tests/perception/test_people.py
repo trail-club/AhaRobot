@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -369,6 +371,53 @@ class DgxWorkerTests(unittest.TestCase):
         command = dgx.DgxWorker(dgx.WorkerOptions(host="dgx-spark", port=0)).ssh("true")
         self.assertNotIn("-p", command)
         self.assertNotIn("-l", command)
+
+    def test_default_spec_runs_the_person_worker(self):
+        options = dgx.WorkerOptions(prompt="human", threshold=0.4)
+        worker = dgx.DgxWorker(options)
+        self.assertTrue(worker.name.startswith("aharobot-people-"))
+        command = worker.spec.command
+        self.assertEqual(command[:2], ("-m", "aha_perception.person_worker"))
+        self.assertEqual(command[command.index("--prompt") + 1], "human")
+        self.assertEqual(command[command.index("--threshold") + 1], "0.4")
+        self.assertIn("host", worker.spec.docker_args)
+
+    def test_remote_command_runs_the_spec_image_with_its_cache(self):
+        options = dgx.WorkerOptions(host="h", port=0)
+        spec = dgx.ContainerSpec(
+            title="test worker",
+            name="test",
+            dockerfile="Dockerfile",
+            image="local/test",
+            sources=lambda root: [],
+            prepare="prepare-step",
+            cache="test-cache",
+            docker_args=("--network", "none"),
+            command=("-m", "some.module"),
+        )
+        worker = dgx.DgxWorker(options, spec=spec, root=Path("/tmp"))
+        scripts = []
+
+        def run(script, **kwargs):
+            scripts.append(script)
+            image = "sha256:" + "a" * 64
+            out = "/tmp/aharobot-test-abc123" if script.startswith("mktemp") else image
+            return subprocess.CompletedProcess(script, 0, stdout=out)
+
+        with patch.object(worker, "run", run):
+            script = worker.remote_command()[-1]
+        self.assertIn("mktemp -d /tmp/aharobot-test-XXXXXXXX", scripts[0])
+        self.assertTrue(
+            any(
+                script.startswith("prepare-step && mkdir -p")
+                and '"$HOME/.cache/test-cache/triton"' in script
+                for script in scripts
+            )
+        )
+        self.assertIn('-v "$HOME/.cache/test-cache:/cache"', script)
+        self.assertIn("--network none", script)
+        self.assertIn("/tmp/aharobot-test-abc123:/app:ro", script)
+        self.assertTrue(script.endswith("-u -m some.module"))
 
     def test_requests_through_a_local_worker(self):
         script = (

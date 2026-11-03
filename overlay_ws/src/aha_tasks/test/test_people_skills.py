@@ -17,6 +17,7 @@ from aha_tasks.people import (  # noqa: E402
     LocateGuests,
     MemorizePerson,
     People,
+    CLOCK_STALL_TIMEOUT,
     approach_pose,
     choose_person,
 )
@@ -221,6 +222,58 @@ class MemorizePersonTests(unittest.TestCase):
 
 
 class WaitTests(unittest.TestCase):
+    def test_stopped_clock_fails_even_without_people_messages(self):
+        for message in (None, people_message()):
+            with self.subTest(has_people=message is not None):
+                people = FakePeople(message)
+                people.now = lambda: 5.0
+                people.latest = lambda: message
+                wall_time = 0.0
+
+                def advance(seconds):
+                    nonlocal wall_time
+                    wall_time += seconds
+
+                with (
+                    patch("aha_tasks.people.time.monotonic", lambda: wall_time),
+                    patch("aha_tasks.people.time.sleep", side_effect=advance),
+                ):
+                    found, reason = people.wait_for(
+                        lambda m: None, 60.0, threading.Event()
+                    )
+                self.assertIsNone(found)
+                self.assertIn("/clock", reason)
+                self.assertGreaterEqual(wall_time, CLOCK_STALL_TIMEOUT)
+                self.assertLess(wall_time, CLOCK_STALL_TIMEOUT + 0.2)
+
+    def test_slow_clock_keeps_waiting_while_it_advances(self):
+        people = FakePeople(people_message())
+        wall_time = 0.0
+        people.now = lambda: wall_time * 0.08
+        people.latest = lambda: people.message
+
+        def advance(seconds):
+            nonlocal wall_time
+            wall_time += seconds
+
+        with (
+            patch("aha_tasks.people.time.monotonic", lambda: wall_time),
+            patch("aha_tasks.people.time.sleep", side_effect=advance),
+        ):
+            found, reason = people.wait_for(lambda m: None, 2.0, threading.Event())
+        self.assertIsNone(found)
+        self.assertIn("Not found", reason)
+        self.assertAlmostEqual(wall_time, 25.0, delta=0.11)
+
+    def test_stopped_clock_can_be_cancelled(self):
+        people = FakePeople(people_message())
+        people.now = lambda: 5.0
+        cancelled = threading.Event()
+        cancelled.set()
+        found, reason = people.wait_for(lambda m: None, 60.0, cancelled)
+        self.assertIsNone(found)
+        self.assertEqual(reason, "Cancelled")
+
     def test_timeout_ignores_system_clock_jumps_without_sim_time(self):
         for ros_time_is_active in (False, None):
             with self.subTest(ros_time_is_active=ros_time_is_active):
@@ -283,6 +336,74 @@ class WaitTests(unittest.TestCase):
 
 
 class LocateGuestsTests(unittest.TestCase):
+    def locate_messages(self, *messages):
+        people = FakePeople(messages[0])
+        people.latest = Mock(
+            side_effect=itertools.chain(messages, itertools.repeat(messages[-1]))
+        )
+        people.now = itertools.count(0.0, 0.1).__next__
+        with patch("aha_tasks.people.time.sleep"):
+            result = LocateGuests(runtime(people)).execute(
+                context({"guests": ["guest1", "guest2"], "timeout": 2.0})
+            )
+        self.assertEqual(people.panned[-1], 0.0)
+        return result
+
+    def test_same_person_reidentified_as_another_guest_is_not_success(self):
+        result = self.locate_messages(
+            people_message(person(11, 0.75, 2.5, "guest1")),
+            people_message(person(13, 0.85, 2.5, "guest2")),
+        )
+        self.assertFalse(result.success)
+
+    def test_renamed_track_is_not_two_guests_even_if_it_moved(self):
+        result = self.locate_messages(
+            people_message(person(11, 0.75, 2.5, "guest1")),
+            people_message(person(11, 1.75, 2.5, "guest2")),
+        )
+        self.assertFalse(result.success)
+
+    def test_height_noise_does_not_make_a_duplicate_a_different_guest(self):
+        first = person(11, 0.75, 2.5, "guest1")
+        second = person(13, 0.85, 2.5, "guest2")
+        second.position.z += 0.5
+        result = self.locate_messages(people_message(first), people_message(second))
+        self.assertFalse(result.success)
+
+    def test_duplicate_observation_is_replaced_and_search_continues(self):
+        result = self.locate_messages(
+            people_message(person(11, 0.75, 2.5, "guest1")),
+            people_message(person(13, 0.85, 2.5, "guest2")),
+            people_message(person(14, 1.75, 2.5, "guest1")),
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest1.track"], 14)
+        self.assertEqual(result.outputs["guest2.track"], 13)
+
+    def test_camera_observations_are_not_accumulated_across_head_poses(self):
+        result = self.locate_messages(
+            people_message(person(11, 0.75, 2.5, "guest1"), frame="camera"),
+            people_message(person(13, 1.75, 2.5, "guest2"), frame="camera"),
+        )
+        self.assertFalse(result.success)
+
+    def test_different_coordinate_frames_are_not_combined(self):
+        result = self.locate_messages(
+            people_message(person(11, 0.75, 2.5, "guest1"), frame="camera"),
+            people_message(person(13, 1.75, 2.5, "guest2")),
+        )
+        self.assertFalse(result.success)
+
+    def test_camera_message_with_both_guests_still_succeeds(self):
+        result = self.locate_messages(
+            people_message(
+                person(11, 0.75, 2.5, "guest1"),
+                person(13, 1.75, 2.5, "guest2"),
+                frame="camera",
+            ),
+        )
+        self.assertTrue(result.success, result.message)
+
     def test_outputs_each_named_guest_wherever_they_sit(self):
         people = FakePeople(
             people_message(
