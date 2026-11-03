@@ -8,6 +8,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
@@ -220,6 +221,57 @@ class MemorizePersonTests(unittest.TestCase):
 
 
 class WaitTests(unittest.TestCase):
+    def test_timeout_ignores_system_clock_jumps_without_sim_time(self):
+        for ros_time_is_active in (False, None):
+            with self.subTest(ros_time_is_active=ros_time_is_active):
+                people = FakePeople(people_message())
+                clock = SimpleNamespace(now=Mock())
+                if ros_time_is_active is not None:
+                    clock.ros_time_is_active = ros_time_is_active
+                people.node = SimpleNamespace(get_clock=lambda: clock)
+                people.now = People.now.__get__(people)
+                people.latest = lambda: people.message
+                elapsed = 0.0
+
+                def advance(seconds):
+                    nonlocal elapsed
+                    elapsed += seconds
+                    # Simulate alternating forward and backward clock corrections.
+                    clock.now.return_value = SimpleNamespace(
+                        nanoseconds=(-1 if elapsed < 0.2 else 1) * 3600 * 10**9
+                    )
+
+                with (
+                    patch("aha_tasks.people.time.monotonic", lambda: elapsed),
+                    patch("aha_tasks.people.time.sleep", side_effect=advance),
+                ):
+                    found, reason = people.wait_for(
+                        lambda m: None, 0.3, threading.Event()
+                    )
+                self.assertIsNone(found)
+                self.assertIn("Not found", reason)
+                self.assertAlmostEqual(elapsed, 0.3)
+                clock.now.assert_not_called()
+
+    def test_timeout_waits_for_sim_time_to_advance(self):
+        people = FakePeople(people_message())
+        sim_times = iter((0.0, 0.0, 1.0, 2.0))
+        clock = SimpleNamespace(
+            ros_time_is_active=True,
+            now=lambda: SimpleNamespace(nanoseconds=next(sim_times) * 10**9),
+        )
+        people.node = SimpleNamespace(get_clock=lambda: clock)
+        people.now = People.now.__get__(people)
+        people.latest = lambda: people.message
+        with (
+            patch("aha_tasks.people.time.monotonic", return_value=10000.0),
+            patch("aha_tasks.people.time.sleep") as sleep,
+        ):
+            found, reason = people.wait_for(lambda m: None, 2.0, threading.Event())
+        self.assertIsNone(found)
+        self.assertIn("Not found", reason)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_timeout_counts_the_node_clock(self):
         people = FakePeople(people_message())
         people.now = itertools.count(0.0, 100.0).__next__  # a fast simulation clock

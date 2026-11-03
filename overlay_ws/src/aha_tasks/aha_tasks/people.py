@@ -116,8 +116,11 @@ class People:
             return self.message
 
     def now(self):
-        """Seconds on the node's clock, so waits hold at any real time factor."""
-        return self.node.get_clock().now().nanoseconds * 1e-9
+        """Simulation seconds when active; otherwise monotonic wall seconds."""
+        clock = self.node.get_clock()
+        if not getattr(clock, "ros_time_is_active", False):
+            return time.monotonic()
+        return clock.now().nanoseconds * 1e-9
 
     def wait_for(self, choose, timeout, cancelled):
         """Poll the latest people until `choose(message)` returns a value."""
