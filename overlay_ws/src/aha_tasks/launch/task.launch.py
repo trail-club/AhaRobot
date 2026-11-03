@@ -2,6 +2,7 @@
 
 `people:=true` adds the head camera bridge, person_perception (DGX Spark) and
 head_look_at.py, which turns the head towards the people the skills look at.
+`guests:=true` adds sim_guests, which moves the task's simulated guests.
 """
 
 from pathlib import Path
@@ -36,7 +37,12 @@ RUNNER_OPTIONS = {
 
 
 # Launch argument -> people.launch.py argument (DGX connection).
-PEOPLE_OPTIONS = {"ssh_host": "10.99.0.1", "ssh_port": "2222", "ssh_user": ""}
+PEOPLE_OPTIONS = {
+    "ssh_host": "10.99.0.1",
+    "ssh_port": "2222",
+    "ssh_user": "",
+    "worker_command": "",
+}
 
 
 def task_config(task):
@@ -128,6 +134,19 @@ def launch_task(context):
                 output="screen",
             ),
         ]
+    if value("guests") == "true":
+        scene = task_config(f"sim/{spec.task}")
+        if not scene.is_file():
+            raise ValueError(f"guests:=true: task {spec.task} has no {scene}")
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_guests",
+                parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={scene}"],
+                output="screen",
+            )
+        )
     return actions
 
 
@@ -143,6 +162,11 @@ def generate_launch_description():
                 "people",
                 default_value="false",
                 description="Head cameras and person_perception on the DGX",
+            ),
+            DeclareLaunchArgument(
+                "guests",
+                default_value="false",
+                description="Simulated guests from config/sim/<task>.json",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)

@@ -17,6 +17,7 @@ from geometry_msgs.msg import TransformStamped
 import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import StaticTransformBroadcaster
 import yaml
@@ -28,6 +29,8 @@ DOMAIN_ID = int(os.environ.get("AHA_TEST_DOMAIN_ID", "96"))
 W, H, FX, CX, CY, DEPTH = 320, 240, 200.0, 160.0, 120.0, 2.0
 CAMERA = "camera_color_optical_frame"
 OFFSET = np.array([1.0, 0.5, 0.0])  # map -> camera translation
+# Above the gaps in the images (over 1 s seen here), which would renumber tracks.
+FORGET_AFTER = 3.0
 
 
 def expected_centre(u):
@@ -48,7 +51,7 @@ class PersonPerceptionTest(unittest.TestCase):
                             "worker_command": f"{sys.executable} {FAKE}",
                             "target_frame": "map",
                             "max_rate": 20.0,
-                            "forget_after": 1.0,
+                            "forget_after": FORGET_AFTER,
                             "startup_timeout": 30.0,
                         }
                     }
@@ -134,14 +137,20 @@ class PersonPerceptionTest(unittest.TestCase):
         self.info.publish(info)
 
     def stream(self, columns, seconds, until=None):
+        """The first message about these frames that meets `until`; older images
+        can still be in the node when the stream starts."""
+        start = self.node.get_clock().now()
         deadline = time.monotonic() + seconds
+        latest = None
         while time.monotonic() < deadline:
             self.publish(columns)
             self.spin(0.1)
-            if until is not None and self.people and until(self.people[-1]):
-                return self.people[-1]
+            if self.people and Time.from_msg(self.people[-1].header.stamp) >= start:
+                latest = self.people[-1]
+                if until is not None and until(latest):
+                    return latest
         # Without a condition: the last message of the stream.
-        return self.people[-1] if until is None and self.people else None
+        return latest if until is None else None
 
     def call(self, client, request, timeout=20.0):
         self.assertTrue(client.wait_for_service(timeout_sec=timeout))
@@ -187,7 +196,7 @@ class PersonPerceptionTest(unittest.TestCase):
 
         # Out of view until the tracks are dropped, then back with seats swapped:
         # the VLM names the new tracks.
-        self.spin(2.0)
+        self.spin(FORGET_AFTER + 0.5)
         message = self.stream(
             {"red": 220, "blue": 100},
             10.0,

@@ -15,6 +15,7 @@
     "entrance": [-4.2, 1.5, 3.141593],
     "study_chair_left": [1.75, 2.5, 1.570796],
     "study_chair_right": [0.75, 2.5, 1.570796],
+    "seats_view": [1.25, 1.0, 1.570796],
     "host": [2.7, 1.8, 1.570796],
     "bag_drop": [2.8, -1.8, -1.570796]
   },
@@ -52,11 +53,13 @@
     {"id": "guest2.open_door", "group": "2人目の客", "title": "入口のドアを開ける", "skill": "open_door", "points": 200},
     {"id": "guest2.find", "group": "2人目の客", "title": "客を見つけて向き合う", "skill": "find_person", "params": {"role": "guest2"}},
     {"id": "guest2.ask", "group": "2人目の客", "title": "名前と好きな飲み物を聞く", "skill": "ask_name_and_drink", "params": {"guest": "guest2"}, "points": 80, "mock": {"guest2.name": "Emma", "guest2.drink": "orange juice"}},
+    {"id": "guest2.memorize", "group": "2人目の客", "title": "客の外見を記憶する", "skill": "memorize_person", "params": {"guest": "guest2"}, "mock": {"guest2.appearance": ["blonde hair", "green shirt"]}, "note": "紹介時の識別に使う"},
     {"id": "guest2.describe_guest1", "group": "2人目の客", "title": "1人目の外見を2人目へ伝える", "skill": "describe_person", "params": {"subject": "guest1", "listener": "guest2"}, "points": 80, "note": "正しい特徴 4×+20、誤った特徴 4×−20"},
     {"id": "guest2.receive_bag", "group": "2人目の客", "title": "荷物を手渡しで受け取る", "skill": "receive_object", "params": {"object": "bag"}, "points": 50, "mock": {"robot.holding": "bag"}, "note": "受け取り準備を明示し、手から10 cm以内に保持する"},
     {"id": "guest2.guide", "group": "2人目の客", "title": "客をリビングへ案内する", "skill": "navigate", "params": {"location": "study_chair_right"}, "points": 15},
     {"id": "guest2.seat", "group": "2人目の客", "title": "空席を示して座ってもらう", "skill": "offer_seat", "params": {"guest": "guest2"}, "points": 100, "mock": {"guest2.seat": "chair_right"}},
 
+    {"id": "introduce.go_to_seats", "group": "紹介", "title": "2人が見える位置へ移動する", "skill": "navigate", "params": {"location": "seats_view"}, "note": "案内後の位置からは隣の席が視野に入らない"},
     {"id": "introduce.locate", "group": "紹介", "title": "着席した2人を識別する", "skill": "locate_guests", "params": {"guests": ["guest1", "guest2"]}, "note": "着席後に席を入れ替えることがある"},
     {"id": "introduce.guests", "group": "紹介", "title": "互いを紹介する", "skill": "introduce_guests", "params": {"guests": ["guest1", "guest2"]}, "points": 220, "note": "一方を見ながら他方の名前と飲み物を言う（4×30、2×50）"},
 

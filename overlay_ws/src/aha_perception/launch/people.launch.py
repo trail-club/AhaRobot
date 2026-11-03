@@ -20,6 +20,7 @@ ARGUMENTS = {
     "ssh_user": ("", str, "directory-access Unix username; empty = SSH config"),
     "identity_file": ("", str, "SSH private key; empty = default keys or agent"),
     "use_sim_time": ("false", bool, "Use the simulation clock"),
+    "worker_command": ("", str, "Argv of a worker to run instead of SSH to the DGX"),
 }
 
 

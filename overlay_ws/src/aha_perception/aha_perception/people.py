@@ -28,6 +28,13 @@ MIN_DEPTH_POINTS = 50
 # Background brightness kept in the crop sent to the VLM.
 DESCRIBE_BACKGROUND = 0.35
 DESCRIBE_PAD = 0.1
+# SAM 3.1 sometimes returns people side by side as one mask. A mask is split at
+# this many empty image columns; parts below the share of its area are dropped.
+SPLIT_GAP = 5
+SPLIT_MIN_SHARE = 0.05
+# Parts of a split mask closer than this on the floor plane (m) are one person
+# behind something thin, such as a door frame: less than a person's width.
+SAME_PERSON_M = 0.4
 # Remembered people per match request: with the person asked about, the
 # Qwen3.8 server's limit of 4 images.
 MAX_REFERENCES = 3
@@ -38,9 +45,9 @@ DESCRIBE_PROMPT = """The photo shows one person; the background is darkened. Lis
 Only list what you can clearly see in this photo. Do not guess hidden parts, and do not mention age, gender, ethnicity or emotions.
 Reply with JSON only: {"features": ["...", "..."]} with at most 6 short English phrases, most distinctive first."""
 
-MATCH_PROMPT = """{earlier} a person met earlier; photo {last} shows a person now. Backgrounds are darkened.
-Is the person in photo {last} the same person as in {choices}? Compare clothing and its colours, hair, glasses, hat and bag; pose, distance and lighting may differ. Different people can wear similar clothes, so choose a photo only when the features clearly agree.
-Reply with JSON only: {{"photo": {numbers}}}, or {{"photo": null}} if no photo clearly shows the same person."""
+MATCH_PROMPT = """{earlier} a person met earlier; the last photo, photo {last}, shows a person now. Backgrounds are darkened.
+Is the person in the last photo the same person as in {choices}? Compare clothing and its colours, hair, glasses, hat and bag; pose, distance and lighting may differ. Different people can wear similar clothes, so choose a photo only when the features clearly agree.
+The last photo is not a choice. Reply with JSON only: {{"photo": {numbers}}}, or {{"photo": null}} if no photo clearly shows the same person."""
 
 
 # --- Transport -------------------------------------------------------------
@@ -60,6 +67,20 @@ def decode_image(data: str) -> np.ndarray:
 def bbox_of(mask: np.ndarray) -> list[int]:
     ys, xs = np.nonzero(mask)
     return [int(xs.min()), int(ys.min()), int(xs.max() + 1), int(ys.max() + 1)]
+
+
+def split_sideways(mask: np.ndarray) -> list[np.ndarray]:
+    """The mask's parts separated by empty columns, left to right."""
+    columns = np.flatnonzero(mask.any(axis=0))
+    if columns.size == 0:
+        return []
+    parts = []
+    for run in np.split(columns, np.flatnonzero(np.diff(columns) > SPLIT_GAP) + 1):
+        part = np.zeros_like(mask)
+        part[:, run[0] : run[-1] + 1] = mask[:, run[0] : run[-1] + 1]
+        parts.append(part)
+    area = mask.sum()
+    return [part for part in parts if part.sum() >= SPLIT_MIN_SHARE * area]
 
 
 def encode_mask(mask: np.ndarray) -> dict:
@@ -120,6 +141,36 @@ def measure(mask, depth_m, fx, fy, cx, cy) -> Measurement | None:
     return Measurement(
         centre=np.median(points, axis=0), head=np.median(points[upper], axis=0)
     )
+
+
+def measure_people(
+    mask, depth_m, fx, fy, cx, cy, *, rotation=None
+) -> list[tuple[np.ndarray, Measurement]]:
+    """Each person in one SAM mask with their own mask and position, left to right.
+
+    The mask's parts stay separate people only when depth puts them a person's
+    width apart. Height is ignored: an occluder can leave different heights visible.
+    rotation maps the optical frame to a frame with z up. Without it, optical x/z
+    approximate the floor plane of a level camera.
+    """
+    people = []
+    for part in split_sideways(mask):
+        measured = measure(part, depth_m, fx, fy, cx, cy)
+        if measured is None:
+            continue
+        if people:
+            offset = people[-1][1].centre - measured.centre
+            horizontal = (
+                (rotation @ offset)[:2] if rotation is not None else offset[[0, 2]]
+            )
+            if np.linalg.norm(horizontal) < SAME_PERSON_M:
+                joined = people[-1][0] | part
+                measured = measure(joined, depth_m, fx, fy, cx, cy)
+                if measured is not None:
+                    people[-1] = (joined, measured)
+                continue
+        people.append((part, measured))
+    return people
 
 
 def rotation_matrix(x, y, z, w) -> np.ndarray:
