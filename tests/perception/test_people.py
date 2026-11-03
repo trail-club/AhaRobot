@@ -121,8 +121,36 @@ class MeasurePeopleTests(unittest.TestCase):
         self.mask[top:bottom, left:right] = True
         self.depth[top:bottom, left:right] = z
 
-    def people(self):
-        return measure_people(self.mask, self.depth, self.F, self.F, self.CX, self.CY)
+    def people(self, **kwargs):
+        return measure_people(
+            self.mask, self.depth, self.F, self.F, self.CX, self.CY, **kwargs
+        )
+
+    def tilted_camera(self, pitch):
+        """Depth of a vertical plane 2 m ahead, viewed by a tilted camera."""
+        c, s = np.cos(pitch), np.sin(pitch)
+        rotation = np.array([[1, 0, 0], [0, -s, c], [0, -c, -s]])
+        rows = np.arange(self.depth.shape[0])[:, None]
+        self.depth[:] = 2.0 / (c - s * (rows - self.CY) / self.F)
+        return rotation
+
+    def test_tilted_camera_merges_occluded_parts_at_different_heights(self):
+        for pitch in (-np.pi / 4, np.pi / 4):
+            with self.subTest(pitch=pitch):
+                self.setUp()
+                rotation = self.tilted_camera(pitch)
+                self.mask[60:200, 280:314] = True
+                self.mask[300:440, 326:360] = True
+                # Optical depth differs by height even for the same person.
+                self.assertEqual(len(self.people()), 2)
+                [(mask, _)] = self.people(rotation=rotation)
+                np.testing.assert_array_equal(mask, self.mask)
+
+    def test_tilted_camera_keeps_different_people_apart(self):
+        rotation = self.tilted_camera(np.pi / 4)
+        self.mask[60:200, 190:245] = True
+        self.mask[300:440, 395:450] = True
+        self.assertEqual(len(self.people(rotation=rotation)), 2)
 
     def test_person_behind_a_door_frame_stays_one(self):
         self.add_person(0.0, 2.0)

@@ -162,7 +162,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 
 - 客は静止した立ち姿のモデル（`person_standing`）を動かすもので、脚は動かず、座らない。シャツなどの色で2人を区別し、その他の外見は同じ。
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
-- ドアのそばでは自己位置の誤差が約0.2 mに広がり（全行程の中央値は約6 cm）、客の測定位置も同じ程度ずれる。原因は調べていない。
+- 客の測定位置はロボットの自己位置の誤差の影響を受ける。
 - 待っている他の客・ホスト・荷物、会話中に頭で客を追う動作は含まない。
 
 ## Pick and Place Challenge

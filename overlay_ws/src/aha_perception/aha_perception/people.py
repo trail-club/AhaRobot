@@ -144,12 +144,14 @@ def measure(mask, depth_m, fx, fy, cx, cy) -> Measurement | None:
 
 
 def measure_people(
-    mask, depth_m, fx, fy, cx, cy
+    mask, depth_m, fx, fy, cx, cy, *, rotation=None
 ) -> list[tuple[np.ndarray, Measurement]]:
     """Each person in one SAM mask with their own mask and position, left to right.
 
     The mask's parts stay separate people only when depth puts them a person's
     width apart. Height is ignored: an occluder can leave different heights visible.
+    rotation maps the optical frame to a frame with z up. Without it, optical x/z
+    approximate the floor plane of a level camera.
     """
     people = []
     for part in split_sideways(mask):
@@ -158,7 +160,10 @@ def measure_people(
             continue
         if people:
             offset = people[-1][1].centre - measured.centre
-            if math.hypot(offset[0], offset[2]) < SAME_PERSON_M:
+            horizontal = (
+                (rotation @ offset)[:2] if rotation is not None else offset[[0, 2]]
+            )
+            if np.linalg.norm(horizontal) < SAME_PERSON_M:
                 joined = people[-1][0] | part
                 measured = measure(joined, depth_m, fx, fy, cx, cy)
                 if measured is not None:

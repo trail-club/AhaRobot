@@ -244,7 +244,13 @@ class PersonPerception(Node):
         detections = []
         for person in response["people"]:
             for mask, measured in measure_people(
-                decode_mask(person, rgb.shape[:2]), depth, fx, fy, cx, cy
+                decode_mask(person, rgb.shape[:2]),
+                depth,
+                fx,
+                fy,
+                cx,
+                cy,
+                rotation=rotation if self.target_frame else None,
             ):
                 detections.append(
                     Detection(
