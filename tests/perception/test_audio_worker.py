@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -463,6 +464,42 @@ class SpeakerTests(unittest.TestCase):
         with patch.object(audio_io.time, "sleep") as sleep:
             self.speaker.drain()
         self.assertEqual(sleep.call_args.args[0], 0.0)
+
+
+class FakeInputStream:
+    def __init__(self, callback, **kwargs):
+        self.callback = callback
+
+    def start(self):
+        pass
+
+
+class MicStreamTests(unittest.TestCase):
+    def setUp(self):
+        fake = types.SimpleNamespace(InputStream=FakeInputStream)
+        with patch.dict(sys.modules, {"sounddevice": fake}):
+            self.mic = audio_io.MicStream("", audio_io.SAMPLE_RATE, 512)
+        self.stop = threading.Event()
+
+    def feed(self):
+        self.mic._stream.callback(np.zeros((512, 1), np.float32), 512, None, None)
+
+    def test_a_stopped_microphone_raises(self):
+        self.mic.start()
+        self.feed()
+        frames = self.mic.frames(self.stop)
+        next(frames)
+        with patch.object(audio_io, "STALL_S", 0.3):
+            with self.assertRaisesRegex(RuntimeError, "no audio"):
+                next(frames)
+
+    def test_waiting_before_start_is_no_stall(self):
+        frames = self.mic.frames(self.stop)
+        with patch.object(audio_io, "STALL_S", 0.0):
+            timer = threading.Timer(0.5, self.stop.set)
+            timer.start()
+            self.assertEqual(list(frames), [])
+            timer.join()
 
 
 if __name__ == "__main__":

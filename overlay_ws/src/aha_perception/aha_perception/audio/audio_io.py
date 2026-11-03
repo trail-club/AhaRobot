@@ -15,6 +15,7 @@ from math import ceil, gcd
 import numpy as np
 
 SAMPLE_RATE = 16000  # ASR / VAD パイプラインのサンプルレート
+STALL_S = 2.0  # マイクの音がこの秒数届かなければ止まったとみなす (通常は 32 ms ごと)
 
 
 def encode_pcm(audio: np.ndarray) -> str:
@@ -85,6 +86,7 @@ class MicStream:
         self.frame = frame
         self._q: queue.Queue[tuple[np.ndarray, float]] = queue.Queue(maxsize=200)
         self.dropped = 0
+        self._last_block: float | None = None  # monotonic time; None until start()
         block = int(round(frame * capture_rate / SAMPLE_RATE))
         self._stream = sd.InputStream(
             device=_device(device),
@@ -103,19 +105,30 @@ class MicStream:
 
     def start(self) -> None:
         self._stream.start()
+        self._last_block = time.monotonic()
 
     def close(self) -> None:
         self._stream.stop()
         self._stream.close()
 
     def frames(self, stop: threading.Event):
-        """Yield (frame, wall_time_of_frame_end) until `stop` is set."""
+        """Yield (frame, wall_time_of_frame_end) until `stop` is set.
+
+        Raises once started if no audio arrives for STALL_S: an unplugged device
+        can stop the callbacks without any error, even while the stream stays active."""
         pending = np.zeros(0, dtype=np.float32)
         while not stop.is_set():
             try:
                 block, t = self._q.get(timeout=0.2)
             except queue.Empty:
+                started = self._last_block is not None
+                if started and time.monotonic() - self._last_block > STALL_S:
+                    raise RuntimeError(
+                        f"no audio from the microphone for {STALL_S:.0f} s"
+                        " (unplugged or the audio server restarted?)"
+                    )
                 continue
+            self._last_block = time.monotonic()
             pending = np.concatenate([pending, self.resampler.push(block)])
             while len(pending) >= self.frame:
                 out, pending = pending[: self.frame], pending[self.frame :]

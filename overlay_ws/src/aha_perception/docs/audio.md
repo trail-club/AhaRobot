@@ -31,7 +31,7 @@ launch 引数 `target` で ASR と TTS のモデルを動かす場所を選ぶ�
 - 初回はベースイメージの取得とビルドで数十分かかる。モデルは推論先の `~/.cache/aharobot-audio` に保存する（合計約 7 GB）。
 - `aha_perception` は `--symlink-install` でビルドする。
 - ssh-agent に鍵を読み込んでから `make audio-up` する。コンテナにはエージェントのソケットだけを渡す。
-- 認識 1 回の失敗はログに残して聞き続け、読み上げの失敗は goal を abort する。接続が切れたときと、録音や認識のスレッドが想定外の例外で止まったときは、ノードがエラーで終了するので、起動し直す。
+- 認識 1 回の失敗はログに残して聞き続け、読み上げの失敗は goal を abort する。接続が切れたときと、録音や認識のスレッドが想定外の例外で止まったとき、マイクの音が 2 秒届かないとき（抜けた、音声サーバーが再起動したなど）は、ノードがエラーで終了するので、起動し直す。
 - モデルの依存は [`tools/perception/audio_worker/`](../../../../tools/perception/audio_worker/) の `pyproject.toml` / `uv.lock` で固定する。`local` の依存は `docker/audio/` にある。
 
 ### Mac から使う
