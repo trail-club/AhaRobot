@@ -25,8 +25,8 @@ class SkillContext:
 class Skill:
     """Base class; one instance serves every subgoal bound to the skill name.
 
-    Subclasses are constructed with the runtime (``node``, ``spec``, ``navigation``)
-    and must stop promptly once ``ctx.cancelled`` is set.
+    Subclasses are constructed with the runtime (``node``, ``spec``, ``navigation``,
+    ``skills``) and must stop promptly once ``ctx.cancelled`` is set.
     """
 
     def __init__(self, runtime):
@@ -42,6 +42,10 @@ class Skill:
     def expected(self, params):
         """State that holds after success; also assumed when the subgoal is mocked."""
         return {}
+
+    def assumed(self, params, memory):
+        """State assumed when the subgoal is not selected, skipped or mocked."""
+        return self.expected(params)
 
     def execute(self, ctx):
         """Return a SkillResult (or bool). Exceptions count as failure."""
