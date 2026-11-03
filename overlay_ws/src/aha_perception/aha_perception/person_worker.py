@@ -37,9 +37,9 @@ from .people import (
     parse_features,
     parse_match,
 )
-from .sam31 import safe_error, validate_threshold
+from .sam31 import validate_threshold
 from .sam31_vlm import DEFAULT_VLM_MODEL, DEFAULT_VLM_URL, VlmClient
-from .sam31_worker import protocol_stream
+from .worker_io import protocol_stream, safe_error, send_json
 
 
 MIN_MASK_PIXELS = 400
@@ -102,8 +102,7 @@ def serve(
 
     def send(response):
         with lock:
-            output_stream.write(json.dumps(response, allow_nan=False) + "\n")
-            output_stream.flush()
+            send_json(output_stream, response)
 
     def fail(request_id, exc):
         send({"type": "error", "id": request_id, "message": safe_error(exc)})

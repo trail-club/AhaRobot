@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/PlaceObstacle.msg
   msg/Plane.msg
   msg/PlaneArray.msg
+  msg/SpeechTranscript.msg
   msg/Surface.msg
   msg/SurfaceArray.msg
   srv/DescribePerson.srv
@@ -27,6 +28,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/SetNavGoal.srv
   srv/TaskCommand.srv
   action/PickObject.action
+  action/Listen.action
+  action/Speak.action
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs builtin_interfaces
 )
 

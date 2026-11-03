@@ -2,7 +2,7 @@
 <package format="3">
   <name>aha_perception</name>
   <version>0.1.0</version>
-  <description>Camera point cloud, RViz views (real camera and simulation), plane detection and perception interfaces for AhaRobot.</description>
+  <description>Camera point cloud, RViz views (real camera and simulation), plane detection, perception interfaces and audio (Silero VAD + Smart Turn + ASR + Kokoro TTS) for AhaRobot.</description>
   <maintainer email="dev@trail-club.local">trail-club perception squad</maintainer>
   <license>Apache-2.0</license>
 
@@ -27,6 +27,8 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <!-- audio: Python ML deps (torch / nemo / haas-asr / qwen-asr / kokoro ...) are installed by docker/audio/Dockerfile, not rosdep. -->
+  <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>

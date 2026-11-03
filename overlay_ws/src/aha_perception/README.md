@@ -2,7 +2,7 @@
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出と置き場所の候補、
 シミュレーションの左右の手首RGBカメラのbridgeと物体検出（真の姿勢から）、SAM 3.1のセグメンテーション検証、
-SAM 3.1による人の認識（[person_perception](#人の認識)）。
+SAM 3.1による人の認識（[person_perception](#人の認識)）、音声認識・発話（[音声スタック](docs/audio.md)）。
 topic・frame・serviceは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
 
@@ -26,6 +26,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
 | `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
+| `audio.launch.py` | ASR・TTS・デバッグUI。別コンテナ `aha_audio` で動かし、推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
 
 ## ノード
 

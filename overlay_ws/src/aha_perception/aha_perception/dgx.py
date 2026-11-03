@@ -1,9 +1,10 @@
-"""Start person_worker on the DGX Spark over SSH and exchange requests with it.
+"""Start a worker on a GPU host over SSH and exchange requests with it.
 
 Follows tools/perception/macos/sam31 (interactive.py): send the model code and
-locked build inputs, build the shared Dockerfile, run one container with the
-read-only SAM 3.1 weights, and remove the container and sources on close.
-The container uses the DGX host network to reach the Qwen3.8 server there.
+locked build inputs, build the Dockerfile, run one container, and remove the
+container and sources on close. A ContainerSpec says what to send and run; the
+default is person_worker on the DGX Spark, with the read-only SAM 3.1 weights
+and the DGX host network to reach the Qwen3.8 server there.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+from typing import Callable
 import uuid
 
 from .sam31_vlm import DEFAULT_VLM_MODEL, DEFAULT_VLM_URL
@@ -35,16 +37,16 @@ SSH_OPTIONS = [
     "-o",
     "ServerAliveCountMax=3",
 ]
-DOCKERFILE = "tools/perception/macos/sam31/Dockerfile"
-BUILD_INPUTS = [DOCKERFILE] + [
+PERSON_DOCKERFILE = "tools/perception/macos/sam31/Dockerfile"
+PERSON_BUILD_INPUTS = [PERSON_DOCKERFILE] + [
     f"tools/perception/macos/sam31/{name}" for name in ("pyproject.toml", "uv.lock")
 ]
 
 
-def repository_root() -> Path:
+def repository_root(dockerfile: str) -> Path:
     """The checkout this package was built from (requires --symlink-install)."""
     root = Path(__file__).resolve().parents[4]
-    if not (root / DOCKERFILE).is_file():
+    if not (root / dockerfile).is_file():
         raise RuntimeError(
             f"{root} is not the AhaRobot checkout; build aha_perception with "
             "--symlink-install or set the repository_root parameter"
@@ -52,26 +54,15 @@ def repository_root() -> Path:
     return root
 
 
-def source_archive(root: Path, destination) -> None:
-    """Model code and locked build inputs only; never credentials or caches."""
-    upstream = root / "upstream/sam3"
-    listed = subprocess.run(
-        ["git", "-c", "safe.directory=*", "-C", str(upstream), "ls-files", "-z"],
-        check=True,
-        capture_output=True,
-    ).stdout.decode()
-    tracked = [name for name in listed.split("\0") if name]
-    if "pyproject.toml" not in tracked:
-        raise RuntimeError("initialize the upstream/sam3 submodule first")
-    files = [upstream / name for name in tracked]
-    files += sorted(
-        (root / "overlay_ws/src/aha_perception/aha_perception").glob("*.py")
-    )
-    files += [root / name for name in BUILD_INPUTS]
+def source_archive(files: list[Path], root: Path, destination) -> None:
+    """Exactly the listed files; never credentials or caches."""
     with tarfile.open(fileobj=destination, mode="w") as archive:
         for path in files:
             archive.add(path, arcname=str(path.relative_to(root)), recursive=False)
     destination.seek(0)
+
+
+CACHE_DIRS = ("torch/kernels", "triton", "huggingface")
 
 
 @dataclass
@@ -88,6 +79,71 @@ class WorkerOptions:
     vlm_model: str = DEFAULT_VLM_MODEL
 
 
+@dataclass(frozen=True)
+class ContainerSpec:
+    title: str  # in messages, e.g. "DGX person worker"
+    name: str  # aharobot-<name>: the container and temporary directory
+    dockerfile: str
+    image: str
+    sources: Callable[[Path], list[Path]]  # files to send, under the repository root
+    prepare: str  # shell run on the host before the container starts
+    cache: str  # under $HOME/.cache on the host; mounted at /cache
+    docker_args: tuple[str, ...]  # for docker run, before the image
+    command: tuple[str, ...]  # python arguments, after the image
+
+
+def person_sources(root: Path) -> list[Path]:
+    upstream = root / "upstream/sam3"
+    listed = subprocess.run(
+        ["git", "-c", "safe.directory=*", "-C", str(upstream), "ls-files", "-z"],
+        check=True,
+        capture_output=True,
+    ).stdout.decode()
+    tracked = [name for name in listed.split("\0") if name]
+    if "pyproject.toml" not in tracked:
+        raise RuntimeError("initialize the upstream/sam3 submodule first")
+    files = [upstream / name for name in tracked]
+    files += sorted(
+        (root / "overlay_ws/src/aha_perception/aha_perception").glob("*.py")
+    )
+    return files + [root / name for name in PERSON_BUILD_INPUTS]
+
+
+def person_spec(options: WorkerOptions) -> ContainerSpec:
+    return ContainerSpec(
+        title="DGX person worker",
+        name="people",
+        dockerfile=PERSON_DOCKERFILE,
+        image=options.image,
+        sources=person_sources,
+        prepare=(f"test -r {shlex.quote(options.checkpoint)}"),
+        cache="aharobot-sam31",
+        docker_args=(
+            # The Qwen3.8 server listens on the DGX's WARP address only.
+            "--network",
+            "host",
+            "-e",
+            "HF_HOME=/cache/huggingface",
+            "-v",
+            f"{options.checkpoint}:/models/sam3.1_multiplex.pt:ro",
+        ),
+        command=(
+            "-m",
+            "aha_perception.person_worker",
+            "--checkpoint",
+            "/models/sam3.1_multiplex.pt",
+            "--threshold",
+            str(options.threshold),
+            "--prompt",
+            options.prompt,
+            "--vlm-url",
+            options.vlm_url,
+            "--vlm-model",
+            options.vlm_model,
+        ),
+    )
+
+
 class WorkerError(RuntimeError):
     pass
 
@@ -99,12 +155,15 @@ class RequestError(WorkerError):
 class DgxWorker:
     """One worker process; `request` may be called from several threads."""
 
-    def __init__(self, options: WorkerOptions, *, root=None, log=print, command=None):
+    def __init__(
+        self, options: WorkerOptions, *, spec=None, root=None, log=print, command=None
+    ):
         self.options = options
+        self.spec = spec or person_spec(options)
         self.root = root
         self.log = log
         self.command = command  # local stand-in for tests: argv of a worker
-        self.name = "aharobot-people-" + uuid.uuid4().hex
+        self.name = f"aharobot-{self.spec.name}-{uuid.uuid4().hex}"
         self.remote_dir = None
         self.process = None
         self.container_requested = False
@@ -131,72 +190,58 @@ class DgxWorker:
         return command + ["--", self.options.host, script]
 
     def run(self, script: str, **kwargs):
+        # Without this, ssh would swallow what the user types during startup.
+        kwargs.setdefault("stdin", subprocess.DEVNULL)
         return subprocess.run(self.ssh(script), check=True, **kwargs)
 
     def remote_command(self) -> list[str]:
-        o = self.options
+        spec = self.spec
         self.remote_dir = self.run(
-            "mktemp -d /tmp/aharobot-people-XXXXXXXX", capture_output=True, text=True
+            f"mktemp -d /tmp/aharobot-{spec.name}-XXXXXXXX",
+            capture_output=True,
+            text=True,
         ).stdout.strip()
-        if not re.fullmatch(r"/tmp/aharobot-people-[A-Za-z0-9]+", self.remote_dir):
+        if not re.fullmatch(
+            rf"/tmp/aharobot-{spec.name}-[A-Za-z0-9]+", self.remote_dir
+        ):
             raise WorkerError("unexpected remote temporary directory")
         remote = shlex.quote(self.remote_dir)
-        self.log("Syncing code and building the DGX image (cached layers are reused)")
+        self.log("Syncing code and building the image (cached layers are reused)")
+        root = self.root or repository_root(spec.dockerfile)
         with tempfile.TemporaryFile() as archive:
-            source_archive(self.root or repository_root(), archive)
+            source_archive(spec.sources(root), root, archive)
             self.run(f"tar -xf - -C {remote}", stdin=archive)
-        # The tag is shared by DGX users; run the ID built from these sources.
+        # The tag is shared by host users; run the ID built from these sources.
         self.run(
             f"cd {remote} && docker build -q --iidfile .image-id "
-            f"-t {shlex.quote(o.image)} -f {DOCKERFILE} . >/dev/null",
+            f"-t {shlex.quote(spec.image)} -f {spec.dockerfile} . >/dev/null",
         )
         image_id = self.run(
             f"cat {remote}/.image-id", capture_output=True, text=True
         ).stdout.strip()
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
             raise WorkerError("unexpected Docker image ID")
-        self.run(
-            f"test -r {shlex.quote(o.checkpoint)} && mkdir -p "
-            '"$HOME/.cache/aharobot-sam31/torch/kernels" '
-            '"$HOME/.cache/aharobot-sam31/triton" '
-            '"$HOME/.cache/aharobot-sam31/huggingface"'
-        )
+        cache = " ".join(f'"$HOME/.cache/{spec.cache}/{name}"' for name in CACHE_DIRS)
+        self.run(" && ".join(filter(None, (spec.prepare, f"mkdir -p {cache}"))))
         args = [
             "--name",
             self.name,
             "--gpus",
             "all",
             "--shm-size=2g",
-            # The Qwen3.8 server listens on the DGX's WARP address only.
-            "--network",
-            "host",
-            "-e",
-            "HF_HOME=/cache/huggingface",
+            *spec.docker_args,
             "-v",
             f"{self.remote_dir}:/app:ro",
-            "-v",
-            f"{o.checkpoint}:/models/sam3.1_multiplex.pt:ro",
             "--entrypoint",
             "python",
             image_id,
             "-u",
-            "-m",
-            "aha_perception.person_worker",
-            "--checkpoint",
-            "/models/sam3.1_multiplex.pt",
-            "--threshold",
-            str(o.threshold),
-            "--prompt",
-            o.prompt,
-            "--vlm-url",
-            o.vlm_url,
-            "--vlm-model",
-            o.vlm_model,
+            *spec.command,
         ]
         # The SSH user's UID owns the caches; HF tokens are never transferred.
         script = (
             'docker run --rm -i --user "$(id -u):$(id -g)" '
-            '-v "$HOME/.cache/aharobot-sam31:/cache" ' + shlex.join(args)
+            f'-v "$HOME/.cache/{spec.cache}:/cache" ' + shlex.join(args)
         )
         self.container_requested = True
         return self.ssh(script)
@@ -214,15 +259,16 @@ class DgxWorker:
             start_new_session=True,
         )
         threading.Thread(target=self._read, daemon=True).start()
-        self.log("Loading SAM 3.1 on the DGX")
+        self.log(f"Waiting for the {self.spec.title}")
         if not self.ready.wait(timeout):
-            raise TimeoutError("DGX person worker did not become ready")
+            raise TimeoutError(f"{self.spec.title} did not become ready")
         if self.failure is not None:
             raise WorkerError(self.failure)
         return self.info
 
     def _read(self):
-        message = "DGX person worker disconnected; check the SSH/Docker log"
+        title = self.spec.title
+        message = f"{title} disconnected; check the SSH/Docker log"
         try:
             for line in self.process.stdout:
                 try:
@@ -231,7 +277,7 @@ class DgxWorker:
                     response = None
                 if not isinstance(response, dict):
                     message = (
-                        f"unexpected output from the DGX worker: {line.strip()[:200]!r}"
+                        f"unexpected output from the {title}: {line.strip()[:200]!r}"
                     )
                     break
                 if response.get("type") == "ready":
@@ -247,7 +293,7 @@ class DgxWorker:
                     message = response.get("message", "worker failed to start")
                     break
         except (OSError, ValueError) as exc:
-            message = f"DGX person worker channel failed: {exc}"
+            message = f"{title} channel failed: {exc}"
         self.failure = message
         self.ready.set()
         with self.lock:
@@ -270,17 +316,21 @@ class DgxWorker:
                     )
                     self.process.stdin.flush()
             except OSError as exc:
-                raise WorkerError(f"cannot send to the DGX worker: {exc}") from exc
+                raise WorkerError(
+                    f"cannot send to the {self.spec.title}: {exc}"
+                ) from exc
             if not slot["event"].wait(timeout):
-                raise TimeoutError(f"DGX worker did not answer within {timeout:.0f} s")
+                raise TimeoutError(
+                    f"{self.spec.title} did not answer within {timeout:.0f} s"
+                )
         finally:
             with self.lock:
                 self.pending.pop(request_id, None)
         response = slot["response"]
         if response is None:
-            raise WorkerError(self.failure or "DGX worker stopped")
+            raise WorkerError(self.failure or f"{self.spec.title} stopped")
         if response.get("type") == "error":
-            raise RequestError(response.get("message", "DGX worker error"))
+            raise RequestError(response.get("message", f"{self.spec.title} error"))
         return response
 
     def close(self) -> bool:
@@ -310,7 +360,7 @@ class DgxWorker:
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 self.log(
-                    f"DGX container cleanup failed: {exc}; run "
+                    f"Container cleanup failed: {exc}; run "
                     f"{shlex.join(self.ssh('docker rm -f ' + self.name))}"
                 )
                 success = False
@@ -318,6 +368,6 @@ class DgxWorker:
             try:
                 self.run("rm -rf -- " + shlex.quote(self.remote_dir), timeout=30)
             except (OSError, subprocess.SubprocessError) as exc:
-                self.log(f"DGX temporary directory cleanup failed: {exc}")
+                self.log(f"Temporary directory cleanup failed: {exc}")
                 success = False
         return success

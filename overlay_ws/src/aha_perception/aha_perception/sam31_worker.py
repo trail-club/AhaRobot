@@ -7,7 +7,6 @@ import base64
 from contextlib import redirect_stdout
 from io import BytesIO
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,7 +16,6 @@ import zipfile
 from .sam31 import (
     Sam31Segmenter,
     load_capture,
-    safe_error,
     save_result,
     validate_options,
     validate_threshold,
@@ -31,6 +29,7 @@ from .sam31_vlm import (
     focal_lengths,
     segment_with_vlm,
 )
+from .worker_io import protocol_stream, safe_error, send_json
 
 
 RESULT_FILES = ("rgb.png", "labels.png", "overlay.png", "masks.npz", "result.json")
@@ -108,8 +107,7 @@ def serve(
     match=True,
 ):
     def send(response):
-        output_stream.write(json.dumps(response, allow_nan=False) + "\n")
-        output_stream.flush()
+        send_json(output_stream, response)
 
     # Upstream prints model construction and prediction diagnostics. Keep the
     # protocol channel separate so those messages cannot corrupt responses.
@@ -136,18 +134,6 @@ def serve(
     except BrokenPipeError:
         # The client has gone; there is nobody left to report to.
         return 1
-
-
-def protocol_stream():
-    """Return the original stdout and point fd 1 at stderr.
-
-    redirect_stdout only covers Python writes; native libraries can still write
-    to fd 1 directly, which would corrupt the JSON lines read by the client.
-    """
-    sys.stdout.flush()
-    stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
-    os.dup2(2, 1)
-    return stream
 
 
 def main(argv=None):

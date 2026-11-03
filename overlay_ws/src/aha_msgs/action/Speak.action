@@ -1,0 +1,10 @@
+# Synthesize English text and play it through the robot speaker. Cancelable. Owner: aha_perception (audio).
+
+string  text
+string  voice         # "" = default voice (Kokoro af_heart)
+---
+bool    success
+string  message
+float32 time_to_first_audio   # seconds from goal accept to first audio out
+---
+float32 progress              # [0.0, 1.0] of sentences played
