@@ -1,0 +1,49 @@
+{
+  "status": "calibrated_and_independently_validated",
+  "robot": 1,
+  "radii": {
+    "wheel_radius": 0.0487925896784655,
+    "base_radius": 0.12672490771420117
+  },
+  "fit": {
+    "original": {
+      "wheel_radius": 0.05,
+      "base_radius": 0.125
+    },
+    "candidate": {
+      "wheel_radius": 0.0487925896784655,
+      "base_radius": 0.12672490771420117
+    },
+    "linear_scale": 0.9758517935693101,
+    "rotation_scale": 0.9625690513128237,
+    "fit_records": [
+      "odom_nearwall_linear_1792896000",
+      "odom_nearwall_rotation_1792896077"
+    ]
+  },
+  "validation_record": "odom_nearwall_validation_1792896264",
+  "validation_linear_scale": 1.006471131360752,
+  "validation_rotation_scale": 0.9919805684345506,
+  "validation_segments": 10,
+  "minimum_inlier_ratio": 0.8928571428571429,
+  "limits": "Enclosed carpet test area; 5 cm translations and +/-360 degree rotations. Lateral path errors and wheel slip remain.",
+  "max_translation_distance_difference_mm": 1.5735423043956656,
+  "rotation_difference_deg": [
+    3.7299195244309566,
+    2.0461348653615574
+  ],
+  "torque_readback": {
+    "7": 0,
+    "8": 0,
+    "9": 0
+  },
+  "goal_velocity_readback": {
+    "7": 0,
+    "8": 0,
+    "9": 0
+  },
+  "normal_startup": "make run-base ROBOT=1 START_RVIZ=false",
+  "git_commit_baseline": "567f1b9",
+  "source_changes_uncommitted": true,
+  "tests_passed": 6
+}

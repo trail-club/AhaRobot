@@ -1,0 +1,30 @@
+[
+  {
+    "initial": "odom",
+    "pose": [
+      0.04984009218212847,
+      0.004272720228932987,
+      0.0014755150185245612
+    ],
+    "rms": 0.0015405918843959295,
+    "inlier_ratio": 0.8928571428571429,
+    "min_eigenvalue": 0.029008366905886297,
+    "iterations": 9
+  },
+  {
+    "initial": "identity",
+    "pose": [
+      0.049840092182128565,
+      0.004272720228932749,
+      0.0014755150185259214
+    ],
+    "rms": 0.0015405918843959287,
+    "inlier_ratio": 0.8928571428571429,
+    "min_eigenvalue": 0.029008366905897708,
+    "iterations": 9
+  },
+  {
+    "initial": "opposite",
+    "error": "No observable, bidirectionally consistent ICP solution; do not apply radii"
+  }
+]

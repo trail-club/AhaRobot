@@ -1,0 +1,30 @@
+{
+  "status": "direction_offset_calibrated_and_laterally_validated",
+  "fit": {
+    "angles_deg": [
+      9.898728099911926,
+      6.458810760961378,
+      10.582353625546999,
+      7.1835940796664435,
+      10.105629595408285,
+      7.730388890882753,
+      9.139950052784393,
+      7.997643477043475
+    ],
+    "median_deg": 8.568796764913934,
+    "candidate_offset_deg": -81.43120323508606
+  },
+  "wheel_radius_m": 0.0487925896784655,
+  "base_radius_m": 0.12672490771420117,
+  "mean_5cm_cross_axis_displacement_mm_before": 7.347664898470198,
+  "mean_5cm_cross_axis_displacement_mm_after": 2.1408119754126673,
+  "10cm_return_position_difference_mm": 3.7230814904393728,
+  "10cm_return_heading_difference_deg": -0.17925937077108528,
+  "all_new_registration_passed": true,
+  "limitation": "Sequential measurements in one carpet enclosure. ICP estimates, not external ground truth. Distance scale remains direction dependent; forward/backward and full rotation were not repeated with the new direction offset.",
+  "stopped_torque_and_velocity_zero": [
+    7,
+    8,
+    9
+  ]
+}
