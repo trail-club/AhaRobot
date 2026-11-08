@@ -260,7 +260,7 @@ planning pipelineは `ompl`（既定）と `pilz_industrial_motion_planner`（PT
 `/aha/perception/look_at`、`/joint_states`、`odom` → `base_footprint` のTF、グリッパの位置指令topic（`gripper_interface`）を使う。
 IKの解に昇降の関節がなければ（骨組みのモデル）、関節空間の目標は腕の関節だけにする。
 planning sceneの `aha_place_surface_*` / `aha_place_wall_*` / `aha_place_obstacle_*` / `aha_held_object_<arm>` / `aha_placed_object`
-（`<arm>` は `right` / `left`）はgoalごとにこのserverが書き換える。`aha_placed_object` は退避の後に置く姿勢へ、`object_size` を各方向に `placed_padding` 広げた箱で置く。状態と結果は [aha_test_ui](../aha_test_ui/README.md) のモニタにも出す。
+（`<arm>` は `right` / `left`）はgoalごとにこのserverが書き換える。`aha_placed_object` は退避の後に置く姿勢へ、`object_size` を各方向に `placed_padding` 広げた箱で置く（退避が途中で止まり手がその箱に入っていれば物体の大きさの箱にし、それでも触れる手のlinkとの衝突だけを外す）。状態と結果は [aha_test_ui](../aha_test_ui/README.md) のモニタにも出す。
 RVizで置く順を見るには、MarkerArrayの表示を `/aha/manipulation/place/markers`（transient local）で足す。
 
 ## シミュレーションの把持物体

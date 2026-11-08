@@ -53,6 +53,8 @@ class GripperNode(Node):
         # The arm_node's joint_names, in its order.
         self.arm_joints = [f"joint_{arm[0]}{i}" for i in range(2, 7)]
         self.arm = {}  # latest measured arm joint positions
+        # States stamped before this (ns) are ignored (forget_state).
+        self.fresh_after_ns = 0
         self.command_pub = self.create_publisher(
             JointCommand, f"/{arm}/arm/gripper_joint_command", qos_profile_sensor_data
         )
@@ -67,6 +69,9 @@ class GripperNode(Node):
         )
 
     def _on_state(self, msg: JointState):
+        stamp = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        if stamp and stamp < self.fresh_after_ns:
+            return  # queued while the node did not spin (e.g. waiting for Enter)
         if self.joint in msg.name:
             self.position = msg.position[msg.name.index(self.joint)]
         self.arm.update(
@@ -74,6 +79,13 @@ class GripperNode(Node):
             for name, position in zip(msg.name, msg.position)
             if name in self.arm_joints
         )
+
+    def forget_state(self):
+        """Drop the readings so far: the next ones come from states stamped
+        from now on (the arm may have been moved by hand meanwhile)."""
+        self.fresh_after_ns = self.get_clock().now().nanoseconds
+        self.arm.clear()
+        self.position = None
 
     def hold_arm(self):
         """Command the measured arm pose: the arm_node sends every gripper
@@ -83,6 +95,7 @@ class GripperNode(Node):
         the fingers may jump once. Refuses readings outside the arm_node range
         (it would drop the command). Returns the finger position measured
         after it."""
+        self.forget_state()
         deadline = time.monotonic() + INITIAL_STATE_TIMEOUT
         # The arm_node publishes the arm and the fingers in separate messages.
         while missing := [name for name in self.arm_joints if name not in self.arm]:
@@ -148,7 +161,9 @@ class GripperNode(Node):
 
 
 def wait_for_state(node: GripperNode, timeout: float = INITIAL_STATE_TIMEOUT):
-    """The first measured finger position, or None after ``timeout`` s."""
+    """The first finger position measured from now on, or None after
+    ``timeout`` s."""
+    node.forget_state()
     deadline = time.monotonic() + timeout
     while node.position is None and time.monotonic() < deadline:
         rclpy.spin_once(node, timeout_sec=INITIAL_STATE_POLL)
