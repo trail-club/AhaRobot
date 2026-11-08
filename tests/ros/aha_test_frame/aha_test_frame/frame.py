@@ -367,6 +367,6 @@ def frame_robot(urdf: str, config: dict) -> str:
         for name, offset in (arm.get("joint_offsets") or {}).items():
             _offset_joint(_joint(root, name), float(offset))
 
-    for extrusion in config.get("extrusions", ()):
+    for extrusion in config.get("extrusions") or ():
         _extrusion_link(root, extrusion)
     return ET.tostring(root, encoding="unicode")

@@ -42,6 +42,7 @@ ros2 launch aha_test_manipulation manip_real.launch.py      # aim_head:=false �
 昇降がないため `side` 把持（TCPのzが上）の手先の高さは1つに決まる。`tcp_height` はその高さで、起動時に `frame_config` のモデルの `arm` の
 `link_[r|l]ee` の `base_footprint` からの高さ（腕の関節をすべて0、`joint_[r|l]5` = 0でTCPのzが上）を `frame_moveit.side_grasp_tcp_height` で求める
 （`frame_table_202610.yaml` で右0.432 m、左0.474 m。`joint_[r|l]2`〜`4` は鉛直軸で高さを変えない）。
+`tcp_height` は `default_arm` の値のため、別の腕のgoalは断る（`STATUS_ERROR`）。その腕は `arm:=` を変えた起動で使う。
 `place_server.py` は候補ごとに離す高さ（物体の底面の支持面からの高さ）を、TCPがちょうど `tcp_height` に来る値
 `tcp_height` − (TCPから物体の底面までの高さ) − 支持面の高さ にする（TCPから底面までは `object_in_hand` または持ち方の既定の姿勢から求める）。
 これが `release_height`（0.02 m、物体を面に押し込まないための下限。横からの進入はこの高さで水平に動くため、モデルより低い実際の手先の分も見込む）未満か `max_release_height` より大きい候補は試す前に外す

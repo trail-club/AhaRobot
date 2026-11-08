@@ -185,6 +185,13 @@ def test_gripper_without_a_finger_state_sends_one_command(server, monkeypatch):
     assert any("not ramped" in text for _, text in stub.logger.lines)
 
 
+def test_fixed_tcp_refuses_the_other_arm(server):
+    stub = node(server, tcp_height=0.432, default_arm="right")
+    parse_goal = server.PlaceServer.parse_goal.__get__(stub)
+    with pytest.raises(PlaceError, match="tcp_height is the right arm's"):
+        parse_goal(SimpleNamespace(arm="left"))
+
+
 def test_release_height_is_the_goals_without_a_fixed_tcp(server):
     stub = node(server, tcp_height=0.0)
     req = SimpleNamespace(release_height=0.01)

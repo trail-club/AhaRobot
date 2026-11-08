@@ -1389,6 +1389,12 @@ class PlaceServer(Node):
         arm = goal.arm or self.param("default_arm")
         if arm not in ARMS:
             raise PlaceError(f"unknown arm {arm!r}")
+        if self.param("tcp_height") > 0.0 and arm != self.param("default_arm"):
+            # tcp_height is the default arm's (each arm's TCP sits at its own height).
+            raise PlaceError(
+                f"tcp_height is the {self.param('default_arm')} arm's; "
+                f"place with the {arm} arm from a launch for it"
+            )
         grasp = goal.grasp or self.param("default_grasp")
         if grasp not in geo.GRASPS:
             raise PlaceError(f"unknown grasp {grasp!r}")

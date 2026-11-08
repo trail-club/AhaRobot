@@ -234,6 +234,21 @@ def test_installed_config_loads():
     ET.fromstring(frame_robot(URDF, config))
 
 
+def test_empty_extrusions_key_builds_without_members(tmp_path):
+    path = tmp_path / "frame.yaml"
+    path.write_text(
+        "base_height: 0.4\nhead: {pan_xyz: [0, 0, 0]}\n"
+        "arms: {right: {shoulder_xyz: [0, -0.2, 0.2], yaw: -1.57}}\nextrusions:\n"
+    )
+    root = ET.fromstring(frame_robot(URDF, load_frame(path)))
+    assert not [
+        link
+        for link in root.findall("link")
+        if link.get("name").startswith("frame_")
+        and link.get("name") != "frame_head_base"
+    ]
+
+
 def test_unknown_arm_is_an_error(tmp_path):
     path = tmp_path / "frame.yaml"
     path.write_text(
