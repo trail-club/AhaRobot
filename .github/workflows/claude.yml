@@ -37,7 +37,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
-            --model claude-sonnet-5-5
+            --model claude-opus-5-5
             --effort high
             --append-system-prompt "Follow this repository's AGENTS.md guidance. AhaRobot-specific launch, settings, and features belong in overlay_ws/; upstream/* is managed as submodules and must be changed through fork PRs plus submodule SHA updates; when changing ROS topics, frames, or messages, check downstream users and docs/interfaces.md. Consult relevant package READMEs and docs. Respond in Japanese.
             For pull request requests, use the PR_NUMBER environment value to inspect the current changes with gh pr diff and the base/head metadata with gh pr view. issue_comment runs may check out the default branch, so do not treat local HEAD or origin/main as the PR diff without verifying the refs.

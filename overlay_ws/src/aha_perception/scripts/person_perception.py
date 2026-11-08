@@ -38,10 +38,11 @@ from aha_perception.people import (
     Detection,
     Gallery,
     PersonTracker,
+    bbox_of,
     decode_mask,
     describe_crop,
     encode_image,
-    measure,
+    measure_people,
     rotation_matrix,
 )
 
@@ -242,19 +243,24 @@ class PersonPerception(Node):
         fx, fy, cx, cy = info.k[0], info.k[4], info.k[2], info.k[5]
         detections = []
         for person in response["people"]:
-            mask = decode_mask(person, rgb.shape[:2])
-            measured = measure(mask, depth, fx, fy, cx, cy)
-            if measured is None:
-                continue
-            detections.append(
-                Detection(
-                    centre=rotation @ measured.centre + translation,
-                    head=rotation @ measured.head + translation,
-                    score=person["score"],
-                    bbox=person["bbox"],
-                    crop=describe_crop(rgb, mask),
+            for mask, measured in measure_people(
+                decode_mask(person, rgb.shape[:2]),
+                depth,
+                fx,
+                fy,
+                cx,
+                cy,
+                rotation=rotation if self.target_frame else None,
+            ):
+                detections.append(
+                    Detection(
+                        centre=rotation @ measured.centre + translation,
+                        head=rotation @ measured.head + translation,
+                        score=person["score"],
+                        bbox=bbox_of(mask),
+                        crop=describe_crop(rgb, mask),
+                    )
                 )
-            )
         with self.lock:
             seen = self.tracker.update(detections, seconds)
             self.publish(

@@ -127,6 +127,7 @@ def test_episode_bounds_unusable_camera_bundles(
             now=lambda: SimpleNamespace(nanoseconds=round(wall_time * 1e9))
         ),
         observation=lambda: object(),
+        start_episode=lambda: None,
         stop=lambda: stopped.append("node"),
         destroy_node=lambda: stopped.append("destroy"),
     )

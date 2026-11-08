@@ -79,8 +79,13 @@ class Action:
     linear_velocity: float = 0.0
     angular_velocity: float = 0.0
     joint_positions: Mapping[str, float] = field(default_factory=dict)
+    # Ends the episode now, as a team telling the referee to stop. Scoring
+    # tasks rule on the state at that moment; others count it as a failure.
+    end_episode: bool = False
 
     def validate(self):
+        if type(self.end_episode) is not bool:
+            raise ValueError("end_episode must be a bool")
         for name, value, bound in (
             ("linear_velocity", self.linear_velocity, 0.3),
             ("angular_velocity", self.angular_velocity, 0.5),

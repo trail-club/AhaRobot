@@ -67,6 +67,22 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 
 重みはリポジトリ・Dockerイメージに含めない。DGX上で構築するイメージには `upstream/sam3` のコードを含めるが、配布しない。
 
+## 音声モデル
+
+[音声スタック](../overlay_ws/src/aha_perception/docs/audio.md)が使う。使用するrevisionは[台帳](../overlay_ws/src/aha_perception/config/audio/models.yaml)で固定する。
+
+| 資源 | 確認した記載 | 参照元 |
+| --- | --- | --- |
+| [nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) | CC-BY-4.0 | 台帳の `license` |
+| [Qwen/Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B) | Apache-2.0 | 台帳の `license` |
+| [third-intelligence/Haas-ja-v1.0](https://huggingface.co/third-intelligence/Haas-ja-v1.0) | Apache-2.0 | 台帳の `license` |
+| [third-intelligence/Haas-ASR](https://github.com/third-intelligence/Haas-ASR)（`haas-asr`、コミットは `tools/perception/audio_worker/pyproject.toml` で固定） | Apache-2.0 | リポジトリの `LICENSE` |
+| [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) | BSD-2-Clause | 台帳の `license` |
+| [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 | 台帳の `license` |
+| [silero-vad](https://github.com/snakers4/silero-vad)（pipパッケージに同梱の重み） | MIT | 台帳の `license` |
+
+重みはリポジトリ・Dockerイメージに含めず、実行するマシンのキャッシュへ取得する。
+
 ## その他の第三者資源
 
 [tools/firmware/backup/](../tools/firmware/backup/) の `stock-waveshare-esp32-*.bin`、

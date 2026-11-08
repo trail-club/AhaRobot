@@ -53,7 +53,9 @@ domain設定・policy API・分離の保証範囲はパッケージのREADMEを�
 | --- | --- | --- |
 | 評価用state（pose・指接触数・時刻） | `/evaluation/state` | `std_msgs/msg/String`（`gz.msgs.StringMsg`のJSONからbridge、20 Hz） |
 | 評価用シミュレーション時刻 | `/clock` | `rosgraph_msgs/msg/Clock`（Gazebo `/evaluation/clock` の `gz.msgs.Clock`からbridge、20 Hz） |
-| step実行時のGazebo制御 | `/world/task_tables/control` | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+| step実行時のGazebo制御 | `/world/<world>/control`（`task_tables`、Doing Laundryは `laundry_room`） | Gazebo Transport service: `gz.msgs.WorldControl` → `gz.msgs.Boolean` |
+| episode開始の合図（Doing Laundryのアリーナドアを開く） | `/evaluation/start` | `std_msgs/msg/Empty`（Gazebo `gz.msgs.Empty` へbridge） |
+| Gazebo GUIの衣類表示（Doing Laundry） | `/marker`（namespace `aha_laundry`） | Gazebo Transport service: `gz.msgs.Marker` → `gz.msgs.Empty` |
 
 `--step-duration` 使用時は評価側だけがworld controlを呼び、推論中にpauseし、
 Actionを100 msごとのphysics実行に適用する。policyのObservation / Action型やROS topicは共通。
@@ -92,6 +94,15 @@ MoveItへ渡す状態のみ、関節下限・上限の外にあるGazeboの物�
 IPCの観測真値は補正せず、それ以上の逸脱も隠さない。
 真値policyの観測・実行・制約は
 [Pick with ground-truth IK](../overlay_ws/src/aha_sim_tasks/README.md#pick-with-ground-truth-ik) を参照。
+Doing Laundryの `/evaluation/state` は `schema_version: 3`、`task: "laundry"`、`frame_id: "world"`、`stamp` と、
+`robot_pose`（world x / y / yaw、ロボット生成前は `null`）、`started` / `start_time`、
+`washer_door_angle` / `arena_door_angle`（rad）、`basket_pose`（x / y / z / qx / qy / qz / qw）、
+`grippers`（左右の指パッド間隔 `gap`、閉判定 `closed`、保持粒子数 `particles`、パッド中心 `center`）、
+`garments`、`stacks` を持つ。`garments` の各要素は `id`、初期位置 `origin`（`washer` / `basket` / `table`）、
+粒子の割合 `fractions`（ドラム内・かご内・机上・床）、直前の窓での床接触 `touched_floor`、
+グリッパごとの保持粒子数 `held_by`、接触相手 `contacts`、粒子の平均速度 `speed`、中心、机上で静止したときの形状 `fold` を含む。
+`stacks` は机上の衣類どうしの重なり（`below` / `above` / `overlap`）。採点の定義はパッケージのREADMEを参照。
+このstateは衣類・家具を動かさない。評価側が送る `/evaluation/start` はアリーナドアだけを開く。
 評価はcontrollerの速度・関節位置指令を発行する。
 評価launchは `sim.launch.py bridge_clock:=false` とし、stateと同じ周期の評価用clockを配信する。
 標準launchの `bridge_clock` は既定で `true`。
@@ -153,6 +164,8 @@ teleopなどから同時に速度指令を送らない。ゴールは `/navigate
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
+
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 
 ## 頭部カメラ
 
@@ -312,6 +325,19 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
 `id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+
+## 音声
+
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 音声認識結果 | `/aha/perception/audio/transcript` | `aha_msgs/msg/SpeechTranscript` |
+| TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
+| 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
+| 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+
+音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 
 ## 実機の頭部
 

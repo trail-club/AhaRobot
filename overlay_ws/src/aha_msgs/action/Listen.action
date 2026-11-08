@@ -1,0 +1,11 @@
+# Wait for the next utterance and return its transcript. Owner: aha_perception (audio).
+
+string   language     # "ja" | "en" | "ja-qwen" (comparison model) | "" (= node's current language)
+string[] hotwords     # names / objects to bias recognition toward (added to node's list)
+float32  timeout      # seconds to wait for the utterance; <= 0 uses node default
+---
+bool                      success
+string                    message
+aha_msgs/SpeechTranscript transcript
+---
+string                    state   # "waiting" | "hearing" | "recognizing"

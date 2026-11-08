@@ -2,7 +2,7 @@
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出と置き場所の候補、
 シミュレーションの左右の手首RGBカメラのbridgeと物体検出（真の姿勢から）、SAM 3.1のセグメンテーション検証、
-SAM 3.1による人の認識（[person_perception](#人の認識)）。
+SAM 3.1による人の認識（[person_perception](#人の認識)）、音声認識・発話（[音声スタック](docs/audio.md)）。
 topic・frame・serviceは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
 
@@ -26,6 +26,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
 | `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
+| `audio.launch.py` | ASR・TTS・デバッグUI。別コンテナ `aha_audio` で動かし、推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
 
 ## ノード
 
@@ -363,6 +364,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 `person_perception.py` は頭部カメラの色画像をDGX SparkのSAM 3.1へ送り、Depthから求めた人の3D位置・追跡ID・覚えた名前を配信する。
 覚えた人との照合と外見の特徴は、[ローカルLLM](../../../tools/local-llm/README.md) のQwen3.8が人の切り出し画像を見て答える。
+SAM 3.1は並んだ人を1つのマスクで返すことがあるため、マスクを空の列で分け、Depthから求めた床面上の距離が0.4 m以上なら別の人として扱う。0.4 m未満なら、ドア枠などの細い物に隠された1人として1つに戻す。床面はカメラから `target_frame` へのTFで求める。`target_frame` が空の場合は、カメラが水平と仮定した近似になる。列が重なって写る人は分けられない。
 topic・serviceは [ROSインターフェース](../../../docs/interfaces.md#人の認識)、追跡・名前付けの設定は `config/people.yaml` を参照。
 
 ```bash
@@ -375,11 +377,12 @@ ros2 launch aha_perception people.launch.py ssh_user:=<Unixユーザー名>
 | `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | DGXの接続先。SSH configの別名を使う場合は `ssh_port:=0` |
 | `identity_file` | 空 | SSHの秘密鍵。空なら既定の鍵かssh-agent |
 | `use_sim_time` | `false` | シミュレーションでは `true` |
+| `worker_command` | 空 | DGXへ接続せず、同じプロトコルのworkerをこのコマンドで起動する（例：[fake_person_worker.py](test/fake_person_worker.py)） |
 
 DGXへのSSH接続の準備は [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md#準備)と同じ。
 起動時にDGXでイメージを作ってコンテナを起動し（初回は数分）、Ctrl-Cで削除する。
 Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/macos/pointcloud/README.md)）はMacのssh-agentを使うため、Mac側で `ssh-add -l` に鍵が出ることを確認する。
-シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する（人のモデルは置いていない）。
+シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する。人のモデルは [シミュレーションの客](../aha_tasks/README.md#シミュレーションの客)（`guests:=true`）が置く。
 
 ## テスト
 

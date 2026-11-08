@@ -1,0 +1,102 @@
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e2e5eb;
+  --accent: #2f6fde; --on-accent: #ffffff; --ok: #2fa36b; --bad: #d64545; --warn: #c98a12;
+  --chip: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1b2029; --text: #e6e9ef; --muted: #8d95a5; --line: #2b313d;
+    --accent: #6b9cff; --on-accent: #10131a; --ok: #45c486; --bad: #ff6b6b; --warn: #e8b33a;
+    --chip: #252b36;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+  font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
+h1 { font-size: 16px; font-weight: 650; margin: 0; }
+h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+.spacer { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px; border-radius: 999px;
+  background: var(--chip); font-size: 13px; white-space: nowrap; }
+.dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+.dot.busy { background: var(--warn); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.busy { animation: none; } }
+
+main { flex: 1; min-height: 0; width: 100%; max-width: 760px; margin: 0 auto; padding: 16px;
+  display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--chip);
+  color: var(--text); border-radius: 8px; padding: 8px 14px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--bg); width: 100%;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+input, select { height: 42px; }
+
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 560px) { .fields { grid-template-columns: 1fr; } }
+.field { min-width: 0; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; background: transparent; white-space: nowrap; }
+.seg button.active { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.step { color: var(--muted); font-size: 14px; }
+.error { color: var(--bad); margin: 0 0 12px; }
+
+.live { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.live .now { font-size: 20px; font-weight: 650; min-width: 11em; }
+.meter { flex: 1; min-width: 120px; height: 10px; border-radius: 5px; background: var(--chip);
+  overflow: hidden; }
+.meter span { display: block; height: 100%; width: 0; background: var(--ok); }
+.live.muted .meter span { background: var(--muted); }
+.place { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px;
+  color: var(--muted); font-size: 13px; }
+.place .seg { width: 330px; } .place .seg button { padding: 3px 10px; font-size: 13px; }
+.place button.link { padding: 3px 10px; font-size: 13px; }
+
+#log { flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+  padding: 2px; }
+.empty { color: var(--muted); margin: auto; text-align: center; }
+.msg { max-width: 82%; padding: 9px 13px; border-radius: 12px; overflow-wrap: anywhere; }
+.msg .meta { font-size: 12px; opacity: .75; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.msg.heard { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
+.msg.said { align-self: flex-end; background: var(--accent); color: var(--on-accent); }
+.msg.notice { align-self: center; max-width: 100%; color: var(--muted); font-size: 13px; padding: 2px; }
+
+.composer { display: flex; gap: 10px; align-items: flex-end; }
+.composer textarea { resize: none; height: 42px; }
+.composer button { flex: none; height: 42px; }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.hint.warn { color: var(--warn); }
+details { color: var(--muted); font-size: 13px; margin-top: 10px; }
+details[open] summary { margin-bottom: 6px; }
+summary { cursor: pointer; }
+
+/* Speech page */
+.actions button { flex: none; white-space: nowrap; }
+#speakCard .live { flex-wrap: nowrap; margin-bottom: 12px; }
+#speakCard .now { flex: 1; min-width: 0; font-size: 17px; }
+#speakCard .live button { flex: none; white-space: nowrap; }
+.speech-text { resize: vertical; min-height: 104px; }
+.samples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.samples button { padding: 3px 10px; font-size: 13px; }
+.controls { display: flex; align-items: flex-end; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.controls .field { flex: 1; min-width: 180px; }
+.controls button { height: 42px; }
+#history { flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 10px; padding: 2px; }
+.entry { display: flex; align-items: center; gap: 12px; padding: 10px 13px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; }
+.entry > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.entry .meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.entry.failed .meta { color: var(--bad); }
+.entry button { flex: none; padding: 3px 10px; font-size: 13px; }

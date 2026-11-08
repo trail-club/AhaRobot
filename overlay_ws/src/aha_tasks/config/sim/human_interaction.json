@@ -1,0 +1,30 @@
+{
+  "world": "rcjo2026_arena",
+  "robot_model": "aha_robot",
+  "door": {
+    "model": "arena_door",
+    "closed": [-5.0, 1.5, 1.0, 1.570796],
+    "open": [-5.45, 1.975, 1.0, 0.0]
+  },
+  "walk_speed": 1.0,
+  "follow_gap": 1.2,
+  "pace": {"amplitude": 0.2, "period": 6.0},
+  "guests": {
+    "guest1": {
+      "away": [-7.0, -1.0],
+      "door": [-5.3, 1.5],
+      "threshold": [-5.0, 1.5],
+      "seat_via": [[1.0, 3.05]],
+      "seat": [1.75, 3.05, -1.570796],
+      "colors": {"shirt": [0.75, 0.08, 0.08]}
+    },
+    "guest2": {
+      "away": [-7.0, -2.0],
+      "door": [-5.3, 1.5],
+      "threshold": [-5.0, 1.5],
+      "seat_via": [[0.25, 3.05]],
+      "seat": [0.75, 3.05, -1.570796],
+      "colors": {"shirt": [0.1, 0.45, 0.15], "trousers": [0.05, 0.05, 0.05], "hair": [0.75, 0.6, 0.25]}
+    }
+  }
+}

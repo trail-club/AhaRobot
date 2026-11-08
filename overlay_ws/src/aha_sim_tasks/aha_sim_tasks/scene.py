@@ -100,6 +100,10 @@ def select_object(scene, name):
 
 def load_scene(path=None):
     scene = json.loads((Path(path) if path is not None else scene_path()).read_text())
+    if scene.get("scene_type") == "laundry":
+        from .laundry_scene import load_laundry_scene
+
+        return load_laundry_scene(scene)
     validate_scene(scene)
     if scene.get("resolved"):
         if "vertices" not in scene["object"]:

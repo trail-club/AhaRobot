@@ -6,6 +6,7 @@ skills can address the same person; a remembered name survives lost tracks.
 Speech is not part of these skills.
 """
 
+import itertools
 import math
 import threading
 import time
@@ -18,6 +19,11 @@ REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
 LOOK_AT_TOPIC = "/aha/perception/look_at"
 STALE_AFTER = 2.0  # s (wall clock) without a people message
+CLOCK_STALL_TIMEOUT = 10.0  # s (wall clock) without the wait clock advancing
+MIN_GUEST_SEPARATION = 0.4  # m; closer sightings may be the same person
+LOOK_FRAME = "base_footprint"  # on the floor, so LOOK_HEIGHT is above the floor
+LOOK_DISTANCE, LOOK_HEIGHT = 2.0, 1.2  # m; about level from the head camera
+SCAN_PANS = (0.0, 0.4, -0.4)  # rad, + = the robot's left
 
 
 def planar(point):
@@ -111,12 +117,29 @@ class People:
                 return None
             return self.message
 
+    def now(self):
+        """Simulation seconds when active; otherwise monotonic wall seconds."""
+        clock = self.node.get_clock()
+        if not getattr(clock, "ros_time_is_active", False):
+            return time.monotonic()
+        return clock.now().nanoseconds * 1e-9
+
     def wait_for(self, choose, timeout, cancelled):
         """Poll the latest people until `choose(message)` returns a value."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        last_time = self.now()
+        deadline = last_time + timeout
+        last_progress = time.monotonic()
+        while (now := self.now()) < deadline:
             if cancelled.is_set():
                 return None, "Cancelled"
+            wall_now = time.monotonic()
+            if now > last_time:
+                last_time, last_progress = now, wall_now
+            elif wall_now - last_progress >= CLOCK_STALL_TIMEOUT:
+                return None, (
+                    f"No /clock progress for {CLOCK_STALL_TIMEOUT:.0f} s; "
+                    "is simulation running?"
+                )
             message = self.latest()
             if message is not None:
                 found = choose(message)
@@ -146,6 +169,15 @@ class People:
         target = self.PointStamped()
         target.header.frame_id = frame
         target.point = point
+        self.look_at_pub.publish(target)
+
+    def look_towards(self, pan):
+        """Turn the head `pan` rad from the base's front, about level."""
+        target = self.PointStamped()
+        target.header.frame_id = LOOK_FRAME
+        target.point.x = LOOK_DISTANCE * math.cos(pan)
+        target.point.y = LOOK_DISTANCE * math.sin(pan)
+        target.point.z = LOOK_HEIGHT
         self.look_at_pub.publish(target)
 
 
@@ -267,15 +299,20 @@ class MemorizePerson(Skill):
 
 
 class LocateGuests(Skill):
-    """Wait until every remembered guest is visible and output where each is.
+    """Look around until every remembered guest was seen and output where each is.
 
-    params: {"guests": ["guest1", "guest2"], "timeout": 30.0}. Names come from
+    params: {"guests": ["guest1", "guest2"], "timeout": 60.0, "dwell": 10.0}. The
+    head stays `dwell` s at each of SCAN_PANS, long enough for the VLM to name a
+    track, because the seats need not fit in one image. Names come from
     appearance, so guests who swapped seats are still told apart.
+    Sightings are accumulated only in map, with at least 0.4 m between guests.
+    Output tracks may already be forgotten; later skills should use names or
+    positions to reacquire guests.
     """
 
     @classmethod
     def validate(cls, params, spec):
-        check_keys(params, {"guests"}, {"timeout"})
+        check_keys(params, {"guests"}, {"timeout", "dwell"})
         guests = params["guests"]
         if (
             not isinstance(guests, list)
@@ -284,26 +321,63 @@ class LocateGuests(Skill):
             or len(set(guests)) != len(guests)
         ):
             raise ValueError(f"guests must be distinct nonempty names: {guests!r}")
-        positive(params, "timeout", 30.0)
+        positive(params, "timeout", 60.0)
+        positive(params, "dwell", 10.0)
 
     def execute(self, ctx):
         people = People.of(self.runtime)
         guests = ctx.params["guests"]
+        dwell = positive(ctx.params, "dwell", 10.0)
+        pans = itertools.cycle(SCAN_PANS)
+        next_look = -math.inf
+        seen = {}
 
         def choose(message):
-            named = {p.name: p for p in message.people if p.visible and p.name}
-            if all(g in named for g in guests):
-                return message, named
-            return None
+            nonlocal next_look
+            now = people.now()
+            if now >= next_look:
+                people.look_towards(next(pans))
+                next_look = now + dwell
+            # Camera-frame positions from different head poses are not comparable.
+            if message.header.frame_id != "map" or any(
+                m.header.frame_id != "map" for m, _ in seen.values()
+            ):
+                seen.clear()
+            for person in message.people:
+                if person.visible and person.name in guests:
+                    for name, (_, previous) in list(seen.items()):
+                        if name == person.name:
+                            continue
+                        if message.header.frame_id == "map":
+                            distance = math.dist(
+                                planar(previous.position), planar(person.position)
+                            )
+                        else:
+                            distance = math.dist(
+                                (
+                                    previous.position.x,
+                                    previous.position.y,
+                                    previous.position.z,
+                                ),
+                                (
+                                    person.position.x,
+                                    person.position.y,
+                                    person.position.z,
+                                ),
+                            )
+                        if previous.id == person.id or distance < MIN_GUEST_SEPARATION:
+                            del seen[name]
+                    seen[person.name] = (message, person)
+            return seen if all(g in seen for g in guests) else None
 
         found, reason = people.wait_for(
-            choose, positive(ctx.params, "timeout", 30.0), ctx.cancelled
+            choose, positive(ctx.params, "timeout", 60.0), ctx.cancelled
         )
+        people.look_towards(0.0)
         if found is None:
             return SkillResult(False, f"Not all of {', '.join(guests)} seen: {reason}")
-        message, named = found
         outputs = {}
         for guest in guests:
-            outputs.update(person_outputs(guest, message, named[guest]))
+            outputs.update(person_outputs(guest, *found[guest]))
         where = "; ".join(f"{g} {outputs[f'{g}.position']}" for g in guests)
         return SkillResult(True, where, outputs)

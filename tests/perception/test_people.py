@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -19,6 +21,7 @@ from aha_perception.people import (  # noqa: E402
     Detection,
     Gallery,
     PersonTracker,
+    bbox_of,
     decode_image,
     decode_mask,
     describe_crop,
@@ -26,9 +29,11 @@ from aha_perception.people import (  # noqa: E402
     encode_mask,
     match_prompt,
     measure,
+    measure_people,
     parse_features,
     parse_match,
     rotation_matrix,
+    split_sideways,
 )
 
 
@@ -51,6 +56,23 @@ class MaskTests(unittest.TestCase):
         encoded = encode_mask(np.ones((4, 4), bool))
         with self.assertRaises(ValueError):
             decode_mask(encoded, (3, 3))
+
+    def test_people_side_by_side_in_one_mask_are_split(self):
+        mask = np.zeros((20, 40), bool)
+        mask[2:18, 2:10] = True
+        mask[2:18, 25:35] = True
+        left, right = split_sideways(mask)
+        self.assertEqual(bbox_of(left), [2, 2, 10, 18])
+        self.assertEqual(bbox_of(right), [25, 2, 35, 18])
+
+    def test_a_small_gap_or_a_speck_makes_no_second_person(self):
+        mask = np.zeros((40, 40), bool)
+        mask[:, 5:15] = True
+        mask[:, 18:30] = True  # 3 empty columns: an arm beside the body
+        mask[0, 38] = True
+        parts = split_sideways(mask)
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(bbox_of(parts[0]), [5, 0, 30, 40])
 
     def test_jpeg_round_trip_is_close(self):
         rgb = np.zeros((16, 16, 3), np.uint8)
@@ -82,6 +104,108 @@ class MeasureTests(unittest.TestCase):
         np.testing.assert_allclose(
             rotation_matrix(0, 0, half, half) @ [1, 0, 0], [0, 1, 0], atol=1e-9
         )
+
+
+class MeasurePeopleTests(unittest.TestCase):
+    F, CX, CY = 525.0, 320.0, 240.0
+    WIDTH = 0.45  # m
+
+    def setUp(self):
+        self.mask = np.zeros((480, 640), bool)
+        self.depth = np.full((480, 640), 5.0, np.float32)
+
+    def add_person(self, x, z, top=60, bottom=470):
+        """A person of WIDTH centred x m right of the camera, z m in front of it."""
+        left = int(self.CX + (x - self.WIDTH / 2) * self.F / z)
+        right = int(self.CX + (x + self.WIDTH / 2) * self.F / z)
+        self.mask[top:bottom, left:right] = True
+        self.depth[top:bottom, left:right] = z
+
+    def people(self, **kwargs):
+        return measure_people(
+            self.mask, self.depth, self.F, self.F, self.CX, self.CY, **kwargs
+        )
+
+    def tilted_camera(self, pitch):
+        """Depth of a vertical plane 2 m ahead, viewed by a tilted camera."""
+        c, s = np.cos(pitch), np.sin(pitch)
+        rotation = np.array([[1, 0, 0], [0, -s, c], [0, -c, -s]])
+        rows = np.arange(self.depth.shape[0])[:, None]
+        self.depth[:] = 2.0 / (c - s * (rows - self.CY) / self.F)
+        return rotation
+
+    def test_tilted_camera_merges_occluded_parts_at_different_heights(self):
+        for pitch in (-np.pi / 4, np.pi / 4):
+            with self.subTest(pitch=pitch):
+                self.setUp()
+                rotation = self.tilted_camera(pitch)
+                self.mask[60:200, 280:314] = True
+                self.mask[300:440, 326:360] = True
+                # Optical depth differs by height even for the same person.
+                self.assertEqual(len(self.people()), 2)
+                [(mask, _)] = self.people(rotation=rotation)
+                np.testing.assert_array_equal(mask, self.mask)
+
+    def test_tilted_camera_keeps_different_people_apart(self):
+        rotation = self.tilted_camera(np.pi / 4)
+        self.mask[60:200, 190:245] = True
+        self.mask[300:440, 395:450] = True
+        self.assertEqual(len(self.people(rotation=rotation)), 2)
+
+    def test_person_behind_a_door_frame_stays_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 314:326] = False
+        self.assertEqual(len(split_sideways(self.mask)), 2)
+        [(mask, measured)] = self.people()
+        self.assertEqual(bbox_of(mask), bbox_of(self.mask))
+        self.assertAlmostEqual(measured.centre[0], 0.0, delta=0.05)
+
+    def test_person_behind_two_posts_stays_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 280:290] = False
+        self.mask[:, 340:350] = False
+        self.assertEqual(len(split_sideways(self.mask)), 3)
+        self.assertEqual(len(self.people()), 1)
+
+    def test_different_heights_of_one_person_stay_one(self):
+        self.add_person(0.0, 2.0)
+        self.mask[:, 314:326] = False
+        self.mask[300:, :320] = False  # a table hides the left legs
+        self.mask[:200, 320:] = False  # a shelf hides the right shoulder
+        self.assertEqual(len(self.people()), 1)
+
+    def test_people_side_by_side_stay_apart(self):
+        for gap in (1.0, 0.5):
+            with self.subTest(gap=gap):
+                self.setUp()
+                self.add_person(-gap / 2, 2.0)
+                self.add_person(gap / 2, 2.0)
+                left, right = self.people()
+                self.assertAlmostEqual(
+                    right[1].centre[0] - left[1].centre[0], gap, delta=0.02
+                )
+
+    def test_a_person_farther_away_stays_apart(self):
+        self.add_person(-0.6, 1.5)
+        self.add_person(-0.4, 3.0)  # only 0.2 m to the side
+        self.assertEqual(len(split_sideways(self.mask)), 2)
+        near, far = self.people()
+        self.assertAlmostEqual(far[1].centre[2] - near[1].centre[2], 1.5, delta=0.01)
+
+    def test_each_of_two_occluded_people_stays_one(self):
+        self.add_person(-0.6, 2.0)
+        self.add_person(0.6, 2.0)
+        self.mask[:, 155:165] = False
+        self.mask[:, 475:485] = False
+        self.assertEqual(len(split_sideways(self.mask)), 4)
+        self.assertEqual(len(self.people()), 2)
+
+    def test_part_without_depth_is_dropped(self):
+        self.add_person(-0.5, 2.0)
+        self.add_person(0.5, 2.0)
+        self.depth[:, 320:] = np.nan
+        [(mask, _)] = self.people()
+        self.assertLess(bbox_of(mask)[2], 320)
 
 
 class TrackerTests(unittest.TestCase):
@@ -170,7 +294,8 @@ class DescribeTests(unittest.TestCase):
             parse_features('{"other": []}')
 
     def test_match_prompt_and_reply(self):
-        self.assertIn("photo 2 shows a person now", match_prompt(1))
+        self.assertIn("the last photo, photo 2, shows a person now", match_prompt(1))
+        self.assertIn("The last photo is not a choice", match_prompt(1))
         self.assertIn("one of photos 1 to 3", match_prompt(3))
         with self.assertRaises(ValueError):
             match_prompt(4)
@@ -274,6 +399,53 @@ class DgxWorkerTests(unittest.TestCase):
         command = dgx.DgxWorker(dgx.WorkerOptions(host="dgx-spark", port=0)).ssh("true")
         self.assertNotIn("-p", command)
         self.assertNotIn("-l", command)
+
+    def test_default_spec_runs_the_person_worker(self):
+        options = dgx.WorkerOptions(prompt="human", threshold=0.4)
+        worker = dgx.DgxWorker(options)
+        self.assertTrue(worker.name.startswith("aharobot-people-"))
+        command = worker.spec.command
+        self.assertEqual(command[:2], ("-m", "aha_perception.person_worker"))
+        self.assertEqual(command[command.index("--prompt") + 1], "human")
+        self.assertEqual(command[command.index("--threshold") + 1], "0.4")
+        self.assertIn("host", worker.spec.docker_args)
+
+    def test_remote_command_runs_the_spec_image_with_its_cache(self):
+        options = dgx.WorkerOptions(host="h", port=0)
+        spec = dgx.ContainerSpec(
+            title="test worker",
+            name="test",
+            dockerfile="Dockerfile",
+            image="local/test",
+            sources=lambda root: [],
+            prepare="prepare-step",
+            cache="test-cache",
+            docker_args=("--network", "none"),
+            command=("-m", "some.module"),
+        )
+        worker = dgx.DgxWorker(options, spec=spec, root=Path("/tmp"))
+        scripts = []
+
+        def run(script, **kwargs):
+            scripts.append(script)
+            image = "sha256:" + "a" * 64
+            out = "/tmp/aharobot-test-abc123" if script.startswith("mktemp") else image
+            return subprocess.CompletedProcess(script, 0, stdout=out)
+
+        with patch.object(worker, "run", run):
+            script = worker.remote_command()[-1]
+        self.assertIn("mktemp -d /tmp/aharobot-test-XXXXXXXX", scripts[0])
+        self.assertTrue(
+            any(
+                script.startswith("prepare-step && mkdir -p")
+                and '"$HOME/.cache/test-cache/triton"' in script
+                for script in scripts
+            )
+        )
+        self.assertIn('-v "$HOME/.cache/test-cache:/cache"', script)
+        self.assertIn("--network none", script)
+        self.assertIn("/tmp/aharobot-test-abc123:/app:ro", script)
+        self.assertTrue(script.endswith("-u -m some.module"))
 
     def test_requests_through_a_local_worker(self):
         script = (

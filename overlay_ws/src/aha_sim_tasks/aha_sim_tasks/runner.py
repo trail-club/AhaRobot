@@ -16,7 +16,7 @@ import uuid
 from ament_index_python.packages import get_package_share_directory
 
 from .codex_policy import CLI_TIMEOUT as CODEX_CLI_TIMEOUT
-from .evaluation import Evaluator, TASK_ALIASES, load_tasks
+from .evaluation import TASK_ALIASES, load_tasks, make_evaluator
 from .scene import load_scene, load_catalog, sample_scene, select_object
 from .policy_process import PolicyProcess
 from .processes import policy_partition, stop_group
@@ -121,13 +121,19 @@ def run_episode(args, task):
                 rclpy.spin_once(node, timeout_sec=0.1)
             stepper = None
             if getattr(args, "step_duration", 0):
-                stepper = GazeboStepper()
+                world_name = "task_tables"
+                if getattr(args, "scene_config", None):
+                    world_name = json.loads(Path(args.scene_config).read_text()).get(
+                        "world_name", world_name
+                    )
+                stepper = GazeboStepper(world_name)
                 stepper.pause()
                 # Consume messages already in flight when Gazebo paused.
                 settle_deadline = time.monotonic() + 0.2
                 while time.monotonic() < settle_deadline:
                     rclpy.spin_once(node, timeout_sec=0.01)
-            evaluator = Evaluator(task, node.world.sim_time, trace=trace)
+            evaluator = make_evaluator(task, node.world.sim_time, trace=trace)
+            node.start_episode()
             if recorder is not None:
                 recorder.start(node.world.sim_time)
             if stepper is not None:
@@ -158,10 +164,14 @@ def run_episode(args, task):
                             f"Camera bundle unavailable for {args.camera_timeout:g} wall seconds; "
                             "synchronized images or their timestamped transforms are missing"
                         )
+                    node.start_episode()
                     action = policy.poll()
                     if action is not None:
                         if recorder is not None:
                             recorder.action(action, policy.phase)
+                        if action.end_episode:
+                            result["status"] = evaluator.finish(ended=True)
+                            break
                         node.apply(action)
                         if policy.phase != previous_phase:
                             node.get_logger().info(f"Policy phase: {policy.phase}")
@@ -351,7 +361,19 @@ def main():
     parser.add_argument("--list-tasks", action="store_true")
     parser.add_argument("--episode", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    share = Path(get_package_share_directory("aha_sim_tasks"))
+    laundry = args.task != "all" and tasks[args.task].criterion == "laundry"
+    if laundry and args.scene_config == share / "config/scene.json":
+        args.scene_config = share / "config" / tasks[args.task].parameters["scene"]
     base_scene = load_scene(args.scene_config)
+    if laundry != (base_scene.get("scene_type") == "laundry"):
+        parser.error(
+            "--scene-config must match the task: doing_laundry needs a laundry scene"
+        )
+    if laundry:
+        if args.objects or args.distractors:
+            parser.error("--objects and --distractors do not apply to doing_laundry")
+        args.objects, args.distractors = ["laundry"], 0
     args.objects = args.objects or [base_scene["object"]["id"]]
     if args.seed is None:
         args.seed = base_scene.get("seed", 0)
@@ -368,13 +390,18 @@ def main():
     args.replay_scene = (
         "seed" in base_scene
         and not args.randomize
-        and args.objects == [base_scene["object"]["id"]]
-        and args.distractors == len(base_scene["distractors"])
+        and (
+            laundry
+            or (
+                args.objects == [base_scene["object"]["id"]]
+                and args.distractors == len(base_scene["distractors"])
+            )
+        )
     )
     args.sensor_model = base_scene["sensors"]
     tasks = load_tasks(
-        Path(get_package_share_directory("aha_sim_tasks")) / "config/tasks.json",
-        select_object(deepcopy(base_scene), args.objects[0]),
+        share / "config/tasks.json",
+        base_scene if laundry else select_object(deepcopy(base_scene), args.objects[0]),
     )
     if args.step_duration is None:
         args.step_duration = 2.0 if args.policy == "codex" else 0.0
@@ -458,7 +485,11 @@ def main():
             parser.error("internal episode requires a single task")
         return run_episode(args, tasks[args.task])
     selected = (
-        [name for name in tasks if name not in TASK_ALIASES]
+        [
+            name
+            for name in tasks
+            if name not in TASK_ALIASES and tasks[name].criterion != "laundry"
+        ]
         if args.task == "all"
         else [args.task]
     )
@@ -506,6 +537,12 @@ def main():
             if args.replay_scene:
                 episode_scene = deepcopy(base_scene)
                 episode_scene["seed"] = args.seed + index - 1
+            elif laundry:
+                from .laundry_scene import sample_laundry_scene
+
+                episode_scene = sample_laundry_scene(
+                    base_scene, seed=args.seed + index - 1, randomize=args.randomize
+                )
             else:
                 episode_scene = sample_scene(
                     base_scene,
@@ -539,8 +576,7 @@ def main():
                 "--episode",
                 "--scene-config",
                 str(scene_configuration),
-                "--objects",
-                object_id,
+                *([] if laundry else ["--objects", object_id]),
                 "--seed",
                 str(episode_scene["seed"]),
                 "--task",
@@ -619,6 +655,16 @@ def main():
                 "episodes": len(report["episodes"]),
                 "success_rate": successes / len(report["episodes"]),
             }
+            scores = [
+                episode["metrics"]["score"]
+                for episode in report["episodes"]
+                if "score" in episode.get("metrics", {})
+            ]
+            if laundry:
+                report["summary"].update(
+                    mean_score=sum(scores) / len(scores) if scores else 0.0,
+                    max_score=tasks[name].parameters["max_score"],
+                )
             report["by_object"] = {}
             for obj in args.objects:
                 entries = [
@@ -632,8 +678,10 @@ def main():
                         "success_rate": count / len(entries),
                     }
             write_json(args.output, report)
+            score = result.get("metrics", {}).get("score")
             print(
-                f"{name} {object_id} seed {episode_scene['seed']}: {result['status']}",
+                f"{name} {object_id} seed {episode_scene['seed']}: {result['status']}"
+                + (f" score {score:g}" if score is not None else ""),
                 flush=True,
             )
     print(f"Results: {args.output}")

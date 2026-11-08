@@ -5,8 +5,9 @@
 | [pointcloud/](pointcloud/README.md) | RGB-DをROSへ配信し、RVizで点群変換を確認 |
 | [sam31/](sam31/README.md) | RealSenseで撮影し、DGX SparkのSAM 3.1で対話推論 |
 | [sam31_dinov2/](sam31_dinov2/README.md) | 参照画像とDINOv2で、SAM 3.1の候補から指定の物を見つける |
+| [audio/](audio/README.md) | Macのマイクとスピーカーで、DGX Spark / trailpcの音声認識・発話を試す |
 
-両ツールはPython環境とRealSense SDKを共用する。カメラを同時には使用しない。
+`pointcloud/`・`sam31/`・`sam31_dinov2/` はPython環境とRealSense SDKを共用する。カメラを同時には使用しない。`audio/` は別のPython環境を使う。
 SDKの準備は `bootstrap_realsense.py` が行い、初回起動時に専用venvへビルドする。
 既存バインディングがSDKのdylibを読み込めない場合も再ビルドする。
 

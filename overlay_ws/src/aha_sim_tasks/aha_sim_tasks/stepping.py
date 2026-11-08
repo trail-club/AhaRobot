@@ -5,12 +5,14 @@ import time
 
 class GazeboStepper:
     quantum = 0.1
+    world = "task_tables"
 
-    def __init__(self):
+    def __init__(self, world="task_tables"):
         from gz.transport13 import Node
         from gz.msgs10.boolean_pb2 import Boolean
         from gz.msgs10.world_control_pb2 import WorldControl
 
+        self.world = world
         self.node = Node()
         self.control_type = WorldControl
         self.response_type = Boolean
@@ -18,7 +20,7 @@ class GazeboStepper:
     def control(self, steps=0):
         request = self.control_type(pause=True, multi_step=steps)
         ok, response = self.node.request(
-            "/world/task_tables/control",
+            f"/world/{self.world}/control",
             request,
             self.control_type,
             self.response_type,
@@ -31,7 +33,7 @@ class GazeboStepper:
         self.control()
 
     def advance(self):
-        # task_tables.sdf.xacro uses a 1 ms physics timestep.
+        # Task worlds use a 1 ms physics timestep.
         self.control(100)
 
 
@@ -67,8 +69,11 @@ def run_steps(args, node, policy, simulator, evaluator, stepper, recorder=None):
                 if recorder is not None:
                     recorder.action(action, getattr(policy, "phase", None))
                 break
+        if getattr(action, "end_episode", False):
+            return evaluator.finish(ended=True)
         for _ in range(round(args.step_duration / stepper.quantum)):
             node.apply(action)
+            node.start_episode()
             # Give ROS bridges an opportunity to deliver the command before physics.
             rclpy.spin_once(node, timeout_sec=0.01)
             target = node.world.sim_time + stepper.quantum

@@ -117,11 +117,14 @@ def decode_observation(message):
 def action_message(action):
     if not isinstance(action, Action):
         raise TypeError("policy.act must return aha_sim_tasks.api.Action")
-    return {
+    message = {
         "linear_velocity": action.linear_velocity,
         "angular_velocity": action.angular_velocity,
         "joint_positions": dict(action.joint_positions),
     }
+    if action.end_episode:
+        message["end_episode"] = True
+    return message
 
 
 def decode_action(message):
