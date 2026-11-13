@@ -33,7 +33,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | node | 内容 |
 | --- | --- |
 | `person_perception.py` | 頭部カメラの人の3D位置・追跡ID・覚えた名前を配信し、外見の特徴を答える（[人の認識](#人の認識)） |
-| `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
+| `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。`map` / `odom` の点は台車が動いても向け直し続け、他のnodeが頭を動かすとやめる。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
 | `teleop_head.py` | 端末から頭を動かす。矢印キーで5°ずつ、spaceで正面、qで終了 |
 | `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
@@ -42,7 +42,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 | `sim_object_detector.py` | シミュレーション専用。Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
 
-頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定する（`aha_perception.head_config`）。
+頭の可動範囲・移動速度・プリセットと、`head_look_at.py` の向け直し（`track_frames`・`track_period`・`track_deadband`）は `config/head.yaml` で設定する（`aha_perception.head_config`）。
 符号は +pan = ロボットの右、+tilt = 下。可動範囲は設定値で、実機の頭の可動域は測定していない。
 操作パネルは `/diff_drive_controller/cmd_vel` に10 Hzで送り、離すと0を1回送る。送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`、車輪の上限は約0.42 m/s）。

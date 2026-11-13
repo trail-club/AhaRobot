@@ -7,13 +7,15 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
+| `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
 | `config/<task>.json` | タスク定義 |
 | `config/sim/<task>.json` | シミュレーションの客とドアの配置 |
-| `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUIを起動 |
+| `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUI、`head_look_at.py` を起動 |
 
 ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)を参照。
 
@@ -37,7 +39,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `task` | 必須 | `config/` のタスク名、またはJSONのパス |
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
-| `people` | `false` | 頭部カメラのbridge、[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）、`head_look_at.py` を起動 |
+| `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
 | `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true` のDGXの接続先 |
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
@@ -81,7 +83,7 @@ PYTHONPATH=overlay_ws/src/aha_tasks python3 overlay_ws/src/aha_tasks/scripts/tas
 ## スキルの追加
 
 `aha_tasks.core.Skill` を継承し、タスク定義の `skills` に登録する。
-インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation`・`skills`（名前からインスタンス。未実装は `None`）を使える。
+インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation`・`gaze`（[注視](#注視)）・`skills`（名前からインスタンス。未実装は `None`）を使える。
 
 ```python
 from aha_tasks.core import Skill, SkillResult
@@ -109,7 +111,7 @@ class AskNameAndDrink(Skill):
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を27サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate` と、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）。
+実装済みのスキルは `navigate`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）と、`offer_seat`。
 
 客席・ホスト・荷物置き場は固定の代替地点。ロボットは内側の `entrance` まで移動する。
 `guests:=true` でなければ入口のドアは閉じたままで、人のモデルは配置しない。ホスト・荷物のモデルは配置しない。
@@ -129,6 +131,8 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
 | `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
+
+`find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。
 
 待つ時間は `timeout`（`find_person` は30 s、`locate_guests` は60 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s）で変更できる。`timeout` と `dwell` は模擬時間が有効ならノードの時計、それ以外はシステム時刻の補正に影響されない単調時計で数える。
 模擬時間が実時間で10 s進まなければ、`/clock` の停止を理由に失敗する。
@@ -163,7 +167,39 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 - 客は静止した立ち姿のモデル（`person_standing`）を動かすもので、脚は動かず、座らない。シャツなどの色で2人を区別し、その他の外見は同じ。
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
-- 待っている他の客・ホスト・荷物、会話中に頭で客を追う動作は含まない。
+- 待っている他の客・ホスト・荷物は含まない。
+
+### 注視
+
+runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を `/aha/perception/look_at` へ送る。
+`task.launch.py` の `head_look_at.py` が頭を向け、`map` の点は台車が動いても向け直し続ける。
+追う動作は次の指示まで続き、サブゴールをまたぐ。
+
+| 指示 | 向き先 | 使うスキル |
+| --- | --- | --- |
+| `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後 |
+| `follow_path(goal)` | Nav2の経路 `/plan` に沿って1.5 m先、高さ1.2 m。経路の終わりの先は経路の始点から終点への向き（進行方向）へ延ばし、始点と終点が0.3 m未満（その場で目標の向きへ回る）なら目標の向きへ延ばすため、到着時は正面を見る。新しい経路が届くまでは目標地点 | `navigate` と `robot.location` の復元（到着後は `hold`） |
+| `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`offer_seat` |
+| `hold()` | 最後の向き先を保つ | — |
+
+`find_person` で向けた客を、未実装の `ask_name_and_drink` の間も見続ける（ルールの「会話中に動く客を追う」）。
+`navigate` の間は進行方向を見る（「進行方向または目的地を見る」）。
+
+### 席の案内
+
+`offer_seat` は `position`（`map` の席の点 `[x, y, z]`）を頭で見て、右腕で指し示す。
+
+```json
+{"guest": "guest1", "seat": "chair_left", "position": [1.75, 3.5, 0.5], "height": 0.8, "hold": 3.0}
+```
+
+1. 席が右腕で指せる方向（肩から見て右100°〜左60°）になければ、Nav2でその場で席へ向く。
+2. `lift_controller` があれば手首を床から `height` m（既定0.8 m）へ上げ、腕を席へ伸ばす。手先のx軸が席の点を通る関節値を [aha_manipulation.pointing](../aha_manipulation/aha_manipulation/pointing.py) が求める。
+3. 腕が着いたら現在のTFで関節値を求め直し、移動直後に台車がずれていれば向け直す。`hold` 秒（既定3 s、模擬時間）保ち、腕と昇降を開始時の姿勢へ戻す。頭は客（`<guest>.track`、名前）を追う。
+
+出力は `<guest>.seat`（席の名前）。`robot.holding` があるとき（`guest2` は荷物を持つ）は腕を動かさず、頭だけで席を示す。
+腕は `right_arm_controller` / `lift_controller` へ関節空間の直線の軌道を送り、衝突は確認しない。開始時の姿勢から指す姿勢までの間に障害物がないことが前提で、シミュレーションの初期姿勢（全関節0）からの動作だけを確認している。
+空席の判定は含まず、席は固定の代替地点。
 
 ## Pick and Place Challenge
 

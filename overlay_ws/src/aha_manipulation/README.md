@@ -44,6 +44,9 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
   軌道の始点と実際の位置の差（最大 `limit_tolerance`）は、軌道のcontrollerが実行の始めに詰める。
 - SRDFの登録姿勢は `ready`（腕を伸ばす）、`standby`（腕を畳み、手先を前へ水平、昇降0.2 m）、
   `carry`（同じく畳んだまま昇降0.5 m）。
+- [pointing.py](aha_manipulation/pointing.py) は、手先（`link_ree`）のx軸が `base_footprint` の点を通る右腕の関節値をMoveItなしで解析的に求める（`aha_tasks` の `offer_seat` が使う）。
+  `joint_r2`〜`joint_r4` は鉛直軸の回りに回るため、腕を目標の方位へ伸ばし、手首のyaw（`joint_r4`）とpitch（`joint_r5`）で狙う。
+  指せる方位は肩から右100°〜左60°。寸法は [test_pointing.py](test/test_pointing.py) がURDFの順運動学と照合する。
 - SRDFは上流Astraの衝突除外とAhaのベース・頭部の隣接リンクを記述する。
   外部物体の衝突形状は利用側がplanning sceneに追加する。標準worldの机等は自動登録しない。
 

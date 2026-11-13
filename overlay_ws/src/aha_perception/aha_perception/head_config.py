@@ -95,6 +95,17 @@ def declare_head_config(node):
     )
 
 
+def look_angles(dx, dy, dz):
+    """(pan, tilt) towards an offset from the head pivot in base_link, or None.
+
+    +pan turns right (negative yaw), +tilt looks down. None when the offset is
+    shorter than 1 mm (the target is at the pivot).
+    """
+    if math.hypot(dx, dy, dz) < 1e-3:
+        return None
+    return -math.atan2(dy, dx), math.atan2(-dz, math.hypot(dx, dy))
+
+
 def head_position(joint_state):
     """(pan, tilt) from a sensor_msgs/JointState, or None if absent."""
     try:
