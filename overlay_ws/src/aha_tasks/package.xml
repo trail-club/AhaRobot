@@ -20,6 +20,8 @@
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
+  <!-- robot screen (aha_tasks.display): image topic -->
+  <exec_depend>sensor_msgs</exec_depend>
   <!-- task.launch.py people:=true -->
   <exec_depend>aha_perception</exec_depend>
   <!-- task.launch.py guests:=true -->

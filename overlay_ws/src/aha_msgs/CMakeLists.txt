@@ -27,6 +27,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/RememberPerson.srv
   srv/SetNavGoal.srv
   srv/TaskCommand.srv
+  action/Ask.action
   action/PickObject.action
   action/Listen.action
   action/Speak.action

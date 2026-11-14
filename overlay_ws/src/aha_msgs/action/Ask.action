@@ -1,0 +1,12 @@
+# Show a question with touch buttons on the robot's screen and wait for a touch.
+# Owner: aha_tasks (task_monitor). A new goal replaces (aborts) the one on screen.
+
+string   prompt    # text above the buttons; may be empty
+string[] choices   # button labels in order, 1 to 6, each nonempty
+float32  timeout   # seconds (wall clock) to wait; <= 0 waits until cancelled
+---
+bool     success   # a button was touched
+int32    index     # touched button, -1 without a touch
+string   choice    # its label, "" without a touch
+string   message   # why there was no touch
+---
