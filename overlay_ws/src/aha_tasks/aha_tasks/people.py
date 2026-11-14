@@ -3,7 +3,9 @@
 Tracks come from /aha/perception/people. A skill outputs `<role>.track` (the
 track ID) and `<role>.position` ([x, y, z] in the people frame) so that later
 skills can address the same person; a remembered name survives lost tracks.
-Speech is not part of these skills.
+The head goes through the runner's aha_tasks.gaze.Gaze: find_person and
+memorize_person leave it following the person, also through the subgoals that
+come next (the conversation). Speech is not part of these skills.
 """
 
 import itertools
@@ -17,12 +19,9 @@ from aha_tasks.skills import LOCATION, resolve_pose
 PEOPLE_TOPIC = "/aha/perception/people"
 REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
-LOOK_AT_TOPIC = "/aha/perception/look_at"
 STALE_AFTER = 2.0  # s (wall clock) without a people message
 CLOCK_STALL_TIMEOUT = 10.0  # s (wall clock) without the wait clock advancing
 MIN_GUEST_SEPARATION = 0.4  # m; closer sightings may be the same person
-LOOK_FRAME = "base_footprint"  # on the floor, so LOOK_HEIGHT is above the floor
-LOOK_DISTANCE, LOOK_HEIGHT = 2.0, 1.2  # m; about level from the head camera
 SCAN_PANS = (0.0, 0.4, -0.4)  # rad, + = the robot's left
 
 
@@ -85,26 +84,24 @@ def check_name(params, key):
 class People:
     """ROS access to person_perception, shared by the skills of one runner."""
 
-    def __init__(self, node):
+    def __init__(self, node, gaze):
         from aha_msgs.msg import PersonArray
         from aha_msgs.srv import DescribePerson, RememberPerson
-        from geometry_msgs.msg import PointStamped
 
         self.node = node
+        self.gaze = gaze
         self.lock = threading.Lock()
         self.message = None
         self.received = -math.inf
         node.create_subscription(PersonArray, PEOPLE_TOPIC, self._on_people, 10)
         self.remember = node.create_client(RememberPerson, REMEMBER_SERVICE)
         self.describe = node.create_client(DescribePerson, DESCRIBE_SERVICE)
-        self.look_at_pub = node.create_publisher(PointStamped, LOOK_AT_TOPIC, 10)
-        self.PointStamped = PointStamped
         self.RememberPerson, self.DescribePerson = RememberPerson, DescribePerson
 
     @classmethod
     def of(cls, runtime):
         if getattr(runtime, "people", None) is None:
-            runtime.people = cls(runtime.node)
+            runtime.people = cls(runtime.node, runtime.gaze)
         return runtime.people
 
     def _on_people(self, message):
@@ -165,20 +162,13 @@ class People:
             time.sleep(0.05)
         return future.result()
 
-    def look_at(self, frame, point):
-        target = self.PointStamped()
-        target.header.frame_id = frame
-        target.point = point
-        self.look_at_pub.publish(target)
-
     def look_towards(self, pan):
         """Turn the head `pan` rad from the base's front, about level."""
-        target = self.PointStamped()
-        target.header.frame_id = LOOK_FRAME
-        target.point.x = LOOK_DISTANCE * math.cos(pan)
-        target.point.y = LOOK_DISTANCE * math.sin(pan)
-        target.point.z = LOOK_HEIGHT
-        self.look_at_pub.publish(target)
+        self.gaze.look_towards(pan)
+
+    def follow(self, track=None, name=""):
+        """Keep the head on a person by track, else by name (see Gaze)."""
+        self.gaze.follow_person(self, track=track, name=name)
 
 
 def person_outputs(role, message, person):
@@ -221,7 +211,7 @@ class FindPerson(Skill):
             return SkillResult(False, f"No person: {reason}")
         message, person = found
         frame = message.header.frame_id
-        people.look_at(frame, person.head)
+        people.follow(track=person.id)
         outputs = person_outputs(role, message, person)
         ctx.log(f"Person {person.id} at {outputs[f'{role}.position']} in {frame}")
         navigation = self.runtime.navigation
@@ -233,7 +223,6 @@ class FindPerson(Skill):
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
             return SkillResult(False, f"Could not approach person {person.id}: {text}")
-        people.look_at(frame, person.head)
         outputs[LOCATION] = [round(v, 3) for v in pose]
         return SkillResult(True, f"Facing person {person.id}", outputs)
 
@@ -273,6 +262,7 @@ class MemorizePerson(Skill):
         if found is None:
             return SkillResult(False, f"No person to memorize: {reason}")
         message, person = found
+        people.follow(track=person.id, name=guest)
         reply = people.call(
             people.remember,
             people.RememberPerson.Request(id=person.id, name=guest),

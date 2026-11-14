@@ -165,6 +165,11 @@ topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化�
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 
+runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
+`/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
+`offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
+`/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
+
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 
 ## 頭部カメラ
@@ -223,15 +228,17 @@ TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
 
 ## 頭部の注視
 
-`sim_view.launch.py`（`use_perception:=true` と `real_head_camera.launch.py` の既定 `rviz:=true` で起動）の
-`head_look_at.py` が扱う。
+`sim_view.launch.py`（`use_perception:=true` と `real_head_camera.launch.py` の既定 `rviz:=true` で起動）と
+`aha_tasks` の `task.launch.py` の `head_look_at.py` が扱う。
 
 | 用途 | Topic | 型 |
 | --- | --- | --- |
 | 注視点の指令（任意のframe） | `/aha/perception/look_at` | `geometry_msgs/msg/PointStamped` |
 | 注視点と視線の表示 | `/aha/perception/look_at/markers` | `visualization_msgs/msg/MarkerArray` |
 
-`head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送る。
+`head_look_at.py` は `/head_controller/joint_trajectory` へ軌道を送り、同じtopicを購読する。
+注視点はそのframeで静止しているとみなす。`map` / `odom`（`head.track_frames`）の点は台車が動いても向け直し続ける。
+他のnodeの軌道（操作パネル、teleop）を受けると向け直しをやめる。
 RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremapしている。
 
 ## 平面検出

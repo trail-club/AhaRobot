@@ -85,6 +85,7 @@ def main(argv=None):
     from rclpy.signals import SignalHandlerOptions
     from std_msgs.msg import String
 
+    from aha_tasks.gaze import Gaze
     from aha_tasks.navigation import Navigation
 
     # Keep ROS alive during KeyboardInterrupt so the active goal can be cancelled.
@@ -101,7 +102,10 @@ def main(argv=None):
         ),
     )
 
+    gaze = Gaze(node)
+
     def publish(status):
+        gaze.task_state(status["state"])
         status_publisher.publish(
             String(data=json.dumps(status, ensure_ascii=False, default=str))
         )
@@ -111,7 +115,7 @@ def main(argv=None):
         if spec.locations
         else None
     )
-    runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation)
+    runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation, gaze=gaze)
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
     runtime.skills = skills
     restorers = {}

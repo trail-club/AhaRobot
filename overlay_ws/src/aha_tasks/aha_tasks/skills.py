@@ -29,10 +29,21 @@ def check_locations(spec):
 
 
 def go_to(runtime, value, cancelled):
-    """Restorer for LOCATION and the body of the navigate skill."""
-    ok, message = runtime.navigation.navigate(
-        resolve_pose(runtime.spec, value), cancelled
-    )
+    """Restorer for LOCATION and the body of the navigate skill.
+
+    With the runner's gaze, the head looks ahead along the path meanwhile
+    (rulebook 5.1: look in the direction of navigation) and keeps the last
+    target, ahead in the goal heading, on arrival.
+    """
+    pose = resolve_pose(runtime.spec, value)
+    gaze = getattr(runtime, "gaze", None)
+    if gaze is not None:
+        gaze.follow_path(pose)
+    try:
+        ok, message = runtime.navigation.navigate(pose, cancelled)
+    finally:
+        if gaze is not None:
+            gaze.hold()
     return SkillResult(ok, message or f"Arrived at {value}")
 
 
