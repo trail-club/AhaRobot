@@ -41,12 +41,13 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 | `sim_object_detector.py` | シミュレーション専用。Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
+| `sim_person_detector.py` | シミュレーション専用。`person_perception.py` の代わりに、Gazeboの真の位置から頭部カメラに見える人を出す（[シミュレーションの人の検出](#シミュレーションの人の検出)） |
 
 頭の可動範囲・移動速度・プリセットは `config/head.yaml` で設定する（`aha_perception.head_config`）。
 符号は +pan = ロボットの右、+tilt = 下。可動範囲は設定値で、実機の頭の可動域は測定していない。
 操作パネルは `/diff_drive_controller/cmd_vel` に10 Hzで送り、離すと0を1回送る。送信が止まると `cmd_vel_timeout`（0.5 s）で台車が止まる。
 最大速度は0.4 m/s / 1.5 rad/s（パラメータ `max_linear` / `max_angular`、車輪の上限は約0.42 m/s）。
-`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py`・`sim_depth_noise.py`・`sim_object_detector.py` はwall clockで動く。
+`head_look_at.py`・`sim_control_panel.py`・`plane_detection_node.py`・`sim_depth_noise.py`・`sim_object_detector.py`・`sim_person_detector.py` はwall clockで動く。
 `head_look_at.py`・`plane_detection_node.py` はシミュレーションの再起動・リセットを検知するとTFバッファを消す。
 
 `arm_controls:=true`（[aha_manipulationの操作画面](../aha_manipulation/README.md#rviz操作画面)が指定）では右手・左手の欄を追加する。
@@ -344,6 +345,8 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
 - [`aha_perception.object_list`](aha_perception/object_list.py)：物体リスト（ラベル・カテゴリ・大きさ・Gazeboのモデル名）の読み込み。PyYAMLも使う。
 - [`aha_perception.sim_object_detection`](aha_perception/sim_object_detection.py)：`sim_object_detector.py` の見えているかの判定と見落とし・ラベルの誤り。
+- [`aha_perception.sim_person_detection`](aha_perception/sim_person_detection.py)：`sim_person_detector.py` の人の見えているかの判定と追跡・名前。
+- [`aha_perception.gazebo_poses`](aha_perception/gazebo_poses.py)：gz-transportから読むGazeboのモデルの姿勢（`sim_object_detector.py`・`sim_person_detector.py`）。
 
 ### 制限
 
@@ -378,11 +381,23 @@ ros2 launch aha_perception people.launch.py ssh_user:=<Unixユーザー名>
 | `identity_file` | 空 | SSHの秘密鍵。空なら既定の鍵かssh-agent |
 | `use_sim_time` | `false` | シミュレーションでは `true` |
 | `worker_command` | 空 | DGXへ接続せず、同じプロトコルのworkerをこのコマンドで起動する（例：[fake_person_worker.py](test/fake_person_worker.py)） |
+| `respawn` | `false` | 終了したnodeを2 s後に再起動する（aha_tasksの `e2e:=debug`） |
 
 DGXへのSSH接続の準備は [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md#準備)と同じ。
 起動時にDGXでイメージを作ってコンテナを起動し（初回は数分）、Ctrl-Cで削除する。
 Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/macos/pointcloud/README.md)）はMacのssh-agentを使うため、Mac側で `ssh-add -l` に鍵が出ることを確認する。
 シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する。人のモデルは [シミュレーションの客](../aha_tasks/README.md#シミュレーションの客)（`guests:=true`）が置く。
+
+### シミュレーションの人の検出
+
+[aha_tasks](../aha_tasks/README.md#e2eの確認) の `e2e:=debug people:=true` は、`person_perception.py` の代わりに `sim_person_detector.py` を起動する。DGXを使わない。
+名前が `models`（fnmatchのパターン、launchは `config/sim/<task>.json` の客の名前を渡す）に合うGazeboのモデルを人とし、
+モデルの原点から立てた高さ `height` の体の軸のどこかが画像に入り、そこのDepthがその点より `body_radius` + `depth_tolerance` 以上手前でなければ見えているとする。
+位置は `sim_object_detector.py` と同じくロボットのモデルからの相対を、Depthの時刻のTFで `target_frame`（既定 `map`）に直す。`position` は高さの0.55倍、`head` は0.92倍の点。
+topic・serviceは `person_perception.py` と同じ（markersを除く）。追跡は `forget_after`（3 s）見えないと新しい `id` にし、`remember_person` の名前はそのモデルの次の `id` にすぐ付く。
+`describe_person` はVLMの代わりにモデル名を返す。床下（z < −1 m）のモデルは見えないとする。
+
+SAM 3.1の見落とし・人の結合、マスクとDepthから求める位置、VLMの特徴と照合は再現しない。座った人・寝た人も立った人の軸で判定する。
 
 ## テスト
 
@@ -392,7 +407,8 @@ Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/
 cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
-  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py
+  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py \
+  test/test_sim_person_detection.py
 ```
 
 `test/test_plane_detection_node.py`（ノードのメッセージ変換）と `test/test_plane_detection_service.py`（置き場所のserviceの分岐）はrclpyとROSのメッセージが必要で、colconでだけ実行する。

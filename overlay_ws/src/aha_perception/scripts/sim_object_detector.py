@@ -23,8 +23,6 @@ model name). The parameters can be changed at run time. Runs at most at rate
 """
 
 import sys
-import threading
-import time
 from pathlib import Path
 
 import numpy as np
@@ -38,12 +36,9 @@ from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from aha_perception.gazebo_poses import GazeboPoses, tf_matrix
 from aha_perception.object_list import load_object_list
-from aha_perception.plane_detection_io import (
-    depth_from_buffer,
-    quaternion_from_matrix,
-    transform_to_matrix,
-)
+from aha_perception.plane_detection_io import depth_from_buffer, quaternion_from_matrix
 from aha_perception.sim_object_detection import corruption, object_visible
 
 NODE_NAME = "aha_perception_sim_object_detector"
@@ -51,61 +46,6 @@ WARN_PERIOD_S = 5.0
 WORLD_TIMEOUT_S = 60.0
 POSE_MAX_AGE_S = 2.0  # wall clock
 DEFAULT_CONFIG = "config/objects/robocup_objects.yaml"
-
-
-def tf_matrix(tf) -> np.ndarray:
-    t, q = tf.transform.translation, tf.transform.rotation
-    return transform_to_matrix((t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
-
-
-class GazeboPoses:
-    """Latest top-level model poses of a world from gz-transport.
-
-    The subscription is throttled to ``rate`` messages per second and a
-    message is only parsed when asked for (pose/info is large and frequent)."""
-
-    def __init__(self, world: str, timeout: float, rate: float):
-        from gz.msgs10.pose_v_pb2 import Pose_V
-        from gz.transport13 import Node as GzNode
-        from gz.transport13 import SubscribeOptions
-
-        self.node = GzNode()
-        self.world = world or self._find_world(timeout)
-        self.lock = threading.Lock()
-        self.msg = None
-        self.stamp = 0.0
-        options = SubscribeOptions()
-        options.msgs_per_sec = max(int(rate), 1)
-        topic = f"/world/{self.world}/pose/info"
-        if not self.node.subscribe(Pose_V, topic, self._on_poses, options):
-            raise RuntimeError(f"cannot subscribe to {topic}")
-
-    def _find_world(self, timeout):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for topic in self.node.topic_list():
-                parts = topic.split("/")
-                if len(parts) == 4 and parts[1] == "world" and parts[3] == "clock":
-                    return parts[2]
-            time.sleep(0.5)
-        raise RuntimeError("no Gazebo world found (check GZ_PARTITION)")
-
-    def _on_poses(self, msg):
-        with self.lock:
-            self.msg = msg
-            self.stamp = time.monotonic()
-
-    def latest(self) -> tuple[dict, float]:
-        """(world pose 4x4 by name, age in s of the message)."""
-        with self.lock:
-            msg, stamp = self.msg, self.stamp
-        poses = {}
-        for pose in msg.pose if msg is not None else ():
-            p, q = pose.position, pose.orientation
-            poses[pose.name] = transform_to_matrix(
-                (p.x, p.y, p.z), (q.x, q.y, q.z, q.w)
-            )
-        return poses, time.monotonic() - stamp
 
 
 class SimObjectDetector(Node):

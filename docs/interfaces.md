@@ -149,6 +149,8 @@ LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）に�
 map_serverが `/map`、AMCLが `map → odom` を配信する。SLAMと同時に起動しない。
 Nav2は `/diff_drive_controller/odom` を読み、`/diff_drive_controller/cmd_vel`（TwistStamped）へ送信するため、
 teleopなどから同時に速度指令を送らない。ゴールは `/navigate_to_pose`（`nav2_msgs/action/NavigateToPose`、frame `map`）。
+aha_tasksの `e2e:=debug` では `navigation:=false` でmap_serverとAMCLだけを起動し、`sim_teleport` が同じ `/navigate_to_pose` と `/bt_navigator/get_state` を提供する。
+`sim_teleport` はgz-transportの `/world/rcjo2026_arena/set_pose` でロボットを移し、AMCLへ `/initialpose`（`geometry_msgs/msg/PoseWithCovarianceStamped`）を送る。
 
 ## サブゴールタスクの実行
 
@@ -325,6 +327,8 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
 `id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+
+aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の位置から同じtopic・serviceを提供する（markersは配信しない。[シミュレーションの人の検出](../overlay_ws/src/aha_perception/README.md#シミュレーションの人の検出)）。
 
 ## 音声
 

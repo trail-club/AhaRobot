@@ -16,6 +16,7 @@ SLAMと同時に起動しない。設定は [nav2.yaml](config/nav2.yaml)（0.20
 | --- | --- | --- |
 | `map` | [rcjo2026.yaml](maps/rcjo2026.yaml) | 地図のパス。地点・初期姿勢も同じ座標系に合わせる |
 | `initial_pose` | nav2.yamlの値 | AMCLの初期姿勢 `x,y,yaw` |
+| `navigation` | `true` | `false` はmap_serverとAMCLだけを起動する（planner・controller・BTなし）。aha_tasksの `e2e:=debug` が `sim_teleport` と使う |
 
 ソフトウェア描画のGazeboでも動くよう、BTのserver応答待ちは1000 ms、AMCLのTF有効期間とcontrollerの失敗許容時間は2秒。
 

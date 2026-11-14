@@ -18,11 +18,13 @@
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <!-- task.launch.py people:=true -->
   <exec_depend>aha_perception</exec_depend>
-  <!-- task.launch.py guests:=true -->
+  <!-- task.launch.py guests:=true, e2e:=debug (sim_teleport) -->
   <exec_depend>gz_msgs_vendor</exec_depend>
   <exec_depend>gz_transport_vendor</exec_depend>
   <exec_depend>tmc_wrs_gz_worlds</exec_depend>
