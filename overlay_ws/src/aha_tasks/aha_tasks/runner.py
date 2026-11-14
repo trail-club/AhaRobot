@@ -102,7 +102,10 @@ def main(argv=None):
         ),
     )
 
+    gaze = Gaze(node)
+
     def publish(status):
+        gaze.task_state(status["state"])
         status_publisher.publish(
             String(data=json.dumps(status, ensure_ascii=False, default=str))
         )
@@ -112,9 +115,7 @@ def main(argv=None):
         if spec.locations
         else None
     )
-    runtime = SimpleNamespace(
-        node=node, spec=spec, navigation=navigation, gaze=Gaze(node)
-    )
+    runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation, gaze=gaze)
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
     runtime.skills = skills
     restorers = {}

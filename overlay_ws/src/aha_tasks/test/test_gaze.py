@@ -169,6 +169,17 @@ class GazeTests(unittest.TestCase):
             [("map", 4.0, 0.0, LOOK_HEIGHT), ("map", LOOKAHEAD, 0.0, LOOK_HEIGHT)],
         )
 
+    def test_following_ends_when_the_task_stops_running(self):
+        for state in ("paused", "aborted", "completed", "failed"):
+            people = FakePeople(people_message(person(5, 1.0, 0.0)))
+            self.gaze.follow_person(people, track=5)
+            self.gaze.task_state("running")
+            sent = len(self.node.sent)
+            self.gaze.task_state(state)
+            people.message = people_message(person(5, 2.0, 0.0))
+            self.gaze._tick()
+            self.assertEqual(len(self.node.sent), sent, state)
+
     def test_a_point_or_hold_ends_following(self):
         people = FakePeople(people_message(person(5, 1.0, 0.0)))
         self.gaze.follow_person(people, track=5)

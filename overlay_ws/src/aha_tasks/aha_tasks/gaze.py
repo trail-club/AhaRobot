@@ -141,6 +141,16 @@ class Gaze:
         with self.lock:
             self.mode = None
 
+    def task_state(self, state):
+        """Stop following unless the task runs (TaskEngine.state).
+
+        Paused, aborted or finished, the head is the operator's: a target sent
+        now would turn it back from the panel or teleop. After a resume the head
+        keeps the last target until a skill sets a new one.
+        """
+        if state != "running":
+            self.hold()
+
     # -- updates -----------------------------------------------------------
 
     def _on_plan(self, message):

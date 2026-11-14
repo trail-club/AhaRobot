@@ -174,13 +174,14 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を `/aha/perception/look_at` へ送る。
 `task.launch.py` の `head_look_at.py` が頭を向け、`map` の点は台車が動いても向け直し続ける。
 追う動作は次の指示まで続き、サブゴールをまたぐ。
+タスクが一時停止・中断・終了すると追う動作をやめ、操作パネルやteleopで頭を動かせるようにする。再開後は、スキルが次に指示するまで最後の向き先を保つ。
 
 | 指示 | 向き先 | 使うスキル |
 | --- | --- | --- |
 | `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後 |
 | `follow_path(goal)` | Nav2の経路 `/plan` に沿って1.5 m先、高さ1.2 m。経路の終わりの先は経路の始点から終点への向き（進行方向）へ延ばし、始点と終点が0.3 m未満（その場で目標の向きへ回る）なら目標の向きへ延ばすため、到着時は正面を見る。新しい経路が届くまでは目標地点 | `navigate` と `robot.location` の復元（到着後は `hold`） |
 | `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`offer_seat` |
-| `hold()` | 最後の向き先を保つ | — |
+| `hold()` | 最後の向き先を保つ | `navigate` の到着後、タスクの停止時（runner） |
 
 `find_person` で向けた客を、未実装の `ask_name_and_drink` の間も見続ける（ルールの「会話中に動く客を追う」）。
 `navigate` の間は進行方向を見る（「進行方向または目的地を見る」）。
