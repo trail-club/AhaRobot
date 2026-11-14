@@ -32,6 +32,12 @@ def generate_launch_description():
                 for name, (value, _, text) in ARGUMENTS.items()
             ),
             DeclareLaunchArgument(
+                "respawn",
+                default_value="false",
+                choices=["true", "false"],
+                description="Restart the node when it exits (debug runs)",
+            ),
+            DeclareLaunchArgument(
                 "params_file",
                 default_value=PathJoinSubstitution(
                     [FindPackageShare("aha_perception"), "config", "people.yaml"]
@@ -49,6 +55,8 @@ def generate_launch_description():
                     },
                 ],
                 output="screen",
+                respawn=LaunchConfiguration("respawn"),
+                respawn_delay=2.0,
                 # Leave time to remove the DGX container after Ctrl-C.
                 sigterm_timeout="20",
             ),

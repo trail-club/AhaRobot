@@ -39,6 +39,7 @@ install(
     scripts/sim_control_panel.py
     scripts/sim_depth_noise.py
     scripts/sim_object_detector.py
+    scripts/sim_person_detector.py
     scripts/teleop_head.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -59,6 +60,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_imu_tilt test/test_imu_tilt.py TIMEOUT 60)
   ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
   ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)
+  ament_add_pytest_test(test_sim_person_detection test/test_sim_person_detection.py TIMEOUT 60)
   ament_add_pytest_test(test_person_perception test/test_person_perception.py TIMEOUT 120)
   ament_add_pytest_test(test_audio_node test/test_audio_node.py TIMEOUT 60)
 endif()
