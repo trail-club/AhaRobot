@@ -30,7 +30,8 @@ M5のボルトは25 mm（長いと押さえに当たる）。受けと押さえ�
 
 ## URDF
 
-[display.xacro](../../urdf/display.xacro) が `base_link` に固定した `display_link`（ケース前面の中央、x が画面の外向き、z が上）を加える。
+xacro引数 `display:=true` のとき、[display.xacro](../../urdf/display.xacro) が `base_link` に固定した `display_link`（ケース前面の中央、x が画面の外向き、z が上）を加える。
+既定は `sim` と同じで、実機に取り付けるまで実機のモデルには入れない（取り付けたら既定を `true` にする）。
 ケースは箱、印刷部品はビルド時に [display_mount_mesh.py](../../scripts/display_mount_mesh.py) がこのディレクトリのSTLから作る1つのメッシュで表し、見た目と衝突判定に使う。
 質量は実測がないため入れていない。
 

@@ -10,7 +10,8 @@
       the same joints via controller_manager.
     - Adds <gazebo> plugin block for gz_ros2_control (Gazebo Harmonic).
     - Adds head camera frames and optional simulated head/wrist cameras.
-    - Adds the touch screen and its mount below the head (display.xacro).
+    - Adds the touch screen and its mount below the head when display:=true
+      (display.xacro).
     - Adds a sim-only 2D LiDAR when lidar:=true (see lidar.xacro).
 
   Xacro args:
@@ -18,6 +19,8 @@
                                    and Gazebo sensors
     cameras        (true|false)  — head RGB-D and wrist RGB cameras (default: same as sim)
     lidar          (true|false)  — add the sim-only 2D LiDAR (default: same as sim)
+    display        (true|false)  — touch screen and its mount (default: same as
+                                   sim, until the mount is on the robot)
     use_sim_time   (true|false)  — inform robot_state_publisher
 -->
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -27,6 +30,7 @@
   <xacro:arg name="camera_rgb_noise_stddev" default="0.003"/>
   <xacro:arg name="initial_lift" default="0.0"/>
   <xacro:arg name="lidar" default="$(arg sim)"/>
+  <xacro:arg name="display" default="$(arg sim)"/>
   <xacro:arg name="controllers_yaml" default="$(find aha_description)/config/controllers.yaml"/>
 
   <!-- 1. Upstream links & joints (arms, lift, head, base_link mesh).
@@ -58,8 +62,10 @@
   <xacro:aha_sensors sim="$(arg sim)" cameras="$(arg cameras)"/>
 
   <!-- 6. Touch screen below the head -->
-  <xacro:include filename="$(find aha_description)/urdf/display.xacro"/>
-  <xacro:aha_display parent="base_link"/>
+  <xacro:if value="$(arg display)">
+    <xacro:include filename="$(find aha_description)/urdf/display.xacro"/>
+    <xacro:aha_display parent="base_link"/>
+  </xacro:if>
 
   <!-- 7. Sim-only 2D LiDAR (used by aha_navigation SLAM) -->
   <xacro:if value="$(arg lidar)">

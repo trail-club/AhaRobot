@@ -45,7 +45,7 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
 - SRDFの登録姿勢は `ready`（腕を伸ばす）、`standby`（腕を畳み、手先を前へ水平、昇降0.2 m）、
   `carry`（同じく畳んだまま昇降0.5 m）。
 - SRDFは上流Astraの衝突除外とAhaのベース・頭部・ディスプレイの隣接リンクを記述する。
-  ディスプレイ（`display_link`）と腕・頭の衝突は判定する。
+  ディスプレイ（`display_link`）がモデルにあるとき（既定はシミュレーションのみ）、腕・頭との衝突を判定する。
   外部物体の衝突形状は利用側がplanning sceneに追加する。標準worldの机等は自動登録しない。
 
 ## RViz操作画面
