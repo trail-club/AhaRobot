@@ -166,7 +166,19 @@ class GazeTests(unittest.TestCase):
         self.gaze._tick()
         self.assertEqual(
             targets(self.node),
-            [("map", 4.0, 0.0, LOOK_HEIGHT), ("map", LOOKAHEAD, 0.0, LOOK_HEIGHT)],
+            [
+                ("map", 4.0 + LOOKAHEAD, 0.0, LOOK_HEIGHT),
+                ("map", LOOKAHEAD, 0.0, LOOK_HEIGHT),
+            ],
+        )
+
+    def test_a_goal_where_the_robot_is_keeps_the_head_level_and_ahead(self):
+        # A restore to the current pose: Nav2 succeeds before any plan is used.
+        self.gaze.follow_path([2.0, 1.0, math.pi / 2])
+        self.gaze.hold()
+        self.gaze._tick()
+        self.assertEqual(
+            targets(self.node), [("map", 2.0, 1.0 + LOOKAHEAD, LOOK_HEIGHT)]
         )
 
     def test_following_ends_when_the_task_stops_running(self):
@@ -193,7 +205,9 @@ class GazeTests(unittest.TestCase):
         self.gaze.hold()
         self.node.subscriptions["/plan"](plan_message([(0.0, 0.0), (4.0, 0.0)]))
         self.gaze._tick()
-        self.assertEqual(targets(self.node)[-1], ("map", 4.0, 0.0, LOOK_HEIGHT))
+        self.assertEqual(
+            targets(self.node)[-1], ("map", 4.0 + LOOKAHEAD, 0.0, LOOK_HEIGHT)
+        )
 
 
 if __name__ == "__main__":

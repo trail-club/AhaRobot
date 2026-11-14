@@ -18,7 +18,8 @@ across subgoals, so a skill that runs meanwhile (a conversation) keeps the gaze:
 The follow modes update in the executor thread on a steady (wall) clock
 timer, not the runner's sim time: head_look_at.py and the people's staleness
 run on wall time too, and a slow or stopped /clock must not stall the gaze.
-Until the first plan of a navigation arrives, the head looks at the goal.
+Until the first plan of a navigation arrives, the head looks past the goal
+along the goal heading.
 """
 
 import math
@@ -131,10 +132,17 @@ class Gaze:
         self._tick()
 
     def follow_path(self, goal):
-        """Look ahead along the plan of the navigation to goal [x, y, yaw] (map)."""
+        """Look ahead along the plan of the navigation to goal [x, y, yaw] (map).
+
+        Until its first plan, the head looks LOOKAHEAD past the goal along the
+        goal heading, as for a plan shorter than ARRIVING: the goal itself at
+        LOOK_HEIGHT is next to the head when the robot is already there (a
+        restore that Nav2 ends at once), and the head would keep that target.
+        """
+        ahead = path_lookahead([(goal[0], goal[1])], LOOKAHEAD, goal[2])
         with self.lock:
             self.mode, self.goal, self.started = "path", goal, time.monotonic()
-            self._send("map", (goal[0], goal[1], LOOK_HEIGHT), force=True)
+            self._send("map", (*ahead, LOOK_HEIGHT), force=True)
 
     def hold(self):
         """Stop following; the head keeps the last target."""
