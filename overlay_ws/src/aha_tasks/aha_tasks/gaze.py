@@ -15,8 +15,10 @@ across subgoals, so a skill that runs meanwhile (a conversation) keeps the gaze:
   (Nav2 turns on the spot), so the head ends level and forward instead of
   looking down at the goal under the robot.
 
-The follow modes update on a timer in the executor thread; until the first
-plan of a navigation arrives, the head looks at the goal.
+The follow modes update in the executor thread on a steady (wall) clock
+timer, not the runner's sim time: head_look_at.py and the people's staleness
+run on wall time too, and a slow or stopped /clock must not stall the gaze.
+Until the first plan of a navigation arrives, the head looks at the goal.
 """
 
 import math
@@ -86,11 +88,14 @@ class Gaze:
     def __init__(self, node):
         from geometry_msgs.msg import Point, PointStamped
         from nav_msgs.msg import Path
+        from rclpy.clock import Clock, ClockType
 
         self.Point, self.PointStamped = Point, PointStamped
         self.publisher = node.create_publisher(PointStamped, LOOK_AT_TOPIC, 10)
         node.create_subscription(Path, PLAN_TOPIC, self._on_plan, 10)
-        node.create_timer(PERIOD, self._tick)
+        node.create_timer(
+            PERIOD, self._tick, clock=Clock(clock_type=ClockType.STEADY_TIME)
+        )
         self.lock = threading.Lock()
         self.mode = None  # None, "person" or "path"
         self.plan = None  # (received, frame, [(x, y), ...])

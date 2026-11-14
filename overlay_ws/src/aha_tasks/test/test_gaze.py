@@ -46,6 +46,7 @@ class FakeNode:
     def __init__(self):
         self.sent = []
         self.subscriptions = {}
+        self.timer_clocks = []
 
     def create_publisher(self, _type, topic, _qos):
         return SimpleNamespace(publish=self.sent.append)
@@ -53,8 +54,8 @@ class FakeNode:
     def create_subscription(self, _type, topic, callback, _qos):
         self.subscriptions[topic] = callback
 
-    def create_timer(self, _period, _callback):
-        pass
+    def create_timer(self, _period, _callback, clock=None):
+        self.timer_clocks.append(clock)
 
 
 class FakePeople:
@@ -127,6 +128,12 @@ class GazeTests(unittest.TestCase):
     def setUp(self):
         self.node = FakeNode()
         self.gaze = Gaze(self.node)
+
+    def test_updates_on_wall_time_not_the_runner_sim_time(self):
+        from rclpy.clock import ClockType
+
+        [clock] = self.node.timer_clocks
+        self.assertEqual(clock.clock_type, ClockType.STEADY_TIME)
 
     def test_follows_the_track_and_takes_over_a_new_track_nearby(self):
         people = FakePeople(people_message(person(5, 1.0, 0.0), person(6, 3.0, 0.0)))
