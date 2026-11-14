@@ -311,27 +311,37 @@ class OfferSeat(Skill):
             pointing = point_at(target, start[0] if lift is None else lift)
         except ValueError as error:
             return SkillResult(False, f"Cannot point at {seat}: {error}")
-        ok, text = arm.move(lift, pointing.arm, ctx.cancelled)
-        if ok:
-            # The base may still settle after Nav2 stopped: aim again from here.
-            try:
-                again = point_at(arm.to_base("map", position), pointing.lift)
-            except ValueError as error:
-                again, ok, text = None, False, str(error)
-            if (
-                again is not None
-                and max(abs(a - b) for a, b in zip(again.arm, pointing.arm)) > REAIM
-            ):
-                ok, text = arm.move(lift, again.arm, ctx.cancelled)
-        if ok:
-            ctx.log(f"Pointing at {seat}")
-            if not task_sleep(self.runtime.node, hold, ctx.cancelled):
-                ok, text = False, "Cancelled"
-        # Back to the start pose also after a failure or cancellation.
-        back, back_text = arm.move(
-            None if lift is None else start[0], start[1:], threading.Event()
-        )
+        # An error is a failure here, not for the engine: the arm must go back
+        # before the next subgoal drives the base.
+        try:
+            ok, text = arm.move(lift, pointing.arm, ctx.cancelled)
+            if ok:
+                # The base may still settle after Nav2 stopped: aim again from here.
+                try:
+                    again = point_at(arm.to_base("map", position), pointing.lift)
+                except ValueError as error:
+                    again, ok, text = None, False, str(error)
+                if (
+                    again is not None
+                    and max(abs(a - b) for a, b in zip(again.arm, pointing.arm)) > REAIM
+                ):
+                    ok, text = arm.move(lift, again.arm, ctx.cancelled)
+            if ok:
+                ctx.log(f"Pointing at {seat}")
+                if not task_sleep(self.runtime.node, hold, ctx.cancelled):
+                    ok, text = False, "Cancelled"
+        except Exception as error:
+            ok, text = False, f"{type(error).__name__}: {error}"
+        # Back to the start pose also after a failure, cancellation or error.
+        try:
+            back, back_text = arm.move(
+                None if lift is None else start[0], start[1:], threading.Event()
+            )
+        except Exception as error:
+            back, back_text = False, f"{type(error).__name__}: {error}"
         if not ok:
+            if not back:
+                text += f"; not back: {back_text}"
             return SkillResult(False, f"Pointing at {seat} failed: {text}")
         if not back:
             return SkillResult(False, f"Pointed at {seat}, but not back: {back_text}")

@@ -173,6 +173,58 @@ class OfferSeatTests(unittest.TestCase):
         self.assertIn("aborted", result.message)
         self.assertEqual(arm.moves[-1], (START[0], tuple(START[1:])))
 
+    def test_an_error_while_pointing_still_returns_the_arm(self):
+        arm = FakeArm()
+        moves = arm.move
+
+        def time_out(lift, joints, cancelled):
+            result = moves(lift, joints, cancelled)
+            if len(arm.moves) == 1:
+                raise TimeoutError("the controller did not finish in time")
+            return result
+
+        arm.move = time_out
+        result = OfferSeat(runtime(arm)).execute(context())
+        self.assertFalse(result.success)
+        self.assertIn("TimeoutError", result.message)
+        self.assertEqual(len(arm.moves), 2)
+        self.assertEqual(arm.moves[-1], (START[0], tuple(START[1:])))
+
+    def test_a_lost_transform_after_pointing_still_returns_the_arm(self):
+        class TransformException(Exception):  # tf2_ros's is not a ValueError
+            pass
+
+        arm = FakeArm()
+        to_base = arm.to_base
+
+        def lose_tf(frame, xyz):
+            if arm.moves:
+                raise TransformException("map does not exist")
+            return to_base(frame, xyz)
+
+        arm.to_base = lose_tf
+        result = OfferSeat(runtime(arm)).execute(context())
+        self.assertFalse(result.success)
+        self.assertIn("TransformException", result.message)
+        self.assertEqual(len(arm.moves), 2)
+        self.assertEqual(arm.moves[-1], (START[0], tuple(START[1:])))
+
+    def test_an_error_on_the_way_back_is_reported_with_the_failure(self):
+        arm = FakeArm(ok=False)
+        moves = arm.move
+
+        def fail_back(lift, joints, cancelled):
+            result = moves(lift, joints, cancelled)
+            if len(arm.moves) > 1:
+                raise TimeoutError("the clock stopped while the arm moved")
+            return result
+
+        arm.move = fail_back
+        result = OfferSeat(runtime(arm)).execute(context())
+        self.assertFalse(result.success)
+        self.assertIn("aborted", result.message)
+        self.assertIn("not back: TimeoutError", result.message)
+
     def test_params_are_validated(self):
         spec = SimpleNamespace(locations={})
         OfferSeat.validate(
