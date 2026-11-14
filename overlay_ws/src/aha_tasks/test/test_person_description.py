@@ -69,7 +69,6 @@ class MatchTests(unittest.TestCase):
         self.assertTrue(red.matches(garments=["black jacket", "red t shirt"]))
         self.assertFalse(red.matches(garments=["red jacket"]))
         self.assertIsNone(red.matches(garments=[]))
-        self.assertTrue(red.needs_vlm)
 
     def test_all_parts_must_match(self):
         description = Description(posture="sitting", clothing=("blue", "coat"))

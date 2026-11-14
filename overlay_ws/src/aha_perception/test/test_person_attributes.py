@@ -17,9 +17,11 @@ from aha_perception.person_attributes import (
     decide_gesture,
     keypoints_in_mask,
     lift_keypoints,
+    motion_unknown,
     normalize_garment_type,
     parse_attributes,
     swap_side,
+    wait_for_motion,
 )
 
 # A person at the origin facing +x, so their left is +y; heights above the floor.
@@ -362,3 +364,19 @@ def test_decide_prefers_confident_rules_then_the_vlm():
     )
     assert decide(Label("sitting", False), None, "geometry") == ("sitting", "geometry")
     assert decide(None, None, "geometry") == ("", "")
+
+
+def test_only_an_unsure_raised_hand_waits_for_motion():
+    assert motion_unknown(Label("raising_left_arm", False))
+    assert not motion_unknown(Label("raising_left_arm", True))
+    assert not motion_unknown(Label("pointing_left", False))
+    assert not motion_unknown(Label("none", False))
+    assert not motion_unknown(None)
+
+
+def test_classify_waits_for_motion_only_with_the_vlm():
+    unsure = Label("raising_left_arm", False)
+    assert wait_for_motion(False, unsure, 1.0, 3.0)
+    assert not wait_for_motion(True, unsure, 0.0, 3.0)  # skip_vlm answers at once
+    assert not wait_for_motion(False, unsure, 3.0, 3.0)  # waited long enough
+    assert not wait_for_motion(False, Label("waving", True), 0.0, 3.0)

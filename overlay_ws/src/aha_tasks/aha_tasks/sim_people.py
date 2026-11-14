@@ -429,6 +429,21 @@ def models(scene, paths):
     return result
 
 
+def spawn_missing(missing, create, move):
+    """Spawn each entry of `missing` (removed when done); returns those spawned.
+
+    `create(entry)` adds the model; when it fails, `move(entry)` places a model
+    of that name left from an earlier run in the same Gazebo. An entry that
+    fails both stays missing without stopping the others.
+    """
+    spawned = []
+    for entry in list(missing):
+        if create(entry) or move(entry):
+            missing.remove(entry)
+            spawned.append(entry)
+    return spawned
+
+
 def shown_frame(label, sim_time, period):
     """The mesh frame of a label to show at a time; waving alternates."""
     frames = mesh_frames(label)

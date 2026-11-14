@@ -13,6 +13,10 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.people import (  # noqa: E402
+    MAX_JUDGEMENTS,
+    SERVER_MARGIN,
+    SKIP_VLM_TIMEOUT,
+    Cancelled,
     CountPeople,
     FindDescribedPerson,
     FindPerson,
@@ -624,7 +628,137 @@ class FindDescribedPersonTests(unittest.TestCase):
                 FindDescribedPerson.validate(params, spec)
 
 
+class FailureTests(unittest.TestCase):
+    """One person who cannot be judged must not stop or fail the search."""
+
+    def test_a_failing_classification_skips_only_that_person(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={2: {"rules": ("standing", "waving")}},
+        )
+        answer = people.classify.answer
+
+        def flaky(request):
+            if request.id == 1:
+                raise TimeoutError("classify_person did not answer")
+            return answer(request)
+
+        people.classify.answer = flaky
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person"})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+
+    def test_the_client_waits_longer_than_the_server(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])}
+            },
+        )
+        timeouts = []
+        call = people.call
+
+        def spy(client, request, timeout, cancelled):
+            timeouts.append(timeout)
+            return call(client, request, timeout, cancelled)
+
+        people.call = spy
+        FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "describe_timeout": 180.0})
+        )
+        self.assertEqual(timeouts[0], SKIP_VLM_TIMEOUT)
+        self.assertEqual(timeouts[1], 180.0 + SERVER_MARGIN)
+
+    def test_an_abort_is_reported_as_cancelled(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={1: {"rules": ("standing", "none")}},
+        )
+        ctx = context({"gesture": "waving person", "timeout": 5.0})
+        answer = people.classify.answer
+
+        def abort(request):
+            ctx.cancelled.set()
+            raise Cancelled("Cancelled")
+
+        people.classify.answer = abort
+        result = FindDescribedPerson(runtime(people)).execute(ctx)
+        self.assertEqual((result.success, result.message), (False, "Cancelled"))
+        people.classify.answer = answer
+        ctx = context({"output": "n", "gesture": "waving persons", "pans": [0.0]})
+        people.classify.answer = abort
+        result = CountPeople(runtime(people)).execute(ctx)
+        self.assertEqual((result.success, result.message), (False, "Cancelled"))
+
+    def test_slow_judgements_still_end_near_the_timeout(self):
+        people = FakePeople(
+            people_message(*(person(i, 1.0 + i, 0.0) for i in range(1, 6))),
+            attributes={i: {"rules": ("standing", "none")} for i in range(1, 6)},
+        )
+        answer = people.classify.answer
+
+        def slow(request):
+            time.sleep(0.3)
+            return answer(request)
+
+        people.classify.answer = slow
+        started = time.monotonic()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        # One person per check of the deadline: not all five (1.5 s).
+        self.assertLess(time.monotonic() - started, 1.2)
+
+    def test_a_name_given_after_the_track_started_is_still_found(self):
+        people = FakePeople(people_message(person(5, 1.0, 0.0)))
+
+        def named_later():
+            time.sleep(0.3)
+            people._on_people(people_message(person(5, 1.0, 0.0, "Jules")))
+
+        thread = threading.Thread(target=named_later)
+        thread.start()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"name": "Jules", "timeout": 3.0})
+        )
+        thread.join()
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 5)
+
+
 class CountPeopleTests(unittest.TestCase):
+    def test_undecided_and_lost_people_do_not_stop_the_count(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                # The VLM saw no upper body: the clothing stays unknown.
+                1: {"vlm": ("standing", "none", [])},
+                # 2: the track is gone before it can be judged.
+            },
+        )
+        started = time.monotonic()
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "clothing": "people wearing red t shirts",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                    "timeout": 10.0,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual(result.outputs["n"], 0)
+        self.assertIn("2 could not be checked", result.message)
+        requests = [r.id for r in people.classify.requests]
+        self.assertEqual(requests.count(1), 2)  # rules, then the VLM, once
+        self.assertEqual(requests.count(2), MAX_JUDGEMENTS)  # lost: retried once
+
     def test_counts_matching_people_once_each(self):
         people = FakePeople(
             people_message(

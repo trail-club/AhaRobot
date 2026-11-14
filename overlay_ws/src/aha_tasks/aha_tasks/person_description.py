@@ -11,6 +11,9 @@ are accepted as well. Left and right are the person's own sides.
 from dataclasses import dataclass
 import re
 
+# One vocabulary with what ClassifyPerson answers.
+from aha_perception.person_attributes import normalize_colour, normalize_garment_type
+
 POSTURES = ("standing", "sitting", "lying")
 GESTURES = (
     "waving",
@@ -18,21 +21,6 @@ GESTURES = (
     "raising_right_arm",
     "pointing_left",
     "pointing_right",
-)
-GARMENT_TYPES = ("t shirt", "shirt", "blouse", "sweater", "coat", "jacket")
-COLOURS = (
-    "blue",
-    "yellow",
-    "black",
-    "white",
-    "red",
-    "orange",
-    "gray",
-    "green",
-    "purple",
-    "pink",
-    "brown",
-    "beige",
 )
 # A gesture also matches these labels from ClassifyPerson.
 ALSO_MATCHES = {
@@ -58,16 +46,6 @@ def _words(text):
     return " ".join(re.sub(r"[_\-]", " ", str(text).lower()).split())
 
 
-def garment_type(word):
-    """GARMENT_TYPES entry for a garment word (plural, 't-shirt', 'tshirt'), or None."""
-    for candidate in (word, word[:-1] if word.endswith("s") else None):
-        if candidate in ("tshirt", "tee", "tee shirt"):
-            candidate = "t shirt"
-        if candidate in GARMENT_TYPES:
-            return candidate
-    return None
-
-
 @dataclass(frozen=True)
 class Description:
     gesture: str | None = None
@@ -78,11 +56,6 @@ class Description:
     @property
     def empty(self):
         return not (self.gesture or self.posture or self.clothing or self.name)
-
-    @property
-    def needs_vlm(self):
-        """Clothing is only seen by the VLM."""
-        return self.clothing is not None
 
     def text(self):
         parts = []
@@ -120,8 +93,8 @@ def _wears(garments, colour, kind):
         words = _words(garment).split()
         if (
             len(words) >= 2
-            and words[0] == colour
-            and garment_type(" ".join(words[1:])) == kind
+            and normalize_colour(words[0]) == colour
+            and normalize_garment_type(" ".join(words[1:])) == kind
         ):
             return True
     return False
@@ -146,9 +119,9 @@ def parse_phrase(text):
     clothing = None
     match = re.search(r"\bwearing (?:an? |the )?(\w+) (.+)$", words)
     if match:
-        colour = "gray" if match.group(1) == "grey" else match.group(1)
-        kind = garment_type(match.group(2))
-        if colour not in COLOURS or kind is None:
+        colour = normalize_colour(match.group(1))
+        kind = normalize_garment_type(match.group(2))
+        if colour is None or kind is None:
             raise ValueError(f"unknown clothing in {text!r}")
         clothing = (colour, kind)
     if gesture is None and posture is None and clothing is None:

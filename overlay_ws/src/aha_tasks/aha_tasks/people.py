@@ -33,6 +33,12 @@ SEARCH_RADIUS = 3.0  # m around the location for described people
 # s (wait clock) after turning the head to a person before judging them, so
 # that new images show them in the middle, raised hands included.
 LOOK_SETTLE = 1.5
+SKIP_VLM_TIMEOUT = 10.0  # s for ClassifyPerson without the VLM
+# s more than describe_timeout for ClassifyPerson with the VLM: the server
+# first waits for motion (up to 20 s wall clock) and then up to its vlm_timeout.
+SERVER_MARGIN = 30.0
+# Judgements of one person when counting; a track lost on the way is retried.
+MAX_JUDGEMENTS = 2
 
 
 def planar(point):
@@ -89,6 +95,10 @@ def check_keys(params, required, optional=()):
 def check_name(params, key):
     if not isinstance(params.get(key), str) or not params[key].strip():
         raise ValueError(f"{key} must be a nonempty name: {params}")
+
+
+class Cancelled(RuntimeError):
+    """The skill was aborted while waiting for person_perception."""
 
 
 class People:
@@ -171,7 +181,7 @@ class People:
         while not future.done():
             if cancelled.is_set():
                 future.cancel()
-                raise RuntimeError("Cancelled")
+                raise Cancelled("Cancelled")
             if time.monotonic() > deadline:
                 future.cancel()
                 raise TimeoutError(f"{client.srv_name} did not answer")
@@ -203,11 +213,13 @@ class People:
             time.sleep(0.05)
 
     def attributes(self, person, description, cancelled, vlm_timeout, frame=None):
-        """ClassifyPerson answers for the person, or None if the track is gone.
+        """ClassifyPerson answers for the person, or None if they could not be judged.
 
         The head first turns to the person (when `frame` is given). Depth and
         keypoints answer at once; the VLM is asked only when the description
-        still cannot be decided (clothing, unclear posture or gesture).
+        still cannot be decided (clothing, unclear posture or gesture). None
+        when the track is gone or the service failed or timed out; Cancelled
+        is raised when the skill is aborted.
         """
         if frame is not None and self.look_settle > 0:
             # The head point is the top of the mask, which is too low while the
@@ -226,12 +238,19 @@ class People:
                     target = same[0].head
         answers = None
         for skip_vlm in (True, False):
-            reply = self.call(
-                self.classify,
-                self.ClassifyPerson.Request(id=person.id, skip_vlm=skip_vlm),
-                10.0 if skip_vlm else vlm_timeout,
-                cancelled,
-            )
+            try:
+                reply = self.call(
+                    self.classify,
+                    self.ClassifyPerson.Request(id=person.id, skip_vlm=skip_vlm),
+                    # The server waits for motion and then for the VLM up to
+                    # its own vlm_timeout; give it time to answer first.
+                    SKIP_VLM_TIMEOUT if skip_vlm else vlm_timeout + SERVER_MARGIN,
+                    cancelled,
+                )
+            except Cancelled:
+                raise
+            except (TimeoutError, RuntimeError):
+                return None
             if not reply.success:
                 return None
             answers = {
@@ -579,6 +598,8 @@ class FindDescribedPerson(Skill):
             )
 
         def choose(message):
+            # One person per call, so that the timeout is checked between people
+            # and each person is judged on a fresh message.
             nonlocal next_look
             now = people.now()
             if now >= next_look:
@@ -591,18 +612,23 @@ class FindDescribedPerson(Skill):
                     if p.visible
                     and not judged(message, p)
                     and in_area(message, p, area)
+                    # Names come seconds after a track starts: wait for one.
+                    and not (description.name and not p.name)
                 ),
                 key=lambda p: math.dist(planar(p.position), origin),
             )
-            for person in candidates:
-                if description.name and person.name != description.name:
-                    checked[person.id] = None
-                    continue
-                if description.name and not (
-                    description.gesture or description.posture or description.clothing
-                ):
-                    answers = {"posture": "", "gesture": "", "garments": []}
-                else:
+            if not candidates:
+                return None
+            person = candidates[0]
+            if description.name and person.name != description.name:
+                checked[person.id] = None
+                return None
+            if description.name and not (
+                description.gesture or description.posture or description.clothing
+            ):
+                answers = {"posture": "", "gesture": "", "garments": []}
+            else:
+                try:
                     answers = people.attributes(
                         person,
                         description,
@@ -610,12 +636,14 @@ class FindDescribedPerson(Skill):
                         vlm_timeout,
                         message.header.frame_id,
                     )
-                checked[person.id] = answers
-                if answers is not None:
-                    checked_at.append(planar(person.position))
-                ctx.log(f"{where(person)}: {describe_answers(answers)}")
-                if answers and description.matches(name=person.name, **seen(answers)):
-                    return message, person, answers
+                except Cancelled:
+                    return None  # wait_for reports the abort
+            checked[person.id] = answers
+            if answers is not None:
+                checked_at.append(planar(person.position))
+            ctx.log(f"{where(person)}: {describe_answers(answers)}")
+            if answers and description.matches(name=person.name, **seen(answers)):
+                return message, person, answers
             return None
 
         found, reason = people.wait_for(
@@ -623,6 +651,8 @@ class FindDescribedPerson(Skill):
         )
         if found is None:
             people.look_towards(0.0)
+            if ctx.cancelled.is_set():
+                return SkillResult(False, "Cancelled")
             return SkillResult(
                 False,
                 f"No {description.text()} person among {len(checked)} checked: {reason}",
@@ -661,10 +691,13 @@ class CountPeople(Skill):
     params: {"output": "<memory key>", "description" | "gesture" | "pose" |
     "clothing": "<phrase>" (optional: everyone), "location": "<area centre>",
     "radius": 3.0, "pans": [0.0, 0.4, -0.4], "dwell": 6.0, "look_height": 1.0}.
-    The head stays `dwell` s at each pan, again after turning to judge people;
-    sightings less than 0.5 m apart in map are one person. Each person is checked while visible, because tracks
-    are dropped soon after they leave the view. People who could not be checked
-    do not count. Outputs `<output>` (the count) and `<output>.positions`.
+    The head stays `dwell` s at each pan, again after turning to judge a
+    person; sightings less than 0.5 m apart in map are one person. Each person
+    is judged once while visible, because tracks are dropped soon after they
+    leave the view; a track lost meanwhile is tried up to MAX_JUDGEMENTS times.
+    People who could not be judged, or whose answers cannot decide the
+    description, do not count. Outputs `<output>` (the count) and
+    `<output>.positions`.
     """
 
     @classmethod
@@ -684,8 +717,9 @@ class CountPeople(Skill):
         dwell = positive(params, "dwell", 6.0)
         height = positive(params, "look_height", 1.0)
         vlm_timeout = positive(params, "describe_timeout", 180.0)
-        found = []  # {"position", "ids", "answers", "match"}
-        step = {"index": -1, "until": -math.inf}
+        # {"position", "ids", "judgements", "done", "match"}; match None: unknown
+        found = []
+        step = {"index": -1, "until": -math.inf}  # pan on show, end of its dwell
 
         def entry_for(message, person):
             for entry in found:
@@ -698,53 +732,74 @@ class CountPeople(Skill):
             return None
 
         def choose(message):
-            now = people.now()
-            if now >= step["until"]:
-                step["index"] += 1
-                if step["index"] >= len(pans):
-                    return found
-                people.look_towards(pans[step["index"]], height)
-                step["until"] = now + dwell
-            judged = False
+            # At most one judgement per call, so that the timeout is checked
+            # between people and each person is judged on a fresh message. The
+            # head moves on only when nobody visible is left to judge here.
+            if step["index"] < 0:
+                step["index"] = 0
+                people.look_towards(pans[0], height)
+                step["until"] = people.now() + dwell
             for person in message.people:
                 if not person.visible or not in_area(message, person, area):
                     continue
                 p = person.position
                 entry = entry_for(message, person)
                 if entry is None:
-                    entry = {"ids": set(), "answers": None, "match": None}
+                    entry = {
+                        "ids": set(),
+                        "judgements": 0,
+                        "done": False,
+                        "match": None,
+                    }
                     found.append(entry)
                 entry["ids"].add(person.id)
                 entry["position"] = [round(p.x, 3), round(p.y, 3), round(p.z, 3)]
-                if entry["match"] is not None:
+                if entry["done"]:
                     continue
                 if description.empty:
-                    entry["match"] = True
+                    entry["match"], entry["done"] = True, True
                     continue
-                answers = people.attributes(
-                    person,
-                    description,
-                    ctx.cancelled,
-                    vlm_timeout,
-                    message.header.frame_id,
+                try:
+                    answers = people.attributes(
+                        person,
+                        description,
+                        ctx.cancelled,
+                        vlm_timeout,
+                        message.header.frame_id,
+                    )
+                except Cancelled:
+                    return None  # wait_for reports the abort
+                entry["judgements"] += 1
+                if answers is not None:
+                    # None when the answers cannot decide (e.g. no clothing seen).
+                    entry["match"] = description.matches(
+                        name=person.name, **seen(answers)
+                    )
+                # Judged, or a lost track tried MAX_JUDGEMENTS times: move on.
+                entry["done"] = (
+                    answers is not None or entry["judgements"] >= MAX_JUDGEMENTS
                 )
-                judged = True
-                if answers is None:
-                    continue
-                entry["answers"] = answers
-                entry["match"] = description.matches(name=person.name, **seen(answers))
                 ctx.log(f"{where(person)}: {describe_answers(answers)}")
-            if judged:
-                # The head turned to the people judged: look this way again for
-                # a full dwell, so that nobody at the edge of the view is missed.
+                # The head turned to this person: look this way again for a
+                # full dwell, so that nobody at the edge of the view is missed.
                 people.look_towards(pans[step["index"]], height)
                 step["until"] = people.now() + dwell
+                return None
+            if people.now() < step["until"]:
+                return None
+            step["index"] += 1
+            if step["index"] >= len(pans):
+                return found
+            people.look_towards(pans[step["index"]], height)
+            step["until"] = people.now() + dwell
             return None
 
         result, reason = people.wait_for(
             choose, positive(params, "timeout", 300.0), ctx.cancelled
         )
         people.look_towards(0.0)
+        if ctx.cancelled.is_set():
+            return SkillResult(False, "Cancelled")
         if result is None:
             return SkillResult(False, f"Counting did not finish: {reason}")
         matching = [entry for entry in found if entry["match"]]

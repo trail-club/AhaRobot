@@ -540,6 +540,24 @@ def parse_attributes(text: str) -> VlmAttributes:
 # --- Decision --------------------------------------------------------------------
 
 
+def motion_unknown(gesture: Label | None) -> bool:
+    """A raised hand is seen, but not yet for long enough to tell if it waves."""
+    return (
+        gesture is not None
+        and not gesture.confident
+        and gesture.value.startswith("raising")
+    )
+
+
+def wait_for_motion(skip_vlm, gesture, image_elapsed, motion_wait) -> bool:
+    """Whether ClassifyPerson should wait for more images before it answers.
+
+    Only for the VLM answer: skip_vlm returns the clear rule answers at once.
+    The wait is in image time, which a low real-time factor slows down.
+    """
+    return not skip_vlm and motion_unknown(gesture) and image_elapsed < motion_wait
+
+
 def decide(rule: Label | None, vlm_value: str | None, rule_source: str):
     """(value, source): a confident rule, else the VLM, else a weak rule."""
     if rule is not None and rule.confident:

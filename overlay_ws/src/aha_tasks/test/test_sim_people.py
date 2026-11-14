@@ -25,6 +25,7 @@ from aha_tasks.sim_people import (  # noqa: E402
     person_sdf,
     recolour_shirt,
     shown_frame,
+    spawn_missing,
 )
 
 CONFIG = Path(__file__).resolve().parents[1] / "config" / "sim" / "people"
@@ -167,6 +168,13 @@ class SceneTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 load_scene(path)
+
+    def test_spawning_moves_left_models_and_skips_failures(self):
+        missing = ["new", "left", "broken", "later"]
+        created = {"new", "later"}  # "left" exists from an earlier run
+        spawned = spawn_missing(missing, lambda e: e in created, lambda e: e == "left")
+        self.assertEqual(spawned, ["new", "left", "later"])
+        self.assertEqual(missing, ["broken"])
 
     def test_sdf_points_at_the_mesh(self):
         sdf = person_sdf("p", Path("/tmp/a b.dae"), 1.0, 2.0, 0.0, 1.5)

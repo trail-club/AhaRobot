@@ -16,6 +16,7 @@ from aha_tasks.sim_people import (
     models,
     person_sdf,
     shown_frame,
+    spawn_missing,
 )
 
 PERIOD = 0.05  # s (simulation clock)
@@ -65,31 +66,40 @@ def main(argv=None):
     missing = list(entries)
     shown = {}  # person name -> frame on show
 
+    def pose_of(entry):
+        _, name, frame, _ = entry
+        person = scene["people"][name]
+        # Every frame but the first of a waving person starts hidden.
+        first = frame == shown_frame(person["label"], 0.0, scene["wave_period"])
+        return place(person, not first), first
+
+    def create(entry):
+        model, _, _, mesh = entry
+        pose, _ = pose_of(entry)
+        ok, reply = gz.request(
+            f"{world}/create",
+            EntityFactory(sdf=person_sdf(model, mesh, *pose)),
+            EntityFactory,
+            Boolean,
+            REQUEST_TIMEOUT,
+        )
+        return ok and reply.data
+
+    def move(entry):
+        # A model of that name left from an earlier sim_people in this Gazebo.
+        return set_pose(entry[0], *pose_of(entry)[0])
+
     def spawn():
-        for entry in list(missing):
-            model, name, frame, mesh = entry
+        for entry in spawn_missing(missing, create, move):
+            model, name, frame, _ = entry
             person = scene["people"][name]
-            # Every frame but the first of a waving person starts hidden.
-            first = frame == shown_frame(person["label"], 0.0, scene["wave_period"])
-            sdf = person_sdf(model, mesh, *place(person, not first))
-            ok, reply = gz.request(
-                f"{world}/create",
-                EntityFactory(sdf=sdf),
-                EntityFactory,
-                Boolean,
-                REQUEST_TIMEOUT,
-            )
-            if not (ok and reply.data):
-                return
-            missing.remove(entry)
-            if first:
+            if pose_of(entry)[1]:
                 shown[name] = frame
             log.info(f"Spawned {model} ({person['label']}, {person['shirt']} shirt)")
 
     def tick():
         if missing:
-            spawn()
-            return
+            spawn()  # the people already there keep waving meanwhile
         now = node.get_clock().now().nanoseconds * 1e-9
         for model, name, frame, _ in entries:
             person = scene["people"][name]

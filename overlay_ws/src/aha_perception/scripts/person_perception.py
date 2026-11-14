@@ -60,6 +60,7 @@ from aha_perception.person_attributes import (
     decide_gesture,
     keypoints_in_mask,
     lift_keypoints,
+    wait_for_motion,
 )
 
 PEOPLE_TOPIC = "/aha/perception/people"
@@ -67,6 +68,8 @@ MARKERS_TOPIC = "/aha/perception/people/markers"
 REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
 CLASSIFY_SERVICE = "/aha/perception/classify_person"
+# Wall seconds ClassifyPerson waits at most for motion, whatever the image time.
+MOTION_WAIT_WALL = 20.0
 
 
 def image_array(msg):
@@ -138,8 +141,8 @@ class PersonPerception(Node):
         # Posture and gesture rules need target_frame with z up and the floor
         # at this height (map / odom); the camera frame gives no labels.
         self.floor_z = p("floor_z", 0.0).value
-        # Wall seconds ClassifyPerson waits for motion when a raised hand is seen
-        # but it cannot yet tell waving from a still hand.
+        # Image seconds ClassifyPerson (with the VLM) waits for motion when a
+        # raised hand is seen but it cannot yet tell waving from a still hand.
         self.motion_wait = p("motion_wait", 3.0).value
         # Non-empty: save the crops of each VLM attribute question there.
         self.debug_dir = p("debug_dir", "").value
@@ -473,7 +476,12 @@ class PersonPerception(Node):
         return response
 
     def on_classify(self, request, response):
-        deadline = time.monotonic() + self.motion_wait
+        # With the VLM, wait up to motion_wait s of image time (a low real-time
+        # factor slows it) for the motion that tells waving from a still raised
+        # hand; MOTION_WAIT_WALL bounds it in wall seconds. skip_vlm answers at
+        # once.
+        wall_deadline = time.monotonic() + MOTION_WAIT_WALL
+        start = None
         while True:
             with self.lock:
                 track = self.tracker.tracks.get(request.id)
@@ -482,12 +490,15 @@ class PersonPerception(Node):
                     return response
                 posture, gesture = self.rule_labels(track)
                 crops = list(track.recent_crops)
-            waiting = (
-                gesture is not None
-                and not gesture.confident
-                and gesture.value.startswith("raising")
-            )
-            if not waiting or time.monotonic() >= deadline or self.stopping.is_set():
+                image_time = self.tracker.stamp
+            start = image_time if start is None else start
+            if (
+                not wait_for_motion(
+                    request.skip_vlm, gesture, image_time - start, self.motion_wait
+                )
+                or time.monotonic() >= wall_deadline
+                or self.stopping.is_set()
+            ):
                 break
             time.sleep(0.2)
         notes = [f"rules: posture {describe(posture)}, gesture {describe(gesture)}"]
