@@ -1,17 +1,16 @@
 <?xml version="1.0"?>
 <!--
   Robot touch screen: a Waveshare case below the head, held by printed parts on
-  a printed spine that hangs from the frame's top beam (hardware/display_mount).
+  a printed spine that hangs from the frame's top beam.
 
   Frames:
     base_link
       └── display_link   (fixed; centre of the case front face, x out of the
                           screen, y left, z up)
 
-  The case is a box (the outline of Waveshare's drawing). The printed parts,
-  spine included, are one mesh, meshes/display_mount.stl, built from the print
-  STLs by scripts/display_mount_mesh.py. No inertial: the masses are not
-  measured. Gazebo merges this fixed link into base_link.
+  The case is a box (the outline of Waveshare's drawing). The printed parts are
+  their print STLs, meshes/display_mount/*.stl (mm). No inertial: the masses
+  are not measured. Gazebo merges this fixed link into base_link.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -31,6 +30,21 @@
   <xacro:property name="display_screen_y" value="0.2179"/>
   <xacro:property name="display_screen_z" value="0.1366"/>
 
+  <!-- One printed part. X Y Z: the STEP point (mm) at the STL origin. The STL
+       axes are STEP (X, Y, Z) unless rpy says otherwise. -->
+  <xacro:macro name="display_mount_part" params="name X Y Z rpy:='${pi/2} 0 ${pi/2}'">
+    <xacro:property name="mesh" value="package://aha_description/meshes/display_mount/${name}.stl"/>
+    <visual>
+      <origin xyz="${(Z - 586.1) / 1000} ${X / 1000} ${(Y - 1093.5) / 1000}" rpy="${rpy}"/>
+      <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
+      <material name="display_mount"><color rgba="0.16 0.47 0.71 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="${(Z - 586.1) / 1000} ${X / 1000} ${(Y - 1093.5) / 1000}" rpy="${rpy}"/>
+      <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+  </xacro:macro>
+
   <xacro:macro name="aha_display" params="parent">
     <link name="display_link">
       <visual>
@@ -44,23 +58,18 @@
         <geometry><box size="0.001 ${display_screen_y} ${display_screen_z}"/></geometry>
         <material name="display_screen"><color rgba="0.69 0.83 0.91 1"/></material>
       </visual>
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <mesh filename="package://aha_description/meshes/display_mount.stl" scale="0.001 0.001 0.001"/>
-        </geometry>
-        <material name="display_mount"><color rgba="0.16 0.47 0.71 1"/></material>
-      </visual>
       <collision>
         <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
         <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
       </collision>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <mesh filename="package://aha_description/meshes/display_mount.stl" scale="0.001 0.001 0.001"/>
-        </geometry>
-      </collision>
+      <!-- The frame adapter's STL lies on its beam face: STL (x, y, z) is
+           STEP (X, Z, -Y) from the beam underside. -->
+      <xacro:display_mount_part name="01_frame_adapter" X="-28" Y="1341" Z="425.268208"
+                                rpy="${pi} 0 ${pi/2}"/>
+      <xacro:display_mount_part name="02_lower_left" X="-133.3" Y="992" Z="510"/>
+      <xacro:display_mount_part name="03_lower_right" X="0.5" Y="992" Z="510"/>
+      <xacro:display_mount_part name="04_top_keeper" X="-45" Y="1132" Z="510"/>
+      <xacro:display_mount_part name="05_spine" X="-20" Y="1058" Z="490"/>
     </link>
     <joint name="display_joint" type="fixed">
       <parent link="${parent}"/>
