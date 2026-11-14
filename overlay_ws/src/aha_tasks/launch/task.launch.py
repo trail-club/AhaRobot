@@ -3,6 +3,8 @@
 `people:=true` adds the head camera bridge, person_perception (DGX Spark) and
 head_look_at.py, which turns the head towards the people the skills look at.
 `guests:=true` adds sim_guests, which moves the task's simulated guests.
+`people_scene:=<name>` adds sim_people, which puts the posed people of
+config/sim/people/<name>.json (or a JSON path) into Gazebo.
 """
 
 from pathlib import Path
@@ -147,6 +149,24 @@ def launch_task(context):
                 output="screen",
             )
         )
+    people_scene = value("people_scene")
+    if people_scene:
+        path = (
+            Path(people_scene)
+            if people_scene.endswith(".json")
+            else task_config(f"sim/people/{people_scene}")
+        )
+        if not path.is_file():
+            raise ValueError(f"people_scene:={people_scene}: no {path}")
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_people",
+                parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={path}"],
+                output="screen",
+            )
+        )
     return actions
 
 
@@ -167,6 +187,11 @@ def generate_launch_description():
                 "guests",
                 default_value="false",
                 description="Simulated guests from config/sim/<task>.json",
+            ),
+            DeclareLaunchArgument(
+                "people_scene",
+                default_value="",
+                description="Posed people from config/sim/people/<name>.json",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
