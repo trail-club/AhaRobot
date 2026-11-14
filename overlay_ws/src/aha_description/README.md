@@ -5,7 +5,7 @@ AhaRobotのURDF。引数は [aha_robot.urdf.xacro](urdf/aha_robot.urdf.xacro) �
 ## タッチディスプレイ
 
 xacro引数 `display:=true` のとき、頭の下・2本の昇降レールの前に、ケース付きのWaveshareのディスプレイと取付部品を加える（[display.xacro](urdf/display.xacro)）。
-既定は `sim` と同じで、実機に取り付けるまで実機のモデルには入れない（取り付けたら既定を `true` にする）。
+既定は `sim` と同じで、実機のモデルには入れない。
 
 取付部品は [meshes/display_mount](meshes/display_mount) のSTL（mm）で、印刷とURDFの両方に使う。どれもBambu Lab A1 mini（180 mm角）で印刷できる。
 
