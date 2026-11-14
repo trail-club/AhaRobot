@@ -11,7 +11,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_gazebo` | Gazebo起動、SOBITS worldの展開・検証 |
 | `aha_bringup` | [ロボット生成とcontrollerの起動](src/aha_bringup/README.md) |
 | `aha_sim_tasks` | [タスク・policy評価](src/aha_sim_tasks/README.md)、approach / pick / pick-and-place、布をシミュレートするDoing Laundry |
-| `aha_tasks` | [サブゴール単位のタスク実行基盤とWeb GUI](src/aha_tasks/README.md)、タスク定義 |
+| `aha_tasks` | [サブゴール単位のタスク実行基盤とWeb GUI](src/aha_tasks/README.md)、ロボットの画面、タスク定義 |
 | `aha_sobits_bringup` | Japan Openシミュレーションの互換起動入口 |
 | `aha_msgs` | msg / srv / action定義 |
 | `aha_navigation` | シミュレーションのSLAM、固定地図・AMCL・Nav2。[README](src/aha_navigation/README.md)を参照 |

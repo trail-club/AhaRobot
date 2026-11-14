@@ -41,6 +41,17 @@ class FakeSkill(Skill):
         return self.result
 
 
+class FakeInteraction:
+    """Records what the say skill says, as aha_tasks.interaction.Interaction."""
+
+    def __init__(self):
+        self.said = []
+
+    def say(self, text, cancelled):
+        self.said.append(text)
+        return True, "said"
+
+
 class FakeNavigation:
     """Fails the goals in ``fail`` (0-based positions in the sequence of goals)."""
 
@@ -99,7 +110,10 @@ def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", 
     """Engine over the real task definition; skills as the runner builds them."""
     spec, classes = load_task(GPSR)
     runtime = SimpleNamespace(
-        node=None, spec=spec, navigation=navigation or FakeNavigation()
+        node=None,
+        spec=spec,
+        navigation=navigation or FakeNavigation(),
+        interaction=FakeInteraction(),
     )
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
     skills.update(overrides or {})
@@ -383,7 +397,7 @@ class GpsrDefinitionTests(unittest.TestCase):
     def test_runs_without_person_perception(self):
         self.assertNotIn("find_person", self.spec.skills)
         implemented = {k for k, v in self.spec.skills.items() if v}
-        self.assertEqual(implemented, {"navigate", "run_plan_step"})
+        self.assertEqual(implemented, {"navigate", "run_plan_step", "say"})
 
 
 class GpsrEngineTests(unittest.TestCase):
@@ -400,6 +414,10 @@ class GpsrEngineTests(unittest.TestCase):
         self.assertEqual(status["state"], "completed", status["message"])
         by_id = records(status)
         self.assertEqual(by_id["start.wait_door"]["status"], "unsupported")
+        self.assertEqual(by_id["command.mode"]["status"], "succeeded")
+        self.assertEqual(
+            runtime.interaction.said, ["Please give me all three commands at once."]
+        )
         self.assertEqual(by_id["exec.step01"]["status"], "succeeded")
         self.assertIn("navigate", by_id["exec.step01"]["message"])
         self.assertIn("pick_object is not implemented", by_id["exec.step02"]["message"])

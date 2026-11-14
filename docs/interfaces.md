@@ -165,6 +165,24 @@ topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化�
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 
+### ロボットの画面
+
+`task_monitor` がロボットのタッチディスプレイの画面を提供する（[aha_tasksのロボットの画面](../overlay_ws/src/aha_tasks/README.md#ロボットの画面)）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| ボタンを出してタッチを待つ | `/aha/display/ask` | `aha_msgs/action/Ask` |
+| ロボットの発話の字幕（空文字列で消す） | `/aha/display/caption` | `std_msgs/msg/String` |
+| 画像（空の `data` で消す） | `/aha/display/image` | `sensor_msgs/msg/CompressedImage`（`format` に `jpeg` か `png` を含む） |
+| 画面（`task_monitor`） | `http://localhost:8765/display/` | HTTP |
+
+字幕と画像の購読はRELIABLE / VOLATILE（深さ10と1）。
+画面のHTTP APIは `GET /display/api/events`（SSE）、`GET /display/api/image/<id>`、
+`POST /display/api/touch`（`{"question": <id>, "choice": <ボタンの番号>}`、`Content-Type: application/json` が必要）。
+画面の状態は `GET /api/status`・`/api/events` の `screen` にも入る。GUIに埋め込んだ画面（`display/?embedded`）はSSEを開かず、GUIのページから `postMessage` で状態を受け取る（GUIのタブ1つのSSE接続は1本）。
+runnerのスキルは字幕を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
+`task_monitor` が止まるときは、表示中の質問のgoalをabortする（`The screen is shutting down`）。
+
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 
 ## 頭部カメラ
@@ -374,7 +392,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。
+`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
 `DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
