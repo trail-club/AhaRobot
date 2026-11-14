@@ -97,6 +97,8 @@ class RigTests(unittest.TestCase):
     def test_whole_body_rotation_puts_the_lowest_point_on_the_floor(self):
         positions, _ = Rig(self.path).pose([], root_rotation=((0, 1, 0), -90.0))
         self.assertAlmostEqual(positions[:, 2].min(), 0.0)
+        # The lying body is centred along its length.
+        self.assertAlmostEqual(positions[:, 0].min(), -positions[:, 0].max())
         # Head (+z) towards -x.
         self.assertLess(positions[0, 0], positions[3, 0])
 

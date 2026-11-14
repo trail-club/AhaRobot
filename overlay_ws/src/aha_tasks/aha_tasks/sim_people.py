@@ -9,7 +9,8 @@ downloaded once and checked by hash; generated meshes go to a cache directory
 and Gazebo loads them by path.
 
 Model frame: the person faces +x, their left is +y, z is up and the soles are
-at z = 0 (a lying person's back is at z = 0, head towards -x).
+at z = 0 with the feet at the origin. A lying person lies on the back at z = 0,
+head towards -x, with the middle of the body at the origin.
 """
 
 import colorsys
@@ -42,7 +43,7 @@ COLLADA = "http://www.collada.org/2005/11/COLLADASchema"
 NS = {"c": COLLADA}
 ET.register_namespace("", COLLADA)
 HIDDEN_Z = -5.0  # m; under the floor, like the HIC guests
-GENERATOR_VERSION = 2  # raise when the generated files change for the same poses
+GENERATOR_VERSION = 3  # raise when the generated files change for the same poses
 
 X, Y, Z = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
 ARMS_DOWN = [("UpperArm_L", X, -78.0), ("UpperArm_R", X, 78.0)]
@@ -272,6 +273,10 @@ class Rig:
         )
         normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-9)
         positions[:, 2] -= positions[:, 2].min()
+        if root_rotation is not None:
+            # A lying body spans its height along x: centre it, so that its
+            # position is the middle of the body as for the bed it lies on.
+            positions[:, 0] -= (positions[:, 0].min() + positions[:, 0].max()) / 2
         return positions, normals
 
     def static_dae(self, positions, normals, texture: str) -> bytes:
