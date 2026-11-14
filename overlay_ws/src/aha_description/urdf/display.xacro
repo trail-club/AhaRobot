@@ -1,18 +1,17 @@
 <?xml version="1.0"?>
 <!--
   Robot touch screen: a Waveshare case below the head, held by printed parts on
-  a 2020 profile that hangs from the frame's top beam (hardware/display_mount).
+  a printed spine that hangs from the frame's top beam (hardware/display_mount).
 
   Frames:
     base_link
       └── display_link   (fixed; centre of the case front face, x out of the
                           screen, y left, z up)
 
-  The case and the 2020 profile are boxes (case: the outline of Waveshare's
-  drawing; profile: its 20 x 20 x 240 mm envelope). The printed parts are one
-  mesh, meshes/display_mount.stl, built from the print STLs by
-  scripts/display_mount_mesh.py. No inertial: the masses are not measured.
-  Gazebo merges this fixed link into base_link.
+  The case is a box (the outline of Waveshare's drawing). The printed parts,
+  spine included, are one mesh, meshes/display_mount.stl, built from the print
+  STLs by scripts/display_mount_mesh.py. No inertial: the masses are not
+  measured. Gazebo merges this fixed link into base_link.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -31,9 +30,6 @@
   <!-- Active area, centred on the case front -->
   <xacro:property name="display_screen_y" value="0.2179"/>
   <xacro:property name="display_screen_z" value="0.1366"/>
-  <!-- 2020 profile: STEP X -10..10, Y 993..1233, Z 490..510 -->
-  <xacro:property name="display_mast_xyz" value="-0.0861 0 0.0195"/>
-  <xacro:property name="display_mast_size" value="0.02 0.02 0.24"/>
 
   <xacro:macro name="aha_display" params="parent">
     <link name="display_link">
@@ -49,11 +45,6 @@
         <material name="display_screen"><color rgba="0.69 0.83 0.91 1"/></material>
       </visual>
       <visual>
-        <origin xyz="${display_mast_xyz}" rpy="0 0 0"/>
-        <geometry><box size="${display_mast_size}"/></geometry>
-        <material name="display_mast"><color rgba="0.61 0.63 0.65 1"/></material>
-      </visual>
-      <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
           <mesh filename="package://aha_description/meshes/display_mount.stl" scale="0.001 0.001 0.001"/>
@@ -63,10 +54,6 @@
       <collision>
         <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
         <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
-      </collision>
-      <collision>
-        <origin xyz="${display_mast_xyz}" rpy="0 0 0"/>
-        <geometry><box size="${display_mast_size}"/></geometry>
       </collision>
       <collision>
         <origin xyz="0 0 0" rpy="0 0 0"/>

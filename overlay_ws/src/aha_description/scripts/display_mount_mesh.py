@@ -19,8 +19,9 @@ from pathlib import Path
 PARTS = {
     "01_frame_adapter": (-28.0, 1180.0, 425.26820827052),
     "02_lower_left": (-133.3, 992.0, 510.0),
-    "03_lower_right": (-18.0, 992.0, 510.0),
+    "03_lower_right": (0.5, 992.0, 510.0),
     "04_top_keeper": (-45.0, 1132.0, 510.0),
+    "05_spine": (-20.0, 1058.0, 490.0),
 }
 # The print STL of the frame adapter is (x, z, height - y) of its part frame.
 ADAPTER_HEIGHT = 161.0

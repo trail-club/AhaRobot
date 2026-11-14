@@ -31,7 +31,8 @@ set(DISPLAY_MOUNT_PARTS
   ${DISPLAY_MOUNT_DIR}/01_frame_adapter.stl
   ${DISPLAY_MOUNT_DIR}/02_lower_left.stl
   ${DISPLAY_MOUNT_DIR}/03_lower_right.stl
-  ${DISPLAY_MOUNT_DIR}/04_top_keeper.stl)
+  ${DISPLAY_MOUNT_DIR}/04_top_keeper.stl
+  ${DISPLAY_MOUNT_DIR}/05_spine.stl)
 set(DISPLAY_MOUNT_MESH ${CMAKE_CURRENT_BINARY_DIR}/meshes/display_mount.stl)
 add_custom_command(
   OUTPUT ${DISPLAY_MOUNT_MESH}
