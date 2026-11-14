@@ -15,6 +15,7 @@
 
 `controller_manager` の更新周期は100 Hz。odom frameは `odom`、base frameは `base_footprint`。
 ロボットのlink / joint定義は [URDF](../overlay_ws/src/aha_description/urdf/aha_robot.urdf.xacro)を参照。
+タッチディスプレイの位置は `base_link` → `display_link`（固定joint、ケース前面の中央、x が画面の外向き）。
 `/clock` はGazeboからROSへbridgeする。
 
 ## シミュレーションの入出力

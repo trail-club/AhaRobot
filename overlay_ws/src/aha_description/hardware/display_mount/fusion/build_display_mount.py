@@ -216,17 +216,6 @@ def make_top(root):
     return p
 
 
-def view(app, eye, target, name):
-    cam = app.activeViewport.camera
-    cam.cameraType = core.CameraTypes.OrthographicCameraType
-    cam.eye = point(*eye)
-    cam.target = point(*target)
-    cam.upVector = core.Vector3D.create(0, 1, 0)
-    cam.isFitView = True
-    app.activeViewport.camera = cam
-    app.activeViewport.saveAsImageFile(str(OUT / name), 1500, 1200)
-
-
 def run(context):
     OUT.mkdir(parents=True, exist_ok=True)
     app = core.Application.get()
@@ -387,14 +376,6 @@ def run(context):
     assert em.execute(
         em.createSTEPExportOptions(str(OUT / "display_mount_assembly.step"))
     )
-
-    (OUT / "validation.json").write_text(json.dumps(report, indent=2) + "\n")
-    active.occ.isLightBulbOn = False
-    case.occ.isLightBulbOn = False
-    view(app, (550, 1400, 950), (0, 1170, 510), "mount_rear.png")
-    case.occ.isLightBulbOn = True
-    active.occ.isLightBulbOn = True
-    view(app, (550, 1400, 1100), (0, 1170, 510), "mount_front.png")
     assert em.execute(
         em.createFusionArchiveExportOptions(str(OUT / "display_mount_assembly.f3d"))
     )

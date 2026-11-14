@@ -44,7 +44,8 @@ workspaceで `rosdep install --from-paths src --ignore-src -r -y` を実行す�
   軌道の始点と実際の位置の差（最大 `limit_tolerance`）は、軌道のcontrollerが実行の始めに詰める。
 - SRDFの登録姿勢は `ready`（腕を伸ばす）、`standby`（腕を畳み、手先を前へ水平、昇降0.2 m）、
   `carry`（同じく畳んだまま昇降0.5 m）。
-- SRDFは上流Astraの衝突除外とAhaのベース・頭部の隣接リンクを記述する。
+- SRDFは上流Astraの衝突除外とAhaのベース・頭部・ディスプレイの隣接リンクを記述する。
+  ディスプレイ（`display_link`）と腕・頭の衝突は判定する。
   外部物体の衝突形状は利用側がplanning sceneに追加する。標準worldの机等は自動登録しない。
 
 ## RViz操作画面
