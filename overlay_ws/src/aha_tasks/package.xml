@@ -26,6 +26,9 @@
   <exec_depend>gz_msgs_vendor</exec_depend>
   <exec_depend>gz_transport_vendor</exec_depend>
   <exec_depend>tmc_wrs_gz_worlds</exec_depend>
+  <!-- task.launch.py people_scene:=... (posed people) -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>python3-pytest</test_depend>
   <export><build_type>ament_cmake</build_type></export>

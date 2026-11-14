@@ -16,6 +16,8 @@ dependencies = [
     "regex",
     "iopath>=0.1.10,<0.2",
     "huggingface-hub>=0.34,<2",
+    # ViTPose body keypoints for aha_perception person_worker.
+    "transformers>=5.21,<5.22",
     "tqdm",
     "typing-extensions",
 ]

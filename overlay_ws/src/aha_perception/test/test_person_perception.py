@@ -12,7 +12,7 @@ import time
 import unittest
 
 from aha_msgs.msg import PersonArray
-from aha_msgs.srv import DescribePerson, RememberPerson
+from aha_msgs.srv import ClassifyPerson, DescribePerson, RememberPerson
 from geometry_msgs.msg import TransformStamped
 import numpy as np
 import rclpy
@@ -84,6 +84,9 @@ class PersonPerceptionTest(unittest.TestCase):
         )
         cls.describe = cls.node.create_client(
             DescribePerson, "/aha/perception/describe_person"
+        )
+        cls.classify = cls.node.create_client(
+            ClassifyPerson, "/aha/perception/classify_person"
         )
         transform = TransformStamped()
         transform.header.frame_id = "map"
@@ -192,6 +195,21 @@ class PersonPerceptionTest(unittest.TestCase):
         self.assertTrue(reply.success, reply.message)
         self.assertEqual(list(reply.features), ["red shirt"])
         missing = self.call(self.describe, DescribePerson.Request(id=999))
+        self.assertFalse(missing.success)
+
+        # Keypoints from the fake ViTPose; the VLM names the clothing.
+        self.assertEqual(len(red.keypoints), 17)
+        self.assertTrue(all(score > 0 for score in red.keypoint_scores))
+        reply = self.call(self.classify, ClassifyPerson.Request(id=red.id))
+        self.assertTrue(reply.success, reply.message)
+        self.assertEqual(list(reply.garments), ["red t shirt"])
+        self.assertIn(reply.posture, ("standing", "sitting", "lying"))
+        quick = self.call(
+            self.classify, ClassifyPerson.Request(id=blue.id, skip_vlm=True)
+        )
+        self.assertTrue(quick.success, quick.message)
+        self.assertEqual(list(quick.garments), [])
+        missing = self.call(self.classify, ClassifyPerson.Request(id=999))
         self.assertFalse(missing.success)
 
         # Out of view until the tracks are dropped, then back with seats swapped:

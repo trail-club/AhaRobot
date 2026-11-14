@@ -13,6 +13,12 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.people import (  # noqa: E402
+    MAX_JUDGEMENTS,
+    SERVER_MARGIN,
+    SKIP_VLM_TIMEOUT,
+    Cancelled,
+    CountPeople,
+    FindDescribedPerson,
     FindPerson,
     LocateGuests,
     MemorizePerson,
@@ -61,8 +67,9 @@ class FakePeople(People):
     """People without ROS: a settable latest message and recorded calls."""
 
     now = staticmethod(time.monotonic)
+    look_settle = 0.0
 
-    def __init__(self, message=None, features=("glasses",)):
+    def __init__(self, message=None, features=("glasses",), attributes=None):
         self.lock = threading.Lock()
         self.message, self.received = message, time.monotonic()
         self.looked = []
@@ -76,13 +83,29 @@ class FakePeople(People):
                 success=True, message="", features=list(features)
             ),
         )
+        # id -> {"rules": (posture, gesture), "vlm": (posture, gesture, garments)}
+        self.attributes_by_id = attributes or {}
+        self.classify = FakeClient("classify", self._classify)
         service = SimpleNamespace(Request=lambda **kw: SimpleNamespace(**kw))
-        self.RememberPerson = self.DescribePerson = service
+        self.RememberPerson = self.DescribePerson = self.ClassifyPerson = service
+
+    def _classify(self, request):
+        known = self.attributes_by_id.get(request.id)
+        if known is None:
+            return SimpleNamespace(success=False, message="not tracked")
+        if request.skip_vlm:
+            posture, gesture = known.get("rules", ("", ""))
+            garments = []
+        else:
+            posture, gesture, garments = known["vlm"]
+        return SimpleNamespace(
+            success=True, posture=posture, gesture=gesture, garments=list(garments)
+        )
 
     def look_at(self, frame, point):
         self.looked.append((frame, point))
 
-    def look_towards(self, pan):
+    def look_towards(self, pan, height=1.2):
         self.panned.append(pan)
 
 
@@ -456,6 +479,347 @@ class LocateGuestsTests(unittest.TestCase):
         for guests in ([], ["a", "a"], [""], "guest1"):
             with self.assertRaises(ValueError):
                 LocateGuests.validate({"guests": guests}, spec)
+
+
+def classified(people):
+    return [(r.id, r.skip_vlm) for r in people.classify.requests]
+
+
+class FindDescribedPersonTests(unittest.TestCase):
+    def test_looks_at_each_person_before_judging_them(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                2: {"rules": ("standing", "waving")},
+            },
+        )
+        people.look_settle = 0.05
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person"})
+        )
+        self.assertTrue(result.success, result.message)
+        heads = [(p.x, p.y) for _, p in people.looked]
+        # Each candidate twice (again where its head is seen then), then the one found.
+        self.assertEqual(heads, [(1.0, 0.0)] * 2 + [(2.0, 0.0)] * 3)
+
+    def test_finds_the_waving_person_asking_the_vlm_only_when_unclear(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none"), "vlm": ("standing", "none", [])},
+                2: {
+                    "rules": ("standing", ""),
+                    "vlm": ("standing", "waving", ["red t shirt"]),
+                },
+            },
+        )
+        navigation = FakeNavigation()
+        result = FindDescribedPerson(runtime(people, navigation)).execute(
+            context({"gesture": "waving person", "location": "entrance"})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(result.outputs["person.gesture"], "waving")
+        self.assertEqual(result.outputs["person.garments"], ["red t shirt"])
+        self.assertEqual(classified(people), [(1, True), (2, True), (2, False)])
+        self.assertEqual(navigation.goals, [[1.0, 0.0, 0.0]])
+        self.assertEqual(people.panned[0], 0.0)
+
+    def test_clothing_needs_the_vlm_and_people_outside_the_area_are_skipped(self):
+        people = FakePeople(
+            people_message(person(1, 5.0, 0.0), person(2, 1.0, 1.0)),
+            attributes={
+                1: {"vlm": ("standing", "none", ["blue jacket"])},
+                2: {"vlm": ("sitting", "none", ["black coat", "blue jacket"])},
+            },
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context(
+                {
+                    "clothing": "person wearing a blue jacket",
+                    "role": "target",
+                    "radius": 2.0,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["target.track"], 2)
+        self.assertEqual(result.outputs["target.pose"], "sitting")
+        self.assertEqual(classified(people), [(2, True), (2, False)])
+
+    def test_without_approach_the_robot_only_looks(self):
+        people = FakePeople(
+            people_message(person(1, 2.0, 0.0)),
+            attributes={1: {"rules": ("lying", "none")}},
+        )
+        navigation = FakeNavigation()
+        result = FindDescribedPerson(runtime(people, navigation)).execute(
+            context({"pose": "lying person", "approach": False})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(navigation.goals, [])
+        self.assertNotIn("robot.location", result.outputs)
+
+    def test_nobody_fits(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("sitting", "none"), "vlm": ("sitting", "none", [])}
+            },
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"pose": "lying person", "timeout": 0.3})
+        )
+        self.assertFalse(result.success)
+        self.assertIn("lying", result.message)
+        self.assertEqual(classified(people), [(1, True)])  # checked once
+
+    def test_a_new_track_where_someone_was_judged_is_not_judged_again(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                7: {"rules": ("standing", "none")},
+            },
+        )
+
+        def track_renumbered():
+            time.sleep(0.2)
+            people._on_people(people_message(person(7, 1.1, 0.1)))
+
+        thread = threading.Thread(target=track_renumbered)
+        thread.start()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.6})
+        )
+        thread.join()
+        self.assertFalse(result.success)
+        self.assertEqual(classified(people), [(1, True)])
+
+    def test_name_matches_remembered_people_without_classifying(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0, "Jules"))
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"name": "Jules"})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(people.classify.requests, [])
+
+    def test_params_are_validated(self):
+        spec = SimpleNamespace(locations={"office": [0.0, 0.0, 0.0]})
+        FindDescribedPerson.validate(
+            {"gesture": "waving person", "location": "office", "pans": [0.0, 0.5]},
+            spec,
+        )
+        for params in (
+            {},
+            {"location": "office"},
+            {"gesture": "dancing person"},
+            {"gesture": "waving person", "location": "garage"},
+            {"gesture": "waving person", "pans": []},
+            {"gesture": "waving person", "radius": 0},
+            {"gesture": "waving person", "x": 1},
+            {"gesture": "waving person", "approach": "no"},
+        ):
+            with self.assertRaises(ValueError):
+                FindDescribedPerson.validate(params, spec)
+
+
+class FailureTests(unittest.TestCase):
+    """One person who cannot be judged must not stop or fail the search."""
+
+    def test_a_failing_classification_skips_only_that_person(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={2: {"rules": ("standing", "waving")}},
+        )
+        answer = people.classify.answer
+
+        def flaky(request):
+            if request.id == 1:
+                raise TimeoutError("classify_person did not answer")
+            return answer(request)
+
+        people.classify.answer = flaky
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person"})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+
+    def test_the_client_waits_longer_than_the_server(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])}
+            },
+        )
+        timeouts = []
+        call = people.call
+
+        def spy(client, request, timeout, cancelled):
+            timeouts.append(timeout)
+            return call(client, request, timeout, cancelled)
+
+        people.call = spy
+        FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "describe_timeout": 180.0})
+        )
+        self.assertEqual(timeouts[0], SKIP_VLM_TIMEOUT)
+        self.assertEqual(timeouts[1], 180.0 + SERVER_MARGIN)
+
+    def test_an_abort_is_reported_as_cancelled(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={1: {"rules": ("standing", "none")}},
+        )
+        ctx = context({"gesture": "waving person", "timeout": 5.0})
+        answer = people.classify.answer
+
+        def abort(request):
+            ctx.cancelled.set()
+            raise Cancelled("Cancelled")
+
+        people.classify.answer = abort
+        result = FindDescribedPerson(runtime(people)).execute(ctx)
+        self.assertEqual((result.success, result.message), (False, "Cancelled"))
+        people.classify.answer = answer
+        ctx = context({"output": "n", "gesture": "waving persons", "pans": [0.0]})
+        people.classify.answer = abort
+        result = CountPeople(runtime(people)).execute(ctx)
+        self.assertEqual((result.success, result.message), (False, "Cancelled"))
+
+    def test_slow_judgements_still_end_near_the_timeout(self):
+        people = FakePeople(
+            people_message(*(person(i, 1.0 + i, 0.0) for i in range(1, 6))),
+            attributes={i: {"rules": ("standing", "none")} for i in range(1, 6)},
+        )
+        answer = people.classify.answer
+
+        def slow(request):
+            time.sleep(0.3)
+            return answer(request)
+
+        people.classify.answer = slow
+        started = time.monotonic()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        # One person per check of the deadline: not all five (1.5 s).
+        self.assertLess(time.monotonic() - started, 1.2)
+
+    def test_a_name_given_after_the_track_started_is_still_found(self):
+        people = FakePeople(people_message(person(5, 1.0, 0.0)))
+
+        def named_later():
+            time.sleep(0.3)
+            people._on_people(people_message(person(5, 1.0, 0.0, "Jules")))
+
+        thread = threading.Thread(target=named_later)
+        thread.start()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"name": "Jules", "timeout": 3.0})
+        )
+        thread.join()
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 5)
+
+
+class CountPeopleTests(unittest.TestCase):
+    def test_undecided_and_lost_people_do_not_stop_the_count(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                # The VLM saw no upper body: the clothing stays unknown.
+                1: {"vlm": ("standing", "none", [])},
+                # 2: the track is gone before it can be judged.
+            },
+        )
+        started = time.monotonic()
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "clothing": "people wearing red t shirts",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                    "timeout": 10.0,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual(result.outputs["n"], 0)
+        self.assertIn("2 could not be checked", result.message)
+        requests = [r.id for r in people.classify.requests]
+        self.assertEqual(requests.count(1), 2)  # rules, then the VLM, once
+        self.assertEqual(requests.count(2), MAX_JUDGEMENTS)  # lost: retried once
+
+    def test_counts_matching_people_once_each(self):
+        people = FakePeople(
+            people_message(
+                person(1, 1.0, 0.0),
+                person(4, 1.2, 0.1),  # the same person seen twice
+                person(2, 2.0, 0.0),
+                person(3, 0.0, 2.0),
+                person(5, 9.0, 0.0),  # outside the area
+            ),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])},
+                2: {"rules": ("standing", "none")},
+                3: {"rules": ("standing", "raising_left_arm")},
+                5: {"rules": ("standing", "waving")},
+            },
+        )
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "cmd1.count",
+                    "gesture": "waving persons",
+                    "pans": [0.0, 0.4],
+                    "dwell": 0.05,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["cmd1.count"], 1)
+        # The last sighting of the person.
+        self.assertEqual(result.outputs["cmd1.count.positions"], [[1.2, 0.1, 1.0]])
+        # After judging people the head looks the same way again, then moves on
+        # and ends straight.
+        self.assertEqual(people.panned[:2], [0.0, 0.0])
+        order = [
+            pan
+            for i, pan in enumerate(people.panned)
+            if i == 0 or people.panned[i - 1] != pan
+        ]
+        self.assertEqual(order, [0.0, 0.4, 0.0])
+        self.assertNotIn(4, [r.id for r in people.classify.requests])
+        self.assertNotIn(5, [r.id for r in people.classify.requests])
+
+    def test_counts_everyone_without_a_description(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0), frame="camera")
+        )
+        result = CountPeople(runtime(people)).execute(
+            context({"output": "n", "pans": [0.0], "dwell": 0.05})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["n"], 2)
+        self.assertEqual(people.classify.requests, [])
+
+    def test_params_are_validated(self):
+        spec = SimpleNamespace(locations={})
+        CountPeople.validate(
+            {"output": "n", "clothing": "people wearing red coats"}, spec
+        )
+        for params in ({}, {"output": ""}, {"output": "n", "pose": "jumping person"}):
+            with self.assertRaises(ValueError):
+                CountPeople.validate(params, spec)
 
 
 if __name__ == "__main__":

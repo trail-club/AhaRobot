@@ -10,17 +10,24 @@ by `max_rate`.
 Remembered people are crops by name. A second thread asks the DGX VLM whether
 a visible unnamed track is one of the remembered people no track holds, one
 track at a time; detection continues meanwhile.
+
+With ViTPose on the DGX, each person also has 17 body keypoints, lifted to 3D
+with the depth. Posture and gesture follow from them (person_attributes);
+ClassifyPerson adds the VLM for unclear cases and for the clothing.
 """
 
+import json
+from pathlib import Path
 import shlex
 import threading
 import time
 
 from aha_msgs.msg import Person, PersonArray
-from aha_msgs.srv import DescribePerson, RememberPerson
+from aha_msgs.srv import ClassifyPerson, DescribePerson, RememberPerson
 from geometry_msgs.msg import Point
 import message_filters
 import numpy as np
+from PIL import Image as PilImage
 import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
@@ -45,11 +52,24 @@ from aha_perception.people import (
     measure_people,
     rotation_matrix,
 )
+from aha_perception.person_attributes import (
+    Sample,
+    classify_gesture,
+    classify_posture,
+    decide,
+    decide_gesture,
+    keypoints_in_mask,
+    lift_keypoints,
+    wait_for_motion,
+)
 
 PEOPLE_TOPIC = "/aha/perception/people"
 MARKERS_TOPIC = "/aha/perception/people/markers"
 REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
+CLASSIFY_SERVICE = "/aha/perception/classify_person"
+# Wall seconds ClassifyPerson waits at most for motion, whatever the image time.
+MOTION_WAIT_WALL = 20.0
 
 
 def image_array(msg):
@@ -71,6 +91,18 @@ def image_array(msg):
 
 def stamp_seconds(stamp):
     return stamp.sec + stamp.nanosec * 1e-9
+
+
+def describe(label):
+    """A rule Label for the service message."""
+    if label is None:
+        return "?"
+    sure = "" if label.confident else "unsure, "
+    return f"{label.value} ({sure}{label.reason})"
+
+
+def stamps_name(crops):
+    return f"{crops[-1][0]:.2f}".replace(".", "_")
 
 
 def point(vector):
@@ -104,7 +136,16 @@ class PersonPerception(Node):
             prompt=p("prompt", defaults.prompt).value,
             vlm_url=p("vlm_url", defaults.vlm_url).value,
             vlm_model=p("vlm_model", defaults.vlm_model).value,
+            pose_model=p("pose_model", defaults.pose_model).value,
         )
+        # Posture and gesture rules need target_frame with z up and the floor
+        # at this height (map / odom); the camera frame gives no labels.
+        self.floor_z = p("floor_z", 0.0).value
+        # Image seconds ClassifyPerson (with the VLM) waits for motion when a
+        # raised hand is seen but it cannot yet tell waving from a still hand.
+        self.motion_wait = p("motion_wait", 3.0).value
+        # Non-empty: save the crops of each VLM attribute question there.
+        self.debug_dir = p("debug_dir", "").value
         # Tests: a local argv that speaks the worker protocol instead of SSH.
         self.worker_command = shlex.split(p("worker_command", "").value)
         self.tracker = PersonTracker(
@@ -133,6 +174,9 @@ class PersonPerception(Node):
         )
         self.create_service(
             DescribePerson, DESCRIBE_SERVICE, self.on_describe, callback_group=group
+        )
+        self.create_service(
+            ClassifyPerson, CLASSIFY_SERVICE, self.on_classify, callback_group=group
         )
         # Best effort loses most fragmented 640x480 images from the reliable
         # simulation bridge and rosbridge; a best-effort camera needs false.
@@ -190,7 +234,8 @@ class PersonPerception(Node):
             info = self.worker.start(self.startup_timeout)
             self.get_logger().info(
                 f"DGX person worker ready (prompt {info.get('prompt')!r}, "
-                f"VLM {'on' if info.get('vlm') else 'off'}); "
+                f"VLM {'on' if info.get('vlm') else 'off'}, "
+                f"keypoints {'on' if info.get('keypoints') else 'off'}); "
                 f"publishing {PEOPLE_TOPIC} in frame {self.target_frame or 'camera'}"
             )
             next_time = 0.0
@@ -252,6 +297,13 @@ class PersonPerception(Node):
                 cy,
                 rotation=rotation if self.target_frame else None,
             ):
+                keypoints = scores = None
+                image_points = keypoints_in_mask(person.get("keypoints", []), mask)
+                if image_points is not None:
+                    optical, scores = lift_keypoints(
+                        image_points, mask, depth, fx, fy, cx, cy
+                    )
+                    keypoints = optical @ rotation.T + translation
                 detections.append(
                     Detection(
                         centre=rotation @ measured.centre + translation,
@@ -259,6 +311,9 @@ class PersonPerception(Node):
                         score=person["score"],
                         bbox=bbox_of(mask),
                         crop=describe_crop(rgb, mask),
+                        keypoints=keypoints,
+                        keypoint_scores=scores,
+                        camera=translation,
                     )
                 )
         with self.lock:
@@ -309,6 +364,7 @@ class PersonPerception(Node):
         message.header.frame_id = frame
         markers = MarkerArray(markers=[Marker(action=Marker.DELETEALL)])
         for track in sorted(self.tracker.tracks.values(), key=lambda t: t.id):
+            posture, gesture = self.rule_labels(track)
             person = Person(
                 id=track.id,
                 name=track.name,
@@ -318,7 +374,12 @@ class PersonPerception(Node):
                 visible=track.id in seen,
                 bbox=[int(v) for v in track.bbox],
                 last_seen=Time(seconds=track.last_seen).to_msg(),
+                posture=posture.value if posture and posture.confident else "",
+                gesture=gesture.value if gesture and gesture.confident else "",
             )
+            if track.keypoints is not None:
+                person.keypoints = [point(k) for k in track.keypoints]
+                person.keypoint_scores = [float(s) for s in track.keypoint_scores]
             message.people.append(person)
             markers.markers.extend(self.track_markers(track, person.visible))
         for marker in markers.markers:
@@ -347,6 +408,29 @@ class PersonPerception(Node):
         label.color.r = label.color.g = label.color.b = label.color.a = 1.0
         label.text = f"{track.id} {track.name}".strip()
         return [body, head, label]
+
+    # -- Posture and gesture -----------------------------------------------------
+
+    def rule_labels(self, track):
+        """(posture, gesture) Labels from depth and keypoints, or None each."""
+        if not self.target_frame:
+            return None, None
+        floor = np.array([0.0, 0.0, self.floor_z])
+        history = [
+            Sample(
+                stamp,
+                points - floor,
+                scores,
+                None if camera is None else camera - floor,
+            )
+            for stamp, points, scores, camera in track.history
+        ]
+        latest = (
+            history[-1] if history and history[-1].stamp == track.last_seen else None
+        )
+        posture = classify_posture(latest, float(track.head[2]) - self.floor_z)
+        gesture = classify_gesture(history) if latest is not None else None
+        return posture, gesture
 
     # -- Services --------------------------------------------------------------
 
@@ -390,6 +474,92 @@ class PersonPerception(Node):
             f"{len(reply['features'])} feature(s) in {reply['seconds']:.1f} s"
         )
         return response
+
+    def on_classify(self, request, response):
+        # With the VLM, wait up to motion_wait s of image time (a low real-time
+        # factor slows it) for the motion that tells waving from a still raised
+        # hand; MOTION_WAIT_WALL bounds it in wall seconds. skip_vlm answers at
+        # once.
+        wall_deadline = time.monotonic() + MOTION_WAIT_WALL
+        start = None
+        while True:
+            with self.lock:
+                track = self.tracker.tracks.get(request.id)
+                if track is None:
+                    response.message = f"person {request.id} is not tracked"
+                    return response
+                posture, gesture = self.rule_labels(track)
+                crops = list(track.recent_crops)
+                image_time = self.tracker.stamp
+            start = image_time if start is None else start
+            if (
+                not wait_for_motion(
+                    request.skip_vlm, gesture, image_time - start, self.motion_wait
+                )
+                or time.monotonic() >= wall_deadline
+                or self.stopping.is_set()
+            ):
+                break
+            time.sleep(0.2)
+        notes = [f"rules: posture {describe(posture)}, gesture {describe(gesture)}"]
+        answer = {}
+        if not request.skip_vlm:
+            try:
+                answer = self.ask_attributes(request.id, crops)
+                notes.append(
+                    f"VLM: posture {answer['posture'] or '?'}, gesture "
+                    f"{answer['gesture'] or '?'} in {answer['seconds']:.1f} s"
+                )
+            except (TimeoutError, WorkerError, RuntimeError) as exc:
+                notes.append(f"VLM failed: {exc}")
+        if request.skip_vlm:
+            # Only clear answers, so that an empty one tells the caller to ask
+            # again with the VLM.
+            posture = posture if posture is not None and posture.confident else None
+            gesture = gesture if gesture is not None and gesture.confident else None
+        response.posture, response.posture_source = decide(
+            posture, answer.get("posture"), "geometry"
+        )
+        response.gesture, response.gesture_source = decide_gesture(
+            gesture, answer.get("gesture")
+        )
+        response.garments = list(answer.get("garments") or [])
+        response.success = True
+        response.message = "; ".join(notes)
+        return response
+
+    def ask_attributes(self, track_id, crops):
+        if not crops:
+            raise RuntimeError("no image of the person yet")
+        worker = self.worker
+        if worker is None or not worker.ready.is_set() or not worker.info.get("vlm"):
+            raise RuntimeError("the DGX worker or its VLM is not ready")
+        stamps = [stamp for stamp, _ in crops]
+        interval = (
+            (stamps[-1] - stamps[0]) / (len(stamps) - 1) if len(stamps) > 1 else 0.0
+        )
+        answer = worker.request(
+            {
+                "type": "attributes",
+                "images": [encode_image(crop) for _, crop in crops],
+                "interval": interval,
+            },
+            self.vlm_timeout,
+        )
+        if self.debug_dir:
+            self.save_debug(track_id, crops, answer)
+        return answer
+
+    def save_debug(self, track_id, crops, answer):
+        folder = Path(self.debug_dir)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            name = f"{stamps_name(crops)}_person{track_id}"
+            for i, (_, crop) in enumerate(crops, 1):
+                PilImage.fromarray(crop).save(folder / f"{name}_{i}.png")
+            (folder / f"{name}.json").write_text(json.dumps(answer), encoding="utf-8")
+        except OSError as exc:
+            self.get_logger().warning(f"Cannot save debug images: {exc}")
 
     # -- Names ------------------------------------------------------------------
 

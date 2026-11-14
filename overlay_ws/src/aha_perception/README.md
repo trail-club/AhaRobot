@@ -381,8 +381,39 @@ ros2 launch aha_perception people.launch.py ssh_user:=<Unixユーザー名>
 
 DGXへのSSH接続の準備は [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md#準備)と同じ。
 起動時にDGXでイメージを作ってコンテナを起動し（初回は数分）、Ctrl-Cで削除する。
+ViTPoseの重みは初回の起動時にHugging FaceからDGXのキャッシュ（`~/.cache/aharobot-sam31/huggingface`）へ取得する。
 Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/macos/pointcloud/README.md)）はMacのssh-agentを使うため、Mac側で `ssh-add -l` に鍵が出ることを確認する。
-シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する。人のモデルは [シミュレーションの客](../aha_tasks/README.md#シミュレーションの客)（`guests:=true`）が置く。
+シミュレーションのタスクからは [aha_tasks](../aha_tasks/README.md) の `people:=true` で起動する。人のモデルは [シミュレーションの客](../aha_tasks/README.md#シミュレーションの客)（`guests:=true`）と[姿勢を付けた人](../aha_tasks/README.md#姿勢を付けた人)（`people_scene:=`）が置く。
+
+### 姿勢・ジェスチャ・服
+
+DGXのworkerは、SAM 3.1の各人（マスクを空の列で分けた部分ごと）にViTPose（`pose_model`、既定 `usyd-community/vitpose-base-simple`）でCOCOの17点の体のキーポイントを付ける。
+SAM 3.1は挙げた細い前腕をマスクに含めないことがあるため、ViTPoseにはマスクの枠を上と左右へ枠の高さの25%ずつ広げて渡す。
+ロボット側は各点の周りのDepthで3Dにして `target_frame` へ変換し、`Person.keypoints` で配信する。
+規則は `target_frame` のz軸が上で、床の高さが `floor_z`（既定0 m）であることを前提とする（`map` / `odom`）。`target_frame` が空（カメラの座標系）なら姿勢・ジェスチャを判定しない。
+判定は [person_attributes.py](aha_perception/person_attributes.py) にある。
+
+| 項目 | 規則（キーポイントとDepth） | VLM（Qwen3.8） |
+| --- | --- | --- |
+| 姿勢 | 胴（肩と腰の中点を結ぶ線）が鉛直から60°超なら寝る。胴が40°未満なら、太ももが55°超で座る、30°未満で立つ。膝が見えなければ腰の高さ（0.7 m未満で座る、0.78 m超で立つ）、キーポイントがなければ頭の高さで判定する | 規則で決まらない場合に答える |
+| ジェスチャ | 胴が直立している人だけを判定する。手首が肩より0.15 m以上高ければ腕を挙げる（左右は本人の側、両方なら `raising_both_arms`）。手首が肩の高さ±0.25 m以内で、肩から水平に0.42 m以上、肩の中点から本人の左右へ0.25 m以上離れていれば指す。前腕が上を向き（手首が肘より0.08 m以上高い）、手首が直近3 sに肘の周りでカメラから見て左右に0.1 m以上動けば振る（手ごとに測る） | 規則で決まらない場合に答える。動きを見るため、直近の切り出しを0.4 s以上の間隔で最大3枚渡す |
+| 服 | なし | 上半身の服を外側から順に、種類と色で答える。種類はGPSRの `t shirt` / `shirt` / `blouse` / `sweater` / `coat` / `jacket`（ほかは `top`）、色はGPSRの7色に `green` / `purple` / `pink` / `brown` / `beige` を加えた12色 |
+
+手を挙げたままの人と手を振る人は、動きでしか区別できない。`raising_*` は、1.5 s以上の範囲で4枚以上のキーポイントを見て動きがない場合にだけ「確か」とする。
+振る以外のジェスチャは直近1.5 sの画像ごとの判定の多数決で決め、6割以上が一致すれば「確か」とする（1枚だけ左右のラベルが入れ替わっても変わらない）。画像の端から8 px以内のキーポイントは、切れた手足の推測として使わない。
+寝る人は、頭頂が床から0.8 m以下で胴が直立していなければ（キーポイントがなくても）「確か」とする。床に座っても頭頂はこれより高い。
+`Person.posture` / `gesture` には確かな規則の結果だけを入れる。
+`ClassifyPerson` は確かな規則の結果を優先し、それ以外はVLM、VLMも答えなければ不確かな規則の結果を返す。`skip_vlm` では確かな規則の結果だけを返す。
+腕が挙がっているのに動きが分からない場合は、VLMに聞く前に、画像の時刻で `motion_wait`（既定3 s）まで動きの判定を待つ（実時間では最大20 s。`skip_vlm` では待たない）。それでも決まらなければ、VLMには振っているかどうかだけを決めさせ、どちらの腕かはキーポイントに従う（VLMは本人の左右を取り違えやすい）。
+左右は本人の左右。ViTPoseは体全体の左右のラベルを取り違えることがある。顔（鼻と両目）がはっきり見える人は左側がカメラの右に来るはずなので、逆なら画像ごとに左右を入れ替える。顔が見えない場合（背を向けた人、頭が画像の外）は入れ替えないため、背を向けた人では左右を誤ることがある。
+`debug_dir` を指定すると、VLMに渡した切り出しと回答をそこへ保存する。
+
+シミュレーションでの確認には `person_attributes_report.py` を使う。追跡中の人を2 s見てから1人ずつ `ClassifyPerson` にかけ、`--truth` に[姿勢を付けた人](../aha_tasks/README.md#姿勢を付けた人)の配置を渡すと、正解と比べた表を終了時（Ctrl-Cか `--duration`）に出す。
+
+```bash
+ros2 run aha_perception person_attributes_report.py \
+  --truth "$(ros2 pkg prefix --share aha_tasks)/config/sim/people/attributes.json" --output report.json
+```
 
 ## テスト
 
@@ -390,9 +421,10 @@ Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/
 
 ```bash
 cd overlay_ws/src/aha_perception
-uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pytest \
+uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pillow --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
-  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py
+  test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py \
+  test/test_person_attributes.py
 ```
 
 `test/test_plane_detection_node.py`（ノードのメッセージ変換）と `test/test_plane_detection_service.py`（置き場所のserviceの分岐）はrclpyとROSのメッセージが必要で、colconでだけ実行する。

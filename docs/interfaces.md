@@ -320,11 +320,15 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | 人の表示 | `/aha/perception/people/markers` | `visualization_msgs/msg/MarkerArray` |
 | 外見を名前で覚える | `/aha/perception/remember_person` | `aha_msgs/srv/RememberPerson` |
 | 外見の特徴（VLM） | `/aha/perception/describe_person` | `aha_msgs/srv/DescribePerson` |
+| 姿勢・ジェスチャ・服 | `/aha/perception/classify_person` | `aha_msgs/srv/ClassifyPerson` |
 
 `PersonArray` は処理した画像ごとに、追跡中の全員を配信する。`header.frame_id` は `target_frame`（既定 `map`）、`header.stamp` は画像の時刻。
 各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
 `id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+`keypoints` / `keypoint_scores` は最後に写った画像のCOCOの17点（順序は `Person.msg`）で、スコア0の点は見えていない。キーポイントを使わない設定では空。
+`posture` / `gesture` は、キーポイントとDepthの規則で確かな場合だけ入る（[判定](../overlay_ws/src/aha_perception/README.md#姿勢ジェスチャ服)）。左右は本人の左右。
+`ClassifyPerson` はVLMにも聞き、服を `"<色> <種類>"`（例 `red t shirt`）で返す。`skip_vlm` では確かな規則の結果だけをすぐ返す。
 
 ## 音声
 
@@ -374,8 +378,8 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand` の型定義がある。
+`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

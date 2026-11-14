@@ -66,6 +66,18 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 
 重みはリポジトリ・Dockerイメージに含めない。DGX上で構築するイメージには `upstream/sam3` のコードを含めるが、配布しない。
 
+## 人のキーポイントとシミュレーションの人
+
+[人の認識](../overlay_ws/src/aha_perception/README.md#姿勢ジェスチャ服)と[姿勢を付けた人](../overlay_ws/src/aha_tasks/README.md#姿勢を付けた人)が使う。
+
+| 資源 | 確認した記載 | 参照元 |
+| --- | --- | --- |
+| [usyd-community/vitpose-base-simple](https://huggingface.co/usyd-community/vitpose-base-simple)（ViTPoseの重み） | Apache-2.0（Hugging Faceの表示）。revisionは固定せず、DGXのキャッシュへ取得する | モデルカード |
+| [transformers](https://github.com/huggingface/transformers) 5.21.1 | Apache-2.0 | [uv.lock](../tools/perception/macos/sam31/uv.lock) |
+| Gazebo Fuel [Male visitor](https://app.gazebosim.org/OpenRobotics/fuel/models/Male%20visitor) version 2（OpenRobotics） | Creative Commons Zero v1.0 Universal（Fuelの表示） | ファイルのハッシュは [sim_people.py](../overlay_ws/src/aha_tasks/aha_tasks/sim_people.py) で固定 |
+
+重みとFuelのモデルはリポジトリ・Dockerイメージに含めず、実行時にキャッシュへ取得する。
+
 ## 音声モデル
 
 [音声スタック](../overlay_ws/src/aha_perception/docs/audio.md)が使う。使用するrevisionは[台帳](../overlay_ws/src/aha_perception/config/audio/models.yaml)で固定する。

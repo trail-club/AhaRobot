@@ -1,0 +1,19 @@
+# Posture, gesture and upper-body clothing of a tracked person (aha_perception
+# person_perception). Depth and body keypoints decide posture and gesture when
+# they are clear; the VLM answers the rest and names the clothing.
+# Owner: perception squad.
+
+uint32 id
+bool skip_vlm          # true: only clear answers from depth and keypoints (no clothing),
+                       # at once; empty fields then need the VLM
+---
+bool     success
+string   message
+string   posture         # standing / sitting / lying; empty if unknown
+string   gesture         # waving / raising_left_arm / raising_right_arm / raising_both_arms /
+                         # pointing_left / pointing_right / none; empty if unknown.
+                         # Left / right: the person's own.
+string[] garments        # upper-body garments, outermost first, as "<colour> <type>",
+                         # e.g. "black jacket", "white t shirt" (types and colours: README)
+string   posture_source  # geometry / vlm; empty if unknown
+string   gesture_source  # keypoints / vlm; empty if unknown
