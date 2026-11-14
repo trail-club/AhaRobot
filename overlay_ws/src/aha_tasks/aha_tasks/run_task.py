@@ -1,28 +1,34 @@
-"""Start a run on the task_runner, wait until it ends and print where the time went.
+"""Start a run on the task_runner, wait until it stops and print where the time went.
 
 For scripted end-to-end checks: waits until the runner is ready, starts a run
 (selection and failure policy as in the GUI), follows /aha/tasks/status and
 prints each executed subgoal's wall time, including the move that first brings
-the robot to the memory's location, the time per skill and the total. Exits 0
-when the run completed. The summary is computed from the status log without
-ROS (``summarize``), so it can also be applied to a saved status.
+the robot to the memory's location, the time per skill and the total. The run
+stops when it ends, pauses after a failure (policy pause: decide in the GUI)
+or when the runner restarts; exit 0 only when it completed. The decisions and
+the summary are ROS free (``start_run``, ``follow_run``, ``summarize``).
 """
 
 import argparse
 import json
+import math
 from pathlib import Path
 import re
 import sys
 import threading
 import time
 
+from aha_tasks.core.engine import STARTABLE
 from aha_tasks.runner import COMMAND_SERVICE, STATUS_TOPIC
 
-READY = ("idle", "completed", "failed", "aborted")
-ENDED = ("completed", "failed", "aborted", "error")
+# States in which the run waits for nobody: it ended or needs a decision.
+STOPPED = ("completed", "failed", "aborted", "paused", "error")
+CALL_TIMEOUT = 10.0  # s (wall clock) for the runner to answer a command
+APPEAR_TIMEOUT = 10.0  # s (wall clock) for a started run to show in the status
 START = re.compile(r"^Starting (\S+) \(attempt \d+\)$")
 RESULT = re.compile(r"^(SUCCEEDED|FAILED|CANCELLED|SKIPPED|UNSUPPORTED) (\S+?)(?::|$)")
 READY_MESSAGE = "Ready"
+WAITING_MESSAGE = "Waiting for active Nav2"
 
 
 class LogBook:
@@ -96,11 +102,75 @@ def summarize(status, entries):
 
 
 def ready_seconds(entries):
-    """Seconds from the runner's first log entry to "Ready", or None."""
-    times = [e["time"] for e in entries if e["message"] == READY_MESSAGE]
-    if not entries or not times:
-        return None
-    return round(times[0] - entries[0]["time"], 2)
+    """Seconds from the latest "Waiting for active Nav2" to the "Ready" after it."""
+    waiting = ready = None
+    for entry in entries:
+        if entry["message"] == WAITING_MESSAGE:
+            waiting = entry["time"]
+        elif entry["message"] == READY_MESSAGE and waiting is not None:
+            ready, waiting = round(entry["time"] - waiting, 2), None
+    return ready
+
+
+def start_run(call, wait_ready, deadline, now=time.monotonic, pause=time.sleep):
+    """Start a run once a runner is ready; (accepted reply, "") or (None, error).
+
+    wait_ready(timeout) returns the first startable or error status, or None;
+    call(timeout) the reply to the start command, or None when no answer came
+    in time (no service, or the runner exited). Retries until `deadline`.
+    """
+    while (remaining := deadline - now()) > 0:
+        status = wait_ready(remaining)
+        if status is None:
+            break
+        if status["state"] == "error":
+            return None, f"Runner error: {status['message']}"
+        reply = call(min(CALL_TIMEOUT, max(deadline - now(), 0.0)))
+        if reply is not None:
+            if reply.accepted:
+                return reply, ""
+            # A restarted runner answers before it is ready, while the old
+            # runner's status is still the latest one seen.
+            if not reply.message.startswith("Cannot start while"):
+                return None, f"Start rejected: {reply.message}"
+        pause(1.0)
+    return None, "Runner not ready in time"
+
+
+def follow_run(
+    get_status, requested, timeout=None, now=time.monotonic, pause=time.sleep
+):
+    """Follow the statuses of a run started at `requested` (epoch s).
+
+    Returns (outcome, last status of the run or None). The outcome is the
+    stopped state (STOPPED), "restarted" when a status of another runner
+    follows the run's, "lost" when the run never shows, or "timeout".
+    """
+    begin = now()
+    last = None
+    while True:
+        status = get_status()
+        run = (status or {}).get("run") or {}
+        # The runner stamps the run with its clock on this machine.
+        if run.get("started_at", -math.inf) >= requested - 1.0:
+            last = status
+            if status["state"] in STOPPED:
+                return status["state"], last
+        elif last is not None and status is not None:
+            return "restarted", last
+        if last is None and now() - begin > APPEAR_TIMEOUT:
+            return "lost", None
+        if timeout is not None and now() - begin > timeout:
+            return "timeout", last
+        pause(0.2)
+
+
+OUTCOMES = {
+    "paused": "paused after a failure; decide in the GUI (retry, rewind, skip, abort)",
+    "restarted": "the runner restarted during the run",
+    "lost": "the started run did not show in the status",
+    "timeout": "the run did not stop within --timeout",
+}
 
 
 def format_summary(summary):
@@ -190,83 +260,70 @@ def main(argv=None):
         with lock:
             return latest["status"]
 
-    def wait(condition, timeout=None):
-        """The first status that meets `condition` within `timeout` s (None: no limit)."""
-        deadline = float("inf") if timeout is None else time.monotonic() + timeout
-        while time.monotonic() < deadline:
+    def wait_ready(timeout):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
             current = status()
-            if current is not None and condition(current):
+            if current is not None and current["state"] in STARTABLE + ("error",):
                 return current
             time.sleep(0.2)
         return None
 
-    def start(deadline):
-        """Start a run once a runner is ready; the accepted reply or None."""
-        request = TaskCommand.Request(
-            command="start",
-            subgoals=[s for s in args.subgoals.split(",") if s],
-            on_failure=args.on_failure,
-        )
-        while time.monotonic() < deadline:
-            current = wait(
-                lambda s: s["state"] in READY + ("error",),
-                deadline - time.monotonic(),
-            )
-            if current is None or current["state"] == "error":
-                log.error(f"Runner not ready: {current and current['message']}")
+    request = TaskCommand.Request(
+        command="start",
+        subgoals=[s for s in args.subgoals.split(",") if s],
+        on_failure=args.on_failure,
+    )
+
+    def call(timeout):
+        end = time.monotonic() + timeout
+        if not client.wait_for_service(timeout_sec=timeout):
+            return None
+        future = client.call_async(request)
+        while not future.done():
+            if time.monotonic() > end:
+                client.remove_pending_request(future)
                 return None
-            if not client.wait_for_service(timeout_sec=10.0):
-                log.error(f"{COMMAND_SERVICE} is not available")
-                return None
-            future = client.call_async(request)
-            while not future.done():
-                time.sleep(0.05)
-            reply = future.result()
-            if reply.accepted:
-                return reply
-            # A restarted runner answers before it is ready, after the old
-            # runner's status was seen.
-            if not reply.message.startswith("Cannot start while"):
-                log.error(f"Start rejected: {reply.message}")
-                return None
-            time.sleep(1.0)
-        log.error("Runner not ready in time")
-        return None
+            time.sleep(0.05)
+        return future.result()
 
     code = 1
     try:
         requested = time.time()
-        reply = start(time.monotonic() + args.ready_timeout)
+        reply, error = start_run(
+            call, wait_ready, time.monotonic() + args.ready_timeout
+        )
         if reply is None:
+            log.error(error)
             return 1
         with lock:
             seconds = ready_seconds(book.entries)
         if seconds is not None:
-            log.info(f"Runner ready {seconds:.1f} s after it started")
+            log.info(f"Runner ready {seconds:.1f} s after it waited for Nav2")
         log.info(reply.message)
-        # The runner stamps the run with its clock on this machine.
-        final = wait(
-            lambda s: (s.get("run") or {}).get("started_at", 0.0) >= requested - 1.0
-            and s["state"] in ENDED,
-            args.timeout or None,
-        )
-        if final is None:
-            log.error("The run did not end in time")
-            final = status()
-        with lock:
-            entries = list(book.entries)
-        summary = summarize(final, entries)
-        print(format_summary(summary), flush=True)
-        if args.output:
-            args.output.write_text(
-                json.dumps(
-                    {"summary": summary, "status": final, "log": entries},
-                    indent=1,
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-        code = 0 if final["state"] == "completed" else 1
+        outcome, final = follow_run(status, requested, args.timeout or None)
+        if outcome in OUTCOMES:
+            log.error(OUTCOMES[outcome])
+        if final is not None:
+            with lock:
+                entries = list(book.entries)
+            summary = summarize(final, entries)
+            print(format_summary(summary), flush=True)
+            if args.output:
+                args.output.write_text(
+                    json.dumps(
+                        {
+                            "outcome": outcome,
+                            "summary": summary,
+                            "status": final,
+                            "log": entries,
+                        },
+                        indent=1,
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+        code = 0 if outcome == "completed" else 1
     except KeyboardInterrupt:
         pass
     finally:

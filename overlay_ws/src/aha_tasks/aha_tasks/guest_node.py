@@ -27,6 +27,19 @@ MAX_DT = 0.5  # s; the clock may jump when Gazebo restarts
 MOVED = 1e-3  # m or rad; below this a guest keeps its pose in Gazebo
 
 
+def set_pose(gz, world, name, x, y, z, yaw, timeout=REQUEST_TIMEOUT):
+    """Move a Gazebo model (gz-transport Node, world name) to a yawed pose."""
+    from gz.msgs10.boolean_pb2 import Boolean
+    from gz.msgs10.pose_pb2 import Pose
+
+    request = Pose(name=name)
+    request.position.x, request.position.y, request.position.z = x, y, z
+    request.orientation.z = math.sin(yaw / 2.0)
+    request.orientation.w = math.cos(yaw / 2.0)
+    ok, reply = gz.request(f"/world/{world}/set_pose", request, Pose, Boolean, timeout)
+    return ok and reply.data
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -35,7 +48,6 @@ def main(argv=None):
 
     from gz.msgs10.boolean_pb2 import Boolean
     from gz.msgs10.entity_factory_pb2 import EntityFactory
-    from gz.msgs10.pose_pb2 import Pose
     from gz.msgs10.pose_v_pb2 import Pose_V
     from gz.transport13 import Node as GzNode
     from gz.transport13 import SubscribeOptions
@@ -62,15 +74,8 @@ def main(argv=None):
     if not gz.subscribe(Pose_V, f"{world}/pose/info", on_poses, options):
         raise RuntimeError(f"cannot subscribe to {world}/pose/info")
 
-    def set_pose(name, x, y, z, yaw):
-        request = Pose(name=name)
-        request.position.x, request.position.y, request.position.z = x, y, z
-        request.orientation.z = math.sin(yaw / 2.0)
-        request.orientation.w = math.cos(yaw / 2.0)
-        ok, reply = gz.request(
-            f"{world}/set_pose", request, Pose, Boolean, REQUEST_TIMEOUT
-        )
-        return ok and reply.data
+    def move(name, x, y, z, yaw):
+        return set_pose(gz, scene["world"], name, x, y, z, yaw)
 
     rclpy.init(args=ros_args)
     node = Node("sim_guests")
@@ -124,7 +129,7 @@ def main(argv=None):
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
-            if set_pose(door["model"], x, y, z, yaw):
+            if move(door["model"], x, y, z, yaw):
                 opened = is_open
                 log.info(f"Door {'open' if is_open else 'closed'}")
         for guest in guests:
@@ -139,7 +144,7 @@ def main(argv=None):
                 previous is None
                 or max(abs(a - b) for a, b in zip(pose, previous)) > MOVED
             ):
-                if set_pose(guest.name, *pose):
+                if move(guest.name, *pose):
                     sent[guest.name] = pose
 
     node.create_timer(PERIOD, tick)

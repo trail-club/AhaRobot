@@ -63,11 +63,11 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 
 ## e2eの確認
 
-シミュレーションのタスクの通しは、`e2e` で2つを使い分ける。PRの動作確認は `final` で行う。
+シミュレーションのタスクの通しは、`e2e` で2つを使い分ける。
 
 | | `e2e:=final`（既定） | `e2e:=debug` |
 | --- | --- | --- |
-| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s（模擬時間）後に成功。`guests:=true` では、客の歩く速さ（1.0 m/s）で直線距離を進む時間だけ待ってから始める |
+| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、客の歩く速さ（1.0 m/s）で直線距離を進む時間だけ待ってから始める。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
@@ -89,10 +89,11 @@ pkill -INT -f '[p]erson_perception.py'       # perception:=model で認識を変
 ros2 run aha_tasks run_task --subgoals 'introduce.*' --on-failure skip
 ```
 
-`run_task` はrunnerがReadyになるのを待って（再起動中なら次のrunnerを待って）始め、終わると各サブゴールの実時間（`robot.location` の復元を含む）、スキルごとの合計、全体の時間を出す。完了なら終了コード0。
+`run_task` はrunnerがReadyになるのを待って（再起動中なら次のrunnerを待って）始め、止まると各サブゴールの実時間（`robot.location` の復元を含む）、スキルごとの合計、全体の時間を出す。終了・失敗のほか、ポリシー `pause` で一時停止したとき（GUIで選ぶ）と、実行中にrunnerが再起動したときも止まる。完了のときだけ終了コード0。
 `--output` は要約・最後の状態・ログをJSONに書く。`final` でも同じように使える（runnerの終了でlaunchが終わるため、毎回起動する）。
 Pythonだけの変更は `--symlink-install` のビルドならそのまま反映される。ファイル・msgの追加ではビルドしてから止める。
 再起動したrunnerはロボットが `initial_state` の位置にいるとみなすため、最初に実行するサブゴールの記憶上の位置が初期位置なら、ロボットは移動しない。
+人の認識のnodeは覚えた名前を実行をまたいで保つ。客を覚えるより前のサブゴールから走らせ直すときは、人の認識のnodeも止める（`pkill -INT -f '[s]im_person_detector.py'` か上の `person_perception.py`）。名前の付いた客は `find_person` の対象にならないため。
 
 ## タスク定義
 

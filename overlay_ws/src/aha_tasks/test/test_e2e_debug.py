@@ -10,9 +10,21 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core import load_spec  # noqa: E402
-from aha_tasks.run_task import LogBook, ready_seconds, summarize  # noqa: E402
+from aha_tasks.run_task import (  # noqa: E402
+    APPEAR_TIMEOUT,
+    LogBook,
+    follow_run,
+    ready_seconds,
+    start_run,
+    summarize,
+)
 from aha_tasks.skills import resolve_pose  # noqa: E402
-from aha_tasks.teleport import footprint_blocked, pose_error, yaw_of  # noqa: E402
+from aha_tasks.teleport import (  # noqa: E402
+    footprint_blocked,
+    pose_error,
+    wait_sim,
+    yaw_of,
+)
 
 PACKAGE = Path(__file__).resolve().parents[1]
 MAP = PACKAGE.parent / "aha_navigation" / "maps"
@@ -129,12 +141,158 @@ class RunSummaryTests(unittest.TestCase):
         self.assertEqual(summary["per_skill"], {"navigate": 39.0, "find_person": 20.1})
         self.assertEqual(summary["total_seconds"], 60.0)
         self.assertEqual(summary["counts"]["bypassed"], 1)
-        self.assertEqual(ready_seconds(book.entries), 0.0)
+        self.assertIsNone(ready_seconds(book.entries))  # its wait was cut off
 
-    def test_ready_after_waiting_for_nav2(self):
+    def test_ready_after_the_latest_wait_for_nav2(self):
         entries = [entry(10.0, "Waiting for active Nav2"), entry(32.5, "Ready")]
         self.assertEqual(ready_seconds(entries), 22.5)
         self.assertIsNone(ready_seconds(entries[:1]))
+        restarted = entries + [
+            entry(40.0, "Waiting for active Nav2"),
+            entry(42.0, "Ready"),
+        ]
+        self.assertEqual(ready_seconds(restarted), 2.0)
+
+
+class FakeClock:
+    """Wall clock that sleep() advances; the simulation runs at `rtf`."""
+
+    def __init__(self, rtf=1.0):
+        self.wall = self.sim = 0.0
+        self.rtf = rtf
+
+    def now(self):
+        return self.wall
+
+    def sim_now(self):
+        return self.sim
+
+    def sleep(self, seconds):
+        self.wall += seconds
+        self.sim += self.rtf * seconds
+
+
+def reply(accepted, message=""):
+    return SimpleNamespace(accepted=accepted, message=message)
+
+
+def runner_status(state, started_at=None):
+    run = None if started_at is None else {"started_at": started_at}
+    return {"state": state, "message": "", "run": run}
+
+
+class StartTests(unittest.TestCase):
+    def start(self, replies, statuses=None, deadline=60.0):
+        clock = FakeClock()
+        replies = iter(replies)
+        statuses = iter(statuses or [])
+
+        def call(timeout):
+            answer = next(replies, None)
+            if answer is None:  # no answer: the whole timeout passes
+                clock.sleep(timeout)
+            return answer
+
+        def wait_ready(timeout):
+            return next(statuses, runner_status("idle"))
+
+        return start_run(call, wait_ready, deadline, clock.now, clock.sleep), clock
+
+    def test_a_restarting_runner_is_asked_again(self):
+        (answer, error), _ = self.start(
+            [reply(False, "Cannot start while preparing"), reply(True, "Started")]
+        )
+        self.assertTrue(answer.accepted)
+        self.assertEqual(error, "")
+
+    def test_a_runner_that_never_answers_ends_at_the_deadline(self):
+        (answer, error), clock = self.start([], deadline=30.0)
+        self.assertIsNone(answer)
+        self.assertIn("not ready", error)
+        self.assertLess(clock.now(), 32.0)
+
+    def test_rejections_and_errors_end_the_start(self):
+        (answer, error), _ = self.start([reply(False, "Unknown failure policy: x")])
+        self.assertIsNone(answer)
+        self.assertIn("Unknown failure policy", error)
+        (answer, error), _ = self.start([], [runner_status("error")])
+        self.assertIn("Runner error", error)
+
+
+class FollowTests(unittest.TestCase):
+    def follow(self, statuses, timeout=None):
+        clock = FakeClock()
+        statuses = list(statuses)
+
+        def get_status():
+            return statuses.pop(0) if len(statuses) > 1 else statuses[0]
+
+        return follow_run(get_status, 100.0, timeout, clock.now, clock.sleep)
+
+    def test_a_pause_stops_the_follow(self):
+        outcome, last = self.follow(
+            [
+                runner_status("idle", 50.0),  # the previous run, still latest
+                runner_status("running", 100.2),
+                runner_status("paused", 100.2),
+            ]
+        )
+        self.assertEqual(outcome, "paused")
+        self.assertEqual(last["state"], "paused")
+
+    def test_a_restarted_runner_stops_the_follow(self):
+        outcome, last = self.follow(
+            [runner_status("running", 100.2), runner_status("preparing")]
+        )
+        self.assertEqual(outcome, "restarted")
+        self.assertEqual(last["state"], "running")
+
+    def test_completion_loss_and_timeout(self):
+        self.assertEqual(
+            self.follow([runner_status("completed", 100.0)])[0], "completed"
+        )
+        self.assertEqual(self.follow([runner_status("idle")]), ("lost", None))
+        outcome, _ = self.follow([runner_status("running", 100.0)], timeout=5.0)
+        self.assertEqual(outcome, "timeout")
+        self.assertGreater(APPEAR_TIMEOUT, 0.0)
+
+
+class SimulationWaitTests(unittest.TestCase):
+    def test_a_slow_simulation_only_takes_longer(self):
+        clock = FakeClock(rtf=0.1)
+        outcome = wait_sim(clock.sim_now, 7.7, wall_now=clock.now, sleep=clock.sleep)
+        self.assertEqual(outcome, "elapsed")
+        self.assertGreater(clock.now(), 70.0)
+
+    def test_a_stopped_clock_ends_the_wait(self):
+        clock = FakeClock(rtf=0.0)
+        outcome = wait_sim(
+            clock.sim_now, 1.0, stall=10.0, wall_now=clock.now, sleep=clock.sleep
+        )
+        self.assertEqual(outcome, "stalled")
+        self.assertLess(clock.now(), 11.0)
+
+    def test_a_condition_or_a_cancel_ends_the_wait(self):
+        clock = FakeClock(rtf=0.5)
+        self.assertEqual(
+            wait_sim(
+                clock.sim_now,
+                10.0,
+                done=lambda: clock.sim > 2.0,
+                wall_now=clock.now,
+                sleep=clock.sleep,
+            ),
+            "done",
+        )
+        self.assertEqual(
+            wait_sim(
+                clock.sim_now,
+                cancelled=lambda: True,
+                wall_now=clock.now,
+                sleep=clock.sleep,
+            ),
+            "cancelled",
+        )
 
 
 class LaunchSwitchTests(unittest.TestCase):

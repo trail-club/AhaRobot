@@ -165,34 +165,36 @@ def launch_task(context):
             )
         )
     actions.append(runner)
+    guest_scene = load_scene(scene) if guests else None
     if navigation == "teleport":
+        teleport = {"use_sim_time": True, "speed": 0.0}
+        if guest_scene is not None:
+            # Not faster than the guests walk, who would otherwise still be on
+            # their way where the robot looks for them.
+            teleport.update(
+                speed=float(guest_scene["walk_speed"]), world=guest_scene["world"]
+            )
         actions.append(
             Node(
                 package="aha_tasks",
                 executable="sim_teleport",
-                # Not faster than the guests walk, who would otherwise still
-                # be on their way where the robot looks for them.
-                parameters=[
-                    {
-                        "use_sim_time": True,
-                        "speed": float(load_scene(scene)["walk_speed"])
-                        if guests
-                        else 0.0,
-                    }
-                ],
+                parameters=[teleport],
                 output="screen",
+                # It exits when no Gazebo world shows up in time.
+                respawn=True,
+                respawn_delay=2.0,
             )
         )
     if people and perception == "truth":
+        # Wall clock like sim_object_detector.py; it uses the image stamps.
         people_node = Node(
             package="aha_perception",
             executable="sim_person_detector.py",
             parameters=[
                 {
-                    "use_sim_time": True,
-                    "models": list(load_scene(scene)["guests"])
-                    if guests
-                    else ["guest*"],
+                    "models": list(guest_scene["guests"])
+                    if guest_scene is not None
+                    else ["guest*"]
                 }
             ],
             output="screen",

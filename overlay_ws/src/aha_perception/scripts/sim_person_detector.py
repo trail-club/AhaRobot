@@ -10,9 +10,9 @@ is taken relative to the robot model (origin base_footprint) and put into
 `target_frame` with the TF at the depth stamp, so it carries the
 localization error. Tracks, names and visibility follow person_perception
 (TruthTracker): /aha/perception/people at `rate` (Hz, wall clock) on the
-latest depth image, remember_person names the model, and describe_person
-answers with the model name instead of a VLM. Nothing of SAM 3.1, the depth
-measurement of masks or the VLM is exercised.
+latest depth image, once per image; remember_person names the model, and
+describe_person answers with the model name instead of a VLM. Nothing of
+SAM 3.1, the depth measurement of masks or the VLM is exercised.
 """
 
 import sys
@@ -77,6 +77,7 @@ class SimPersonDetector(Node):
         self.gz = GazeboPoses(world, WORLD_TIMEOUT_S, 2.0 * rate)
         self.camera_info = None
         self.depth_msg = None
+        self.done_stamp = None  # of the last depth image processed
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_subscription(
@@ -124,6 +125,8 @@ class SimPersonDetector(Node):
             )
             return
         stamp = msg.header.stamp
+        if (stamp.sec, stamp.nanosec) == self.done_stamp:
+            return  # no new image: like person_perception, publish nothing
         base_cam = self.lookup(self.base_frame, msg.header.frame_id, stamp)
         out_base = self.lookup(self.target_frame, self.base_frame, stamp)
         if base_cam is None or out_base is None:
@@ -166,6 +169,7 @@ class SimPersonDetector(Node):
                     bbox=body_bbox(K, cam_model, self.height, self.radius, depth.shape),
                 )
             )
+        self.done_stamp = (stamp.sec, stamp.nanosec)
         seconds = stamp.sec + stamp.nanosec * 1e-9
         message = PersonArray()
         message.header.stamp = stamp

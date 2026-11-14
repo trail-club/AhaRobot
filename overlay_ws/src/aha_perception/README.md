@@ -395,7 +395,7 @@ Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/
 モデルの原点から立てた高さ `height` の体の軸のどこかが画像に入り、そこのDepthがその点より `body_radius` + `depth_tolerance` 以上手前でなければ見えているとする。
 位置は `sim_object_detector.py` と同じくロボットのモデルからの相対を、Depthの時刻のTFで `target_frame`（既定 `map`）に直す。`position` は高さの0.55倍、`head` は0.92倍の点。
 topic・serviceは `person_perception.py` と同じ（markersを除く）。追跡は `forget_after`（3 s）見えないと新しい `id` にし、`remember_person` の名前はそのモデルの次の `id` にすぐ付く。
-`describe_person` はVLMの代わりにモデル名を返す。床下（z < −1 m）のモデルは見えないとする。
+`describe_person` はVLMの代わりにモデル名を返す。床下（z < −1 m）のモデルは見えないとする。新しいDepthの画像が来たときだけ配信する。
 
 SAM 3.1の見落とし・人の結合、マスクとDepthから求める位置、VLMの特徴と照合は再現しない。座った人・寝た人も立った人の軸で判定する。
 
