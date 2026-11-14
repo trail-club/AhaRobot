@@ -75,5 +75,6 @@
   <disable_collisions link1="base_link" link2="right_wheel_link" reason="Adjacent" />
   <disable_collisions link1="base_link" link2="caster_link" reason="Adjacent" />
   <disable_collisions link1="base_link" link2="link_head_pan" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="display_link" reason="Adjacent" />
   <disable_collisions link1="link_head_pan" link2="link_head_tilt" reason="Adjacent" />
 </robot>
