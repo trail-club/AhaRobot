@@ -327,19 +327,29 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
-## 物体検出（シミュレーションのみ）
+## 物体検出
 
-`perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
-`sim_object_detector.py` がGazeboの真の姿勢から頭部カメラに見える物体を出す。実機の物体検出器はまだない。
-判定・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)を参照。
+[objects.launch.py](../overlay_ws/src/aha_perception/README.md#物体の認識)の `object_perception.py` が頭部カメラの画像からDGX SparkのSAM 3.1とQwen3.8で認識する。
+入力は頭部カメラの3 topic（色・位置合わせ済みDepth・CameraInfo、同じ時刻の組）で、RELIABLEで購読する（パラメータ `reliable: false` でbest effort）。
+シミュレーションでは、`sim_object_detector.py`（`perception.launch.py objects:=true`、`sim.launch.py use_perception:=true objects:=true`）が
+Gazeboの真の姿勢から同じtopicを出す（[判定・パラメータ](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)）。
 
 | 用途 | Topic | 型 |
 | --- | --- | --- |
 | 検出した物体（ラベル・track ID・姿勢・大きさ） | `/aha/perception/objects` | `aha_msgs/msg/DetectedObjectArray` |
+| 物体の表示（`object_perception.py` のみ） | `/aha/perception/objects/markers` | `visualization_msgs/msg/MarkerArray` |
+| 候補とラベルを描いた画像（`object_perception.py` のみ、購読があるとき） | `/aha/perception/objects/image` | `sensor_msgs/msg/Image`（rgb8） |
 
-frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`）、時刻は判定に使ったDepthの時刻、2 Hz以下（RELIABLE）。
-`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
-`pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
+どちらも、その画像で見えている物体だけを含む。時刻は判定に使った画像の時刻。`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`pose` は物体の中心。
+
+| | `object_perception.py` | `sim_object_detector.py` |
+| --- | --- | --- |
+| frame | `target_frame`（既定 `map`） | `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`） |
+| 頻度 | DGXの1往復ごと（約7 s、`max_rate` 以下） | 2 Hz以下 |
+| `track_id` | 位置とラベルで追跡した番号。`forget_after` 見えないと変わる | Gazeboのモデルごとに固定 |
+| `pose` の向き・共分散 | 単位四元数・0（向きは求めない） | モデルの向き・位置のノイズの分散 |
+| `size` | Depthで測った、`frame` の軸に沿う箱（m） | リストの底面 x, y と高さ z（物体の軸） |
+| `confidence` | SAM 3.1の点数 × 追跡中のラベルの割合 | 1 |
 
 ## 人の認識
 
@@ -414,6 +424,6 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
 `RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
