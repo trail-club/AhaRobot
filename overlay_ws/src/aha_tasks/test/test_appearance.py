@@ -23,6 +23,9 @@ class NormalizeTests(unittest.TestCase):
             "Red T-shirt": ("upper", "red t-shirt"),
             "red tshirt": ("upper", "red t-shirt"),
             "red t shirt": ("upper", "red t-shirt"),
+            "red tee shirt": ("upper", "red t-shirt"),
+            "red tee-shirt": ("upper", "red t-shirt"),
+            "red tee": ("upper", "red t-shirt"),
             "blue jeans": ("lower", "blue jeans"),
             "short black hair": ("hair", "short black hair"),
             "black-framed glasses": ("glasses", "black-framed glasses"),
@@ -305,6 +308,17 @@ class DescribePersonTests(unittest.TestCase):
         self.assertEqual(people.followed, [(4, "guest2")])
         self.assertEqual(people.paused, [1.5])  # the head turns first
         self.assertEqual(result.outputs["guest1.told"], ["red t-shirt", "blue jeans"])
+
+    def test_cancelled_while_the_head_turns_says_nothing(self):
+        visible = SimpleNamespace(id=4, name="guest2", visible=True)
+        people = FakePeople(SimpleNamespace(people=[visible]))
+        people.pause = lambda seconds, cancelled: cancelled.set()
+        result, _, speech = run(
+            PARAMS, {"guest1.appearance": ["glasses"], "guest2.track": 4}, people
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "Cancelled")
+        self.assertEqual(speech.said, [])
 
     def test_no_wait_when_the_head_already_follows_the_listener(self):
         visible = SimpleNamespace(id=6, name="guest2", visible=True)

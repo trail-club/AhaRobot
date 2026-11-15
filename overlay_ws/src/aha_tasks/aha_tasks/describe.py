@@ -54,6 +54,8 @@ class DescribePerson(Skill):
                 True, f"Nothing certain to tell of {subject}: {appearance}", told
             )
         self.look_at(ctx, listener)
+        if ctx.cancelled.is_set():  # while the head turned
+            return SkillResult(False, "Cancelled")
         ok, message = Interaction.of(self.runtime).say(text, ctx.cancelled)
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")

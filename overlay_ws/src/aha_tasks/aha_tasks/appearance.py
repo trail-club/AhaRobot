@@ -97,8 +97,9 @@ def normalize(phrase):
     held = HELD.search(words)
     words = LEAD.sub("", words + " ").strip()  # "has a beard" -> "beard"
     words = DETAIL.sub("", words)  # "red t-shirt with a logo" -> "red t-shirt"
-    words = " ".join(SYNONYMS.get(t, t) for t in words.split())
-    tokens = re.sub(r"\bt shirt\b", "t-shirt", words).split()
+    # Two-word names first: "tee shirt" is not "t-shirt shirt".
+    words = re.sub(r"\b(?:t|tee)[ -]shirt\b", "t-shirt", words)
+    tokens = [SYNONYMS.get(t, t) for t in words.split()]
     if not tokens or len(tokens) > MAX_WORDS or tokens == ["hair"]:
         return None  # "hair" alone ("hair in a bun" without the bun) says nothing
     if tokens[0] == "bald":
