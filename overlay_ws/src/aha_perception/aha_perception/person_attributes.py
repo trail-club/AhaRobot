@@ -445,13 +445,16 @@ def classify_gesture(history) -> Label | None:
     span = window[-1].stamp - window[0].stamp
     if value.startswith("raising"):
         swing = max(wave_swing(window, side) for side in SIDES)
-        moving = len(window) >= MIN_MOTION_SAMPLES and span >= MIN_MOTION_SPAN
+        # Only images that show the raised hand tell whether it moves.
+        shown = [s for s in window if any(arm_pose(s, x) == "raised" for x in SIDES)]
+        shown_span = shown[-1].stamp - shown[0].stamp if shown else 0.0
+        moving = len(shown) >= MIN_MOTION_SAMPLES and shown_span >= MIN_MOTION_SPAN
         # A hand held still for long enough is not waving.
         return Label(
             value,
             moving and agreed,
             f"wrist above the shoulder in {count}/{len(votes)} images, swing "
-            f"{swing:.2f} m over {span:.1f} s",
+            f"{swing:.2f} m over {shown_span:.1f} s",
         )
     if value.startswith("pointing"):
         return Label(

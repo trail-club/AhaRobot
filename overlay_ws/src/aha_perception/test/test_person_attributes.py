@@ -144,6 +144,14 @@ def test_raised_arm_held_still(side):
     assert not classify_gesture(history[:3]).confident
     # One image cannot tell a raised hand from a waving one.
     assert not classify_gesture(history[-1:]).confident
+    # Images without the arms (cut off at the image top) do not count.
+    arms = ("shoulder", "elbow", "wrist")
+    unseen = [f"{s}_{part}" for s in ("left", "right") for part in arms]
+    late = [sample(stamp=t, hidden=unseen) for t in (0.0, 0.5, 1.0)] + [
+        sample(stamp=t, **raised(side)) for t in (1.2, 1.6)
+    ]
+    assert classify_gesture(late).value == f"raising_{side}_arm"
+    assert not classify_gesture(late).confident
 
 
 def test_both_arms_raised():
