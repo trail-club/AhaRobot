@@ -303,24 +303,38 @@ function render() {
   renderState();
 }
 
+// The embedded robot screen gets its state from this page's stream.
+let screenState = null;
+function forwardScreen() {
+  const frame = document.querySelector("iframe.robot-screen");
+  if (frame && frame.contentWindow) {
+    frame.contentWindow.postMessage({ screen: screenState, connected }, location.origin);
+  }
+}
+
 function connect() {
   const events = new EventSource("api/events");
   events.onopen = () => {
     connected = true;
     render();
+    forwardScreen();
   };
   events.onmessage = (event) => {
     const payload = JSON.parse(event.data);
     online = payload.online;
     status = payload.status;
+    screenState = payload.screen || null;
     connected = true;
     render();
+    forwardScreen();
   };
   events.onerror = () => {
     connected = false;
     render();
+    forwardScreen();
   };
 }
+document.querySelector("iframe.robot-screen")?.addEventListener("load", forwardScreen);
 
 $("start").addEventListener("click", () =>
   send({ command: "start", subgoals: orderedSelection(), on_failure: $("policy").value }),

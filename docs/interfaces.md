@@ -15,6 +15,7 @@
 
 `controller_manager` の更新周期は100 Hz。odom frameは `odom`、base frameは `base_footprint`。
 ロボットのlink / joint定義は [URDF](../overlay_ws/src/aha_description/urdf/aha_robot.urdf.xacro)を参照。
+タッチディスプレイの位置は `base_link` → `display_link`（固定joint、ケース前面の中央、x が画面の外向き）。xacro引数 `display`（既定は `sim` と同じ）がtrueのときだけある。
 `/clock` はGazeboからROSへbridgeする。
 
 ## シミュレーションの入出力
@@ -149,6 +150,8 @@ LiDARはシミュレーション専用で、実機のURDF（`sim:=false`）に�
 map_serverが `/map`、AMCLが `map → odom` を配信する。SLAMと同時に起動しない。
 Nav2は `/diff_drive_controller/odom` を読み、`/diff_drive_controller/cmd_vel`（TwistStamped）へ送信するため、
 teleopなどから同時に速度指令を送らない。ゴールは `/navigate_to_pose`（`nav2_msgs/action/NavigateToPose`、frame `map`）。
+aha_tasksの `e2e:=debug` では `navigation:=false` でmap_serverとAMCLだけを起動し、`sim_teleport` が同じ `/navigate_to_pose` と `/bt_navigator/get_state` を提供する。
+`sim_teleport` はgz-transportの `/world/rcjo2026_arena/set_pose` でロボットを移し、AMCLへ `/initialpose`（`geometry_msgs/msg/PoseWithCovarianceStamped`）を送る。
 
 ## サブゴールタスクの実行
 
@@ -164,6 +167,7 @@ teleopなどから同時に速度指令を送らない。ゴールは `/navigate
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
+POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 
 runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
@@ -172,6 +176,25 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
+
+### ロボットの画面
+
+`task_monitor` がロボットのタッチディスプレイの画面を提供する（[aha_tasksのロボットの画面](../overlay_ws/src/aha_tasks/README.md#ロボットの画面)）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| ボタンを出してタッチを待つ | `/aha/display/ask` | `aha_msgs/action/Ask` |
+| ロボットの発話の字幕（空文字列で消す） | `/aha/display/caption` | `std_msgs/msg/String` |
+| 画像（空の `data` で消す） | `/aha/display/image` | `sensor_msgs/msg/CompressedImage`（`format` に `jpeg` か `png` を含む） |
+| 画面（`task_monitor`） | `http://localhost:8765/display/` | HTTP |
+
+字幕と画像の購読はRELIABLE / VOLATILE（深さ10と1）。
+画面のHTTP APIは `GET /display/api/events`（SSE）、`GET /display/api/image/<id>`、
+`POST /display/api/touch`（`{"question": <id>, "choice": <ボタンの番号>}`）。要求の確認はGUIのHTTP APIと同じ。
+画面の状態は `GET /api/status`・`/api/events` の `screen` にも入る。GUIに埋め込んだ画面（`display/?embedded`）はSSEを開かず、GUIのページから `postMessage` で状態を受け取る（GUIのタブ1つのSSE接続は1本）。
+runnerのスキルは字幕と画像（認識の結果など）を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
+`task_monitor` が止まるときは、表示中の質問のgoalをabortする（`The screen is shutting down`）。
+`Ask` の `request` は1回の質問のIDで、応答が届かずに送り直したgoalも同じ値にする。直前にタッチされた質問と同じ `request` のgoalは、画面に出さずにそのタッチで成功する。
 
 ## 頭部カメラ
 
@@ -338,6 +361,8 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 `posture` / `gesture` は、キーポイントとDepthの規則で確かな場合だけ入る（[判定](../overlay_ws/src/aha_perception/README.md#姿勢ジェスチャ服)）。左右は本人の左右。
 `ClassifyPerson` はVLMにも聞き、服を `"<色> <種類>"`（例 `red t shirt`）で返す。`skip_vlm` では確かな規則の結果だけをすぐ返す。VLMの呼び出しが失敗すると `success` はfalse（理由は `message`）。
 
+aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の位置から同じtopic・serviceを提供する（markersは配信しない。[シミュレーションの人の検出](../overlay_ws/src/aha_perception/README.md#シミュレーションの人の検出)）。
+
 ## 音声
 
 [audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
@@ -386,7 +411,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand` の型定義がある。
+`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
 `DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。

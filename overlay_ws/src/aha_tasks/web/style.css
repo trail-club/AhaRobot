@@ -100,7 +100,7 @@ main { padding: 12px 16px 32px; max-width: 1400px; margin: 0 auto; }
   padding: 12px;
   margin-bottom: 12px;
 }
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; }
 @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -186,6 +186,18 @@ button.link { border: none; background: none; color: var(--accent); padding: 2px
   .subgoal .chip { grid-column: 2; justify-self: start; }
   .subgoal .body, .subgoal .meta, .actions { grid-column: 2; }
   .subgoal .meta { justify-content: flex-start; }
+}
+
+.panel-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+.panel-head a { color: var(--accent); }
+.robot-screen {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin: 2px 0 6px;
+  border: 6px solid #1c1f24;
+  border-radius: 10px;
+  background: #1c1f24;
 }
 
 table.kv { width: 100%; border-collapse: collapse; font-size: 12px; }

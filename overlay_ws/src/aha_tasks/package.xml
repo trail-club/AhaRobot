@@ -18,9 +18,11 @@
   <exec_depend>action_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
-  <!-- gaze (Nav2 plan) and gestures (right arm, TF) -->
+  <!-- gaze (Nav2 plan), gestures (right arm, TF) and the robot screen (image topic) -->
   <exec_depend>aha_manipulation</exec_depend>
   <exec_depend>control_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
@@ -28,9 +30,9 @@
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
-  <!-- head_look_at.py; task.launch.py people:=true -->
+  <!-- head_look_at.py; task.launch.py people:=true; task_monitor uses aha_perception.audio.web_access -->
   <exec_depend>aha_perception</exec_depend>
-  <!-- task.launch.py guests:=true -->
+  <!-- task.launch.py guests:=true, e2e:=debug (sim_teleport) -->
   <exec_depend>gz_msgs_vendor</exec_depend>
   <exec_depend>gz_transport_vendor</exec_depend>
   <exec_depend>tmc_wrs_gz_worlds</exec_depend>

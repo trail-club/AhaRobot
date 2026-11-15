@@ -1,4 +1,8 @@
-"""Fixed-map Nav2 for simulation; do not run alongside slam.launch.py."""
+"""Fixed-map Nav2 for simulation; do not run alongside slam.launch.py.
+
+`navigation:=false` starts only the map and AMCL (localization), for a
+stand-in NavigateToPose server such as aha_tasks sim_teleport.
+"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -15,7 +19,14 @@ SERVERS = [
     ("nav2_behaviors", "behavior_server"),
     ("nav2_bt_navigator", "bt_navigator"),
 ]
+LOCALIZATION = ("map_server", "amcl")
 COMMON = {"use_sim_time": True}
+
+
+def selected_servers(context):
+    if LaunchConfiguration("navigation").perform(context) == "true":
+        return SERVERS
+    return [(package, name) for package, name in SERVERS if name in LOCALIZATION]
 
 
 def servers(context):
@@ -24,7 +35,8 @@ def servers(context):
     )
     pose = LaunchConfiguration("initial_pose").perform(context)
     nodes = []
-    for package, name in SERVERS:
+    chosen = selected_servers(context)
+    for package, name in chosen:
         overrides = dict(COMMON)
         if name == "map_server":
             overrides["yaml_filename"] = LaunchConfiguration("map")
@@ -43,6 +55,18 @@ def servers(context):
                 output="screen",
             )
         )
+    nodes.append(
+        Node(
+            package="nav2_lifecycle_manager",
+            executable="lifecycle_manager",
+            name="lifecycle_manager_navigation",
+            parameters=[
+                COMMON,
+                {"autostart": True, "node_names": [name for _, name in chosen]},
+            ],
+            output="screen",
+        )
+    )
     return nodes
 
 
@@ -60,6 +84,12 @@ def generate_launch_description():
                 default_value="",
                 description="AMCL initial pose 'x,y,yaw' in map; empty uses nav2.yaml",
             ),
+            DeclareLaunchArgument(
+                "navigation",
+                default_value="true",
+                choices=["true", "false"],
+                description="false: only map_server and AMCL, no planner/controller/BT",
+            ),
             Node(
                 package="ros_gz_bridge",
                 executable="parameter_bridge",
@@ -69,15 +99,5 @@ def generate_launch_description():
                 output="screen",
             ),
             OpaqueFunction(function=servers),
-            Node(
-                package="nav2_lifecycle_manager",
-                executable="lifecycle_manager",
-                name="lifecycle_manager_navigation",
-                parameters=[
-                    COMMON,
-                    {"autostart": True, "node_names": [name for _, name in SERVERS]},
-                ],
-                output="screen",
-            ),
         ]
     )
