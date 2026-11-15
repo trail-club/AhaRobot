@@ -16,7 +16,9 @@ node can be rerun without restarting Gazebo.
 - navigation (debug: teleport): aha_tasks sim_teleport moves the robot in
   Gazebo and resets AMCL instead of the Nav2 planner, controller and BT.
 - perception (debug: truth): aha_perception sim_person_detector.py publishes
-  the people from Gazebo's poses instead of person_perception.py.
+  the people from Gazebo's poses instead of person_perception.py, and sim_sounds
+  publishes the guests' doorbell and knocks as detections instead of
+  aha_audio_doorbell (no audio container).
 """
 
 from pathlib import Path
@@ -251,9 +253,15 @@ def launch_task(context):
             )
         )
         # The microphone stream with the guests' doorbell and knocks, for
-        # aha_audio_doorbell input:=topic (wall clock, like a microphone).
+        # aha_audio_doorbell input:=topic (wall clock, like a microphone); with
+        # perception truth, also the detections themselves.
         actions.append(
-            Node(package="aha_tasks", executable="sim_sounds", output="screen")
+            Node(
+                package="aha_tasks",
+                executable="sim_sounds",
+                parameters=[{"truth": perception == "truth"}],
+                output="screen",
+            )
         )
     people_scene = value("people_scene")
     if people_scene:

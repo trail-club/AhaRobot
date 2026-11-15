@@ -378,6 +378,7 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 | シミュレーションの客が鳴らす音（`chime` / `knock`、`sim_guests`） | `/aha/sim/doorbell` | `std_msgs/msg/String` |
 
 `SoundEvent.label` は `doorbell`（チャイム・ブザー）か `knock`、`header.stamp` は検出した窓の終わりの時刻（wall clock）。
+`e2e:=debug`（`perception:=truth`）では、`aha_audio_doorbell` の代わりに `sim_sounds` が客の鳴らした音を `model` が `sim_truth` の `SoundEvent` として配信する。
 
 音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 

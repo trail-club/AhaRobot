@@ -17,6 +17,7 @@ RATE = 16000  # Hz, the detector's input rate
 NOISE_DBFS = -55.0  # RMS of the background
 SOUND_DBFS = -20.0  # peak-normalized level of a doorbell or knock
 SOUNDS = ("chime", "knock")
+TRUTH_LABELS = {"chime": "doorbell", "knock": "knock"}  # -> SoundEvent.label (debug)
 BAR_MODES = ((1.0, 1.0), (2.756, 0.5), (5.404, 0.25), (8.933, 0.12))  # struck bar
 BELL_MODES = (
     (0.5, 0.4),

@@ -108,6 +108,10 @@ class SimSoundTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sim_sounds.make("siren", rng)
 
+    def test_every_sound_has_a_truth_label(self):
+        self.assertEqual(set(sim_sounds.TRUTH_LABELS), set(sim_sounds.SOUNDS))
+        self.assertEqual(set(sim_sounds.TRUTH_LABELS.values()), {"doorbell", "knock"})
+
     def test_every_chime_family_and_random_choice(self):
         rng = np.random.default_rng(3)
         for family in sim_sounds.CHIMES:
