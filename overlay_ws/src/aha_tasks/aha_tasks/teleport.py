@@ -39,6 +39,10 @@ STATE_UNCONFIGURED, STATE_ACTIVE = 1, 3  # lifecycle_msgs/msg/State
 FREE_BELOW = 50  # occupancy (0-100); unknown is -1
 INITIAL_COVARIANCE = 0.05**2  # m^2 and rad^2 on /initialpose
 SET_POSE_ATTEMPTS = 3
+# s after which /world/<world>/pose/info shows a set_pose; a pose to restore
+# after a failed move is read from a message that came at least this later.
+POSE_LAG = 0.2
+POSE_WAIT = 1.0  # s (wall clock) for such a message
 WORLD_TIMEOUT = 60.0  # s (wall clock) to find the Gazebo world; then exit (respawn)
 
 
@@ -204,6 +208,17 @@ def main(argv=None):
             return None
         return [T[0, 3], T[1, 3], T[2, 3], math.atan2(T[1, 0], T[0, 0])]
 
+    def current_pose():
+        """Gazebo's [x, y, yaw] of the robot from pose/info sent after now, or None."""
+        after = time.monotonic() + POSE_LAG
+        while time.monotonic() < after + POSE_WAIT:
+            _, age = gazebo.latest()
+            pose = robot_pose()
+            if pose is not None and time.monotonic() - age >= after:
+                return [pose[0], pose[1], pose[3]]
+            time.sleep(0.02)
+        return None
+
     def localized():
         """AMCL's [x, y, yaw] of the base in the global frame, or None."""
         try:
@@ -318,7 +333,12 @@ def main(argv=None):
                 )
             if moves:
                 if not move(goal[0], goal[1], robot[2], goal[2], cancelled):
-                    return fail(f"Gazebo did not move {robot_model}", restore=here)
+                    # A set_pose that timed out may still have moved the robot:
+                    # put AMCL where Gazebo has it now.
+                    return fail(
+                        f"Gazebo did not move {robot_model}",
+                        restore=current_pose() or here,
+                    )
                 # settle for the images around the move; the walk for the guests.
                 walk = distance / speed if speed > 0.0 else 0.0
                 if (
