@@ -165,7 +165,7 @@ topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化�
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 
-`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 
 ## 頭部カメラ
 
@@ -328,7 +328,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 
 ## 音声
 
-[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` / `aha_audio_doorbell` が扱う。
 
 | 用途 | 名前 | 型 |
 | --- | --- | --- |
@@ -336,6 +336,11 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
 | 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
 | 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+| ドアベル・ノックの検出（検出の始まりごとに1回） | `/aha/perception/audio/doorbell` | `aha_msgs/msg/SoundEvent` |
+| シミュレーションのマイク音（16 kHz mono、`sim_sounds`） | `/aha/sim/audio` | `std_msgs/msg/Float32MultiArray` |
+| シミュレーションの客が鳴らす音（`chime` / `knock`、`sim_guests`） | `/aha/sim/doorbell` | `std_msgs/msg/String` |
+
+`SoundEvent.label` は `doorbell`（チャイム・ブザー）か `knock`、`header.stamp` は検出した窓の終わりの時刻（wall clock）。
 
 音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 

@@ -80,8 +80,12 @@ TMCのソフトウェア向けライセンスと、モデル・テクスチャ�
 | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) | BSD-2-Clause | 台帳の `license` |
 | [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 | 台帳の `license` |
 | [silero-vad](https://github.com/snakers4/silero-vad)（pipパッケージに同梱の重み） | MIT | 台帳の `license` |
+| [PretrainedSED](https://github.com/fschmid56/PretrainedSED/tree/1aa47e482f7e89904cba2338999345025d8b4e36)（`upstream/PretrainedSED`、ドアベル検出のコード） | MIT | [LICENSE](../upstream/PretrainedSED/LICENSE) |
+| PretrainedSEDの[リリース v0.0.1](https://github.com/fschmid56/PretrainedSED/releases/tag/v0.0.1) の `BEATs_strong_1.pt`・`ATST-F_strong_1.pt`（重み） | 重みに適用される条件の記載は未確認（リポジトリはMIT。BEATsの元の重みはMicrosoft、ATST-Fは元の著者による） | 台帳の `sha256` |
+| [mispeech/ced-base](https://huggingface.co/mispeech/ced-base) | Apache-2.0 | 台帳の `license` |
 
 重みはリポジトリ・Dockerイメージに含めず、実行するマシンのキャッシュへ取得する。
+[ドアベル検出の比較](../tools/perception/doorbell_bench/README.md)で使ったモデル・FSD50Kも同様に、実行するマシンへ取得して配布しない（版はスクリプトで固定）。
 
 ## その他の第三者資源
 
