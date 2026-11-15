@@ -5,8 +5,9 @@ asked for agree on (`consensus`); describe_person tells some of those features
 in one sentence (`choose_features`, `sentence`). The rulebook (2027 §5.1) scores up to four
 told attributes, +20 each when right and -20 when wrong, without listing the
 kinds, so a wrong one costs as much as a right one earns: at most one phrase
-per body part is told, the parts in PARTS order, and hedged or negated phrases
-and the details after "with" are dropped. ROS-independent.
+per body part is told, the parts in PARTS order, hedged or negated phrases
+are dropped, and so are leading verbs and articles ("wearing a") and the
+details after "with". ROS-independent.
 """
 
 from collections import Counter
@@ -69,8 +70,14 @@ HEDGES = re.compile(
     r"unclear|partially|partly|hidden|unknown|or)\b"
 )
 NEGATIONS = re.compile(r"^(no|not|without)\b|\bno\b")
+# Leading words that sentence() says itself ("is wearing", "has", articles):
+# "wearing glasses", "has a beard", "a red t-shirt", "carrying a backpack".
+LEAD = re.compile(
+    r"^(?:(?:a|an|the|is|are|wears?|wearing|has|have|having|carr(?:y|ies|ying)|"
+    r"hold(?:s|ing)?|sport(?:s|ing)|dressed|with|in|his|her|their|pair of)\s+)+"
+)
 DETAIL = re.compile(r"\s+(with|on|in|over|under|and|featuring|showing)\s.*$")
-MAX_WORDS = 4
+MAX_WORDS = 4  # of the phrase without LEAD and DETAIL words
 
 
 def normalize(phrase):
@@ -80,6 +87,7 @@ def normalize(phrase):
     words = " ".join(phrase.lower().replace("_", " ").split()).strip(" .,")
     if not words or HEDGES.search(words) or NEGATIONS.search(words):
         return None
+    words = LEAD.sub("", words + " ").strip()  # "has a beard" -> "beard"
     words = DETAIL.sub("", words)  # "red t-shirt with a logo" -> "red t-shirt"
     words = " ".join(SYNONYMS.get(t, t) for t in words.split())
     tokens = re.sub(r"\bt shirt\b", "t-shirt", words).split()

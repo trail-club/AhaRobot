@@ -33,6 +33,31 @@ class NormalizeTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertEqual(normalize(phrase), expected)
 
+    def test_leading_verbs_and_articles_are_dropped(self):
+        cases = {
+            "wearing glasses": ("glasses", "glasses"),
+            "has a beard": ("facial_hair", "beard"),
+            "a red t-shirt": ("upper", "red t-shirt"),
+            "carrying a backpack": ("bag", "backpack"),
+            "is wearing a pair of black glasses": ("glasses", "black glasses"),
+            "dressed in a green hoodie": ("upper", "green hoodie"),
+            "has short black hair": ("hair", "short black hair"),
+            "is bald": ("hair", "bald"),
+            # Counted without the dropped words: 4 of 7.
+            "is wearing a light blue denim shirt": ("upper", "light blue denim shirt"),
+        }
+        for phrase, expected in cases.items():
+            with self.subTest(phrase=phrase):
+                self.assertEqual(normalize(phrase), expected)
+        for phrase in (
+            "wearing a light blue denim button shirt",  # still 5 words
+            "wearing a",
+            "has no beard",
+            "wearing hair",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(normalize(phrase))
+
     def test_details_after_with_are_dropped(self):
         self.assertEqual(
             normalize("red t-shirt with a white logo"), ("upper", "red t-shirt")
@@ -158,6 +183,18 @@ class SentenceTests(unittest.TestCase):
             sentence("the other guest", features),
             "The other guest has a beard and a backpack and is bald.",
         )
+
+    def test_verbs_and_articles_of_the_vlm_are_not_repeated(self):
+        features = choose_features(
+            ["wearing glasses", "has a beard", "a red t-shirt", "carrying a backpack"]
+        )
+        self.assertEqual(
+            sentence("Charlie", features, "Emma"),
+            "Emma, Charlie is wearing a red t-shirt and glasses "
+            "and has a beard and a backpack.",
+        )
+        views = [["wearing glasses"], ["wearing glasses"], ["glasses"]]
+        self.assertEqual(consensus(views), ["glasses"])
 
     def test_no_features_no_sentence(self):
         self.assertEqual(sentence("Charlie", []), "")
