@@ -13,7 +13,7 @@ AhaRobot の音声スタック。外部の API は使わず、推論は DGX Spar
 マイク ─▶ ドアベル検出（手元、0.2 s ごと）─▶ /aha/perception/audio/doorbell
 ```
 
-[ドアベル検出](#ドアベル検出)は ASR・TTS と別のノードで、`target` によらず手元で動く。
+[ドアベル検出](#ドアベル検出)は ASR・TTS と別のノードで、`target` によらず手元の GPU で動く。
 
 ## 推論先
 
@@ -57,9 +57,7 @@ Haas-ja-v1.0 は Linux + CUDA 専用である。Qwen3-ASR は比較用に残し�
 | VAD | [silero-vad](https://github.com/snakers4/silero-vad) 6.2.3（pip 同梱の重み） | — | MIT | CPU |
 | 話し終わり判定 | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) `smart-turn-v3.2-cpu.onnx` | `f766f81` | BSD-2-Clause | CPU（onnxruntime） |
 | TTS（英語のみ） | [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)（音声 `af_heart`） | `f3ff357` | Apache-2.0 | GPU |
-| ドアベル・ノック（既定） | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) の BEATs（AudioSet strong）、`BEATs_strong_1.pt` | SHA-256 `db13a79` | MIT（コード） | 手元の GPU |
-| ドアベル・ノック（CPU 向け） | PretrainedSED の ATST-F、`ATST-F_strong_1.pt` | SHA-256 `fbf2577` | MIT（コード） | 手元の CPU / GPU |
-| ドアベル・ノック（軽い CPU 向け） | [mispeech/ced-base](https://huggingface.co/mispeech/ced-base) | `db3e14a` | Apache-2.0 | 手元の CPU |
+| ドアベル・ノック | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) の BEATs（AudioSet strong）、`BEATs_strong_1.pt` | SHA-256 `db13a79` | MIT（コード） | 手元の GPU |
 
 実行中に読み込まれている構成は、次の 3 か所で確認できる。
 
@@ -159,33 +157,24 @@ HIC で開始位置に待つ間のドアベル・ノック（[ルールブック
 [aha_tasks の `detect_doorbell`](../../aha_tasks/README.md#ドアベルの検出) がこれを待つ。
 モデル・窓・クラス・しきい値は [ドアベル検出の比較](../../../../tools/perception/doorbell_bench/README.md) で決めた。
 
-- 0.2 s ごとに直近の窓（PretrainedSED は 10 s、CED-Base は 2 s）を判定する。スコアは AudioSet の `Doorbell`・`Ding-dong`（チャイム）と `Knock` の確率の最大値。PretrainedSED は台帳の `frames` の区間（既定のBEATsは窓の終わりの0.6〜0.4 s前）のフレームの最大を使う。
-- 台帳の `rules` の `avg` 回の移動平均が `n` 回続けて `threshold` 以上になった立ち上がりで検出とし、5 s 以内の立ち上がりは同じ検出とみなす。
+- 0.2 s ごとに直近 10 s を、PretrainedSED の BEATs（submodule `upstream/PretrainedSED`）で判定する。スコアは AudioSet の `Doorbell`・`Ding-dong`（チャイム）と `Knock` の確率の、窓の終わりの 0.6〜0.4 s 前のフレームでの最大値。
+- 台帳の `rules` の `avg` 回の移動平均が `n` 回続けて `threshold` 以上になった立ち上がりで検出とし、5 s 以内の立ち上がりは同じ検出とみなす。しきい値は比較の dev で環境音（話し声・音楽・生活音）の誤報が1時間あたり5回以下になる最も低い値で、eval の検出率はチャイム 69 %・ノック 73 %、環境音の誤報は 2.7 / 4.0 回/h（[比較の結果](../../../../tools/perception/doorbell_bench/README.md#結果)）。
 - TTS の再生中と終了後 `mute_tail_ms` は判定せず、窓を空にする。
-- 推論はノードのプロセスで行う（`target` は使わない）。1 窓の推論時間は RTX 5090 Laptop / CPU 4 スレッドで、BEATs 約 5 / 310 ms、ATST-F 約 2 / 170 ms、CED-Base 約 2 / 30 ms。CPU で 0.2 s を超えると、判定は推論の終わるたびに最新の窓で行う。
-- PretrainedSED のコードは submodule `upstream/PretrainedSED` を使う（`git submodule update --init upstream/PretrainedSED`）。重みは初回に `$HF_HOME/aharobot-doorbell/` へ取得し、SHA-256 を確かめる。
+- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重みは初回に `$HF_HOME/aharobot-doorbell/` へ取得し、SHA-256 を確かめる。
 
 ```bash
-# 音声コンテナで。ASR・TTS と一緒に起動する場合は use_asr / use_tts を省く
+# 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）。
+# ASR・TTS と一緒に起動する場合は use_asr / use_tts を省く
 ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false use_doorbell:=true
-# GPU のない PC では ATST-F か CED-Base（params.yaml の device を cpu にする）
-ros2 launch aha_perception audio.launch.py use_doorbell:=true doorbell_model:=atst_f
 ```
 
 | パラメータ（`aha_audio_doorbell`） | 既定 | 内容 |
 | --- | --- | --- |
-| `model` | `beats_sed`（launch 引数 `doorbell_model`） | 台帳 `doorbell:` のキー（`beats_sed` / `atst_f` / `ced_base`） |
-| `device` | `cuda:0` | `cpu` も可 |
-| `threads` | `4` | torch の CPU スレッド数 |
+| `device` | `cuda:0` | 推論する GPU |
 | `input_device` / `capture_rate` | `''` / `16000` | ASR と同じマイクの指定。PulseAudio 経由なら ASR と同時に使える |
 | `mute_tail_ms` | `300` | TTS 終了後に判定しない時間 |
 
 launch 引数 `doorbell_input:=topic` で、マイクの代わりにシミュレーションの `/aha/sim/audio`（`aha_tasks` の `sim_sounds`）を読む。
-
-台帳のしきい値は、比較の dev で環境音（話し声・音楽・生活音）の誤報が1時間あたり5回以下になる最も低い値。
-既定の BEATs では eval の検出率がチャイム 69 %・ノック 73 %、環境音の誤報が 2.7 / 4.0 回/h。
-ほかの動作点（誤報 1 回/h 以下など）と種類ごとの検出率は [比較の結果](../../../../tools/perception/doorbell_bench/README.md#結果) にある。
-デバッグ用に、各窓のスコアと推論時間を `/aha/perception/audio/debug` に `{"type": "doorbell", ...}` で出す（デバッグ UI には表示しない）。
 
 ## 既知の制約
 

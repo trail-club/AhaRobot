@@ -56,11 +56,6 @@ def generate_launch_description():
             DeclareLaunchArgument("use_debug_ui", default_value="true"),
             DeclareLaunchArgument("use_doorbell", default_value="false"),
             DeclareLaunchArgument(
-                "doorbell_model",
-                default_value="beats_sed",
-                description="Doorbell model, a key under doorbell: in models.yaml",
-            ),
-            DeclareLaunchArgument(
                 "doorbell_input",
                 default_value="mic",
                 description="Doorbell detector input: mic | topic (/aha/sim/audio)",
@@ -96,7 +91,6 @@ def generate_launch_description():
                     params,
                     {
                         "models_file": models,
-                        "model": LaunchConfiguration("doorbell_model"),
                         "input": LaunchConfiguration("doorbell_input"),
                     },
                 ],

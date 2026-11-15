@@ -6,7 +6,6 @@ which sim_guests sends when a guest reaches the door. aha_audio_doorbell reads
 AUDIO_TOPIC with `input: topic`.
 """
 
-import argparse
 import time
 
 from aha_tasks.sim_sounds import RATE, Mixer
@@ -17,20 +16,14 @@ PERIOD = 0.1  # s between audio messages
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--seed", type=int, default=None, help="fix the sounds (default: random)"
-    )
-    args, ros_args = parser.parse_known_args(argv)
-
     import rclpy
     from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
     from std_msgs.msg import Float32MultiArray, String
 
-    rclpy.init(args=ros_args)
+    rclpy.init(args=argv)
     node = Node("sim_sounds")
-    mixer = Mixer(args.seed)
+    mixer = Mixer()
     pub = node.create_publisher(Float32MultiArray, AUDIO_TOPIC, 10)
 
     def on_bell(message):

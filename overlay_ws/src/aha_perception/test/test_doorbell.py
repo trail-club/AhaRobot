@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from aha_perception.audio.doorbell import HOP, RATE, Rule, Window, target_columns
+from aha_perception.audio.doorbell import MODEL, HOP, RATE, Rule, Window, target_columns
 
 
 def events(rule, scores):
@@ -68,22 +68,18 @@ def test_target_columns_names_unknown_classes():
 def test_a_checkpoint_pinned_by_hash_is_tagged_with_it():
     from aha_perception.audio.model_registry import ModelEntry
 
-    spec = {"checkpoint": "ATST-F_strong_1", "sha256": "fbf2577958e3"}
-    assert ModelEntry("atst_f", "doorbell", spec).tag == "ATST-F_strong_1@fbf2577"
-    hf = {"repo": "mispeech/ced-base", "revision": "db3e14a8db4c"}
-    assert ModelEntry("ced_base", "doorbell", hf).tag == "mispeech/ced-base@db3e14a"
+    spec = {"checkpoint": "BEATs_strong_1", "sha256": "db13a79ae90a"}
+    assert ModelEntry(MODEL, "doorbell", spec).tag == "BEATs_strong_1@db13a79"
 
 
-def test_the_ledger_has_complete_doorbell_entries():
+def test_the_ledger_entry_is_complete():
     from pathlib import Path
 
     import yaml
 
     path = Path(__file__).resolve().parents[1] / "config" / "audio" / "models.yaml"
-    entries = yaml.safe_load(path.read_text())["doorbell"]
-    assert {"beats_sed", "atst_f", "ced_base"} <= set(entries)
-    for key, entry in entries.items():
-        assert entry["engine"] in ("tagger", "frame"), key
-        assert set(entry["classes"]) == set(entry["rules"]) == {"chime", "knock"}, key
-        for rule in entry["rules"].values():
-            Rule(**rule)
+    entry = yaml.safe_load(path.read_text())["doorbell"][MODEL]
+    assert {"code", "checkpoint", "url", "sha256", "window", "frames"} <= set(entry)
+    assert set(entry["classes"]) == set(entry["rules"]) == {"chime", "knock"}
+    for rule in entry["rules"].values():
+        Rule(**rule)

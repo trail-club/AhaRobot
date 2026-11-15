@@ -214,7 +214,7 @@ class Mixer:
     """Endless background with sounds added at their start; read in chunks."""
 
     def __init__(self, seed=None):
-        self.rng = np.random.default_rng(seed)  # None: different sounds every run
+        self.rng = np.random.default_rng(seed)  # None (the node): different every run
         self.pending = []  # [samples, offset into the next chunk]
         self.pink = np.zeros(3)
 

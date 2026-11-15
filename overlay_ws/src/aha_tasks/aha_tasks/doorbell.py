@@ -14,7 +14,6 @@ from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.people import check_keys, positive
 
 DOORBELL_TOPIC = "/aha/perception/audio/doorbell"
-LABELS = ("doorbell", "knock")
 KEEP = 20  # events remembered
 
 
@@ -44,12 +43,12 @@ class Doorbell:
     def detectors(self):
         return self.node.count_publishers(DOORBELL_TOPIC)
 
-    def wait(self, since, labels, deadline, cancelled):
-        """The first (time, label, score) after `since` with a wanted label, or None."""
+    def wait(self, since, deadline, cancelled):
+        """The first (time, label, score) received after `since`, or None."""
         with self.changed:
             while True:
                 for event in self.events:
-                    if event[0] >= since and event[1] in labels:
+                    if event[0] >= since:
                         return event
                 left = deadline - time.monotonic()
                 if left <= 0 or cancelled.is_set():
@@ -58,21 +57,16 @@ class Doorbell:
 
 
 class DetectDoorbell(Skill):
-    """Wait at the start position for the doorbell (or a knock).
+    """Wait at the start position for the doorbell or a knock.
 
-    params: {"timeout": 120.0, "labels": ["doorbell", "knock"]}; both optional.
-    Output: `doorbell.heard` = the label that was heard.
+    params: {"timeout": 120.0} (optional). Output: `doorbell.heard` = "doorbell" or
+    "knock", whichever was heard.
     """
 
     @classmethod
     def validate(cls, params, spec):
-        check_keys(params, (), ("timeout", "labels"))
+        check_keys(params, (), ("timeout",))
         positive(params, "timeout", 120.0)
-        labels = params.get("labels", list(LABELS))
-        if not isinstance(labels, list) or not labels or set(labels) - set(LABELS):
-            raise ValueError(
-                f"labels must be a nonempty subset of {list(LABELS)}: {labels!r}"
-            )
 
     def execute(self, ctx):
         bell = Doorbell.of(self.runtime)
@@ -82,16 +76,13 @@ class DetectDoorbell(Skill):
                 f"No publisher on {DOORBELL_TOPIC}; is aha_audio_doorbell running?",
             )
         timeout = positive(ctx.params, "timeout", 120.0)
-        labels = ctx.params.get("labels", list(LABELS))
         start = time.monotonic()
-        ctx.log(f"Waiting up to {timeout:.0f} s for: {', '.join(labels)}")
-        event = bell.wait(start, labels, start + timeout, ctx.cancelled)
+        ctx.log(f"Waiting up to {timeout:.0f} s for the doorbell or a knock")
+        event = bell.wait(start, start + timeout, ctx.cancelled)
         if event is None:
             if ctx.cancelled.is_set():
                 return SkillResult(False, "Cancelled")
-            return SkillResult(
-                False, f"No {' or '.join(labels)} within {timeout:.0f} s"
-            )
+            return SkillResult(False, f"No doorbell or knock within {timeout:.0f} s")
         heard_at, label, score = event
         return SkillResult(
             True,

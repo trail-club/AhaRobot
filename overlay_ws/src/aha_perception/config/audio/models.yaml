@@ -59,15 +59,12 @@ tts:
     voice: af_heart
     note: 82M 非自己回帰 TTS。英語専用で運用 (日本語 TTS は使わない)。
 
-# 待機中のドアベル / ノック検出 (aha_audio_doorbell)。モデルは
-# tools/perception/doorbell_bench の比較で選んだもの。窓・クラス・後処理も同じ比較で
-# 決めた値で、モデルを変えるときは一緒に決め直す。rules は dev の環境音 (話し声・
-# 音楽・生活音) の誤報が 1 時間あたり 5 回以下になる最も低いしきい値。
+# 待機中のドアベル / ノック検出 (aha_audio_doorbell)。tools/perception/doorbell_bench の
+# 比較で最良だったモデルで、窓・クラス・後処理も同じ比較で決めた。rules は dev の環境音
+# (話し声・音楽・生活音) の誤報が 1 時間あたり 5 回以下になる最も低いしきい値。
 doorbell:
   beats_sed:
-    engine: frame                         # PretrainedSED の AudioSet strong (40 ms ごとのフレーム)
-    code: upstream/PretrainedSED          # リポジトリ直下からのパス。commit は submodule で固定
-    model: BEATs
+    code: upstream/PretrainedSED          # PretrainedSED の BEATs (AudioSet strong、40 ms ごとのフレーム)。commit は submodule で固定
     checkpoint: BEATs_strong_1
     url: https://github.com/fschmid56/PretrainedSED/releases/download/v0.0.1/BEATs_strong_1.pt
     sha256: db13a79ae90a0cfd0f9911a6a1d8cdb89324322bee642dcfe32de022123b8b54
@@ -80,37 +77,7 @@ doorbell:
     rules:                                # avg 回の移動平均が n 回続けて threshold 以上になった立ち上がりで検出
       chime: {threshold: 0.0122, avg: 1, n: 3}   # eval: 検出率 69 %、環境音の誤報 2.7 回/h
       knock: {threshold: 0.0488, avg: 2, n: 2}   # eval: 検出率 73 %、環境音の誤報 4.0 回/h
-    note: BEATs (AudioSet strong) 約 91M。GPU で 1 窓約 5 ms、CPU 4 スレッドで約 310 ms。
-  atst_f:
-    engine: frame                         # PretrainedSED の AudioSet strong (40 ms ごとのフレーム)
-    code: upstream/PretrainedSED          # リポジトリ直下からのパス。commit は submodule で固定
-    model: ATST-F
-    checkpoint: ATST-F_strong_1
-    url: https://github.com/fschmid56/PretrainedSED/releases/download/v0.0.1/ATST-F_strong_1.pt
-    sha256: fbf2577958e3648d55ee8cea7e0e5260c4505fb0c13964e1ec81bc367cee5eda
-    license: MIT (コード。重みの条件の記載は未確認)
-    window: 10.0                          # s。0.2 s ごとに直近 10 s を判定する
-    frames: [0.2, 0.0]                    # 窓の終わりの何 s 前から何 s 前までのフレームの最大 (直近 0.2 s)
-    classes:
-      chime: [Doorbell, Ding-dong]
-      knock: [Knock]
-    rules:
-      chime: {threshold: 0.0295, avg: 2, n: 2}   # eval: 検出率 55 %、環境音の誤報 1.5 回/h
-      knock: {threshold: 0.0651, avg: 1, n: 1}   # eval: 検出率 67 %、環境音の誤報 4.2 回/h
-    note: ATST-Frame 約 86M。GPU で 1 窓約 2 ms、CPU 4 スレッドで約 170 ms。
-  ced_base:
-    engine: tagger                        # transformers AutoModelForAudioClassification (確率を返す)
-    repo: mispeech/ced-base
-    revision: db3e14a8db4c21b56b165261c39649741a900e7f   # HF main @ 2026-03-30
-    license: Apache-2.0
-    window: 2.0                           # s。0.2 s ごとに直近の窓を判定する
-    classes:                              # AudioSet の表示名。最大の確率をスコアにする
-      chime: [Doorbell, Ding-dong]
-      knock: [Knock]
-    rules:                                # avg 回の移動平均が n 回続けて threshold 以上になった立ち上がりで検出
-      chime: {threshold: 0.0124, avg: 2, n: 3}   # eval: 検出率 50 %、環境音の誤報 5.2 回/h
-      knock: {threshold: 0.213, avg: 1, n: 2}    # eval: 検出率 52 %、環境音の誤報 3.0 回/h
-    note: CED-Base 86M (AudioSet-2M mAP 50.0)。CPU 4 スレッドで 2 s の窓 約 30 ms。
+    note: 約 91M。GPU (RTX 5090 Laptop) で 1 窓約 5 ms。
 
 # 言語ごとに使う ASR。aha_audio_asr の language パラメータで切り替える。
 # (TTS は英語のみなので言語切り替えの対象外)

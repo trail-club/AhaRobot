@@ -38,9 +38,7 @@ aha_audio_tts:
 
 aha_audio_doorbell:
   ros__parameters:
-    # モデル (models.yaml の doorbell: のキー) は launch 引数 doorbell_model:=beats_sed|atst_f|ced_base
-    device: cuda:0                 # cpu も可 (1 窓 BEATs-SED 約 310 ms、ATST-F 約 170 ms、CED-Base 約 30 ms)
-    threads: 4                     # このプロセスの torch の CPU スレッド数
+    device: cuda:0
     # 入力は launch 引数 doorbell_input:=mic|topic (topic はシミュレーションの /aha/sim/audio)
     input_device: ''
     capture_rate: 16000

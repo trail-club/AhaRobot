@@ -240,7 +240,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 
 `detect_doorbell` は、開始してから届いた最初の `/aha/perception/audio/doorbell`（`aha_msgs/SoundEvent`）で成功し、
 `doorbell.heard` に `doorbell` か `knock` を出力する。開始前の検出は使わない。
-`timeout`（既定120 s、実時間）で失敗し、`labels`（既定 `["doorbell", "knock"]`）で待つ音を絞れる。
+`timeout`（既定120 s、実時間）で失敗する。
 検出器が動いていなければ（publisherがない）すぐに失敗する。
 
 検出器は音声コンテナで起動する（[ドアベル検出](../aha_perception/docs/audio.md#ドアベル検出)）。
@@ -279,7 +279,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
 - 待っている他の客・ホスト・荷物は含まない。
-- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成のチャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。チャイムは ding-dong・pinpon（日本のインターホン型）・westminster・melody・single_ding から毎回ランダムに選び、音の高さ・音色・間隔もランダム（`sim_sounds --seed` で固定）。検出器が苦手なブザー型は入れていない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
+- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成のチャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。チャイムは ding-dong・pinpon（日本のインターホン型）・westminster・melody・single_ding から毎回ランダムに選び、音の高さ・音色・間隔もランダム。検出器が苦手なブザー型は入れていない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
 
 ### 注視
 

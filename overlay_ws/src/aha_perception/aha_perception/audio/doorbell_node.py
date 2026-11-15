@@ -1,16 +1,15 @@
-"""aha_audio_doorbell: microphone -> audio tagger -> doorbell / knock events.
+"""aha_audio_doorbell: microphone -> BEATs-SED (GPU) -> doorbell / knock events.
 
 Topics
   /aha/perception/audio/doorbell    aha_msgs/SoundEvent           start of each detection
-  /aha/perception/audio/debug       std_msgs/String (JSON)        scores every hop
   /aha/perception/audio/models      std_msgs/String (JSON)        loaded model (latched)
   /aha/perception/audio/tts_active  std_msgs/Bool (sub)           ignore the audio while True
   /aha/sim/audio                    std_msgs/Float32MultiArray (sub, input: topic)
                                     16 kHz mono stream of the simulation
 Parameters
-  model (key under `doorbell:` in models.yaml), input (mic | topic), device,
-  threads, input_device, capture_rate, mute_tail_ms. The window, classes and
-  thresholds belong to the model entry. Inference runs in this process (no `target`).
+  input (mic | topic), device, input_device, capture_rate, mute_tail_ms. The model,
+  window, classes and thresholds are the `doorbell.beats_sed` entry of models.yaml.
+  Inference runs in this process (no `target`).
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from std_msgs.msg import Bool, Float32MultiArray
 
 from .audio_io import SAMPLE_RATE, STALL_S, MicStream
 from .common import TOPIC_TTS_ACTIVE, AudioModelNode, spin_multithreaded
-from .doorbell import ENGINES, HOP, LABELS, Rule, Window
+from .doorbell import HOP, LABELS, MODEL, BeatsSed, Rule, Window
 
 TOPIC_DOORBELL = "/aha/perception/audio/doorbell"
 TOPIC_SIM_AUDIO = "/aha/sim/audio"
@@ -76,13 +75,11 @@ class TopicStream:
 class DoorbellNode(AudioModelNode):
     def __init__(self):
         super().__init__("aha_audio_doorbell")
-        self.declare_parameter("model", "beats_sed")
         self.declare_parameter("input", "mic")  # mic | topic
         self.declare_parameter("input_device", "")
         self.declare_parameter("capture_rate", SAMPLE_RATE)
         self.declare_parameter("mute_tail_ms", 300)
-        self.declare_parameter("threads", 4)  # torch CPU threads of this process
-        self.entry = self.registry.entry("doorbell", self.get_parameter("model").value)
+        self.entry = self.registry.entry("doorbell", MODEL)
         self.pub_event = self.create_publisher(SoundEvent, TOPIC_DOORBELL, 10)
         self.create_subscription(Bool, TOPIC_TTS_ACTIVE, self._on_tts_active, 10)
         self._tts_active = False
@@ -93,12 +90,9 @@ class DoorbellNode(AudioModelNode):
         self.stream = None
 
     def start(self) -> None:
-        import torch
-
-        torch.set_num_threads(self.get_parameter("threads").value)
         spec = self.entry.spec
         with self.registry.loading(self.entry, self.device) as extra:
-            self.engine = ENGINES[spec["engine"]](spec, self.device)
+            self.engine = BeatsSed(spec, self.device)
             extra["classes"] = spec["classes"]
         self.publish_models()
         self.window = Window(spec["window"])
@@ -165,21 +159,11 @@ class DoorbellNode(AudioModelNode):
                 for rule in self.rules.values():
                     rule.reset()
                 continue
-            t0 = time.monotonic()
             scores = self.engine.score(audio)
-            infer = time.monotonic() - t0
             for target, rule in self.rules.items():
                 smoothed = rule.push(scores[target], t)
                 if smoothed is not None:
                     self._publish(target, smoothed, rule.threshold, t)
-            self.debug(
-                {
-                    "type": "doorbell",
-                    "t": round(t, 3),
-                    **{k: round(v, 4) for k, v in scores.items()},
-                    "infer_ms": round(infer * 1000, 1),
-                }
-            )
 
     def _publish(self, target: str, score: float, threshold: float, t: float) -> None:
         msg = SoundEvent(

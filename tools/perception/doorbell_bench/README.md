@@ -15,8 +15,9 @@ HICのドアベル（RoboCup@Home Rulebook 2027 Rev-1 §5.1）の検出手法を
 | `zoo.py` | 比べるモデルと読み込み（[モデル](#モデル)） |
 | `score.py` | 1モデルを全ストリームに0.2 sずつずらして適用し、スコアを `scores/<model>/` に書く |
 | `run_all.sh` | 比較に使う全モデル・窓の `score.py`。GPUの作業者2つが1つの列から順に取る（再実行すると終わった分を飛ばす） |
-| `evaluate.py` | 後処理・しきい値を dev で決め、eval の表と誤り例を `report/` に書く（[評価](#評価)）。`--auto` でアンサンブルとCLAPによる再確認も作る |
-| `timing.py` | 1窓の推論時間（GPU / CPU） |
+| `systems.py` | スコアのファイルから、システムの指定（モデル・窓・クラスの集合、アンサンブル、CLAPによる再確認）ごとのスコアを作る |
+| `evaluate.py` | 後処理・しきい値を dev で決め、eval の表と誤り例を `report/` に書く（[評価](#評価)）。`--auto` でアンサンブルとCLAPによる再確認も作り、`--describe <指定>` は1つのシステムの動作点と種類ごとの検出率を出す |
+| `timing.py` | 1窓のGPUでの推論時間 |
 | `pipeline.sh` | `run_all.sh` → `evaluate.py --auto` → `timing.py` を続けて実行する。SSHが切れても止まらないよう `docker exec -d` で起動する |
 
 ## 準備
@@ -78,7 +79,7 @@ FSD50Kに日本のインターホンの録音はない（タイトル・タグ�
 | | `ced_base` / `ced_mini` | [CED-Base](https://huggingface.co/mispeech/ced-base) / [CED-Mini](https://huggingface.co/mispeech/ced-mini) |
 | | `effat_mn40` | [EfficientAT](https://github.com/fschmid56/EfficientAT) mn40_as_ext |
 | | `yamnet` | YAMNet（TFLite、0.975 sごと） |
-| フレーム単位 | `sed_beats` / `sed_atstf` / `sed_fpasst` / `sed_mn10` | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) のAudioSet strong（10 s入力、40 msごと） |
+| フレーム単位 | `sed_beats` / `sed_atstf` / `sed_mn10` | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) のAudioSet strong（10 s入力、40 msごと） |
 | ゼロショット | `clap_fused` / `clap_larger` | [laion/clap-htsat-fused](https://huggingface.co/laion/clap-htsat-fused) / [laion/larger_clap_general](https://huggingface.co/laion/larger_clap_general) |
 
 EfficientAT mn10_as は2 s以下の窓で全クラスのlogitが20〜90になり、使えなかった。軽量の比較対象はCED-Miniとsed_mn10にした。
@@ -100,26 +101,26 @@ LAION-CLAPの学習データ（LAION-Audio-630K）にはFreesoundが含まれ、
 
 2026-11-15、trailpc（RTX 5090 Laptop）。数値はeval（チャイム201本・ノック103本 × 4条件、負例 ambient 4.1 h・hard_chime 3.4 h・hard_knock 2.1 h）。
 各モデルは窓・クラスの集合・後処理のうちdevのgainが最良のもの。gainは60 s待つ間に誤報せず鳴った音を検出する確率で、その動作点の検出率・誤報率を並べる。
-「誤報≤1 / 5」はdevで環境音の誤報が1時間あたり1 / 5回以下になる最も低いしきい値でのevalの検出率。推論時間はバッチ1の1窓（CPUは4スレッド）。
+「誤報≤1 / 5」はdevで環境音の誤報が1時間あたり1 / 5回以下になる最も低いしきい値でのevalの検出率。推論時間はバッチ1の1窓（GPU、YAMNetはCPU）。
 全行は `report/table_{chime,knock}.md`、誤りの一覧は `report/examples_*.md`。
 
 ### チャイム
 
-| システム | gain | 検出率 | clean / snr10 / snr0 / room | 実録 / 合成 | 遅延 中央値 / 90 % (s) | 環境音の誤報/h（話し声 / 音楽 / 生活音） | hard_chime 誤報/h | 誤報≤1 / 5 | GPU / CPU (ms) |
+| システム | gain | 検出率 | clean / snr10 / snr0 / room | 実録 / 合成 | 遅延 中央値 / 90 % (s) | 環境音の誤報/h（話し声 / 音楽 / 生活音） | hard_chime 誤報/h | 誤報≤1 / 5 | 推論 (ms) |
 |---|---|---|---|---|---|---|---|---|---|
 | アンサンブル（BEATs-SED, ATST-F, mn10, BEATs） | 69 | 75 | 77 / 75 / 72 / 77 | 70 / 76 | 0.2 / 0.8 | 5.2（0.0 / 19.1 / 1.3） | 90 | 50 / 65 | – |
-| **BEATs-SED**（`sed_beats:delay0.4:strict`） | 66 | 76 | 80 / 74 / 73 / 77 | 72 / 76 | 0.8 / 1.0 | 7.9（0.6 / 29.2 / 1.3） | 50 | 46 / 69 | 5.4 / 308 |
+| **BEATs-SED**（`sed_beats:delay0.4:strict`） | 66 | 76 | 80 / 74 / 73 / 77 | 72 / 76 | 0.8 / 1.0 | 7.9（0.6 / 29.2 / 1.3） | 50 | 46 / 69 | 5.4 |
 | CLAPで再確認（BEATs-SEDにclap_larger ≥ 0.2） | 66 | 75 | 78 / 74 / 72 / 77 | 73 / 75 | 0.6 / 1.2 | 7.6（0.0 / 28.2 / 2.0） | 58 | 44 / 67 | – |
-| ATST-F（`sed_atstf:last0.2:strict`） | 64 | 70 | 71 / 68 / 67 / 75 | 70 / 70 | 0.6 / 1.0 | 5.9（0.0 / 20.1 / 2.6） | 72 | 40 / 55 | 2.3 / 174 |
-| frame_mn10（`sed_mn10:last0.2:strict`） | 62 | 69 | 80 / 67 / 59 / 68 | 63 / 70 | 0.4 / 0.8 | 6.4（0.0 / 25.1 / 0.7） | 58 | 32 / 56 | 2.4 / 17 |
-| CED-Base（`w2:strict`） | 57 | 72 | 71 / 72 / 73 / 71 | 70 / 72 | 0.4 / 1.2 | 13.8（2.6 / 37.2 / 9.9） | 114 | 38 / 50 | 2.3 / 28 |
-| BEATs iter3+（`w2:strict`） | 55 | 59 | 49 / 67 / 61 / 61 | 56 / 60 | 0.6 / 2.6 | 5.2（1.3 / 13.1 / 4.0） | 76 | 45 / 54 | 5.1 / 84 |
-| CED-Mini（`w2:strict`） | 55 | 66 | 67 / 68 / 61 / 68 | 61 / 67 | 0.8 / 1.4 | 10.6（0.6 / 27.2 / 9.9） | 116 | 32 / 51 | 2.3 / 6 |
-| SSLAM（`w2:door`） | 54 | 62 | 78 / 64 / 49 / 58 | 61 / 62 | 0.6 / 2.6 | 8.9（0.0 / 28.2 / 5.3） | 103 | 24 / 43 | 3.9 / 253 |
-| EfficientAT mn40（`w2:strict`） | 54 | 60 | 53 / 66 / 59 / 62 | 62 / 60 | 1.0 / 2.0 | 6.2（0.6 / 21.1 / 2.0） | 93 | 40 / 52 | 2.4 / 25 |
-| YAMNet（`w1:strict`、基準） | 54 | 65 | 74 / 68 / 58 / 61 | 63 / 66 | 0.6 / 1.6 | 11.4（1.3 / 23.1 / 13.9） | 120 | 11 / 46 | – / 0.7 |
-| EAT-large（`w2:door`、hardの負例なし） | 53 | 64 | 73 / 65 / 54 / 65 | 69 / 63 | 1.0 / 2.4 | 11.8（2.6 / 28.2 / 10.6） | – | 8 / 31 | 9.8 / 786 |
-| CLAP（clap_fused / clap_larger、`tonal`） | 32 | 42 / 43 | – | – | – | 16.5 / 18.0 | 89 / 79 | 0 / 26・0 / 0 | 3.6 / 47・5.0 / 116 |
+| ATST-F（`sed_atstf:last0.2:strict`） | 64 | 70 | 71 / 68 / 67 / 75 | 70 / 70 | 0.6 / 1.0 | 5.9（0.0 / 20.1 / 2.6） | 72 | 40 / 55 | 2.3 |
+| frame_mn10（`sed_mn10:last0.2:strict`） | 62 | 69 | 80 / 67 / 59 / 68 | 63 / 70 | 0.4 / 0.8 | 6.4（0.0 / 25.1 / 0.7） | 58 | 32 / 56 | 2.4 |
+| CED-Base（`w2:strict`） | 57 | 72 | 71 / 72 / 73 / 71 | 70 / 72 | 0.4 / 1.2 | 13.8（2.6 / 37.2 / 9.9） | 114 | 38 / 50 | 2.3 |
+| BEATs iter3+（`w2:strict`） | 55 | 59 | 49 / 67 / 61 / 61 | 56 / 60 | 0.6 / 2.6 | 5.2（1.3 / 13.1 / 4.0） | 76 | 45 / 54 | 5.1 |
+| CED-Mini（`w2:strict`） | 55 | 66 | 67 / 68 / 61 / 68 | 61 / 67 | 0.8 / 1.4 | 10.6（0.6 / 27.2 / 9.9） | 116 | 32 / 51 | 2.3 |
+| SSLAM（`w2:door`） | 54 | 62 | 78 / 64 / 49 / 58 | 61 / 62 | 0.6 / 2.6 | 8.9（0.0 / 28.2 / 5.3） | 103 | 24 / 43 | 3.9 |
+| EfficientAT mn40（`w2:strict`） | 54 | 60 | 53 / 66 / 59 / 62 | 62 / 60 | 1.0 / 2.0 | 6.2（0.6 / 21.1 / 2.0） | 93 | 40 / 52 | 2.4 |
+| YAMNet（`w1:strict`、基準） | 54 | 65 | 74 / 68 / 58 / 61 | 63 / 66 | 0.6 / 1.6 | 11.4（1.3 / 23.1 / 13.9） | 120 | 11 / 46 | 0.7（CPU） |
+| EAT-large（`w2:door`、hardの負例なし） | 53 | 64 | 73 / 65 / 54 / 65 | 69 / 63 | 1.0 / 2.4 | 11.8（2.6 / 28.2 / 10.6） | – | 8 / 31 | 9.8 |
+| CLAP（clap_fused / clap_larger、`tonal`） | 32 | 42 / 43 | – | – | – | 16.5 / 18.0 | 89 / 79 | 0 / 26・0 / 0 | 3.6 / 5.0 |
 
 ### ノック
 
@@ -159,7 +160,7 @@ LAION-CLAPの学習データ（LAION-Audio-630K）にはFreesoundが含まれ、
 | ノック | dev誤報≤1/h | 1, 2, 0.243 | 53 % | 0.49 | 8.4 | 0.8 / 1.5 |
 
 台帳は「dev誤報≤5/h」にした。60 s待つ場合のgainはgain最大の点とほぼ同じ（0.66）で、誤報は3分の1になる。
-GPUのないPCでは、ATST-F（CPU 170 ms、同じ規則でチャイム55 %・ノック67 %）かCED-Base（CPU 30 ms、50 %・52 %）を使う。
+この表と種類ごとの検出率は `python evaluate.py --describe sed_beats:delay0.4:strict` で出る。
 
 ### 種類ごとの検出率（BEATs-SED、gain最大の点）
 

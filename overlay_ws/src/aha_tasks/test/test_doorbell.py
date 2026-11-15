@@ -49,8 +49,8 @@ def skill(bell):
 class DetectDoorbellTests(unittest.TestCase):
     def test_params(self):
         DetectDoorbell.validate({}, None)
-        DetectDoorbell.validate({"timeout": 30, "labels": ["knock"]}, None)
-        for bad in ({"timeout": 0}, {"labels": []}, {"labels": ["siren"]}, {"wait": 3}):
+        DetectDoorbell.validate({"timeout": 30}, None)
+        for bad in ({"timeout": 0}, {"labels": ["knock"]}, {"wait": 3}):
             with self.subTest(bad), self.assertRaises(ValueError):
                 DetectDoorbell.validate(bad, None)
 
@@ -68,12 +68,11 @@ class DetectDoorbellTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("within", result.message)
 
-    def test_ignores_labels_it_does_not_wait_for(self):
+    def test_a_knock_counts_too(self):
         bell = FakeDoorbell()
         bell.ring("knock", 0.1)
-        bell.ring("doorbell", 0.3)
-        result = skill(bell).execute(context({"timeout": 5, "labels": ["doorbell"]}))
-        self.assertEqual(result.outputs, {"doorbell.heard": "doorbell"})
+        result = skill(bell).execute(context({"timeout": 5}))
+        self.assertEqual(result.outputs, {"doorbell.heard": "knock"})
 
     def test_fails_without_a_detector(self):
         result = skill(FakeDoorbell(publishers=0)).execute(context())

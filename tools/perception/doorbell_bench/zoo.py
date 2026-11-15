@@ -381,12 +381,6 @@ class FrameSed(Model):
                 self.model = PredictionsWrapper(
                     ATSTWrapper(), checkpoint="ATST-F_strong_1"
                 )
-            elif name == "fpasst":
-                from models.frame_passt.fpasst_wrapper import FPaSSTWrapper
-
-                self.model = PredictionsWrapper(
-                    FPaSSTWrapper(), checkpoint="fpasst_strong_1"
-                )
             elif name.startswith("frame_mn"):
                 from models.frame_mn.Frame_MN_wrapper import FrameMNWrapper
                 from models.frame_mn.utils import NAME_TO_WIDTH
@@ -487,7 +481,6 @@ REGISTRY = {
     "sslam": lambda d: EatLike(d, "sslam"),
     "sed_beats": lambda d: FrameSed(d, "BEATs"),
     "sed_atstf": lambda d: FrameSed(d, "ATST-F"),
-    "sed_fpasst": lambda d: FrameSed(d, "fpasst"),
     "sed_mn10": lambda d: FrameSed(d, "frame_mn10"),
     "clap_fused": lambda d: Clap(d, "clap_fused"),
     "clap_larger": lambda d: Clap(d, "clap_larger"),

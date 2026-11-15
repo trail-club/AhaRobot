@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole comparison without supervision: scoring (run_all.sh), evaluation with
-# ensembles and CLAP gates (evaluate.py --auto), then inference times with the GPU
-# otherwise idle. Start it detached so that a dropped SSH session does not stop it:
+# ensembles and CLAP gates (evaluate.py --auto), then GPU inference times with the
+# GPU otherwise idle. Start it detached so that a dropped SSH session does not stop it:
 #   docker exec -d <container> bash /app/tools/perception/doorbell_bench/pipeline.sh
 # Progress: $DOORBELL_RESULTS/pipeline.log (one line per stage, then the outputs).
 set -uo pipefail
@@ -19,9 +19,7 @@ log "timing"
 rm -f "$results/timing.jsonl"
 for model in yamnet ced_mini ced_base effat_mn40 beats sslam eat_large \
   sed_mn10 sed_atstf sed_beats clap_fused clap_larger; do
-  devices="cuda cpu"
-  [ "$model" = yamnet ] && devices=cpu
-  python timing.py --model "$model" --devices $devices --runs 30 \
-    >> "$results/pipeline.log" 2>&1 || log "timing $model FAILED"
+  python timing.py --model "$model" --runs 30 >> "$results/pipeline.log" 2>&1 \
+    || log "timing $model FAILED"
 done
 log "done"
