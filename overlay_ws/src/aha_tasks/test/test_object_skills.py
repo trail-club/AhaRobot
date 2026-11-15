@@ -126,6 +126,19 @@ class ClusterTests(unittest.TestCase):
         labels = sorted(p.label for p in cluster(messages, CATEGORY))
         self.assertEqual(labels, ["fork", "plate"])
 
+    def test_yaw_is_the_circular_mean_of_the_label(self):
+        size = (0.195, 0.027, 0.015)
+        messages = [
+            [Observation("fork", 1, (1.0, 0.0, 0.8), size, 1.0, math.pi - 0.02)],
+            [Observation("fork", 1, (1.0, 0.0, 0.8), size, 1.0, -math.pi + 0.04)],
+            [Observation("spoon", 1, (1.0, 0.0, 0.8), size, 1.0, 1.0)],
+            [Observation("fork", 1, (1.0, 0.0, 0.8), size, 1.0, None)],
+        ]
+        (percept,) = cluster(messages, CATEGORY)
+        self.assertAlmostEqual(abs(percept.yaw), math.pi - 0.01, places=6)
+        (unknown,) = cluster([[Observation("fork", 1, (0, 0, 0), size, 1.0)]], CATEGORY)
+        self.assertIsNone(unknown.yaw)
+
     def test_untracked_detections_cluster_by_distance(self):
         messages = [
             [Observation("apple", -1, (1.0, 0.0, 0.8), (0.1,) * 3, 1.0)],
@@ -339,13 +352,20 @@ class ShelfTests(unittest.TestCase):
         self.assertIn(where["k"]["level"], (2, 3, 4))
 
 
-def detection(label, xyz, track, size=(0.1, 0.1, 0.1)):
+def detection(label, xyz, track, size=(0.1, 0.1, 0.1), yaw=None):
+    """A DetectedObject; no yaw gives the identity orientation of a camera detector."""
+    half = 0.0 if yaw is None else yaw / 2
     return SimpleNamespace(
         class_name=label,
         track_id=track,
         confidence=1.0,
         pose=SimpleNamespace(
-            pose=SimpleNamespace(position=SimpleNamespace(x=xyz[0], y=xyz[1], z=xyz[2]))
+            pose=SimpleNamespace(
+                position=SimpleNamespace(x=xyz[0], y=xyz[1], z=xyz[2]),
+                orientation=SimpleNamespace(
+                    x=0.0, y=0.0, z=math.sin(half), w=math.cos(half)
+                ),
+            )
         ),
         size=SimpleNamespace(x=size[0], y=size[1], z=size[2]),
     )
@@ -455,6 +475,20 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(len(objects.looked), 4)
         self.assertEqual(objects.looked[0], objects.looked[-1])
         self.assertIn("2 other objects seen", logs[0])
+
+    def test_yaw_only_from_an_oriented_detection(self):
+        scene = table_scene()
+        scene[0] = detection(
+            "fork", (-2.2, -1.8, 0.81), 1, (0.195, 0.027, 0.015), 1.5708
+        )
+        result, _ = run(
+            PerceiveObjects,
+            FakeObjects(scene),
+            self.TABLE_PARAMS,
+            {"ppc.trash_category": "snacks"},
+        )
+        self.assertEqual(result.outputs["table.cutlery"]["yaw"], 1.571)
+        self.assertNotIn("yaw", result.outputs["table.cup"])  # identity: unknown
 
     def test_missing_roles_get_no_key(self):
         scene = [d for d in table_scene() if d.class_name not in ("cookies", "cola")]

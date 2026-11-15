@@ -391,10 +391,12 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 
 ```json
 {"label": "mug", "category": "tableware", "position": [-1.76, -1.55, 0.841], "frame": "map",
- "size": [0.106, 0.091, 0.081], "track": 12, "confidence": 1.0}
+ "size": [0.106, 0.091, 0.081], "track": 12, "confidence": 1.0, "yaw": 0.5}
 ```
 
-`position` は物体の中心、`size` は外接箱（m、物体リストの底面 x, y と高さ z）、`track` は検出器のtrack ID、`confidence` は同じラベルの検出の平均。
+`position` は物体の中心、`size` は物体自身の軸に沿った外接箱（m、物体リストの底面 x, y と高さ z）、`track` は検出器のtrack ID、`confidence` は同じラベルの検出の平均。
+`yaw` は `frame` のz軸まわりの物体の向き（rad、同じラベルの検出の円周平均）で、検出器が向きを出すときだけ入れる。
+真値の検出器はモデルの向きを出す。画像からの検出器（`object_perception.py`）は向きを出さず（単位四元数）、`size` は `frame` の軸に沿うため、`yaw` を入れない。
 ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
 タスク固有のスキルのparamsは `open_container`（`object`）、`pour`（`object`、`target`）。
 

@@ -21,8 +21,9 @@ its bottom (centre - half the box height) is at most STACK_M above h, so that
 objects on a plate or lying with an upright box size still count.
 
 The memory record of an object (the contract with pick / place / show):
-{"label", "category", "position": [x, y, z] (centre), "frame", "size": [x, y, z],
-"track", "confidence"}.
+{"label", "category", "position": [x, y, z] (centre), "frame", "size": [x, y, z]
+(along the object's own axes, as in the object list), "track", "confidence",
+"yaw" (rad about z of frame; only when the detector gives an orientation)}.
 """
 
 from __future__ import annotations
@@ -91,6 +92,7 @@ class Observation:
     position: tuple  # x, y, z of the centre
     size: tuple  # x, y, z of the box
     confidence: float
+    yaw: float | None = None  # rad about z of the frame; None if not estimated
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,7 @@ class Percept:
     track: int  # of the latest detection, -1 if untracked
     confidence: float  # mean of the detections with `label`
     count: int  # messages that saw it
+    yaw: float | None = None  # circular mean of the detections with `label`
 
 
 @dataclass
@@ -178,9 +181,18 @@ def cluster(messages, category_of, same_object=SAME_OBJECT_M):
                 track=latest.track,
                 confidence=sum(o.confidence for o in same) / len(same),
                 count=len({index for index, _ in c.observations}),
+                yaw=mean_angle([o.yaw for o in same if o.yaw is not None]),
             )
         )
     return percepts
+
+
+def mean_angle(angles):
+    if not angles:
+        return None
+    return math.atan2(
+        sum(math.sin(a) for a in angles), sum(math.cos(a) for a in angles)
+    )
 
 
 # -- surfaces ----------------------------------------------------------------
@@ -378,7 +390,8 @@ def assign_roles(percepts, roles, memory, origin):
 
 
 def record(percept, frame):
-    return {
+    """The memory record; "yaw" only when the detector gave an orientation."""
+    out = {
         "label": percept.label,
         "category": percept.category,
         "position": [round(v, 3) for v in percept.position],
@@ -387,6 +400,9 @@ def record(percept, frame):
         "track": int(percept.track),
         "confidence": round(float(percept.confidence), 3),
     }
+    if percept.yaw is not None:
+        out["yaw"] = round(percept.yaw, 3)
+    return out
 
 
 # -- shelf -------------------------------------------------------------------
@@ -528,9 +544,15 @@ class Cancelled(RuntimeError):
 
 
 def observations_of(message):
+    """Observations of a DetectedObjectArray.
+
+    An identity orientation counts as none: a camera detector
+    (object_perception.py) gives an axis-aligned box without orientation.
+    """
     out = []
     for o in message.objects:
-        p = o.pose.pose.position
+        p, q = o.pose.pose.position, o.pose.pose.orientation
+        identity = (q.x, q.y, q.z, abs(q.w)) == (0.0, 0.0, 0.0, 1.0)
         out.append(
             Observation(
                 label=o.class_name,
@@ -538,6 +560,7 @@ def observations_of(message):
                 position=(p.x, p.y, p.z),
                 size=(o.size.x, o.size.y, o.size.z),
                 confidence=float(o.confidence),
+                yaw=None if identity else yaw_of(q),
             )
         )
     return out
