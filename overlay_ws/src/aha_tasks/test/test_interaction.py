@@ -88,9 +88,21 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(
             interaction.calls,
             [
-                ("say", WaitStartSignal.TEXT),
+                (
+                    "say",
+                    "I am ready to start. Please touch the Start button on my screen.",
+                ),
                 ("ask", WaitStartSignal.PROMPT, ["Start"]),
             ],
+        )
+
+    def test_the_announcement_names_the_button_shown(self):
+        interaction = FakeInteraction()
+        skill = self.skill(WaitStartSignal, interaction)
+        self.assertTrue(skill.execute(context({"button": "Go"})).success)
+        self.assertEqual(
+            interaction.calls[0],
+            ("say", "I am ready to start. Please touch the Go button on my screen."),
         )
 
     def test_start_signal_params(self):
@@ -304,7 +316,8 @@ class RosTests(unittest.TestCase):
         self.assertEqual(self.shown()["choices"], ["Start"])
         wait_until(lambda: self.screen.view()["captions"])
         self.assertEqual(
-            self.screen.view()["captions"][-1]["text"], WaitStartSignal.TEXT
+            self.screen.view()["captions"][-1]["text"],
+            WaitStartSignal.TEXT.format(button="Start"),
         )
         self.screen.touch(self.shown()["id"], 0)
         thread.join(10.0)

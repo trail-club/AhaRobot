@@ -256,7 +256,8 @@ class WaitStartSignal(Skill):
     params (optional): {"text": "<announcement>", "button": "<label>"}
     """
 
-    TEXT = "I am ready to start. Please touch the Start button on my screen."
+    # Without "text" the announcement names the button that is shown.
+    TEXT = "I am ready to start. Please touch the {button} button on my screen."
     BUTTON = "Start"
     PROMPT = "Ready to start"
 
@@ -265,7 +266,7 @@ class WaitStartSignal(Skill):
         unknown = set(params) - {"text", "button"}
         if unknown:
             raise ValueError(f"wait_start_signal may have text and button: {params}")
-        text(params, "text", cls.TEXT)
+        text(params, "text", "-")
         text(params, "button", cls.BUTTON)
 
     def ready(self):
@@ -275,7 +276,7 @@ class WaitStartSignal(Skill):
         interaction = Interaction.of(self.runtime)
         button = text(ctx.params, "button", self.BUTTON)
         ok, message = interaction.say(
-            text(ctx.params, "text", self.TEXT), ctx.cancelled
+            text(ctx.params, "text", self.TEXT.format(button=button)), ctx.cancelled
         )
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")
