@@ -7,23 +7,32 @@
 # models: fnmatch patterns of the Gazebo model names detected as the label;
 # default [<label with "_" for spaces>, <same>_*], e.g. "tuna can" matches the
 # models tuna_can and tuna_can_2. Sizes are typical of the RoboCup@Home object
-# set, simplified to boxes / upright cylinders for the simulation.
+# set, simplified to boxes / upright cylinders for the simulation. The
+# simulated objects of aha_tasks (config/sim/object_models.json) have these
+# sizes: YCB models within 1.5 cm, the others exactly.
 objects:
   # fruit
   - {label: apple, category: fruit, shape: cylinder, size: [0.075, 0.075, 0.075]}
   - {label: orange, category: fruit, shape: cylinder, size: [0.07, 0.07, 0.07]}
   - {label: lemon, category: fruit, shape: cylinder, size: [0.055, 0.055, 0.06]}
   - {label: peach, category: fruit, shape: cylinder, size: [0.07, 0.07, 0.065]}
+  - {label: banana, category: fruit, shape: box, size: [0.197, 0.069, 0.036]}
+  - {label: pear, category: fruit, shape: cylinder, size: [0.094, 0.066, 0.065]}
+  - {label: plum, category: fruit, shape: cylinder, size: [0.055, 0.053, 0.053]}
+  - {label: strawberry, category: fruit, shape: cylinder, size: [0.045, 0.045, 0.045], models: [strawberry, "strawberry_[0-9]*"]}
   # food
   - {label: tuna can, category: food, shape: cylinder, size: [0.085, 0.085, 0.045]}
   - {label: spam, category: food, shape: box, size: [0.06, 0.10, 0.08]}
   - {label: tomato soup, category: food, shape: cylinder, size: [0.067, 0.067, 0.10]}
   - {label: cup noodle, category: food, shape: cylinder, size: [0.095, 0.095, 0.11]}
+  - {label: mustard, category: food, shape: box, size: [0.096, 0.058, 0.192]}
+  - {label: cereal, category: food, shape: box, size: [0.06, 0.16, 0.22]}
   # drink
   - {label: green tea, category: drink, shape: cylinder, size: [0.065, 0.065, 0.20]}
   - {label: lemonade, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
   - {label: cola, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
   - {label: milk, category: drink, shape: box, size: [0.07, 0.07, 0.19]}
+  - {label: red bull, category: drink, shape: cylinder, size: [0.053, 0.053, 0.135]}
   # snack
   - {label: pringles, category: snack, shape: cylinder, size: [0.075, 0.075, 0.23]}
   - {label: cookies, category: snack, shape: box, size: [0.06, 0.10, 0.15]}
@@ -32,3 +41,14 @@ objects:
   # cleaning supplies
   - {label: cleanser, category: cleaning supplies, shape: cylinder, size: [0.07, 0.07, 0.20]}
   - {label: sponge, category: cleaning supplies, shape: box, size: [0.09, 0.06, 0.04]}
+  - {label: dishwasher tab, category: cleaning supplies, shape: box, size: [0.04, 0.03, 0.015]}
+  - {label: toothpaste, category: cleaning supplies, shape: box, size: [0.19, 0.045, 0.04]}
+  # cutlery and tableware (Pick and Place); plates and bowls are grasped by the rim
+  - {label: fork, category: cutlery, shape: box, size: [0.195, 0.027, 0.015]}
+  - {label: knife, category: cutlery, shape: box, size: [0.213, 0.02, 0.022]}
+  - {label: spoon, category: cutlery, shape: box, size: [0.194, 0.04, 0.02]}
+  - {label: mug, category: tableware, shape: cylinder, size: [0.106, 0.091, 0.081]}
+  - {label: plate, category: tableware, shape: cylinder, size: [0.26, 0.26, 0.027]}
+  - {label: bowl, category: tableware, shape: cylinder, size: [0.16, 0.16, 0.055]}
+  # toy
+  - {label: rubiks cube, category: toy, shape: box, size: [0.058, 0.059, 0.058]}
