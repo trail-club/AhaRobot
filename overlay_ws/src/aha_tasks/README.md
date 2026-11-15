@@ -185,6 +185,7 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 
 `find_person` で向けた客を、未実装の `ask_name_and_drink` の間も見続ける（ルールの「会話中に動く客を追う」）。
 `navigate` の間は進行方向を見る（「進行方向または目的地を見る」）。
+`navigate` と `robot.location` の復元はどのタスクでも頭を動かし、到着後は経路の先の点を `map` で保つ。到着後に机や床などを見るスキルは、`look_at` か `look_towards` で向き先を指示する。
 
 ### 席の案内
 
