@@ -18,6 +18,14 @@
       max_speed: 1.0       # rad/s
       min_duration: 0.3    # s
 
+      # head_look_at.py: targets in track_frames are aimed at again every
+      # track_period s (wall clock) while the base moves; a step is sent when
+      # the aim moved more than track_deadband rad and lasts
+      # max(|delta| / max_speed, track_period).
+      track_frames: ["map", "odom"]
+      track_period: 0.1    # s
+      track_deadband: 0.01 # rad
+
       # Presets (parallel arrays, shown in this order)
       preset_labels: ["正面", "テーブル", "床・足元", "左", "右"]
       #               front  table      floor      left 60  right 60

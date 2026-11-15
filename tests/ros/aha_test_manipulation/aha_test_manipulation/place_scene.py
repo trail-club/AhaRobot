@@ -32,6 +32,10 @@ ARMS = {
             f"link_{side[0]}ee",
         ],
         "gripper_topic": f"/{side}_gripper_controller/commands",
+        # Real arm: arm_node's gripper command (one finger, the other mirrors it).
+        "gripper_joint_topic": f"/{side}/arm/gripper_joint_command",
+        "gripper_joint": f"joint_{side[0]}7r",
+        "gripper_state_topic": f"/{side}/arm/joint_states",  # arm_node's own
     }
     for side in ("right", "left")
 }
@@ -353,21 +357,33 @@ class PlaceScene:
                 [scene.detach_object(held_id, ARMS[arm]["tcp"])],
             )
 
-    def add_placed(self, req, motion):
-        """Keep the released object as a world object at the place pose;
-        where the hand still touches it, allow those collisions."""
-        self.apply(
-            [
-                scene.collision_object(
-                    PLACED_OBJECT_ID,
-                    self.frame,
-                    scene.BOX,
-                    req.size,
-                    motion.object_pose,
-                )
-            ]
-        )
-        touched = self.contacts(req.arm, lambda name: name == PLACED_OBJECT_ID)
+    def add_placed(self, req, motion, padding=0.0):
+        """Keep the released object as a world object at the place pose,
+        ``padding`` larger on every side. If the hand is inside the padded box
+        (a retreat stopped short), the box keeps the object's own size; where
+        the hand still touches that, allow those collisions."""
+
+        def put(grow):
+            self.apply(
+                [
+                    scene.collision_object(
+                        PLACED_OBJECT_ID,
+                        self.frame,
+                        scene.BOX,
+                        [float(v) + 2.0 * grow for v in req.size],
+                        motion.object_pose,
+                    )
+                ]
+            )
+            return self.contacts(req.arm, lambda name: name == PLACED_OBJECT_ID)
+
+        touched = put(padding)
+        if PLACED_OBJECT_ID in touched and padding > 0.0:
+            self.node.get_logger().warn(
+                f"{PLACED_OBJECT_ID} grown by {padding:.3f} m touches the arm: "
+                "kept at the object's size"
+            )
+            touched = put(0.0)
         if PLACED_OBJECT_ID in touched:
             bodies = touched[PLACED_OBJECT_ID][0] | set(ARMS[req.arm]["touch_links"])
             self.allow(PLACED_OBJECT_ID, bodies)
