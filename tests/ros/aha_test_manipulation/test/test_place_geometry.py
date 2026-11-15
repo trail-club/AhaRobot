@@ -76,6 +76,58 @@ def test_object_lower_in_the_hand_raises_the_place_pose():
     assert heading == pytest.approx(yaw - math.radians(10))
 
 
+@pytest.mark.parametrize("yaw", [0.0, math.radians(-35), math.radians(120)])
+@pytest.mark.parametrize("surface_z", [0.33, 0.351, 0.36])
+def test_release_for_tcp_height_puts_the_tcp_there(yaw, surface_z):
+    tcp_height = 0.452
+    slid = geo.object_in_tcp(geo.SIDE, SIZE[2]) @ geo.transform(
+        geo.rot_z(math.radians(10)), [0.0, 0.0, 0.0]
+    )
+    slid[2, 3] -= 0.012
+    for hand in (geo.object_in_tcp(geo.SIDE, SIZE[2]), slid):
+        release = geo.release_for_tcp_height(tcp_height, surface_z, SIZE[2], hand)
+        motion = geo.place_motion(
+            [0.5, -0.3, surface_z],
+            SIZE,
+            yaw,
+            geo.SIDE,
+            geo.SIDE,
+            release,
+            params=geo.MotionParams(lift_margin=0.0),
+            hand=hand,
+        )
+        assert abs(motion.tcp_place[2, 3] - tcp_height) < 1e-9
+        assert abs(motion.pre_place[2, 3] - tcp_height) < 1e-9
+        assert motion.place_pose[2, 3] == pytest.approx(surface_z + release)
+
+
+def test_nominal_side_release_for_tcp_height():
+    # The object center is 0.015 m below the TCP (GRASP_POINT).
+    hand = geo.object_in_tcp(geo.SIDE, 0.12)
+    release = geo.release_for_tcp_height(0.452, 0.35, 0.12, hand)
+    assert release == pytest.approx(0.452 - 0.015 - 0.06 - 0.35)
+
+
+def test_fixed_tcp_release_range():
+    # Object center at the TCP origin: 0.452 - 0.06 - 0.35 = 0.042 m.
+    at_tcp = geo.transform()
+    release, error = geo.fixed_tcp_release(0.452, 0.35, 0.12, at_tcp, 0.01, 0.04)
+    assert release == pytest.approx(0.042)
+    assert error is not None and "4.2 cm" in error
+    # Held 1 cm lower: 0.032 m.
+    lower = geo.transform(None, [0.0, 0.0, -0.01])
+    release, error = geo.fixed_tcp_release(0.452, 0.35, 0.12, lower, 0.01, 0.04)
+    assert release == pytest.approx(0.032) and error is None
+    # Below the minimum: the object would be pushed into the surface.
+    release, error = geo.fixed_tcp_release(0.452, 0.39, 0.12, at_tcp, 0.01, 0.04)
+    assert release == pytest.approx(0.002) and error is not None
+    # The bounds themselves are accepted.
+    for surface_z in (0.452 - 0.06 - 0.01, 0.452 - 0.06 - 0.04):
+        assert (
+            geo.fixed_tcp_release(0.452, surface_z, 0.12, at_tcp, 0.01, 0.04)[1] is None
+        )
+
+
 def test_side_place_motion():
     params = geo.MotionParams(
         approach_distance=0.1,
