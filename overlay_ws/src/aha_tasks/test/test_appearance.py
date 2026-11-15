@@ -58,6 +58,28 @@ class NormalizeTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIsNone(normalize(phrase))
 
+    def test_held_things_are_told_only_of_a_bag(self):
+        cases = {
+            "carrying a backpack": ("bag", "backpack"),
+            "holding a black handbag": ("bag", "black handbag"),
+            "bag on shoulder": ("bag", "bag"),
+            "black backpack on her back": ("bag", "black backpack"),
+            "red cap on head": ("headwear", "red cap"),
+        }
+        for phrase, expected in cases.items():
+            with self.subTest(phrase=phrase):
+                self.assertEqual(normalize(phrase), expected)
+        for phrase in (
+            "carrying a black jacket",
+            "holding a red cap",
+            "jacket over arm",
+            "black jacket over his left arm",
+            "cap in hand",
+            "coat held in hands",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(normalize(phrase))
+
     def test_details_after_with_are_dropped(self):
         self.assertEqual(
             normalize("red t-shirt with a white logo"), ("upper", "red t-shirt")
@@ -195,6 +217,20 @@ class SentenceTests(unittest.TestCase):
         )
         views = [["wearing glasses"], ["wearing glasses"], ["glasses"]]
         self.assertEqual(consensus(views), ["glasses"])
+
+    def test_only_a_sentence_without_listener_is_capitalized(self):
+        features = [("glasses", "glasses")]
+        self.assertEqual(
+            sentence("the other guest", features, "Emma"),
+            "Emma, the other guest is wearing glasses.",
+        )
+        self.assertEqual(
+            sentence("the other guest", features), "The other guest is wearing glasses."
+        )
+        features = choose_features(["carrying a black jacket", "carrying a backpack"])
+        self.assertEqual(
+            sentence("Charlie", features, "Emma"), "Emma, Charlie has a backpack."
+        )
 
     def test_no_features_no_sentence(self):
         self.assertEqual(sentence("Charlie", []), "")

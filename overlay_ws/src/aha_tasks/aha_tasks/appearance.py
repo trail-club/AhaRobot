@@ -76,6 +76,13 @@ LEAD = re.compile(
     r"^(?:(?:a|an|the|is|are|wears?|wearing|has|have|having|carr(?:y|ies|ying)|"
     r"hold(?:s|ing)?|sport(?:s|ing)|dressed|with|in|his|her|their|pair of)\s+)+"
 )
+# Held, not worn: told only of a bag ("carrying a backpack", "bag on shoulder");
+# "carrying a black jacket" or "cap in hand" is not told at all.
+HELD = re.compile(
+    r"\b(?:carr(?:y|ies|ying|ied)|hold(?:s|ing)?|held)\b|"
+    r"\b(?:in|on|over|under)\s+(?:(?:the|a|one|his|her|their|left|right)\s+)*"
+    r"(?:hands?|arms?|shoulders?|laps?|wrists?)\b"
+)
 DETAIL = re.compile(r"\s+(with|on|in|over|under|and|featuring|showing)\s.*$")
 MAX_WORDS = 4  # of the phrase without LEAD and DETAIL words
 
@@ -87,6 +94,7 @@ def normalize(phrase):
     words = " ".join(phrase.lower().replace("_", " ").split()).strip(" .,")
     if not words or HEDGES.search(words) or NEGATIONS.search(words):
         return None
+    held = HELD.search(words)
     words = LEAD.sub("", words + " ").strip()  # "has a beard" -> "beard"
     words = DETAIL.sub("", words)  # "red t-shirt with a logo" -> "red t-shirt"
     words = " ".join(SYNONYMS.get(t, t) for t in words.split())
@@ -96,7 +104,9 @@ def normalize(phrase):
     if tokens[0] == "bald":
         return "hair", "bald"
     part = PART_OF.get(tokens[-1])
-    return None if part is None else (part, " ".join(tokens))
+    if part is None or (held and part != "bag"):
+        return None
+    return part, " ".join(tokens)
 
 
 def vote_key(part, phrase):
@@ -211,5 +221,6 @@ def sentence(subject, features, listener=""):
     if not clauses:
         return ""
     text = f"{subject} {join(clauses)}."
-    text = text[0].upper() + text[1:]
-    return f"{listener}, {text}" if listener else text
+    if listener:
+        return f"{listener}, {text}"  # "Emma, the other guest is ..."
+    return text[0].upper() + text[1:]
