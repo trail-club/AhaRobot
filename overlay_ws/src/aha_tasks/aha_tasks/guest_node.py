@@ -148,7 +148,7 @@ def main(argv=None):
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase)
             bell = f"{guest.name}.{TRIGGERS[ARRIVE]}"
-            guest.set_bell(attempts.get(bell, 0), running == bell)
+            guest.set_bell(attempts.get(bell), running == bell)
             guest.step(dt, robot)
             if guest.ring is not None:
                 bell_pub.publish(String(data=guest.ring))

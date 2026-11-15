@@ -144,20 +144,31 @@ class BeatsSed:
 
 
 def _checkpoint(entry: dict) -> Path:
-    """The checkpoint file, downloaded once and checked against its sha256."""
-    import torch
-
+    """The checkpoint file, checked against its sha256; downloaded again if missing
+    or different. A download that does not match is deleted, never cached."""
     home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
     path = home / "aharobot-doorbell" / f"{entry['checkpoint']}.pt"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        part = f"{path}.part"
-        torch.hub.download_url_to_file(entry["url"], part, progress=False)
-        os.replace(part, path)
+    if path.exists() and _sha256(path) == entry["sha256"]:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(f"{path.name}.part")
+    _download(entry["url"], part)
+    if _sha256(part) != entry["sha256"]:
+        part.unlink()
+        raise RuntimeError(f"{entry['url']}: sha256 does not match models.yaml")
+    os.replace(part, path)
+    return path
+
+
+def _download(url: str, path: Path) -> None:
+    import torch
+
+    torch.hub.download_url_to_file(url, str(path), progress=False)
+
+
+def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
             h.update(block)
-    if h.hexdigest() != entry["sha256"]:
-        raise RuntimeError(f"{path}: sha256 does not match models.yaml")
-    return path
+    return h.hexdigest()

@@ -1,8 +1,12 @@
 """Doorbell post-processing and window (aha_perception.audio.doorbell, no torch)."""
 
+import hashlib
+from unittest import mock
+
 import numpy as np
 import pytest
 
+from aha_perception.audio import doorbell
 from aha_perception.audio.doorbell import MODEL, HOP, RATE, Rule, Window, target_columns
 
 
@@ -83,3 +87,51 @@ def test_the_ledger_entry_is_complete():
     assert set(entry["classes"]) == set(entry["rules"]) == {"chime", "knock"}
     for rule in entry["rules"].values():
         Rule(**rule)
+
+
+def checkpoint_entry(data):
+    return {
+        "checkpoint": "W",
+        "url": "https://example.invalid/W.pt",
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def fake_download(data, calls):
+    def download(url, path):
+        calls.append(url)
+        path.write_bytes(data)
+
+    return download
+
+
+def test_the_checkpoint_is_downloaded_once_and_cached(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    calls = []
+    with mock.patch.object(doorbell, "_download", fake_download(b"weights", calls)):
+        path = doorbell._checkpoint(checkpoint_entry(b"weights"))
+        assert doorbell._checkpoint(checkpoint_entry(b"weights")) == path
+    assert path.read_bytes() == b"weights"
+    assert len(calls) == 1
+
+
+def test_a_download_with_another_hash_is_not_cached(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    with mock.patch.object(doorbell, "_download", fake_download(b"broken", [])):
+        with pytest.raises(RuntimeError, match="sha256"):
+            doorbell._checkpoint(checkpoint_entry(b"weights"))
+    assert list((tmp_path / "aharobot-doorbell").iterdir()) == []
+
+
+def test_a_cached_checkpoint_with_another_hash_is_downloaded_again(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    cached = tmp_path / "aharobot-doorbell" / "W.pt"
+    cached.parent.mkdir()
+    cached.write_bytes(b"broken")
+    calls = []
+    with mock.patch.object(doorbell, "_download", fake_download(b"weights", calls)):
+        assert doorbell._checkpoint(checkpoint_entry(b"weights")) == cached
+    assert cached.read_bytes() == b"weights"
+    assert len(calls) == 1

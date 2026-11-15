@@ -68,8 +68,10 @@ def statuses_of(status):
 
 
 def attempts_of(status):
-    """Subgoal id -> number of attempts from a /aha/tasks/status message."""
-    return {subgoal["id"]: subgoal["attempts"] for subgoal in status["subgoals"]}
+    """Subgoal id -> (run number, attempts): it changes on every new attempt, also
+    when a new run starts the attempts from 0 again."""
+    run = (status.get("run") or {}).get("number", 0)
+    return {s["id"]: (run, s["attempts"]) for s in status["subgoals"]}
 
 
 def executing(status):
@@ -138,7 +140,7 @@ class Guest:
         self.last_trail = None
         self.rang = False  # rang the bell in this ARRIVE phase and attempt
         self.ring = None  # a bell to sound now (config "bell"); the node clears it
-        self.bell_attempt = 0  # attempts of <guest>.doorbell
+        self.bell_attempt = None  # (run, attempts) of <guest>.doorbell
         self.listened = False  # the robot waits for the bell (<guest>.doorbell runs)
 
     @property
@@ -178,10 +180,10 @@ class Guest:
             self.route = [*self.config["seat_via"], self.config["seat"][:2]]
 
     def set_bell(self, attempt, listened):
-        """The attempt of <guest>.doorbell and whether its skill waits now.
+        """The attempt of <guest>.doorbell (attempts_of) and whether its skill waits now.
 
         The guest rings only while the robot waits (rulebook 5.1), and again on a
-        retry of the subgoal."""
+        retry of the subgoal or in a new run."""
         if attempt != self.bell_attempt:
             self.bell_attempt, self.rang = attempt, False
         self.listened = listened

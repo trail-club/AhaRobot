@@ -76,13 +76,16 @@ class PhaseTests(unittest.TestCase):
         message = {
             "current": "a",
             "phase": "executing",
+            "run": {"number": 3},
             "subgoals": [{"id": "a", "status": "running", "attempts": 2}],
         }
         self.assertEqual(statuses_of(message), {"a": "running"})
-        self.assertEqual(attempts_of(message), {"a": 2})
+        self.assertEqual(attempts_of(message), {"a": (3, 2)})
         self.assertEqual(executing(message), "a")
         message["phase"] = "restoring"  # the skill has not started yet
         self.assertIsNone(executing(message))
+        message["run"] = None  # before the first run
+        self.assertEqual(attempts_of(message), {"a": (0, 2)})
 
 
 class MotionTests(unittest.TestCase):
@@ -97,7 +100,7 @@ class MotionTests(unittest.TestCase):
     def test_rings_once_on_reaching_the_door(self):
         guest = guest1()
         guest.set_phase(ARRIVE)
-        guest.set_bell(1, True)
+        guest.set_bell((1, 1), True)
         rings = []
         for _ in range(100):
             guest.step(0.1, ENTRANCE)
@@ -113,26 +116,38 @@ class MotionTests(unittest.TestCase):
     def test_rings_only_while_the_robot_waits(self):
         guest = guest1()
         guest.set_phase(ARRIVE)
-        guest.set_bell(1, False)  # e.g. the runner still restores the robot pose
+        guest.set_bell((1, 1), False)  # e.g. the runner still restores the robot pose
         run(guest, 10.0, ENTRANCE)
         self.assertIsNone(guest.ring)
-        guest.set_bell(1, True)
+        guest.set_bell((1, 1), True)
         guest.step(0.1, ENTRANCE)
         self.assertEqual(guest.ring, "chime")
 
     def test_rings_again_when_the_doorbell_is_retried(self):
         guest = guest1()
         guest.set_phase(ARRIVE)
-        guest.set_bell(1, True)
+        guest.set_bell((1, 1), True)
         run(guest, 10.0, ENTRANCE)
         guest.ring = None
-        guest.set_bell(1, True)
+        guest.set_bell((1, 1), True)
         run(guest, 1.0, ENTRANCE)
         self.assertIsNone(guest.ring)
-        guest.set_bell(2, False)  # failed (e.g. missed), retried: restoring first
+        guest.set_bell((1, 2), False)  # failed (e.g. missed), retried: restoring first
         run(guest, 1.0, ENTRANCE)
         self.assertIsNone(guest.ring)
-        guest.set_bell(2, True)
+        guest.set_bell((1, 2), True)
+        guest.step(0.1, ENTRANCE)
+        self.assertEqual(guest.ring, "chime")
+
+    def test_rings_again_in_a_new_run_of_the_same_subgoals(self):
+        guest = guest1()
+        guest.set_phase(ARRIVE)
+        guest.set_bell((1, 1), True)
+        run(guest, 10.0, ENTRANCE)
+        guest.ring = None
+        # Run 2 starts the attempts from 0 again; the guest may miss the pending
+        # status in between, so it stays in ARRIVE.
+        guest.set_bell((2, 1), True)
         guest.step(0.1, ENTRANCE)
         self.assertEqual(guest.ring, "chime")
 

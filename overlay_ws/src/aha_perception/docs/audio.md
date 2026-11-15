@@ -160,7 +160,7 @@ HIC で開始位置に待つ間のドアベル・ノック（[ルールブック
 - 0.2 s ごとに直近 10 s を、PretrainedSED の BEATs（submodule `upstream/PretrainedSED`）で判定する。スコアは AudioSet の `Doorbell`・`Ding-dong`（チャイム）と `Knock` の確率の、窓の終わりの 0.6〜0.4 s 前のフレームでの最大値。
 - 台帳の `rules` の `avg` 回の移動平均が `n` 回続けて `threshold` 以上になった立ち上がりで検出とし、5 s 以内の立ち上がりは同じ検出とみなす。しきい値は比較の dev で環境音（話し声・音楽・生活音）の誤報が1時間あたり5回以下になる最も低い値で、eval の検出率はチャイム 69 %・ノック 73 %、環境音の誤報は 2.7 / 4.0 回/h（[比較の結果](../../../../tools/perception/doorbell_bench/README.md#結果)）。
 - TTS の再生中と終了後 `mute_tail_ms` は判定せず、窓を空にする。
-- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重みは初回に `$HF_HOME/aharobot-doorbell/` へ取得し、SHA-256 を確かめる。
+- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重みは `$HF_HOME/aharobot-doorbell/` に置き、起動のたびに SHA-256 を確かめる。ないか合わなければ取得し直し、取得したものも合わなければ置かずに止まる。
 
 ```bash
 # 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）。
