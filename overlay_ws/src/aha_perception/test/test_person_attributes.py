@@ -278,6 +278,21 @@ def test_a_level_forearm_does_not_wave():
     assert classify_gesture(history).value == "pointing_left"
 
 
+def test_a_hand_up_below_the_raised_height_is_left_to_the_vlm():
+    """Waving at face height: the wrist is under shoulder + 0.15 m, the swing small."""
+    history = [
+        sample(
+            stamp=t,
+            right_elbow=(0.0, -0.35, 1.25),
+            right_wrist=(0.0, -0.40 + dy, 1.52),
+        )
+        for t, dy in ((0.0, 0.0), (0.3, 0.07))
+    ]
+    label = classify_gesture(history)
+    assert (label.value, label.confident) == ("none", False)
+    assert classify_gesture(history[:1]).confident is False
+
+
 def test_the_vlm_does_not_change_the_side_of_a_raised_arm():
     unsure = Label("raising_left_arm", False)
     assert decide_gesture(unsure, "raising_right_arm") == (

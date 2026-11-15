@@ -458,11 +458,15 @@ def classify_gesture(history) -> Label | None:
             value, agreed, f"arm stretched out sideways in {count}/{len(votes)} images"
         )
     seen = sum(1 for g in votes if g == "none")
+    # A hand waved at face height stays below RAISED_ABOVE_SHOULDER, and a
+    # small or short swing is no wave above: leave such a hand to the VLM.
+    hand = any(hand_up(s, side) for s in window for side in SIDES)
     return Label(
         "none",
-        agreed and seen == count,
+        agreed and seen == count and not hand,
         f"arms down in {count}/{len(votes)} images"
-        + ("" if seen == count else ", an arm not always seen"),
+        + ("" if seen == count else ", an arm not always seen")
+        + (", a forearm up" if hand else ""),
     )
 
 
