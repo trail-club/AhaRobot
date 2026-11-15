@@ -10,11 +10,23 @@ import yaml
 SHARE = Path(__file__).resolve().parents[1]
 
 
-def model():
+def model(**mappings):
     description = Path(get_package_share_directory("aha_description"))
     return ET.fromstring(
-        xacro.process_file(str(description / "urdf/aha_robot.urdf.xacro")).toxml()
+        xacro.process_file(
+            str(description / "urdf/aha_robot.urdf.xacro"), mappings=mappings
+        ).toxml()
     )
+
+
+def test_display_is_only_in_the_simulated_model_by_default():
+    # Until the mount is on the robot; MoveIt then skips the SRDF display pair.
+    def links(urdf):
+        return {item.attrib["name"] for item in urdf.findall("link")}
+
+    assert "display_link" in links(model())
+    assert "display_link" not in links(model(sim="false"))
+    assert "display_link" in links(model(sim="false", display="true"))
 
 
 def test_srdf_references_existing_model_links_and_serial_chain():

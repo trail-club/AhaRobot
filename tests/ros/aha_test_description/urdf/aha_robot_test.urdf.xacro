@@ -16,6 +16,7 @@
       attach topic, released on the detach topic; gz topics take
       gz.msgs.Empty, .../state publishes "attached" / "detached"
       (aha_test_manipulation manip.launch.py bridges them to ROS)
+    - no touch screen (display.xacro), as on the robot before the mount
   Keep the composition in step with aha_description/urdf/aha_robot.urdf.xacro.
 -->
 <robot name="aha_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">

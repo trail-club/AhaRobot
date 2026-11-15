@@ -10,6 +10,8 @@
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
+| `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
+| `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
 | `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
@@ -34,12 +36,14 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction
 
 GUIは `http://localhost:8765/`（macOSは [`make forward`](../../../docs/docker.md#2-guiに接続する)）。
 ロボットの画面は同じportの `/display/` で、GUIの右の欄にも同じ画面を表示する。
-Nav2がACTIVEになると待機状態になり、GUIから実行する。runnerが終了するとlaunch全体が終了する。
+Nav2がACTIVEになると待機状態になり、GUIから実行する。runnerが終了するとlaunch全体が終了する（`e2e:=debug` を除く）。
 ロボットの初期位置（Gazeboのspawn、AMCLの初期姿勢）はタスク定義の `initial_state` の `robot.location`。
 
 | 引数 | 既定 | 内容 |
 | --- | --- | --- |
 | `task` | 必須 | `config/` のタスク名、またはJSONのパス |
+| `e2e` | `final` | `final` はNav2とDGXのモデル、`debug` はシミュレーションの代替（[e2eの確認](#e2eの確認)） |
+| `navigation` / `perception` | 空（`e2e` による） | `e2e:=debug` で代替を個別に戻す。`nav2` / `teleport`、`model` / `truth`。`final` は `nav2` / `model` だけ |
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
 | `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
@@ -61,6 +65,42 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 経過時間は制限時間と並べて表示するが、採点・時間切れの判定はしない。
 
 ![1人目の客を部分実行したWeb GUI](../../../docs/images/aha-tasks-web-gui.png)
+
+## e2eの確認
+
+シミュレーションのタスクの通しは、`e2e` で2つを使い分ける。
+
+| | `e2e:=final`（既定） | `e2e:=debug` |
+| --- | --- | --- |
+| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
+| 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
+| runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
+
+`perception:=model` を付けると、`debug` でも人の認識は `final` と同じになる（移動だけを省く）。
+`debug` で確かめられないため、`final` で確かめること：
+
+- **移動**: 経路の有無（開かないドア、壁の向こうの地点）、Nav2の失敗・時間切れ、移動中のAMCLのずれ、移動中に見える人。`sim_teleport` は目標の、地図上のロボットの半径（0.40 m）に占有・未知のセルがないことだけを見る。AMCLのTFは2 s先の時刻で配信されるため、1回の移動に約4 sかかる。移した直後の1–2枚の画像は、前後の位置が混ざったTFで測られる。
+- **人の認識**（`perception:=truth` のとき）: SAM 3.1の見落とし・誤検出・並んだ人の結合、マスクとDepthから求める位置、VLMの特徴・照合の誤り、DGXの往復の遅れ。人は高さ1.75 mの立った体の軸として扱い、名前は覚えたモデルに直ちに付く。
+- **客の動き**: ロボットは待った後に一度に移るため、案内される客はロボットの経路をたどらず、壁を抜けて歩く。
+
+```bash
+# 1回目：起動して全体を実行（コンテナ内）
+ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests:=true e2e:=debug headless:=true
+ros2 run aha_tasks run_task --on-failure skip --output /tmp/run.json  # 別のシェル
+
+# 2回目以降：変えたnodeだけを止め（launchが再起動する）、対象のサブゴールだけを実行する
+pkill -INT -f 'lib/aha_tasks/[t]ask_runner'  # スキル・タスク定義を変えた
+pkill -INT -f '[p]erson_perception.py'       # perception:=model で認識を変えた（DGXのworkerも作り直す）
+ros2 run aha_tasks run_task --subgoals 'introduce.*' --on-failure skip
+```
+
+HICの最初の `start.signal` は画面の `Start` のタッチを待つため、GUIの右の欄の画面で押すか、`--subgoals 'guest1.wait..'` で除く。
+`run_task` はrunnerがReadyになるのを待って（再起動中なら次のrunnerを待って）始め、止まると各サブゴールの実時間（`robot.location` の復元を含む）、スキルごとの合計、全体の時間を出す。終了・失敗のほか、ポリシー `pause` で一時停止したとき（GUIで選ぶ）と、実行中にrunnerが再起動したときも止まる。完了のときだけ終了コード0。
+`--output` は要約・最後の状態・ログをJSONに書く。`final` でも同じように使える（runnerの終了でlaunchが終わるため、毎回起動する）。
+Pythonだけの変更は `--symlink-install` のビルドならそのまま反映される。ファイル・msgの追加ではビルドしてから止める。
+`run_task` が `Runner not ready in time` で終わるときは、launchのログでrunnerの起動エラーを見る（タスク定義・スキルの誤りで起動前に終わると、状態を配信しないまま再起動を繰り返す）。
+再起動したrunnerはロボットが `initial_state` の位置にいるとみなすため、最初に実行するサブゴールの記憶上の位置が初期位置なら、ロボットは移動しない。
+人の認識のnodeは覚えた名前を実行をまたいで保つ。客を覚えるより前のサブゴールから走らせ直すときは、人の認識のnodeも止める（`pkill -INT -f '[s]im_person_detector.py'` か上の `person_perception.py`）。名前の付いた客は `find_person` の対象にならないため。
 
 ## タスク定義
 
