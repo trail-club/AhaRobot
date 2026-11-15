@@ -576,6 +576,13 @@ class FindDescribedPerson(Skill):
         positive(params, "timeout", 60.0)
         check_search_params(params, spec)
 
+    def unsupported(self, params):
+        # person_perception names only people remembered with remember_person;
+        # nothing in a GPSR plan asks a person's name yet.
+        if params.get("name"):
+            return "finding a person by name needs their name asked first (not implemented)"
+        return None
+
     def execute(self, ctx):
         people = People.of(self.runtime)
         params = ctx.params

@@ -292,6 +292,19 @@ class RunPlanStepTests(unittest.TestCase):
         self.assertEqual(result.outputs, {"robot.holding": "cola"})
         self.assertEqual(skill.execute(context(plan, index=1)).outputs, {})
 
+    def test_a_step_the_skill_cannot_do_yet_passes_with_its_mock(self):
+        fake = FakeSkill()
+        fake.unsupported = lambda params: "no names yet" if "name" in params else None
+        plan = [step("fake", {"item": "x", "name": "Jules"}, mock={"a": 1})]
+        result = slot({"fake": fake}).execute(context(plan))
+        self.assertTrue(result.success, result.message)
+        self.assertIn("not implemented", result.message)
+        self.assertEqual(result.outputs, {"a": 1})
+        self.assertEqual(fake.contexts, [])
+        self.assertEqual(
+            slot({"fake": fake}).assumed({"index": 0}, {"plan": plan}), {"a": 1}
+        )
+
     def test_mock_location_of_unimplemented_step_is_physically_reached(self):
         plan = [step("todo", mock={"robot.location": "b"})]
         navigation = FakeNavigation()
