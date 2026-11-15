@@ -324,6 +324,7 @@ class LaunchSwitchTests(unittest.TestCase):
             "headless": "true",
             "gui_port": "8765",
             "people": "true",
+            "objects": "false",
             "guests": "false",
             "people_scene": "",
             "object_scene": "",
@@ -409,6 +410,32 @@ class LaunchSwitchTests(unittest.TestCase):
         self.assertEqual(nodes["sim_objects"]["arguments"], [f"--config={path}"])
         with self.assertRaises(ValueError):
             self.launch_task(object_scene="no_such_scene")
+
+    def test_objects_start_the_detector_of_the_choice(self):
+        _, nodes, includes = self.launch_task(
+            e2e="debug", people="false", objects="true"
+        )
+        self.assertEqual(
+            nodes["sim_object_detector.py"]["parameters"], [{"output_frame": "map"}]
+        )
+        self.assertIn("camera_bridge.launch.py", includes)
+        self.assertNotIn("objects.launch.py", includes)
+        self.assertEqual(
+            includes["sim.launch.py"]["cameras"], "true", "the detector needs depth"
+        )
+        world = nodes["static_transform_publisher"]["arguments"]
+        self.assertEqual(world, ["--frame-id", "world", "--child-frame-id", "map"])
+        _, nodes, includes = self.launch_task(e2e="final", objects="true")
+        self.assertEqual(includes["objects.launch.py"]["target_frame"], "map")
+        self.assertEqual(includes["objects.launch.py"]["respawn"], "false")
+        self.assertNotIn("sim_object_detector.py", nodes)
+
+    def test_without_objects_no_detector(self):
+        _, nodes, includes = self.launch_task(e2e="debug", people="false")
+        self.assertNotIn("sim_object_detector.py", nodes)
+        self.assertNotIn("static_transform_publisher", nodes)
+        self.assertNotIn("camera_bridge.launch.py", includes)
+        self.assertEqual(includes["sim.launch.py"]["cameras"], "false")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

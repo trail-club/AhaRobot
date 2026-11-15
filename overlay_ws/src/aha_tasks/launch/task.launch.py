@@ -2,6 +2,10 @@
 
 head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 `people:=true` adds the head camera bridge and person_perception (DGX Spark).
+`objects:=true` adds the head camera bridge and an object detector on
+/aha/perception/objects (frame map) for the object skills (aha_tasks.objects),
+and the identity TF world -> map: the fixed map is drawn in Gazebo's world
+coordinates, the frame of aha_perception's furniture config of the arena.
 `guests:=true` adds sim_guests, which moves the task's simulated guests.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
@@ -17,7 +21,8 @@ node can be rerun without restarting Gazebo.
 - navigation (debug: teleport): aha_tasks sim_teleport moves the robot in
   Gazebo and resets AMCL instead of the Nav2 planner, controller and BT.
 - perception (debug: truth): aha_perception sim_person_detector.py publishes
-  the people from Gazebo's poses instead of person_perception.py.
+  the people from Gazebo's poses instead of person_perception.py, and
+  sim_object_detector.py the objects instead of objects.launch.py.
 """
 
 from pathlib import Path
@@ -59,7 +64,7 @@ E2E_DEFAULTS = {
 }
 CHOICES = {"navigation": ("nav2", "teleport"), "perception": ("model", "truth")}
 
-# Launch argument -> people.launch.py argument (DGX connection).
+# Launch argument -> people.launch.py and objects.launch.py argument (DGX connection).
 PEOPLE_OPTIONS = {
     "ssh_host": "10.99.0.1",
     "ssh_port": "2222",
@@ -101,6 +106,30 @@ def e2e_choices(mode, navigation="", perception=""):
     return chosen["navigation"], chosen["perception"]
 
 
+def object_detector(perception, debug, value):
+    """The object detector of objects:=true, publishing in map."""
+    if perception == "truth":
+        # Wall clock like sim_person_detector.py; it uses the image stamps.
+        return Node(
+            package="aha_perception",
+            executable="sim_object_detector.py",
+            parameters=[{"output_frame": "map"}],
+            output="screen",
+            respawn=True,
+            respawn_delay=2.0,
+        )
+    return include(
+        "aha_perception",
+        "objects.launch.py",
+        {
+            "target_frame": "map",
+            "use_sim_time": "true",
+            "respawn": "true" if debug else "false",
+            **{name: value(name) for name in PEOPLE_OPTIONS},
+        },
+    )
+
+
 def task_exited(event, context):
     return [
         LogInfo(msg=f"Task runner exited with code {event.returncode}"),
@@ -136,6 +165,7 @@ def launch_task(context):
         respawn_delay=2.0,
     )
     people = value("people") == "true"
+    objects = value("objects") == "true"
     if people and perception == "truth" and value("people_scene"):
         # sim_person_detector.py has no ClassifyPerson and only knows the guests.
         raise ValueError(
@@ -152,7 +182,7 @@ def launch_task(context):
             "sim.launch.py",
             {
                 "world": "rcjo2026",
-                "cameras": "true" if people else "false",
+                "cameras": "true" if people or objects else "false",
                 "headless": value("headless"),
                 "spawn_x": x,
                 "spawn_y": y,
@@ -236,10 +266,19 @@ def launch_task(context):
                 **{name: value(name) for name in PEOPLE_OPTIONS},
             },
         )
+    if people or objects:
+        actions.append(include("aha_perception", "camera_bridge.launch.py", {}))
     if people:
+        actions.append(people_node)
+    if objects:
         actions += [
-            include("aha_perception", "camera_bridge.launch.py", {}),
-            people_node,
+            object_detector(perception, debug, value),
+            Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                name="world_to_map",
+                arguments=["--frame-id", "world", "--child-frame-id", "map"],
+            ),
         ]
     if guests:
         actions.append(
@@ -310,7 +349,8 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "perception",
                 default_value="",
-                description="model | truth (debug only), with people:=true; empty: by e2e",
+                description="model | truth (debug only), with people:=true or "
+                "objects:=true; empty: by e2e",
             ),
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("gui_port", default_value="8765"),
@@ -318,6 +358,11 @@ def generate_launch_description():
                 "people",
                 default_value="false",
                 description="Head cameras and person_perception on the DGX",
+            ),
+            DeclareLaunchArgument(
+                "objects",
+                default_value="false",
+                description="Head cameras and the object detector (sim truth or model)",
             ),
             DeclareLaunchArgument(
                 "guests",
