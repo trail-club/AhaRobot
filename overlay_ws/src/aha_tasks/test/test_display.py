@@ -300,7 +300,7 @@ class ServerTests(unittest.TestCase):
         line = response.fp.readline().decode()
         self.assertEqual(json.loads(line[6:])["screen"]["question"]["id"], question.id)
 
-    def test_the_embedded_screen_does_not_open_a_stream(self):
+    def test_the_gui_embeds_the_screen_with_the_embedded_flag(self):
         response, body = self.request("GET", "/")
         self.assertIn(b'src="display/?embedded"', body)
         script = (WEB / "display" / "display.js").read_text()
