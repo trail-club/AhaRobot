@@ -18,9 +18,12 @@
        x = (Z - 495.268) / 1000, y = X / 1000, z = (Y + 147) / 1000.
        Matched on the head axes (STEP X 0, Y 1282, Z 545.268 = joint_head_pan
        0.05 0 1.429) and on the top beam between the rails (STEP underside
-       Y 1341 = the base_link mesh face at z 1.488).
-       The case front face centre is STEP (0, 1093.5, 586.1). -->
-  <xacro:property name="display_xyz" value="0.090832 0 1.2405"/>
+       Y 1341 = the base_link mesh face at z 1.488). -->
+  <!-- display_link: the case front face centre, STEP (0, Y, Z) -->
+  <xacro:property name="display_cad_y" value="1093.5"/>
+  <xacro:property name="display_cad_z" value="573.37"/>
+  <xacro:property name="display_xyz"
+                  value="${(display_cad_z - 495.268) / 1000} 0 ${(display_cad_y + 147) / 1000}"/>
 
   <!-- Waveshare case outline: thickness, width, height -->
   <xacro:property name="display_case_x" value="0.0261"/>
@@ -35,12 +38,12 @@
   <xacro:macro name="display_mount_part" params="name X Y Z rpy:='${pi/2} 0 ${pi/2}'">
     <xacro:property name="mesh" value="package://aha_description/meshes/display_mount/${name}.stl"/>
     <visual>
-      <origin xyz="${(Z - 586.1) / 1000} ${X / 1000} ${(Y - 1093.5) / 1000}" rpy="${rpy}"/>
+      <origin xyz="${(Z - display_cad_z) / 1000} ${X / 1000} ${(Y - display_cad_y) / 1000}" rpy="${rpy}"/>
       <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
       <material name="display_mount"><color rgba="0.16 0.47 0.71 1"/></material>
     </visual>
     <collision>
-      <origin xyz="${(Z - 586.1) / 1000} ${X / 1000} ${(Y - 1093.5) / 1000}" rpy="${rpy}"/>
+      <origin xyz="${(Z - display_cad_z) / 1000} ${X / 1000} ${(Y - display_cad_y) / 1000}" rpy="${rpy}"/>
       <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
     </collision>
   </xacro:macro>
@@ -62,11 +65,11 @@
         <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
         <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
       </collision>
-      <!-- The spine's arms bear on the lift rails' front faces (STEP Z 477.27). -->
-      <xacro:display_mount_part name="02_lower_left" X="-133.3" Y="992" Z="510"/>
-      <xacro:display_mount_part name="03_lower_right" X="0.5" Y="992" Z="510"/>
-      <xacro:display_mount_part name="04_top_keeper" X="-45" Y="1132" Z="510"/>
-      <xacro:display_mount_part name="05_spine" X="-56" Y="1058" Z="477.27"/>
+      <!-- The spine is a plate on the lift rails' front faces (STEP Z 477.27). -->
+      <xacro:display_mount_part name="02_lower_left" X="-133.3" Y="992" Z="497.27"/>
+      <xacro:display_mount_part name="03_lower_right" X="0.5" Y="992" Z="497.27"/>
+      <xacro:display_mount_part name="04_top_keeper" X="-45" Y="1132" Z="497.27"/>
+      <xacro:display_mount_part name="05_spine" X="-56" Y="1050" Z="477.27"/>
     </link>
     <joint name="display_joint" type="fixed">
       <parent link="${parent}"/>
