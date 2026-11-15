@@ -167,7 +167,7 @@ aha_tasksの `e2e:=debug` では `navigation:=false` でmap_serverとAMCLだけ�
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
-POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。
+POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 
 runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。

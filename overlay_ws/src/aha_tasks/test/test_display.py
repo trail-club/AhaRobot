@@ -172,6 +172,16 @@ class ServerTests(unittest.TestCase):
         host = f"{name}:{self.server.server_address[1]}"
         return {"Host": host, "Origin": f"http://{host}"}
 
+    def test_pages_may_be_framed_only_by_the_same_origin(self):
+        for path in ("/", "/display/", "/display/?embedded"):
+            response, _ = self.request("GET", path)
+            with self.subTest(path):
+                self.assertEqual(
+                    response.getheader("Content-Security-Policy"),
+                    "frame-ancestors 'self'",
+                )
+                self.assertEqual(response.getheader("X-Frame-Options"), "SAMEORIGIN")
+
     def test_pages_are_served(self):
         response, body = self.request("GET", "/display/")
         self.assertEqual(response.status, 200)
