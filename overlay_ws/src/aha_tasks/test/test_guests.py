@@ -27,7 +27,7 @@ from aha_tasks.guests import (  # noqa: E402
     seated_pose,
     statuses_of,
 )
-from aha_tasks.seats import nearest_seat  # noqa: E402
+from aha_tasks.seats import RADIUS, nearest_seat  # noqa: E402
 
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 SCENE = load_config(CONFIG / "sim" / "human_interaction.json")
@@ -222,7 +222,10 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(len(shirts), len(people))
 
     def test_seats_match_the_task_and_a_person_there_occupies_it(self):
-        """The sim stands people in front of a seat: find_free_seat must count them."""
+        """The sim stands people in front of a seat: find_free_seat must count them.
+
+        person_perception measures the front of the body, about 0.2 m nearer.
+        """
         spec = load_spec(CONFIG / "human_interaction.json")
         lists = [
             s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"
@@ -232,7 +235,10 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(set(SCENE["seats"]), set(lists[0]))
         for name, seat in SCENE["seats"].items():
             with self.subTest(name):
-                self.assertEqual(nearest_seat(lists[0], seat["pose"][:2], 0.6), name)
+                x, y, yaw = seat["pose"]  # faces the room
+                for ahead in (0.0, 0.25):
+                    xy = (x + ahead * math.cos(yaw), y + ahead * math.sin(yaw))
+                    self.assertEqual(nearest_seat(lists[0], xy, RADIUS), name)
                 if "chair" in seat:  # the added chair is where the task expects
                     self.assertEqual(seat["chair"][:2], lists[0][name][:2])
         mocks = [s.mock for s in spec.subgoals if s.skill == "find_free_seat"]

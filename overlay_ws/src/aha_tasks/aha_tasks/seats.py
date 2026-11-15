@@ -20,6 +20,10 @@ from aha_tasks.people import People, check_keys, check_name, positive
 from aha_tasks.skills import LOCATION, resolve_pose
 
 TORSO = 0.4  # m above the seat point: where the head looks, a sitting torso
+# m from a seat point to a person on it: person_perception measures the visible
+# front of the body (0.2 m nearer than its middle in the sim), and someone who
+# stands at a seat blocks it too.
+RADIUS = 0.8
 SETTLE = 2.0  # s for the head to turn (90 deg at 1 rad/s, and the start)
 HEAD_REACH = 1.57  # rad from the base's front; config/head.yaml pan_limits
 
@@ -74,7 +78,7 @@ class FindFreeSeat(Skill):
     """Look at the seats in order and output the first one nobody occupies.
 
     params: {"guest": "guest1", "seats": {"chair_left": [x, y, z], ...},
-    "radius": 0.6, "dwell": 1.5}. `seats` are map points (m) in order of
+    "radius": RADIUS, "dwell": 1.5}. `seats` are map points (m) in order of
     preference. The head looks TORSO above each for SETTLE + `dwell` s (node
     clock), less if someone is seen there; the seat counts as seen once a
     people message in map arrives after the one at SETTLE s. A seat more than
@@ -89,13 +93,13 @@ class FindFreeSeat(Skill):
         check_keys(params, {"guest", "seats"}, {"radius", "dwell"})
         check_name(params, "guest")
         check_seats(params)
-        positive(params, "radius", 0.6)
+        positive(params, "radius", RADIUS)
         positive(params, "dwell", 1.5)
 
     def execute(self, ctx):
         people = People.of(self.runtime)
         guest, seats = ctx.params["guest"], ctx.params["seats"]
-        radius = positive(ctx.params, "radius", 0.6)
+        radius = positive(ctx.params, "radius", RADIUS)
         dwell = positive(ctx.params, "dwell", 1.5)
         track = ctx.memory.get(f"{guest}.track")
         pose = None

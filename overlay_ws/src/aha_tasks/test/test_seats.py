@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.people import People  # noqa: E402
 from aha_tasks.seats import (  # noqa: E402
+    RADIUS,
     TORSO,
     FindFreeSeat,
     bearing,
@@ -118,9 +119,14 @@ GUEST1 = person(5, 0.75, 3.05, name="guest1")
 
 class GeometryTests(unittest.TestCase):
     def test_a_person_occupies_only_the_nearest_seat_within_the_radius(self):
-        self.assertEqual(nearest_seat(SEATS, (1.75, 3.05), 0.6), "chair_left")
-        self.assertEqual(nearest_seat(SEATS, (2.2, 3.4), 0.6), "chair_extra")
-        self.assertIsNone(nearest_seat(SEATS, (1.25, 2.5), 0.6))
+        self.assertEqual(nearest_seat(SEATS, (1.75, 3.05), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (2.2, 3.4), RADIUS), "chair_extra")
+        self.assertIsNone(nearest_seat(SEATS, (1.25, 2.5), RADIUS))
+        self.assertIsNone(nearest_seat(SEATS, (1.75, 2.6), RADIUS))
+
+    def test_the_measured_front_of_a_person_at_a_seat_occupies_it(self):
+        """SAM 3.1 in the sim put the host of chair_left 0.2 m nearer the robot."""
+        self.assertEqual(nearest_seat(SEATS, (1.66, 2.84), RADIUS), "chair_left")
 
     def test_the_guest_and_people_not_seen_now_occupy_nothing(self):
         people = [
@@ -128,14 +134,14 @@ class GeometryTests(unittest.TestCase):
             person(2, 0.75, 3.4),  # the guest's track before it had a name
             person(4, 2.55, 3.4, visible=False),
         ]
-        self.assertEqual(occupants(message(people), SEATS, 0.6, "guest2", 2), {})
-        taken = occupants(message([HOST, GUEST1]), SEATS, 0.6, "guest2")
+        self.assertEqual(occupants(message(people), SEATS, RADIUS, "guest2", 2), {})
+        taken = occupants(message([HOST, GUEST1]), SEATS, RADIUS, "guest2")
         self.assertEqual(
             {k: v.id for k, v in taken.items()}, {"chair_left": 3, "chair_right": 5}
         )
 
     def test_people_outside_map_have_no_seat(self):
-        self.assertEqual(occupants(message([HOST], "camera"), SEATS, 0.6, "g"), {})
+        self.assertEqual(occupants(message([HOST], "camera"), SEATS, RADIUS, "g"), {})
 
     def test_bearing_from_the_front_of_the_robot(self):
         self.assertAlmostEqual(bearing([0.0, 0.0, 0.0], [1.0, 1.0]), math.pi / 4)
