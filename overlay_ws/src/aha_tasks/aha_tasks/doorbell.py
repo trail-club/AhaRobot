@@ -17,6 +17,10 @@ DOORBELL_TOPIC = "/aha/perception/audio/doorbell"
 KEEP = 20  # events remembered
 
 
+class DetectorLost(Exception):
+    """The detector's publisher went away while a skill waited."""
+
+
 class Doorbell:
     """ROS access to the detector, shared by the skills of one runner."""
 
@@ -44,7 +48,8 @@ class Doorbell:
         return self.node.count_publishers(DOORBELL_TOPIC)
 
     def wait(self, since, deadline, cancelled):
-        """The first (time, label, score) received after `since`, or None."""
+        """The first (time, label, score) received after `since`; None at the
+        deadline or on cancel; DetectorLost if the detector stops meanwhile."""
         with self.changed:
             while True:
                 for event in self.events:
@@ -53,6 +58,8 @@ class Doorbell:
                 left = deadline - time.monotonic()
                 if left <= 0 or cancelled.is_set():
                     return None
+                if self.detectors() == 0:
+                    raise DetectorLost
                 self.changed.wait(min(left, 0.1))
 
 
@@ -78,7 +85,14 @@ class DetectDoorbell(Skill):
         timeout = positive(ctx.params, "timeout", 120.0)
         start = time.monotonic()
         ctx.log(f"Waiting up to {timeout:.0f} s for the doorbell or a knock")
-        event = bell.wait(start, start + timeout, ctx.cancelled)
+        try:
+            event = bell.wait(start, start + timeout, ctx.cancelled)
+        except DetectorLost:
+            return SkillResult(
+                False,
+                f"aha_audio_doorbell stopped after {time.monotonic() - start:.1f} s "
+                f"(no publisher on {DOORBELL_TOPIC})",
+            )
         if event is None:
             if ctx.cancelled.is_set():
                 return SkillResult(False, "Cancelled")

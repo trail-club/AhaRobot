@@ -79,6 +79,15 @@ class DetectDoorbellTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("aha_audio_doorbell", result.message)
 
+    def test_fails_at_once_when_the_detector_stops(self):
+        bell = FakeDoorbell()
+        threading.Timer(0.2, lambda: setattr(bell, "publishers", 0)).start()
+        started = time.monotonic()
+        result = skill(bell).execute(context({"timeout": 5}))
+        self.assertFalse(result.success)
+        self.assertIn("stopped", result.message)
+        self.assertLess(time.monotonic() - started, 1.0)
+
     def test_cancel_stops_the_wait(self):
         cancelled = threading.Event()
         threading.Timer(0.2, cancelled.set).start()
