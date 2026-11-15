@@ -105,6 +105,7 @@ class ObjectPerceptionTest(unittest.TestCase):
         transform.transform.translation.z = HEIGHT
         q = transform.transform.rotation
         q.x, q.y, q.z, q.w = quaternion_from_matrix(OPTICAL)
+        cls.camera = transform
         cls.tf = StaticTransformBroadcaster(cls.node)
         cls.tf.sendTransform(transform)
 
@@ -193,6 +194,19 @@ class ObjectPerceptionTest(unittest.TestCase):
             [("cola", ids["cola"])],
         )
         self.assertTrue(self.images, "no annotated image was published")
+
+        # A gripper link of robot_frames at the apple: that is the robot.
+        gripper = TransformStamped()
+        gripper.header.frame_id = "map"
+        gripper.child_frame_id = "link_l7l"
+        offset = gripper.transform.translation
+        offset.x, offset.y, offset.z = expected_centre("apple", *blobs["red"])
+        gripper.transform.rotation.w = 1.0
+        self.tf.sendTransform([self.camera, gripper])
+        excluded = self.stream(
+            blobs, 10.0, lambda m: [o.class_name for o in m.objects] == ["cola"]
+        )
+        self.assertIsNotNone(excluded, "an object at a gripper link was published")
 
 
 if __name__ == "__main__":

@@ -242,8 +242,10 @@ class ObjectPerception(Node):
         rgb, depth = image_array(color), image_array(depth_msg)
         if depth.shape != rgb.shape[:2]:
             raise ValueError("depth is not aligned to the color image")
-        # The camera pose at the image time, before the robot moves on.
+        # The camera and gripper poses at the image time, before the robot moves
+        # on and before the DGX round trip outlasts the TF buffer.
         rotation, translation = self.camera_pose(color.header.frame_id, stamp)
+        robot = self.robot_points(self.target_frame or color.header.frame_id, stamp)
         started = time.monotonic()
         response = self.worker.request(
             {
@@ -261,7 +263,6 @@ class ObjectPerception(Node):
         if tuple(response["shape"]) != rgb.shape[:2]:
             raise ValueError("the DGX worker answered for another image size")
         fx, fy, cx, cy = info.k[0], info.k[4], info.k[2], info.k[5]
-        robot = self.robot_points(stamp)
         detections, debug = [], []
         for found in response["objects"]:
             mask = decode_mask(found, rgb.shape[:2])
@@ -320,20 +321,29 @@ class ObjectPerception(Node):
             + ", ".join(f"{t.id} {t.label}" for t in seen)
         )
 
-    def robot_points(self, stamp):
-        """Positions of robot_frames in target_frame at the image time; frames
-        without TF are left out."""
-        if not self.target_frame:
-            return []
+    def robot_points(self, frame, stamp):
+        """Positions of robot_frames in `frame` at the image time; frames without
+        TF are left out. Waits at most tf_timeout in all for the TF, and warns
+        when none of them has one: then the grippers are not excluded."""
         points = []
-        for frame in self.robot_frames:
+        deadline = time.monotonic() + self.tf_timeout
+        for link in self.robot_frames:
             try:
                 t = self.tf_buffer.lookup_transform(
-                    self.target_frame, frame, Time.from_msg(stamp)
+                    frame,
+                    link,
+                    Time.from_msg(stamp),
+                    timeout=Duration(seconds=max(0.0, deadline - time.monotonic())),
                 ).transform.translation
             except TransformException:
                 continue
             points.append(np.array([t.x, t.y, t.z]))
+        if self.robot_frames and not points:
+            self.get_logger().warning(
+                f"No TF {frame} <- {', '.join(self.robot_frames)} at the image "
+                "time; the robot's grippers are not excluded from the objects",
+                throttle_duration_sec=10.0,
+            )
         return points
 
     def camera_pose(self, camera_frame, stamp):
