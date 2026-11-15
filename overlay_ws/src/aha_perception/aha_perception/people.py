@@ -230,6 +230,7 @@ class Track:
     history: deque = field(default_factory=deque)
     # (stamp, crop) of recent sightings, oldest first.
     recent_crops: deque = field(default_factory=lambda: deque(maxlen=RECENT_CROPS))
+    described: float = -math.inf  # image time of the crop described last
 
     @classmethod
     def start(cls, track_id: int, detection: Detection, stamp: float) -> Track:
@@ -269,6 +270,25 @@ class Track:
             )
         while self.history and stamp - self.history[0][0] > KEYPOINT_HISTORY:
             self.history.popleft()
+
+    def crop_to_describe(self) -> tuple[float, np.ndarray] | None:
+        """(stamp, crop) for the VLM to describe, or None without a new one.
+
+        The held (largest) crop, or if it was described already the largest
+        (then newest) recent crop newer than the last description: the VLM
+        answers one image the same way every time, so repeated questions
+        (memorize_person's views) need different images. Marks the crop
+        described.
+        """
+        if self.crop is not None and self.crop_stamp > self.described:
+            chosen = (self.crop_stamp, self.crop)
+        else:
+            fresh = [c for c in self.recent_crops if c[0] > self.described]
+            if not fresh:
+                return None
+            chosen = max(fresh, key=lambda c: (c[1].shape[0] * c[1].shape[1], c[0]))
+        self.described = chosen[0]
+        return chosen
 
 
 class PersonTracker:

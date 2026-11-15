@@ -461,7 +461,8 @@ class MemorizePerson(Skill):
                 break
             if reply.success:
                 views.append(list(reply.features))
-                ctx.log(f"View {view + 1}: {', '.join(reply.features) or '-'}")
+                note = f" ({reply.message})" if reply.message else ""
+                ctx.log(f"View {view + 1}: {', '.join(reply.features) or '-'}{note}")
             else:
                 failure = reply.message
                 views.append(None)

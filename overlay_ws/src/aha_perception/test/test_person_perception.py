@@ -194,6 +194,13 @@ class PersonPerceptionTest(unittest.TestCase):
         reply = self.call(self.describe, DescribePerson.Request(id=red.id))
         self.assertTrue(reply.success, reply.message)
         self.assertEqual(list(reply.features), ["red shirt"])
+        # Asked again after newer frames, the VLM gets another image.
+        self.stream({"red": 100, "blue": 220}, 1.0)
+        again = self.call(self.describe, DescribePerson.Request(id=red.id))
+        self.assertTrue(again.success, again.message)
+        self.assertNotEqual(
+            reply.message.split("image ")[-1], again.message.split("image ")[-1]
+        )
         missing = self.call(self.describe, DescribePerson.Request(id=999))
         self.assertFalse(missing.success)
 

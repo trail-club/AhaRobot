@@ -47,6 +47,8 @@ class NormalizeTests(unittest.TestCase):
             "smiling",
             "slim build",
             "light blue denim button up shirt",
+            "hair",
+            "hair in a bun",
             "",
             None,
         ):
@@ -82,6 +84,9 @@ class ConsensusTests(unittest.TestCase):
 
     def test_hair_without_an_agreed_colour_is_not_told(self):
         self.assertEqual(consensus([["short hair"], ["long hair"], ["hair"]]), [])
+        # "hair in a bun" is "hair" without the detail: kept as text, never told.
+        self.assertEqual(choose_features(consensus([["hair in a bun"]] * 3)), [])
+        self.assertEqual(choose_features(["hair", "glasses"]), [("glasses", "glasses")])
         self.assertEqual(
             consensus([["short black hair"], ["black hair"], ["long black hair"]]),
             ["black hair"],

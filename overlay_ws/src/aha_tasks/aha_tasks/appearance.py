@@ -83,8 +83,8 @@ def normalize(phrase):
     words = DETAIL.sub("", words)  # "red t-shirt with a logo" -> "red t-shirt"
     words = " ".join(SYNONYMS.get(t, t) for t in words.split())
     tokens = re.sub(r"\bt shirt\b", "t-shirt", words).split()
-    if not tokens or len(tokens) > MAX_WORDS:
-        return None
+    if not tokens or len(tokens) > MAX_WORDS or tokens == ["hair"]:
+        return None  # "hair" alone ("hair in a bun" without the bun) says nothing
     if tokens[0] == "bald":
         return "hair", "bald"
     part = PART_OF.get(tokens[-1])

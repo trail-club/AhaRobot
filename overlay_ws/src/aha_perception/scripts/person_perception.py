@@ -464,15 +464,24 @@ class PersonPerception(Node):
         return response
 
     def on_describe(self, request, response):
-        with self.lock:
-            track = self.tracker.tracks.get(request.id)
-            crop = None if track is None else track.crop
-        if crop is None:
-            response.message = f"person {request.id} is not tracked"
-            return response
         if self.worker is None or not self.worker.ready.is_set():
             response.message = "the DGX worker is not ready"
             return response
+        with self.lock:
+            track = self.tracker.tracks.get(request.id)
+            seen = track is not None and (
+                track.crop is not None or bool(track.recent_crops)
+            )
+            chosen = track.crop_to_describe() if seen else None
+        if not seen:
+            response.message = f"person {request.id} is not tracked"
+            return response
+        if chosen is None:
+            response.message = (
+                f"no image of person {request.id} newer than the last description"
+            )
+            return response
+        stamp, crop = chosen
         try:
             reply = self.worker.request(
                 {"type": "describe", "image": encode_image(crop)}, self.vlm_timeout
@@ -483,7 +492,8 @@ class PersonPerception(Node):
         response.success = True
         response.features = reply["features"]
         response.message = (
-            f"{len(reply['features'])} feature(s) in {reply['seconds']:.1f} s"
+            f"{len(reply['features'])} feature(s) in {reply['seconds']:.1f} s, "
+            f"image {stamp:.2f}"
         )
         return response
 

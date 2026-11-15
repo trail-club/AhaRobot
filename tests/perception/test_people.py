@@ -222,6 +222,41 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(set(tracker.tracks), {3})
 
 
+def sized(size, value):
+    """A detection at x=0 with a size x size crop of `value` and that bbox."""
+    centre = np.zeros(3)
+    image = np.full((size, size, 3), value, np.uint8)
+    return Detection(centre, centre + [0, 0, 0.7], 0.9, [0, 0, size, size], image)
+
+
+class DescribeCropTests(unittest.TestCase):
+    def test_each_description_gets_an_image_not_described_before(self):
+        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
+        [track] = tracker.update([sized(10, 1)], 0.0)
+        # Smaller views (< 0.7 of the area) do not replace the held crop.
+        for value, stamp in ((2, 0.5), (3, 1.0), (4, 1.5)):
+            tracker.update([sized(6, value)], stamp)
+        self.assertEqual(track.crop[0, 0, 0], 1)
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (0.0, 1))  # the held, largest
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (1.5, 4))  # recent, newest
+        self.assertIsNone(track.crop_to_describe())  # nothing newer
+        tracker.update([sized(5, 5)], 2.0)
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (2.0, 5))
+
+    def test_a_new_held_crop_is_described_first(self):
+        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
+        [track] = tracker.update([sized(6, 1)], 0.0)
+        self.assertEqual(track.crop_to_describe()[0], 0.0)
+        tracker.update([sized(4, 2)], 0.5)
+        tracker.update([sized(10, 3)], 1.0)  # larger: becomes the held crop
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (1.0, 3))
+        self.assertIsNone(track.crop_to_describe())
+
+
 class GalleryTests(unittest.TestCase):
     def setUp(self):
         self.tracker = PersonTracker(forget_after=1.0)
