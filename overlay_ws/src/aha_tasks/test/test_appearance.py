@@ -59,24 +59,48 @@ class ConsensusTests(unittest.TestCase):
         views = [
             ["green t-shirt", "short blond hair"],
             ["Green T-shirt", "short hair", "glasses"],
-            ["green tshirt", "short blond hair"],
+            ["green tshirt", "short blonde hair"],
         ]
         self.assertEqual(consensus(views), ["green t-shirt", "short blond hair"])
 
-    def test_a_part_without_a_majority_phrase_is_dropped(self):
-        views = [["black pants"], ["dark grey pants"], ["grey pants"]]
+    def test_a_part_whose_colour_the_views_disagree_on_is_dropped(self):
+        views = [["black pants"], ["dark grey pants"], ["blue jeans"]]
         self.assertEqual(consensus(views), [])
 
     def test_two_of_three_agree(self):
         views = [["black pants", "beard"], ["dark grey pants"], ["black pants"]]
         self.assertEqual(consensus(views), ["black pants"])
 
+    def test_garment_words_of_one_kind_agree_on_the_colour(self):
+        views = [
+            ["red t-shirt", "blue jeans"],
+            ["red shirt", "blue pants"],
+            ["red top", "blue jeans"],
+        ]
+        # No word has a majority for the shirt: told as colour and kind.
+        self.assertEqual(consensus(views), ["red shirt", "blue jeans"])
+
+    def test_hair_without_an_agreed_colour_is_not_told(self):
+        self.assertEqual(consensus([["short hair"], ["long hair"], ["hair"]]), [])
+        self.assertEqual(
+            consensus([["short black hair"], ["black hair"], ["long black hair"]]),
+            ["black hair"],
+        )
+
+    def test_failed_and_missing_views_count_against(self):
+        self.assertEqual(consensus([["red t-shirt", "glasses"]], 3), [])
+        self.assertEqual(consensus([["red t-shirt", "glasses"], None], 3), [])
+        self.assertEqual(
+            consensus([["red t-shirt", "glasses"], None, ["red t-shirt"]], 3),
+            ["red t-shirt"],
+        )
+
     def test_phrases_of_no_part_need_the_same_text(self):
         views = [["ground truth guest1"], ["ground truth guest1"]]
         self.assertEqual(consensus(views), ["ground truth guest1"])
         self.assertEqual(consensus([["smiling"], ["frowning"]]), [])
 
-    def test_one_view_is_kept_as_it_is(self):
+    def test_one_view_asked_is_kept_as_it_is(self):
         self.assertEqual(
             consensus([["red t-shirt", "glasses"]]), ["red t-shirt", "glasses"]
         )
@@ -135,15 +159,26 @@ class SentenceTests(unittest.TestCase):
 
 
 class FakePeople:
-    def __init__(self, message=None):
+    look_settle = 1.5
+
+    def __init__(self, message=None, following=None):
         self.message = message
         self.followed = []
+        self.paused = []
+        self.head = following
+
+    def following(self):
+        return self.head
 
     def follow(self, track=None, name=""):
         self.followed.append((track, name))
+        self.head = (track, name)
 
     def latest(self):
         return self.message
+
+    def pause(self, seconds, cancelled):
+        self.paused.append(seconds)
 
 
 class FakeInteraction:
@@ -190,7 +225,18 @@ class DescribePersonTests(unittest.TestCase):
             speech.said, ["Emma, Charlie is wearing a red t-shirt and blue jeans."]
         )
         self.assertEqual(people.followed, [(4, "guest2")])
+        self.assertEqual(people.paused, [1.5])  # the head turns first
         self.assertEqual(result.outputs["guest1.told"], ["red t-shirt", "blue jeans"])
+
+    def test_no_wait_when_the_head_already_follows_the_listener(self):
+        visible = SimpleNamespace(id=6, name="guest2", visible=True)
+        people = FakePeople(SimpleNamespace(people=[visible]), following=(6, "guest2"))
+        result, people, speech = run(
+            PARAMS, {"guest1.appearance": ["glasses"], "guest2.track": 3}, people
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(people.paused, [])
+        self.assertEqual(len(speech.said), 1)
 
     def test_without_names_it_says_the_other_guest(self):
         result, _, speech = run(PARAMS, {"guest1.appearance": ["glasses"]})

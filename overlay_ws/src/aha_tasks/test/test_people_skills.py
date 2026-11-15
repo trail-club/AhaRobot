@@ -271,7 +271,7 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("VLM timeout", result.message)
 
-    def memorize_views(self, answers, messages, params=None):
+    def memorize_views(self, answers, messages, params=None, delay=0.0):
         """MemorizePerson with one describe answer per view, in order."""
         people = FakePeople(messages[0])
         people.latest = Mock(
@@ -280,10 +280,12 @@ class MemorizePersonTests(unittest.TestCase):
         people.now = itertools.count(0.0, 0.1).__next__
         replies = iter(answers)
         people.describe.answer = lambda r: next(replies)
+        people.describe.delay = lambda r: delay
+        ctx = context({"guest": "guest1", "timeout": 1.0, **(params or {})})
+        people.logs = []
+        ctx.log = people.logs.append
         with patch("aha_tasks.people.time.sleep"):
-            result = MemorizePerson(runtime(people)).execute(
-                context({"guest": "guest1", "timeout": 1.0, **(params or {})})
-            )
+            result = MemorizePerson(runtime(people)).execute(ctx)
         return result, people
 
     def test_features_most_views_agree_on_are_kept(self):
@@ -318,26 +320,59 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertEqual(people.latest.call_count, 3)
         self.assertEqual(len(people.describe.requests), 2)
 
-    def test_failed_views_are_left_out(self):
+    def test_failed_views_count_against_the_features(self):
+        def answer(*features):
+            return SimpleNamespace(success=True, message="", features=list(features))
+
         result, _ = self.memorize_views(
             [
+                answer("glasses", "red t-shirt"),
                 SimpleNamespace(success=False, message="VLM timeout", features=[]),
-                SimpleNamespace(success=True, message="", features=["glasses"]),
+                answer("red shirt"),
             ],
-            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6)],
-            {"views": 2},
+            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
         )
         self.assertTrue(result.success, result.message)
-        self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
+        # 2 of 3 views must agree: the glasses of one view are dropped.
+        self.assertEqual(result.outputs["guest1.appearance"], ["red shirt"])
 
-    def test_lost_person_ends_the_views(self):
+    def test_one_described_view_of_three_keeps_nothing(self):
         result, people = self.memorize_views(
             [SimpleNamespace(success=True, message="", features=["glasses"])],
             [people_message(person(1, 0.5, 0.0)), people_message()],
         )
         self.assertTrue(result.success, result.message)
-        self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
+        self.assertEqual(result.outputs["guest1.appearance"], [])
         self.assertEqual(len(people.describe.requests), 1)
+        self.assertIn("Only 1 of 3 views described guest1", "\n".join(people.logs))
+
+    def test_later_views_ask_for_the_track_the_guest_has_now(self):
+        answer = SimpleNamespace(success=True, message="", features=["glasses"])
+        result, people = self.memorize_views(
+            [answer, answer],
+            [
+                people_message(person(1, 0.5, 0.0), stamp=0.0),
+                people_message(person(5, 0.5, 0.0, "guest1"), stamp=0.6),
+            ],
+            {"views": 2},
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual([r.id for r in people.describe.requests], [1, 5])
+        self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
+
+    def test_describe_timeout_bounds_all_views(self):
+        answer = SimpleNamespace(success=True, message="", features=["glasses"])
+        result, people = self.memorize_views(
+            [answer, answer, answer],
+            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
+            {"describe_timeout": 0.5},
+            delay=0.3,
+        )
+        # The second view runs out of the 0.5 s; one view keeps nothing.
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(len(people.describe.requests), 2)
+        self.assertEqual(result.outputs["guest1.appearance"], [])
+        self.assertIn("within describe_timeout", "\n".join(people.logs))
 
     def test_view_params_are_validated(self):
         spec = SimpleNamespace(locations={})

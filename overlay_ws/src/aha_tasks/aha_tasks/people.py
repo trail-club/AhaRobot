@@ -202,6 +202,10 @@ class People:
         """Keep the head on a person by track, else by name (see Gaze)."""
         self.gaze.follow_person(self, track=track, name=name)
 
+    def following(self):
+        """(track, name) of the person the head follows, or None (see Gaze)."""
+        return self.gaze.following()
+
     def pause(self, seconds, cancelled):
         """Wait on the wait clock; gives up after CLOCK_STALL_TIMEOUT more wall seconds."""
         end = self.now() + seconds
@@ -340,12 +344,13 @@ def stamp_of(message):
 class MemorizePerson(Skill):
     """Remember a guest's appearance by name and ask the VLM for features.
 
-    params: {"guest": "guest1", "timeout": 10.0, "views": 3, "view_interval": 0.5}.
-    Uses `<guest>.track` from find_person, or the nearest unnamed visible person
-    if that track is gone. The VLM describes the person in `views` images at
-    least `view_interval` s (image time) apart, and `<guest>.appearance` keeps
-    the feature phrases most of them agree on (aha_tasks.appearance.consensus),
-    for describe_person.
+    params: {"guest": "guest1", "timeout": 10.0, "views": 3, "view_interval": 0.5,
+    "describe_timeout": 180.0}. Uses `<guest>.track` from find_person, or the
+    nearest unnamed visible person if that track is gone. The VLM describes
+    the person in `views` images at least `view_interval` s (image time) apart,
+    all within `describe_timeout` (wall clock), and `<guest>.appearance` keeps
+    the feature phrases most of the views asked for agree on
+    (aha_tasks.appearance.consensus), for describe_person.
     """
 
     @classmethod
@@ -390,50 +395,76 @@ class MemorizePerson(Skill):
         if not reply.success:
             return SkillResult(False, reply.message)
         ctx.log(f"{reply.message}; asking the VLM for features")
+        asked = positive_int(ctx.params, "views", 3)
         views, failure = self.describe(ctx, people, message, person, guest, timeout)
-        if not views:
+        described = sum(view is not None for view in views)
+        if not described:
             return SkillResult(False, f"Remembered, but no features: {failure}")
-        features = consensus(views)
+        if described < 2 <= asked:
+            ctx.log(
+                f"Only {described} of {asked} views described {guest}; "
+                "no feature is agreed on"
+            )
+        features = consensus(views, asked)
         outputs = person_outputs(guest, message, person)
         outputs[f"{guest}.appearance"] = features
         return SkillResult(
             True,
-            f"{guest}: {', '.join(features) or 'no features'} "
-            f"(agreed by most of {len(views)} view(s))",
+            f"{guest}: {', '.join(features) or 'no features'} ({described} of "
+            f"{asked} views described; {asked // 2 + 1} must agree)",
             outputs,
         )
 
     def describe(self, ctx, people, message, person, guest, timeout):
-        """(feature lists of the views, reason of the last failure)."""
+        """(feature lists of the views, None for a failed one; last failure).
+
+        A later view waits for a newer image with the person by track or by
+        name, and asks for the track seen there (a lost guest gets a new one).
+        """
         interval = positive(ctx.params, "view_interval", 0.5)
-        views, failure, last = [], "", stamp_of(message)
+        end = time.monotonic() + positive(ctx.params, "describe_timeout", 180.0)
+        views, failure, last, track = [], "", stamp_of(message), person.id
 
         def newer(message):
             if stamp_of(message) < last + interval:
                 return None
             for seen in message.people:
-                if seen.visible and (seen.id == person.id or seen.name == guest):
-                    return message
+                if seen.visible and (seen.id == track or seen.name == guest):
+                    return message, seen
             return None
 
         for view in range(positive_int(ctx.params, "views", 3)):
+            left = end - time.monotonic()
+            if left <= 0:
+                ctx.log(f"View {view + 1}: describe_timeout passed")
+                break
             if view:
-                message, reason = people.wait_for(newer, timeout, ctx.cancelled)
-                if message is None:
+                found, reason = people.wait_for(
+                    newer, min(timeout, left), ctx.cancelled
+                )
+                if found is None:
                     ctx.log(f"No new view of {guest}: {reason}")
                     break
-                last = stamp_of(message)
-            reply = people.call(
-                people.describe,
-                people.DescribePerson.Request(id=person.id),
-                positive(ctx.params, "describe_timeout", 180.0),
-                ctx.cancelled,
-            )
+                message, seen = found
+                last, track = stamp_of(message), seen.id
+            try:
+                reply = people.call(
+                    people.describe,
+                    people.DescribePerson.Request(id=track),
+                    end - time.monotonic(),
+                    ctx.cancelled,
+                )
+            except TimeoutError as error:
+                failure = f"{error} within describe_timeout"
+                ctx.log(f"View {view + 1}: {failure}")
+                views.append(None)
+                break
             if reply.success:
                 views.append(list(reply.features))
                 ctx.log(f"View {view + 1}: {', '.join(reply.features) or '-'}")
             else:
                 failure = reply.message
+                views.append(None)
                 ctx.log(f"View {view + 1}: {failure}")
         return views, failure
 

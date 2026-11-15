@@ -222,12 +222,12 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
-| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き、過半数の画像で同じ句だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
+| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き、聞いた枚数の過半数が一致した特徴だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
 
 `find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。
 
-待つ時間は `timeout`（`find_person` は30 s、`locate_guests` は60 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s）で変更できる。`timeout` と `dwell` は模擬時間が有効ならノードの時計、それ以外はシステム時刻の補正に影響されない単調時計で数える。
+待つ時間は `timeout`（`find_person` は30 s、`locate_guests` は60 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s。`memorize_person` は全画像の合計）で変更できる。`timeout` と `dwell` は模擬時間が有効ならノードの時計、それ以外はシステム時刻の補正に影響されない単調時計で数える。
 模擬時間が実時間で10 s進まなければ、`/clock` の停止を理由に失敗する。
 `locate_guests` は `map` 座標の観測だけを時点をまたいで蓄積する。他の座標では1つのメッセージ内で全員が見える必要がある。
 同じtrack、または位置が0.4 m未満（`map` では水平距離）の客は重複とみなし、古い観測を捨てて探し続ける。
@@ -244,11 +244,12 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 
 ルールブックは伝えた特徴を4つまで数え、正しければ+20、誤りなら−20とする（特徴の種類は指定していない）。
 
-- `memorize_person` は、VLMが1枚の画像にだけ答えた句（ない眼鏡など）を残さない。体の部位が同じ句は部位ごとに数え、最も多い句が過半数の画像になければ部位ごと捨てる（`black pants` と `dark grey pants` に分かれた下衣など）。
+- `memorize_person` は、聞いた画像の過半数（3枚なら2枚）が一致した特徴だけを残す。失敗した画像は反対に数えるため、1枚しか答えなければ何も残さない（ログに出す）。VLMが1枚にだけ答えた句（ない眼鏡など）も残らない。
+- 体の部位が同じ句は部位ごとに、服の種類と色で数える（`red t-shirt`・`red shirt`・`red top` は同じ）。最も多い種類と色が過半数になければ部位ごと捨てる（`black pants` と `dark grey pants` に分かれた下衣など）。言う句は過半数が答えた言い方、なければ色と種類だけ（`red shirt`、`black hair`）にする。
 - 部位ごとに1つの句を、上衣、眼鏡、帽子、下衣、髪、ひげ、かばん、首回り、靴の順に `max_features`（既定4）まで選ぶ。部位は句の最後の名詞で決める。
 - 推量・否定を含む句（`possibly glasses`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。`with` などより後の細部は省く（`red t-shirt with a logo` → `red t-shirt`）。
 - 名前 `<role>.name` を使い、なければ `the other guest` と言う。例：`Emma, Charlie is wearing a red t-shirt and blue jeans and has short black hair.`
-- 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。言える特徴がなければ何も言わずに成功する。
+- 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。頭がまだその人を追っていなければ（`memorize_person` の直後でなければ）、頭が向くまで1.5 s待ってから話す。言える特徴がなければ何も言わずに成功する。
 - 出力は `<subject>.told`（伝えた句のリスト）。`<subject>.appearance` がなければ失敗する。
 
 `e2e:=debug` の真値の人の特徴は `ground truth <モデル名>` だけなので、何も言わない。言う内容は `perception:=model` か `final` で確かめる。

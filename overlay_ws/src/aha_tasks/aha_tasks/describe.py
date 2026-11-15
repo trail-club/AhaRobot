@@ -60,11 +60,22 @@ class DescribePerson(Skill):
         return SkillResult(ok, f'"{text}" ({message})', told)
 
     def look_at(self, ctx, listener):
+        """Turn the head to the listener before speaking.
+
+        After memorize_person the head already follows them; otherwise wait
+        LOOK_SETTLE for the head to turn, as before judging a person.
+        """
         people = People.of(self.runtime)
         track = ctx.memory.get(f"{listener}.track")
+        followed = people.following()
+        facing = followed is not None and (
+            followed[1] == listener or (track is not None and followed[0] == track)
+        )
         people.follow(track=track, name=listener)
         message = people.latest()
         if message is None or not any(
             p.visible and (p.id == track or p.name == listener) for p in message.people
         ):
             ctx.log(f"{listener} is not in view; speaking towards the last sighting")
+        elif not facing:
+            people.pause(people.look_settle, ctx.cancelled)
