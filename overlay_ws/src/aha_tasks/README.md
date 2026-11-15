@@ -402,7 +402,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 
 ### 物体の認識
 
-`aha_tasks/objects.py` の2つのスキルは `/aha/perception/objects`（[aha_perception](../aha_perception/README.md#シミュレーションの物体検出)）を購読し、
+`aha_tasks/objects.py` の2つのスキルは `/aha/perception/objects`（[ROSインターフェース](../../../docs/interfaces.md#物体検出)）を購読し、
 台を頭で見回して検出を集め、台の上の物体を求める。検出器の起動はlaunchの `objects:=true`。真値の検出器も画像からの検出器も同じtopicに出す。
 
 ```bash
