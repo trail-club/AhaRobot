@@ -390,6 +390,7 @@ Mac用の知覚コンテナ（[Macカメラツール](../../../tools/perception/
 DGXのworkerは、SAM 3.1の各人（マスクを空の列で分けた部分ごと）にViTPose（`pose_model`、既定 `usyd-community/vitpose-base-simple`）でCOCOの17点の体のキーポイントを付ける。
 SAM 3.1は挙げた細い前腕をマスクに含めないことがあるため、ViTPoseにはマスクの枠を上と左右へ枠の高さの25%ずつ広げて渡す。
 ロボット側は各点の周りのDepthで3Dにして `target_frame` へ変換し、`Person.keypoints` で配信する。
+ViTPoseの読み込みや画像ごとの推論に失敗しても、警告を出してキーポイントなしで検出・追跡・名前の照合を続ける。
 規則は `target_frame` のz軸が上で、床の高さが `floor_z`（既定0 m）であることを前提とする（`map` / `odom`）。`target_frame` が空（カメラの座標系）なら姿勢・ジェスチャを判定しない。
 判定は [person_attributes.py](aha_perception/person_attributes.py) にある。
 

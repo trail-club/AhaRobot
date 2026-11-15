@@ -238,6 +238,10 @@ class PersonPerception(Node):
                 f"keypoints {'on' if info.get('keypoints') else 'off'}); "
                 f"publishing {PEOPLE_TOPIC} in frame {self.target_frame or 'camera'}"
             )
+            if info.get("pose_error"):
+                self.get_logger().warning(
+                    f"ViTPose did not load, so no keypoints: {info['pose_error']}"
+                )
             next_time = 0.0
             while not self.stopping.is_set():
                 frame = self.next_frame()
@@ -284,6 +288,11 @@ class PersonPerception(Node):
         round_trip = time.monotonic() - started
         if tuple(response["shape"]) != rgb.shape[:2]:
             raise ValueError("the DGX worker answered for another image size")
+        if response.get("pose_error"):
+            self.get_logger().warning(
+                f"No keypoints in an image: {response['pose_error']}",
+                throttle_duration_sec=5.0,
+            )
         rotation, translation = self.camera_pose(color.header.frame_id, stamp)
         fx, fy, cx, cy = info.k[0], info.k[4], info.k[2], info.k[5]
         detections = []

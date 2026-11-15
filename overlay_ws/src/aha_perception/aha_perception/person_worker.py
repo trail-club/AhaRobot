@@ -20,7 +20,10 @@ person crops with the background darkened.
 
 With a pose model, each person has ViTPose keypoints for every part that
 people.split_sideways cuts the mask into (one part for most masks), because the
-robot may keep the parts as separate people.
+robot may keep the parts as separate people. Keypoints are optional: if ViTPose
+does not load, the worker runs without it (ready has `keypoints: false` and a
+`pose_error`); if it fails on an image, those people have no keypoints and the
+detections have a `pose_error`.
 """
 
 from __future__ import annotations
@@ -88,6 +91,13 @@ def detect(segmenter, request: dict, threshold: float, pose=None) -> dict:
     ]
     people = [{"score": float(scores[i]), **encode_mask(masks[i])} for i in kept]
     seconds = {"decode": decoded - started, "sam": finished - decoded}
+    response = {
+        "type": "detections",
+        "id": request.get("id"),
+        "shape": list(rgb.shape[:2]),
+        "people": people,
+        "seconds": seconds,
+    }
     if pose is not None:
         boxes, owners = [], []
         for person, i in zip(people, kept):
@@ -95,7 +105,11 @@ def detect(segmenter, request: dict, threshold: float, pose=None) -> dict:
             for part in split_sideways(masks[i]):
                 boxes.append(pose_box(bbox_of(part), rgb.shape[:2]))
                 owners.append(person)
-        estimated = pose.predict(rgb, boxes)
+        try:
+            estimated = pose.predict(rgb, boxes)
+        except Exception as exc:  # e.g. CUDA out of memory: keep the people
+            estimated = []
+            response["pose_error"] = safe_error(exc)
         for person, keypoints in zip(owners, estimated):
             person["keypoints"].append(
                 [
@@ -104,13 +118,7 @@ def detect(segmenter, request: dict, threshold: float, pose=None) -> dict:
                 ]
             )
         seconds["pose"] = time.perf_counter() - finished
-    return {
-        "type": "detections",
-        "id": request.get("id"),
-        "shape": list(rgb.shape[:2]),
-        "people": people,
-        "seconds": seconds,
-    }
+    return response
 
 
 def describe(vlm, request: dict) -> dict:
@@ -193,20 +201,22 @@ def serve(
         try:
             with redirect_stdout(sys.stderr):
                 segmenter = load_segmenter(prompt, threshold)
-                pose = load_pose() if load_pose is not None else None
         except Exception as exc:
             fail(None, exc)
             return 1
+        ready = {"type": "ready", "prompt": prompt, "vlm": vlm is not None}
+        pose = None
+        if load_pose is not None:
+            # Detection, tracking and names work without keypoints.
+            try:
+                with redirect_stdout(sys.stderr):
+                    pose = load_pose()
+            except Exception as exc:
+                ready["pose_error"] = safe_error(exc)
+        ready["keypoints"] = pose is not None
         thread = threading.Thread(target=ask_vlm, daemon=True)
         thread.start()
-        send(
-            {
-                "type": "ready",
-                "prompt": prompt,
-                "vlm": vlm is not None,
-                "keypoints": pose is not None,
-            }
-        )
+        send(ready)
         for line in input_stream:
             request = None
             try:
