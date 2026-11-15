@@ -53,6 +53,7 @@ from aha_perception.people import (
     rotation_matrix,
 )
 from aha_perception.person_attributes import (
+    BORDER_PX,
     Sample,
     classify_gesture,
     classify_posture,
@@ -437,7 +438,9 @@ class PersonPerception(Node):
         latest = (
             history[-1] if history and history[-1].stamp == track.last_seen else None
         )
-        posture = classify_posture(latest, float(track.head[2]) - self.floor_z)
+        posture = classify_posture(
+            latest, float(track.head[2]) - self.floor_z, track.bbox[1] <= BORDER_PX
+        )
         gesture = classify_gesture(history) if latest is not None else None
         return posture, gesture
 

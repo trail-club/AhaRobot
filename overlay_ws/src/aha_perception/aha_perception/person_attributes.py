@@ -261,46 +261,61 @@ def tilt(vector):
     return math.degrees(math.acos(min(1.0, abs(float(vector[2])) / length)))
 
 
-def classify_posture(sample: Sample | None, head_z: float | None) -> Label | None:
-    """Standing / sitting / lying from keypoints and the head height above the floor."""
+def thigh_tilt(sample: Sample) -> float | None:
+    """Mean angle of the seen thighs (hip to knee) from vertical (degrees)."""
+    thighs = []
+    for side in SIDES:
+        hip, knee = sample.get(f"{side}_hip"), sample.get(f"{side}_knee")
+        if hip is not None and knee is not None:
+            angle = tilt(knee - hip)
+            if angle is not None:
+                thighs.append(angle)
+    return float(np.mean(thighs)) if thighs else None
+
+
+def classify_posture(
+    sample: Sample | None, head_z: float | None, cut_at_top: bool = False
+) -> Label | None:
+    """Standing / sitting / lying from keypoints and the head height above the floor.
+
+    cut_at_top: the mask reaches the top of the image, so head_z may be a lower
+    part of the body than the head.
+    """
     shoulders = hips = None
-    torso = None
+    torso = thigh = None
     if sample is not None:
         shoulders = sample.middle("left_shoulder", "right_shoulder")
         hips = sample.middle("left_hip", "right_hip")
         if shoulders is not None and hips is not None:
             torso = tilt(shoulders - hips)
+        thigh = thigh_tilt(sample)
     if torso is not None and torso > LYING_TORSO_TILT:
         return Label("lying", True, f"torso {torso:.0f} deg from vertical")
     if torso is not None and torso < UPRIGHT_TORSO_TILT:
-        thighs = []
-        for side in SIDES:
-            hip, knee = sample.get(f"{side}_hip"), sample.get(f"{side}_knee")
-            if hip is not None and knee is not None:
-                angle = tilt(knee - hip)
-                if angle is not None:
-                    thighs.append(angle)
-        if thighs:
-            thigh = float(np.mean(thighs))
-            if thigh > SITTING_THIGH_TILT:
-                return Label("sitting", True, f"thighs {thigh:.0f} deg from vertical")
-            if thigh < STANDING_THIGH_TILT:
-                return Label("standing", True, f"thighs {thigh:.0f} deg from vertical")
+        if thigh is not None and thigh > SITTING_THIGH_TILT:
+            return Label("sitting", True, f"thighs {thigh:.0f} deg from vertical")
+        if thigh is not None and thigh < STANDING_THIGH_TILT:
+            return Label("standing", True, f"thighs {thigh:.0f} deg from vertical")
         hip_z = float(hips[2])
         if hip_z < SITTING_HIP_Z:
             return Label("sitting", True, f"upright, hips at {hip_z:.2f} m")
         if hip_z > STANDING_HIP_Z:
             return Label("standing", True, f"upright, hips at {hip_z:.2f} m")
+    if torso is None and thigh is not None and thigh < STANDING_THIGH_TILT:
+        # Shoulders unseen (e.g. above the image): upright thighs are no lying
+        # person, whatever the top of the mask. Kneeling looks the same.
+        return Label("standing", False, f"thighs {thigh:.0f} deg from vertical")
     if head_z is None:
         return None
     if head_z >= STANDING_HEAD_Z and (torso is None or torso < UPRIGHT_TORSO_TILT):
         return Label("standing", torso is not None, f"head at {head_z:.2f} m")
     if head_z <= LYING_HEAD_Z:
-        # Even sitting on the floor puts the top of the head higher.
+        # Even sitting on the floor puts the top of the head higher, unless the
+        # image cuts the head off.
         return Label(
             "lying",
-            torso is None or torso > UPRIGHT_TORSO_TILT,
-            f"head at {head_z:.2f} m",
+            not cut_at_top and (torso is None or torso > UPRIGHT_TORSO_TILT),
+            f"head at {head_z:.2f} m" + (", cut off at the top" if cut_at_top else ""),
         )
     if head_z <= SITTING_HEAD_Z and torso is not None and torso < UPRIGHT_TORSO_TILT:
         return Label("sitting", False, f"upright, head at {head_z:.2f} m")

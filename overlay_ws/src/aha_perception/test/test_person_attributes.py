@@ -109,6 +109,26 @@ def test_posture_without_keypoints_uses_the_head_height():
     assert classify_posture(None, None) is None
 
 
+def test_legs_below_the_image_top_are_not_a_lying_person():
+    # Only the hips and legs are in the image: the top of the mask is the waist.
+    hidden = (*FACE, "left_shoulder", "right_shoulder", "left_elbow", "right_elbow")
+    hidden += ("left_wrist", "right_wrist")
+    label = classify_posture(sample(hidden=hidden), 0.78, cut_at_top=True)
+    assert (label.value, label.confident) == ("standing", False)
+    # Without the thighs, a low top of the mask at the image top is only a guess.
+    hidden += ("left_knee", "right_knee")
+    label = classify_posture(sample(hidden=hidden), 0.78, cut_at_top=True)
+    assert (label.value, label.confident) == ("lying", False)
+    label = classify_posture(sample(hidden=hidden), 0.78)
+    assert (label.value, label.confident) == ("lying", True)
+
+
+def test_a_lying_person_with_hidden_shoulders_is_not_standing():
+    hidden = ("left_shoulder", "right_shoulder")
+    label = classify_posture(sample(lying(), hidden=hidden), 0.6)
+    assert (label.value, label.confident) == ("lying", True)
+
+
 def raised(side):
     return {
         f"{side}_elbow": (0.0, 0.25 if side == "left" else -0.25, 1.65),
