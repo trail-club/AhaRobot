@@ -1,6 +1,7 @@
 """Projection and drawing of perceived objects for the screen (no ROS)."""
 
 import io
+import math
 import os
 import sys
 import unittest
@@ -49,10 +50,22 @@ class RotationTests(unittest.TestCase):
 
 class ProjectionTests(unittest.TestCase):
     def test_corners(self):
-        corners = box_corners([1.0, 2.0, 3.0], [0.2, 0.4, 0.6])
+        corners = box_corners([1.0, 2.0, 3.0], [0.2, 0.4, 0.6], yaw=0.0)
         self.assertEqual(corners.shape, (8, 3))
         np.testing.assert_allclose(corners.min(axis=0), [0.9, 1.8, 2.7])
         np.testing.assert_allclose(corners.max(axis=0), [1.1, 2.2, 3.3])
+
+    def test_corners_turned_by_yaw(self):
+        corners = box_corners([0.0, 0.0, 0.0], [0.2, 0.04, 0.1], yaw=math.pi / 2)
+        np.testing.assert_allclose(corners.max(axis=0), [0.02, 0.1, 0.05], atol=1e-12)
+
+    def test_corners_without_yaw_hold_any_yaw(self):
+        size = [0.2, 0.04, 0.1]
+        free = box_corners([0.0, 0.0, 0.0], size).max(axis=0)
+        np.testing.assert_allclose(free, [math.hypot(0.1, 0.02)] * 2 + [0.05])
+        for yaw in np.linspace(0.0, math.pi, 13):
+            turned = box_corners([0.0, 0.0, 0.0], size, yaw=float(yaw)).max(axis=0)
+            self.assertTrue((turned <= free + 1e-12).all(), yaw)
 
     def test_project_drops_points_behind(self):
         pixels = project([[0.0, 0.0, 2.0], [0.0, 0.0, -1.0]], K)
@@ -61,7 +74,15 @@ class ProjectionTests(unittest.TestCase):
 
     def test_box_ahead_is_centred(self):
         box, cut = image_box(
-            [0, 0, 2.0], [0.2, 0.2, 0.2], IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, pad=0
+            [0, 0, 2.0],
+            [0.2, 0.2, 0.2],
+            IDENTITY,
+            [0, 0, 0],
+            K,
+            WIDTH,
+            HEIGHT,
+            yaw=0.0,
+            pad=0,
         )
         # The nearest face (z = 1.9 m) is the widest: 500 * 0.1 / 1.9 = 26.3 px.
         self.assertEqual(box, (294, 214, 346, 266))
@@ -70,7 +91,14 @@ class ProjectionTests(unittest.TestCase):
     def test_frame_axes(self):
         """An object on the robot's left appears left of the centre, higher is up."""
         box, _ = image_box(
-            [2.0, 0.5, 0.3], [0.1, 0.1, 0.1], FORWARD, [0, 0, 0], K, WIDTH, HEIGHT
+            [2.0, 0.5, 0.3],
+            [0.1, 0.1, 0.1],
+            FORWARD,
+            [0, 0, 0],
+            K,
+            WIDTH,
+            HEIGHT,
+            yaw=0.0,
         )
         left, top, right, bottom = box
         self.assertLess(right, 320)
@@ -79,16 +107,16 @@ class ProjectionTests(unittest.TestCase):
     def test_translation(self):
         # The camera 1 m behind the object's frame origin: same as the object 1 m further.
         near, _ = image_box(
-            [0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 1.0], K, WIDTH, HEIGHT
+            [0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 1.0], K, WIDTH, HEIGHT, yaw=0.0
         )
         far, _ = image_box(
-            [0, 0, 2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT
+            [0, 0, 2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
         )
         self.assertEqual(near, far)
 
     def test_partly_out_is_clipped(self):
         box, cut = image_box(
-            [0.6, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT
+            [0.6, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
         )
         self.assertTrue(cut)
         self.assertEqual(box[2], WIDTH)
@@ -96,11 +124,15 @@ class ProjectionTests(unittest.TestCase):
 
     def test_out_of_view(self):
         self.assertEqual(
-            image_box([0, 0, -2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT),
+            image_box(
+                [0, 0, -2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
+            ),
             (None, None),
         )
         self.assertEqual(
-            image_box([3.0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT),
+            image_box(
+                [3.0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
+            ),
             (None, None),
         )
 

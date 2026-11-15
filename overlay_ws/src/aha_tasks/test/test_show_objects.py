@@ -236,7 +236,12 @@ class ParamsTests(unittest.TestCase):
             parse_record("a.b", {**record("mug", 1, 2), "size": [0, 1, 1]})[1], None
         )
         label, place = parse_record("a.b", record("mug", 1, 2, 3))
-        self.assertEqual((label, place[0], place[1]), ("mug", "map", [1.0, 2.0, 3.0]))
+        self.assertEqual(
+            (label, place[0], place[1], place[3]), ("mug", "map", [1.0, 2.0, 3.0], None)
+        )
+        self.assertEqual(
+            parse_record("a.b", {**record("mug", 1, 2), "yaw": 0.5})[1][3], 0.5
+        )
 
 
 if __name__ == "__main__":

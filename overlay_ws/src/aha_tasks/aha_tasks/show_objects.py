@@ -13,7 +13,9 @@ perception results).
 
 The objects are task memory keys holding the records of perceive_objects:
 {"label", "category", "position", "frame", "size", ...}; position is the
-centre and size the box (m) in `frame`. A key that is missing or null is
+centre in `frame` and size the box (m) along the object's own axes, turned
+by an optional "yaw" (rad about z of `frame`); without it the frame holds
+the object at any yaw (aha_tasks.object_view.box_corners). A key that is missing or null is
 skipped. A record without a position (a mock that is only a label) is only
 spoken. An object that cannot be pictured (no camera image, no TF, out of the
 view after turning the head) is spoken instead, and the skill then fails so
@@ -89,7 +91,8 @@ def is_number(value):
 def parse_record(key, value):
     """(label, place) of a memory value; place is None unless it can be pictured.
 
-    place = (frame, position, size). A string is a label only (a mock).
+    place = (frame, position, size, yaw); yaw is None when the record has none.
+    A string is a label only (a mock).
     """
     if isinstance(value, str):
         return value.strip() or key.rsplit(".", 1)[-1], None
@@ -109,7 +112,9 @@ def parse_record(key, value):
         and len(size) == 3
         and all(is_number(v) and v > 0 for v in size)
     ):
-        return label.strip(), (frame, [float(v) for v in position], size)
+        yaw = value.get("yaw")
+        yaw = float(yaw) if is_number(yaw) else None
+        return label.strip(), (frame, [float(v) for v in position], size, yaw)
     return label.strip(), None
 
 
@@ -296,7 +301,7 @@ class ShowObjects(Skill):
 
     def picture(self, place, label, cancelled):
         """(JPEG bytes, note) of the object framed in a new head image, or (None, why)."""
-        frame, position, size = place
+        frame, position, size, yaw = place
         camera = self.camera_class.of(self.runtime)
         gaze = getattr(self.runtime, "gaze", None)
         if gaze is not None:
@@ -319,7 +324,14 @@ class ShowObjects(Skill):
         except ValueError as error:
             return None, str(error)
         box, cut = image_box(
-            position, size, rotation, translation, info.k, image.width, image.height
+            position,
+            size,
+            rotation,
+            translation,
+            info.k,
+            image.width,
+            image.height,
+            yaw=yaw,
         )
         if box is None:
             return None, "out of the camera view"

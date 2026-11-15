@@ -4,11 +4,13 @@ PPC rule 16 (Communicating Perception): the robot shows one object at a time,
 and the surrounding scene must remain visible. A picture is the whole head
 camera image with a frame around the object and its label, never a crop.
 
-The frame is the object's box (centre `position`, extents `size`, axes of the
-frame the position is given in, z up) projected into the image with the
-camera's intrinsics (CameraInfo k, the image is not rectified: distortion is
-ignored) and the transform from that frame into the camera's optical frame
-(z forward, x right, y down).
+The frame is the object's box projected into the image with the camera's
+intrinsics (CameraInfo k, the image is not rectified: distortion is ignored)
+and the transform from the object's frame into the camera's optical frame
+(z forward, x right, y down). The box has its centre at `position` and the
+extents `size` along the object's own axes, upright (z up). Turned by `yaw`
+about z when the yaw is known; otherwise its footprint is the square around
+the circle that holds the object at any yaw.
 """
 
 import io
@@ -49,11 +51,23 @@ def rotation_matrix(x, y, z, w):
     )
 
 
-def box_corners(center, size):
-    """The 8 corners (8x3) of the box with `center` and extents `size`."""
-    center, half = np.asarray(center, float), np.asarray(size, float) / 2.0
+def box_corners(center, size, yaw=None):
+    """The 8 corners (8x3) of the upright box with `center` and extents `size`.
+
+    `size` is along the object's own axes, turned by `yaw` (rad about z). With
+    yaw None the footprint is the square of the circle around the object's
+    footprint, which holds the object at any yaw.
+    """
+    center = np.asarray(center, float)
+    half = np.asarray(size, float) / 2.0
+    if yaw is None:
+        half[:2] = math.hypot(half[0], half[1])
     signs = np.array(list(itertools.product((-1.0, 1.0), repeat=3)))
-    return center + signs * half
+    corners = signs * half
+    if yaw is not None:
+        c, s = math.cos(yaw), math.sin(yaw)
+        corners[:, :2] = corners[:, :2] @ np.array([[c, s], [-s, c]])
+    return center + corners
 
 
 def project(points, k):
@@ -72,16 +86,16 @@ def project(points, k):
     return np.stack([u, v], axis=1)
 
 
-def image_box(center, size, rotation, translation, k, width, height, pad=PAD):
+def image_box(center, size, rotation, translation, k, width, height, yaw=None, pad=PAD):
     """((left, top, right, bottom), cut) of the object in the image, or (None, None).
 
     `rotation` (x, y, z, w) and `translation` take a point from the object's
-    frame into the camera's optical frame. The box is the bounding rectangle
+    frame into the camera's optical frame; see box_corners for `yaw`. The box is the bounding rectangle
     of the projected corners, `pad` px larger, clipped to the image; `cut`
     tells that the clipping took some of it away (the object is partly out
     of view). None when the object is behind the camera or out of the image.
     """
-    corners = box_corners(center, size) @ rotation_matrix(*rotation).T
+    corners = box_corners(center, size, yaw) @ rotation_matrix(*rotation).T
     pixels = project(corners + np.asarray(translation, float), k)
     if pixels is None:
         return None, None

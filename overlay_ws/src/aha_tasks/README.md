@@ -472,12 +472,14 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 {"objects": ["table.cutlery", "table.cup"], "surface": "dining_table", "dwell": 2.0}
 ```
 
-`objects` は記憶のキーで、値は `perceive_objects` の出力（`label`・`position`（中心）・`frame`・`size`（外接箱、m）を持つ辞書）。
+`objects` は記憶のキーで、値は `perceive_objects` の出力（`label`・`position`（中心）・`frame`・`size`（物体の軸に沿う外接箱、m）を持つ辞書）。
+辞書に `yaw`（`frame` のz軸まわりの物体の向き、rad）があれば使う。
 `surface` は発話の場所（`dining_table` は「on the dining table」）、`dwell`（省略時2 s、実時間）は画像を残す時間。
 物体ごとに次を行い、最後に画像を消す。
 
 1. 頭を物体の中心へ向け（[注視](#注視)）、1.5 s（模擬時間）待つ。その後に撮られた `/camera/color/image_raw` を5 sまで待つ。
-2. 物体の外接箱（`frame` の軸に沿う）の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
+2. 立てた外接箱の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
+   箱は `yaw` で回し、`yaw` がなければどの向きでも物体が入るよう、底面を外接円に外接する正方形にする。
 3. 画像全体（切り抜かない）に、長方形の外側へ緑の枠（黒の縁取り）と `label` の札を描き、JPEGで `show` に渡す。
 4. 「This is the mug on the dining table.」と字幕・TTSで伝える。最初の物体では前に「Please look at my screen.」を付ける。ゴミの役割（キーに `trash` を含む）では「It is trash.」を加える。発話の後、`dwell` 秒画像を残す。
 
@@ -492,7 +494,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | 一部が視野外 | 見えている部分に枠を描く | 成功 |
 
 頭部カメラの画像とTFを使う。シミュレーションではカメラとbridgeを起動する引数（`people:=true` など）が必要。
-物体の向き（yaw）は記録にないため、枠は `frame` の軸に沿う箱から求める。斜めに置かれた長い物体（フォークなど）は枠が実物より大きくなる。
+`yaw` のない記録では、細長い物体（フォークなど）の枠が実物より大きくなる。
 
 ## General Purpose Service Robot Challenge
 
