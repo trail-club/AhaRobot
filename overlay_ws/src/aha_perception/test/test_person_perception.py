@@ -198,9 +198,8 @@ class PersonPerceptionTest(unittest.TestCase):
         self.stream({"red": 100, "blue": 220}, 1.0)
         again = self.call(self.describe, DescribePerson.Request(id=red.id))
         self.assertTrue(again.success, again.message)
-        self.assertNotEqual(
-            reply.message.split("image ")[-1], again.message.split("image ")[-1]
-        )
+        first, second = (float(r.message.split("image ")[-1]) for r in (reply, again))
+        self.assertGreaterEqual(second - first, 0.5)
         missing = self.call(self.describe, DescribePerson.Request(id=999))
         self.assertFalse(missing.success)
 

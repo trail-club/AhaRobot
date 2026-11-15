@@ -222,7 +222,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
-| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き、聞いた枚数の過半数が一致した特徴だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
+| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き（person_perceptionも同じ人の切り出しを0.5 s以上空ける）、聞いた枚数の過半数が一致した特徴だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
 
 `find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。

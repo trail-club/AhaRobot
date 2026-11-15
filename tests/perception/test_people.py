@@ -256,6 +256,23 @@ class DescribeCropTests(unittest.TestCase):
         self.assertEqual((stamp, crop[0, 0, 0]), (1.0, 3))
         self.assertIsNone(track.crop_to_describe())
 
+    def test_a_larger_crop_just_after_the_last_description_is_skipped(self):
+        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
+        [track] = tracker.update([sized(6, 1)], 4.65)
+        tracker.update([sized(10, 2)], 5.0)  # held: larger than at 4.65
+        tracker.update([sized(8, 3)], 5.1)  # recent, 0.1 s after the held one
+        tracker.update([sized(7, 4)], 5.5)  # recent, 0.5 s after it
+        self.assertEqual([s for s, _ in track.recent_crops], [4.65, 5.1, 5.5])
+        self.assertEqual(track.crop_to_describe()[0], 5.0)
+        # 5.1 is larger, but nearly the image described: the VLM would repeat it.
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (5.5, 4))
+        self.assertIsNone(track.crop_to_describe())
+        tracker.update([sized(7, 5)], 5.9)  # recent, only 0.4 s after 5.5
+        self.assertIsNone(track.crop_to_describe())
+        tracker.update([sized(7, 6)], 6.4)
+        self.assertEqual(track.crop_to_describe()[0], 6.4)
+
 
 class GalleryTests(unittest.TestCase):
     def setUp(self):
