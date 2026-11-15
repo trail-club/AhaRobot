@@ -129,11 +129,12 @@ class ShowObjectsTests(unittest.TestCase):
         shows = [e for e in self.screen.events if e[0] == "show"]
         self.assertEqual(len(shows), 3)
         self.assertEqual(
-            shows[0][1], f"{LOOK_FIRST} This is the mug on the dining table."
+            shows[0][1], f"{LOOK_FIRST} I found the mug on the dining table."
         )
-        self.assertEqual(shows[1][1], "This is the plate on the dining table.")
+        self.assertEqual(shows[1][1], "I found the plate on the dining table.")
         self.assertEqual(
-            shows[2][1], "This is the pringles on the dining table. It is trash."
+            shows[2][1],
+            "I found the pringles on the dining table. That goes in the trash.",
         )
         for _, _, image_format, data in shows:
             self.assertEqual(image_format, "jpeg")

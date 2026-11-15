@@ -481,7 +481,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 2. 立てた外接箱の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
    箱は `yaw` で回し、`yaw` がなければどの向きでも物体が入るよう、底面を外接円に外接する正方形にする。
 3. 画像全体（切り抜かない）に、長方形の外側へ緑の枠（黒の縁取り）と `label` の札を描き、JPEGで `show` に渡す。
-4. 「This is the mug on the dining table.」と字幕・TTSで伝える。最初の物体では前に「Please look at my screen.」を付ける。ゴミの役割（キーに `trash` を含む）では「It is trash.」を加える。発話の後、`dwell` 秒画像を残す。
+4. 「I found the mug on the dining table.」と字幕・TTSで伝える。最初の物体では前に「Please look at my screen.」を付ける。ゴミの役割（キーに `trash` を含む）では「That goes in the trash.」を加える。文はラベルの単数・複数（`cookies`、`milk`）によらない。発話の後、`dwell` 秒画像を残す。
 
 審判が見たことの確かめ方はルールに定めがない。画面の表示は審判に答えを求めない方針（[ロボットの画面](#ロボットの画面)）のため、タッチや発話の返事は求めず、画面を見るよう伝えて `dwell` 秒表示を保つ。
 これで「審判が見たことの確認」を満たすかは未確認。

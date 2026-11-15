@@ -198,10 +198,12 @@ def place_words(surface):
 def object_sentence(label, surface, trash=False, shown=True):
     """What the robot says about one perceived object.
 
-    Shown: "This is the mug on the dining table." Not shown (no image):
-    "I recognized the mug on the dining table." A trash item adds "It is trash."
+    Shown: "I found the mug on the dining table." Not shown (no image):
+    "I recognized the mug on the dining table." A trash item adds "That goes
+    in the trash." The words do not depend on the number of the label
+    ("the cookies", "the milk").
     """
     place = place_words(surface)
     words = f"the {label} {place}".strip() if place else f"the {label}"
-    text = f"This is {words}." if shown else f"I recognized {words}."
-    return f"{text} It is trash." if trash else text
+    text = f"I found {words}." if shown else f"I recognized {words}."
+    return f"{text} That goes in the trash." if trash else text

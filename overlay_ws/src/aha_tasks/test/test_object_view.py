@@ -206,17 +206,17 @@ class SentenceTests(unittest.TestCase):
     def test_sentences(self):
         self.assertEqual(
             object_sentence("mug", "dining_table"),
-            "This is the mug on the dining table.",
+            "I found the mug on the dining table.",
         )
         self.assertEqual(
             object_sentence("fork", "dining_table", shown=False),
             "I recognized the fork on the dining table.",
         )
         self.assertEqual(
-            object_sentence("pringles", "floor", trash=True),
-            "This is the pringles on the floor. It is trash.",
+            object_sentence("cookies", "floor", trash=True),
+            "I found the cookies on the floor. That goes in the trash.",
         )
-        self.assertEqual(object_sentence("milk", ""), "This is the milk.")
+        self.assertEqual(object_sentence("milk", ""), "I found the milk.")
 
 
 if __name__ == "__main__":
