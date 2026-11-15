@@ -106,6 +106,7 @@ from rclpy.qos import (
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Empty, Float64MultiArray, String
+from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
@@ -142,6 +143,7 @@ HEAD_MIN_WAIT = 0.5  # sim s after the command before the head can count as sett
 BASE_STILL = (0.002, math.radians(0.2))  # m, rad per BASE_SAMPLE
 BASE_SAMPLE = 0.5  # sim s
 STATE_TOLERANCE = 0.02  # rad / m, joints at a named state
+CLEAR_FROZEN_SERVICE = "/aha/manipulation/place/clear_frozen"
 Result = PlaceObject.Result
 
 
@@ -383,8 +385,8 @@ class PlaceServer(Node):
         # for a finger it has no state of.
         self.fingers = {}
         # Why the arm readings looked frozen, kept until they change (the
-        # arm_node restarted) or the next place goal (clear_frozen), with the
-        # readings seen then ({joint: rad}).
+        # arm_node restarted) or an operator clears it (CLEAR_FROZEN_SERVICE),
+        # with the readings seen then ({joint: rad}).
         self.frozen = None
         self.frozen_readings = {}
         if self.param("frozen_window") > 0.0:
@@ -460,6 +462,9 @@ class PlaceServer(Node):
             goal_callback=self.on_goal,
             cancel_callback=self.on_cancel,
             callback_group=group,
+        )
+        self.create_service(
+            Trigger, CLEAR_FROZEN_SERVICE, self.on_clear_frozen, callback_group=group
         )
         if self.param("tcp_height") > 0.0:
             self.get_logger().info(
@@ -541,18 +546,23 @@ class PlaceServer(Node):
             self.frozen = None
             self.frozen_readings = {}
 
-    def clear_frozen(self):
-        """Forget a frozen state at a new place goal: an arm stopped by an
-        obstacle reads the same values while live, and would refuse every goal
-        until a restart. Truly frozen readings are flagged again during the
-        goal's first motion (frozen_window after it starts)."""
+    def on_clear_frozen(self, _request, response):
+        """Operator's clear of a frozen state whose readings do not change (a
+        false detection): a goal never clears it, since a reset board's arm
+        would run its first motion planned from stale readings."""
+        if self.busy.locked():
+            response.success = False
+            response.message = "a place is running"
+            return response
+        response.success = True
         if self.frozen:
-            self.get_logger().warn(
-                f"new goal: frozen state cleared ({self.frozen}); detected again "
-                "if the readings stay frozen while the arm moves"
-            )
+            response.message = f"cleared: {self.frozen}"
+            self.get_logger().warn(f"frozen state cleared by request ({self.frozen})")
             self.frozen = None
             self.frozen_readings = {}
+        else:
+            response.message = "not frozen"
+        return response
 
     def finger_state(self, joint):
         """The finger's position if fresh (FINGER_STATE_TIMEOUT), else None."""
@@ -1713,7 +1723,6 @@ class PlaceServer(Node):
             if goal_handle.is_cancel_requested:
                 self.cancel_event.set()
             self.last_feedback = None
-            self.clear_frozen()
             self.execution_failed = False
             self.moved = False
             self.at_place = None

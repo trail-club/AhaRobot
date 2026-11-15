@@ -132,17 +132,29 @@ def test_a_new_bridge_goal_starts_the_watch_afresh(server, clock):
     assert stub.frozen is None
 
 
-def test_a_new_place_goal_clears_the_frozen_state(server, clock):
-    # An arm stopped by an obstacle keeps reading the same values.
+def clear_stub(server, running=False):
     stub = node(server)
-    stub.clear_frozen = server.PlaceServer.clear_frozen.__get__(stub)
+    stub.busy = SimpleNamespace(locked=lambda: running)
+    stub.on_clear_frozen = server.PlaceServer.on_clear_frozen.__get__(stub)
+    return stub
+
+
+def test_the_clear_service_ends_a_frozen_state(server, clock):
+    # A false detection whose readings stay the same: only the operator clears it.
+    stub = clear_stub(server)
     freeze_wrist(stub, FrozenWatch(0.5, 0.05))
-    assert stub.frozen
     stub.on_finger_states(SimpleNamespace(name=NAMES, position=[0.7, 0.0015]))
     assert stub.frozen
-    stub.clear_frozen()
+    response = stub.on_clear_frozen(None, SimpleNamespace(success=None, message=""))
+    assert response.success and response.message.startswith("cleared")
     assert stub.frozen is None and stub.frozen_readings == {}
-    assert any("frozen state cleared" in text for _, text in stub.logger.lines)
+
+
+def test_the_clear_service_waits_for_a_running_place(server, clock):
+    stub = clear_stub(server, running=True)
+    freeze_wrist(stub, FrozenWatch(0.5, 0.05))
+    response = stub.on_clear_frozen(None, SimpleNamespace(success=None, message=""))
+    assert not response.success and stub.frozen
 
 
 def test_motions_are_refused_while_frozen(server):
