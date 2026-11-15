@@ -665,13 +665,20 @@ class FindDescribedPerson(Skill):
                     )
                 except Cancelled:
                     return None  # wait_for reports the abort
-            if answers is None:
+            match = (
+                None
+                if answers is None
+                else description.matches(name=person.name, **seen(answers))
+            )
+            if match is None:
+                # Not judged, or the answers cannot decide (e.g. the clothing
+                # was hidden): try again, as count_people does.
                 failures[person.id] = failures.get(person.id, 0) + 1
             else:
                 checked[person.id] = answers
                 checked_at.append((planar(person.position), person.id))
             ctx.log(f"{where(person)}: {describe_answers(answers)}")
-            if answers and description.matches(name=person.name, **seen(answers)):
+            if match:
                 return message, person, answers
             # The head turned to this person: look this way again for a full
             # dwell, so that nobody at the edge of the view is missed.

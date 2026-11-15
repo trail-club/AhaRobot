@@ -573,6 +573,35 @@ class FindDescribedPersonTests(unittest.TestCase):
         # After each judgement the head looks the same way again.
         self.assertEqual(people.panned[:3], [0.0, 0.0, 0.0])
 
+    def test_a_person_whose_clothing_was_unclear_is_judged_again(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={1: {"vlm": ("standing", "none", ["red t shirt"])}},
+        )
+        answer = people.classify.answer
+        unclear = [True]
+
+        def first_unclear(request):
+            reply = answer(request)
+            if not request.skip_vlm and unclear:
+                unclear.pop()
+                reply.garments = []  # the upper body was hidden
+            return reply
+
+        people.classify.answer = first_unclear
+        result = FindDescribedPerson(runtime(people)).execute(
+            context(
+                {
+                    "clothing": "person wearing a red t shirt",
+                    "timeout": 5.0,
+                    "approach": False,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        vlm = [r.id for r in people.classify.requests if not r.skip_vlm]
+        self.assertEqual(vlm, [1, 1])
+
     def test_a_person_next_to_a_judged_one_is_judged_too(self):
         # 0.45 m apart: person_perception keeps them as two tracks.
         people = FakePeople(
