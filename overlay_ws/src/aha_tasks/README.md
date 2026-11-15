@@ -244,7 +244,7 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 制限：
 
 - 失敗で巻き戻しても物体の位置は戻らない。`sim_objects` を実行し直して戻す。
-- 頭部カメラのセンサは `people:=true` のときだけ有効になる。
+- 頭部カメラのセンサは `people:=true` か `objects:=true` のときだけ有効になる。
 - 印刷した物体は箱・円柱で、ロゴや形の細部はない。YCBの物体と物体リストの大きさは最大1.2 cm違う（tuna canの高さ）。
 - 食洗機と、その中の物体はない。
 
@@ -395,8 +395,8 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 ```
 
 `position` は物体の中心、`size` は物体自身の軸に沿った外接箱（m、物体リストの底面 x, y と高さ z）、`track` は検出器のtrack ID、`confidence` は同じラベルの検出の平均。
-`yaw` は `frame` のz軸まわりの物体の向き（rad、同じラベルの検出の円周平均）で、検出器が向きを出すときだけ入れる。
-真値の検出器はモデルの向きを出す。画像からの検出器（`object_perception.py`）は向きを出さず（単位四元数）、`size` は `frame` の軸に沿うため、`yaw` を入れない。
+`yaw` は `frame` のz軸まわりの物体の向き（rad、同じラベルの検出の円周平均）で、`size` の軸の向きを表す。
+真値の検出器はモデルの向きを出す。画像からの検出器（`object_perception.py`）は `frame` の軸に沿った箱（単位四元数）を出すため、`yaw` は0になる。
 ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
 タスク固有のスキルのparamsは `open_container`（`object`）、`pour`（`object`、`target`）。
 

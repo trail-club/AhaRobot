@@ -469,6 +469,7 @@ class SkillTests(unittest.TestCase):
                 "size": [0.1, 0.1, 0.1],
                 "track": 2,
                 "confidence": 1.0,
+                "yaw": 0.0,
             },
         )
         # Three head poses along the table, then back to its near end.
@@ -476,7 +477,7 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(objects.looked[0], objects.looked[-1])
         self.assertIn("2 other objects seen", logs[0])
 
-    def test_yaw_only_from_an_oriented_detection(self):
+    def test_yaw_from_the_detection_orientation(self):
         scene = table_scene()
         scene[0] = detection(
             "fork", (-2.2, -1.8, 0.81), 1, (0.195, 0.027, 0.015), 1.5708
@@ -488,7 +489,8 @@ class SkillTests(unittest.TestCase):
             {"ppc.trash_category": "snacks"},
         )
         self.assertEqual(result.outputs["table.cutlery"]["yaw"], 1.571)
-        self.assertNotIn("yaw", result.outputs["table.cup"])  # identity: unknown
+        # Identity: the box of a camera detector is along the map axes.
+        self.assertEqual(result.outputs["table.cup"]["yaw"], 0.0)
 
     def test_missing_roles_get_no_key(self):
         scene = [d for d in table_scene() if d.class_name not in ("cookies", "cola")]

@@ -23,7 +23,7 @@ objects on a plate or lying with an upright box size still count.
 The memory record of an object (the contract with pick / place / show):
 {"label", "category", "position": [x, y, z] (centre), "frame", "size": [x, y, z]
 (along the object's own axes, as in the object list), "track", "confidence",
-"yaw" (rad about z of frame; only when the detector gives an orientation)}.
+"yaw" (rad about z of frame, from the detections' orientation)}.
 """
 
 from __future__ import annotations
@@ -390,7 +390,7 @@ def assign_roles(percepts, roles, memory, origin):
 
 
 def record(percept, frame):
-    """The memory record; "yaw" only when the detector gave an orientation."""
+    """The memory record; "yaw" when the observations had an orientation."""
     out = {
         "label": percept.label,
         "category": percept.category,
@@ -546,13 +546,13 @@ class Cancelled(RuntimeError):
 def observations_of(message):
     """Observations of a DetectedObjectArray.
 
-    An identity orientation counts as none: a camera detector
-    (object_perception.py) gives an axis-aligned box without orientation.
+    The size is along the axes of the pose's orientation, so the identity
+    orientation of a camera detector's axis-aligned box (object_perception.py)
+    is yaw 0, not an unknown orientation.
     """
     out = []
     for o in message.objects:
         p, q = o.pose.pose.position, o.pose.pose.orientation
-        identity = (q.x, q.y, q.z, abs(q.w)) == (0.0, 0.0, 0.0, 1.0)
         out.append(
             Observation(
                 label=o.class_name,
@@ -560,7 +560,7 @@ def observations_of(message):
                 position=(p.x, p.y, p.z),
                 size=(o.size.x, o.size.y, o.size.z),
                 confidence=float(o.confidence),
-                yaw=None if identity else yaw_of(q),
+                yaw=yaw_of(q),
             )
         )
     return out
