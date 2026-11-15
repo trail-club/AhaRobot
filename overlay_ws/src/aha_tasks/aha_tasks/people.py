@@ -592,7 +592,7 @@ class FindDescribedPerson(Skill):
         checked = {}  # track ID -> answers (None: not the named person)
         failures = {}  # track ID -> judgements that failed
         checked_at = []  # (map position, track ID) of people already judged
-        next_look = -math.inf
+        pan, next_look = None, -math.inf  # the head's pan, end of its dwell
 
         def judged(message, person):
             if person.id in checked or failures.get(person.id, 0) >= MAX_JUDGEMENTS:
@@ -609,14 +609,19 @@ class FindDescribedPerson(Skill):
                 if track not in in_view
             )
 
+        def look_next():
+            nonlocal pan, next_look
+            pan = next(pans)
+            people.look_towards(pan, height)
+            next_look = people.now() + dwell
+
         def choose(message):
             # One person per call, so that the timeout is checked between people
-            # and each person is judged on a fresh message.
+            # and each person is judged on a fresh message. The head moves on
+            # only when nobody visible is left to judge this way.
             nonlocal next_look
-            now = people.now()
-            if now >= next_look:
-                people.look_towards(next(pans), height)
-                next_look = now + dwell
+            if pan is None:
+                look_next()
             candidates = sorted(
                 (
                     p
@@ -630,6 +635,8 @@ class FindDescribedPerson(Skill):
                 key=lambda p: math.dist(planar(p.position), origin),
             )
             if not candidates:
+                if people.now() >= next_look:
+                    look_next()
                 return None
             person = candidates[0]
             if description.name and person.name != description.name:
@@ -659,6 +666,10 @@ class FindDescribedPerson(Skill):
             ctx.log(f"{where(person)}: {describe_answers(answers)}")
             if answers and description.matches(name=person.name, **seen(answers)):
                 return message, person, answers
+            # The head turned to this person: look this way again for a full
+            # dwell, so that nobody at the edge of the view is missed.
+            people.look_towards(pan, height)
+            next_look = people.now() + dwell
             return None
 
         found, reason = people.wait_for(choose, timeout, ctx.cancelled)

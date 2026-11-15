@@ -540,6 +540,39 @@ class FindDescribedPersonTests(unittest.TestCase):
         # Each candidate twice (again where its head is seen then), then the one found.
         self.assertEqual(heads, [(1.0, 0.0)] * 2 + [(2.0, 0.0)] * 3)
 
+    def test_the_head_moves_on_only_when_everyone_in_view_is_judged(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                2: {"rules": ("standing", "none")},
+            },
+        )
+        # Each judgement takes longer than the dwell.
+        people.classify.delay = lambda request: 0.05
+        answer = people.classify.answer
+        pans_judged = []
+
+        def recording(request):
+            pans_judged.append(people.panned[-1])
+            return answer(request)
+
+        people.classify.answer = recording
+        result = FindDescribedPerson(runtime(people)).execute(
+            context(
+                {
+                    "gesture": "waving person",
+                    "pans": [0.0, 0.4],
+                    "dwell": 0.01,
+                    "timeout": 0.5,
+                }
+            )
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(pans_judged, [0.0, 0.0])
+        # After each judgement the head looks the same way again.
+        self.assertEqual(people.panned[:3], [0.0, 0.0, 0.0])
+
     def test_a_person_next_to_a_judged_one_is_judged_too(self):
         # 0.45 m apart: person_perception keeps them as two tracks.
         people = FakePeople(
