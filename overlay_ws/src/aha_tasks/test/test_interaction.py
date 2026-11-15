@@ -1,4 +1,8 @@
-"""say / show / ask through ROS against the real screen, and the skills that use them."""
+"""say / show / ask through ROS against the real screen, and the skills that use them.
+
+ROS runs on ROS_DOMAIN_ID 95 (AHA_TEST_DOMAIN_ID to change), so the tests do not
+reach a running robot, sim or TTS through the real names.
+"""
 
 import math
 import os
@@ -25,6 +29,8 @@ from aha_tasks.interaction import (  # noqa: E402
     Say,
     WaitStartSignal,
 )
+
+DOMAIN_ID = int(os.environ.get("AHA_TEST_DOMAIN_ID", "95"))
 
 
 def wait_until(condition, timeout=10.0):
@@ -118,7 +124,7 @@ class RosTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        rclpy.init()
+        rclpy.init(domain_id=DOMAIN_ID)
         cls.screen = Screen()
         cls.display_node = Node("test_robot_display")
         cls.bridge = ScreenBridge(cls.display_node, cls.screen)
@@ -516,7 +522,7 @@ class ShutdownTests(unittest.TestCase):
         )
         interaction_module.SERVER_TIMEOUT = 1.0
         source = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        env = dict(os.environ)
+        env = dict(os.environ, ROS_DOMAIN_ID=str(DOMAIN_ID))
         env["PYTHONPATH"] = os.pathsep.join(
             [source] + [p for p in [env.get("PYTHONPATH")] if p]
         )
@@ -529,7 +535,7 @@ class ShutdownTests(unittest.TestCase):
         self.addCleanup(screen.stdout.close)
         self.addCleanup(screen.wait, 10.0)
         self.addCleanup(screen.kill)
-        rclpy.init()
+        rclpy.init(domain_id=DOMAIN_ID)
         self.addCleanup(rclpy.try_shutdown)
         node = Node("test_crash_runner")
         interaction = Interaction(node)
@@ -558,7 +564,7 @@ class ShutdownTests(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 40.0)
 
     def test_the_runner_gets_the_abort_and_the_executor_stops(self):
-        rclpy.init()
+        rclpy.init(domain_id=DOMAIN_ID)
         self.addCleanup(rclpy.try_shutdown)
         screen = Screen()
         display_node = Node("test_stopping_display")

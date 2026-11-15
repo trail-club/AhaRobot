@@ -148,6 +148,8 @@ index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
 TTSで読み上げられなかった場合も、`wait_start_signal` はボタンを出して待つ。
 タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
 
+`test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
+
 ## Human Robot Interaction Challenge
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
