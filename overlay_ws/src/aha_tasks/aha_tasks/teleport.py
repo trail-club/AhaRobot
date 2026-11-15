@@ -4,9 +4,10 @@ Stands in for the Nav2 planner, controller and BT navigator in debug
 end-to-end runs (task.launch.py e2e:=debug), so that a goal takes seconds
 instead of driving at 0.2 m/s. The goal pose in `map` is the Gazebo world
 pose, as in task.launch.py, which spawns the robot and starts AMCL at the
-same coordinates. With `speed` > 0 the robot first stays where it is for the
-straight-line distance / speed, so that people walking at that speed
-(aha_tasks sim_guests) are not overtaken.
+same coordinates. With `speed` > 0 the goal succeeds no sooner than the
+straight-line distance / speed after the move, so that people walking at that
+speed (aha_tasks sim_guests) are there too, including a guest who follows the
+robot and only sets off once it has moved.
 
 AMCL publishes map -> odom stamped transform_tolerance (2 s) ahead, so the TF
 at an image's time shows a new pose only that long after AMCL took it. The
@@ -291,10 +292,6 @@ def main(argv=None):
                 return goal_handle.is_cancel_requested
 
             started = time.monotonic()
-            if speed > 0.0:
-                outcome = wait_sim(sim_now, distance / speed, cancelled=cancelled)
-                if outcome != "elapsed":
-                    return fail("the simulation clock stopped")
             sent = [-math.inf]
 
             def agrees():
@@ -318,7 +315,12 @@ def main(argv=None):
             if moves:
                 if not move(goal[0], goal[1], robot[2], goal[2]):
                     return fail(f"Gazebo did not move {robot_model}", restore=here)
-                if wait_sim(sim_now, settle, cancelled=cancelled) != "elapsed":
+                # settle for the images around the move; the walk for the guests.
+                walk = distance / speed if speed > 0.0 else 0.0
+                if (
+                    wait_sim(sim_now, max(settle, walk), cancelled=cancelled)
+                    != "elapsed"
+                ):
                     return fail("the simulation clock stopped")
             log.info(
                 f"teleported to [{goal[0]:.2f}, {goal[1]:.2f}, {goal[2]:.2f}] "
