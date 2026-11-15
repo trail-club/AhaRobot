@@ -1,16 +1,20 @@
 """show_objects against a fake camera, gaze and screen (no ROS graph)."""
 
+import importlib.util
 import io
 import os
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
+import aha_tasks.show_objects as show_objects  # noqa: E402
 from aha_tasks.show_objects import (  # noqa: E402
     LOOK_FIRST,
     Cancelled,
@@ -44,12 +48,21 @@ class FakeCamera(HeadCamera):
         self.image_available = True
         self.transform_value = (FORWARD, (0.0, 0.0, 0.0))
         self.on_pause = None
+        self.stalled = False
+        self.calls = []
+
+    def open(self):
+        self.calls.append("open")
+
+    def close(self):
+        self.calls.append("close")
 
     def pause(self, seconds, cancelled):
         if self.on_pause:
             self.on_pause()
         if cancelled.is_set():
             raise Cancelled
+        return not self.stalled
 
     def stamp_now(self):
         return 0
@@ -240,10 +253,91 @@ class ShowObjectsTests(unittest.TestCase):
             ],
         )
 
+    def test_stopped_wait_clock_fails(self):
+        """Without /clock the head may still turn: no image is taken then."""
+        self.camera.stalled = True
+        result = self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
+        self.assertFalse(result.success)
+        self.assertIn("mug (wait clock stopped", result.message)
+        self.assertEqual(
+            self.screen.events, [("say", "I recognized the mug on the dining table.")]
+        )
+
+    def test_images_are_subscribed_only_while_showing(self):
+        self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
+        self.assertEqual(self.camera.calls, ["open", "close"])
+        self.camera.calls.clear()
+        self.run_skill({"table.cup": "mug"})  # nothing to picture
+        self.assertEqual(self.camera.calls, [])
+
+    def test_images_are_unsubscribed_on_cancel(self):
+        self.screen.cancel_on_show = True
+        self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
+        self.assertEqual(self.camera.calls, ["open", "close"])
+
     def test_bad_record_fails(self):
         result = self.run_skill({"table.cup": {"position": [1, 2, 3]}})
         self.assertFalse(result.success)
         self.assertIn("table.cup (not an object record)", result.message)
+
+
+class FakeClock:
+    def __init__(self, now):
+        self.now_value = now
+        self.ros_time_is_active = True
+
+    def now(self):
+        return SimpleNamespace(nanoseconds=int(self.now_value() * 1e9))
+
+
+def bare_camera(now):
+    """A HeadCamera on a fake node clock, without ROS subscriptions or TF."""
+    camera = HeadCamera.__new__(HeadCamera)
+    clock = FakeClock(now)
+    camera.node = SimpleNamespace(get_clock=lambda: clock)
+    return camera
+
+
+class PauseTests(unittest.TestCase):
+    def test_advancing_clock(self):
+        camera = bare_camera(time.monotonic)
+        self.assertTrue(camera.pause(0.1, threading.Event()))
+
+    def test_stopped_clock_is_reported(self):
+        camera = bare_camera(lambda: 5.0)
+        with patch.object(show_objects, "CLOCK_STALL_TIMEOUT", 0.2):
+            started = time.monotonic()
+            self.assertFalse(camera.pause(1.5, threading.Event()))
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_cancel(self):
+        camera = bare_camera(lambda: 5.0)
+        cancelled = threading.Event()
+        cancelled.set()
+        with self.assertRaises(Cancelled):
+            camera.pause(1.5, cancelled)
+
+
+@unittest.skipUnless(importlib.util.find_spec("sensor_msgs"), "needs ROS messages")
+class SubscriptionTests(unittest.TestCase):
+    def test_open_and_close(self):
+        created, destroyed = [], []
+        node = SimpleNamespace(
+            create_subscription=lambda kind, topic, callback, qos: created.append(topic)
+            or topic,
+            destroy_subscription=destroyed.append,
+        )
+        camera = HeadCamera.__new__(HeadCamera)
+        camera.node, camera.lock, camera.subscriptions = node, threading.Lock(), []
+        camera.image = camera.info = "old"
+        camera.open()
+        camera.open()  # once only
+        self.assertEqual(created, [show_objects.IMAGE_TOPIC, show_objects.INFO_TOPIC])
+        self.assertIsNone(camera.image)
+        camera._on_image("image")
+        camera.close()
+        self.assertEqual(destroyed, created)
+        self.assertEqual((camera.subscriptions, camera.image), ([], None))
 
 
 class ParamsTests(unittest.TestCase):

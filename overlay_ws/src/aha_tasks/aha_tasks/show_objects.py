@@ -18,8 +18,8 @@ by an optional "yaw" (rad about z of `frame`); without it the frame holds
 the object at any yaw (aha_tasks.object_view.box_corners). A key that is missing or null is
 skipped. A record without a position (a mock that is only a label) is only
 spoken. An object that cannot be pictured (no camera image, no TF, out of the
-view after turning the head) is spoken instead, and the skill then fails so
-that the operator sees it.
+view after turning the head, the wait clock stopped while the head turned) is
+spoken instead, and the skill then fails so that the operator sees it.
 """
 
 import math
@@ -119,24 +119,49 @@ def parse_record(key, value):
 
 
 class HeadCamera:
-    """Latest head colour image, camera info and TF, for the skills of one runner."""
+    """Head colour images, camera info and TF, for the skills of one runner.
+
+    The images are subscribed only between open() and close(), while a skill
+    shows objects: the runner's single executor would otherwise take in every
+    image (640x480 rgb8, about 0.9 MB at 15-30 Hz) for the rest of the task.
+    The TF listener stays.
+    """
 
     def __init__(self, node):
-        from rclpy.qos import qos_profile_sensor_data
-        from sensor_msgs.msg import CameraInfo, Image
         from tf2_ros import Buffer, TransformListener
 
         self.node = node
         self.lock = threading.Lock()
         self.image, self.info = None, None
-        node.create_subscription(
-            Image, IMAGE_TOPIC, self._on_image, qos_profile_sensor_data
-        )
-        node.create_subscription(
-            CameraInfo, INFO_TOPIC, self._on_info, qos_profile_sensor_data
-        )
+        self.subscriptions = []
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, node)
+
+    def open(self):
+        """Subscribe to the colour image and its camera info."""
+        from rclpy.qos import qos_profile_sensor_data
+        from sensor_msgs.msg import CameraInfo, Image
+
+        if self.subscriptions:
+            return
+        with self.lock:
+            self.image, self.info = None, None
+        self.subscriptions = [
+            self.node.create_subscription(
+                Image, IMAGE_TOPIC, self._on_image, qos_profile_sensor_data
+            ),
+            self.node.create_subscription(
+                CameraInfo, INFO_TOPIC, self._on_info, qos_profile_sensor_data
+            ),
+        ]
+
+    def close(self):
+        """Stop the subscriptions of open() and drop the last image."""
+        for subscription in self.subscriptions:
+            self.node.destroy_subscription(subscription)
+        self.subscriptions = []
+        with self.lock:
+            self.image, self.info = None, None
 
     @classmethod
     def of(cls, runtime):
@@ -164,12 +189,21 @@ class HeadCamera:
         return clock.now().nanoseconds * 1e-9
 
     def pause(self, seconds, cancelled):
-        """Wait on the wait clock; gives up after CLOCK_STALL_TIMEOUT more wall seconds."""
-        end = self.wait_clock() + seconds
-        wall_end = time.monotonic() + seconds + CLOCK_STALL_TIMEOUT
-        while self.wait_clock() < end and time.monotonic() < wall_end:
+        """Wait `seconds` on the wait clock: True, or False once the wait clock
+        has not advanced for CLOCK_STALL_TIMEOUT wall seconds (no /clock)."""
+        start = last = self.wait_clock()
+        progress = time.monotonic()
+        while True:
             if cancelled.is_set():
                 raise Cancelled
+            now = self.wait_clock()
+            if now >= start + seconds:
+                return True
+            wall = time.monotonic()
+            if now > last:
+                last, progress = now, wall
+            elif wall - progress >= CLOCK_STALL_TIMEOUT:
+                return False
             time.sleep(0.05)
 
     def frame(self, after, timeout, cancelled):
@@ -251,6 +285,10 @@ class ShowObjects(Skill):
         if not items and not failed:
             return SkillResult(True, "No perceived objects to show")
         displayed = False  # a framed image is on the screen
+        camera = None
+        if any(place is not None for _, _, place in items):
+            camera = self.camera_class.of(self.runtime)
+            camera.open()
         try:
             for key, label, place in items:
                 trash = "trash" in key.split(".")
@@ -283,6 +321,8 @@ class ShowObjects(Skill):
         finally:
             if displayed:
                 interaction.hide()
+            if camera is not None:
+                camera.close()
         parts = [f"shown: {', '.join(shown)}"] if shown else []
         if spoken:
             parts.append(f"spoken only: {', '.join(spoken)}")
@@ -312,7 +352,10 @@ class ShowObjects(Skill):
         if gaze is not None:
             x, y, z = position
             gaze.look_at(frame, SimpleNamespace(x=x, y=y, z=z))
-            camera.pause(SETTLE, cancelled)
+            if not camera.pause(SETTLE, cancelled):
+                return None, (
+                    f"wait clock stopped ({CLOCK_STALL_TIMEOUT:.0f} s without /clock)"
+                )
         found = camera.frame(camera.stamp_now(), IMAGE_TIMEOUT, cancelled)
         if found is None:
             return None, f"no image on {IMAGE_TOPIC} within {IMAGE_TIMEOUT:.0f} s"
