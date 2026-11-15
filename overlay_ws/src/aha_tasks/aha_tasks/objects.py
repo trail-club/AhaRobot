@@ -60,6 +60,7 @@ HISTORY = 2000  # detection messages kept
 PLACE_HEIGHTS = (0.2, 1.0)
 PREFERRED_HEIGHT = 0.6
 SHELF_MARGIN = 0.1  # m beyond the shelf's configured outline
+EXCLUDE_MARGIN = 0.05  # m beyond the outline of excluded furniture (exclude)
 SIDES = ("left", "right")  # seen from the open side of the shelf
 ROLE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 MATCHER_KEYS = ("labels", "category", "category_key")
@@ -747,8 +748,12 @@ class Objects:
 
     # -- the common scan -------------------------------------------------------
 
-    def scan(self, surface, margin, cancelled, log):
+    def scan(self, surface, margin, cancelled, log, exclude=()):
         """(frame, region, percepts on it as (percept, level), percepts seen).
+
+        Objects inside the footprint of a furniture in `exclude` (grown by
+        EXCLUDE_MARGIN), at any height, are not on the region: objects put in
+        the trash bin are not floor trash.
 
         Waits for the first detections to learn their frame, then looks at each
         look point for look_settle + dwell, and until a detection of an image
@@ -811,7 +816,16 @@ class Objects:
         # Seen at least twice, unless the detector is slower than 2 per head pose.
         least = 2 if len(messages) >= 2 * len(points) else 1
         percepts = [p for p in percepts if p.count >= least]
-        return frame, region, on_region(percepts, region), percepts
+        excluded = [self.region(name, frame, EXCLUDE_MARGIN) for name in exclude]
+        candidates = [
+            p for p in percepts if not any(r.inside(*p.position[:2]) for r in excluded)
+        ]
+        if len(candidates) < len(percepts):
+            log(
+                f"Ignored {len(percepts) - len(candidates)} object(s) in "
+                f"{', '.join(exclude)}"
+            )
+        return frame, region, on_region(candidates, region), percepts
 
 
 def check_name(params, key):
@@ -846,12 +860,18 @@ class _SurfaceSkill(Skill):
                     f"{subgoal.id}: surface {surface} is not in the furniture config "
                     f"({objects.furniture.names})"
                 )
+            for name in subgoal.params.get("exclude", []):
+                if objects.furniture.get(name) is None:
+                    raise ValueError(
+                        f"{subgoal.id}: exclude {name} is not in the furniture "
+                        f"config ({objects.furniture.names})"
+                    )
 
-    def scan(self, ctx, surface, margin):
+    def scan(self, ctx, surface, margin, exclude=()):
         """Objects.scan, or a failed SkillResult."""
         try:
             return Objects.of(self.runtime).scan(
-                surface, margin, ctx.cancelled, ctx.log
+                surface, margin, ctx.cancelled, ctx.log, exclude
             )
         except Cancelled:
             return SkillResult(False, "Cancelled")
@@ -867,7 +887,10 @@ class PerceiveObjects(_SurfaceSkill):
     "trash": {"category_key": "ppc.trash_category"}, "other1": {}, ...}}.
     `surface` is a furniture name or "floor" (within `margin` m of the robot);
     for furniture, objects may be up to `margin` m outside its configured
-    outline (the referee may move the dining table by 0.5 m). A matcher gives
+    outline (the referee may move the dining table by 0.5 m). Objects within
+    the footprints of the furniture in `exclude` (e.g. ["trash_box"] for the
+    floor trash, which would otherwise take what was put in the bin) are left
+    out. A matcher gives
     labels, a category, or a memory key holding the category; {} takes any
     other known object (assign_roles). Succeeds when at least one role was
     found; missing roles get no key.
@@ -875,10 +898,15 @@ class PerceiveObjects(_SurfaceSkill):
 
     @classmethod
     def validate(cls, params, spec):
-        check_keys(params, {"surface", "output", "roles", "margin"})
+        check_keys(params, {"surface", "output", "roles", "margin", "exclude"})
         check_name(params, "surface")
         check_name(params, "output")
         check_margin(params)
+        exclude = params["exclude"]
+        if not isinstance(exclude, list) or not all(
+            isinstance(name, str) and name.strip() and name != FLOOR for name in exclude
+        ):
+            raise ValueError(f"exclude must be furniture names: {exclude!r}")
         roles = params["roles"]
         if not isinstance(roles, dict) or not roles:
             raise ValueError(f"roles must be a nonempty object: {roles!r}")
@@ -888,7 +916,9 @@ class PerceiveObjects(_SurfaceSkill):
     def execute(self, ctx):
         params = ctx.params
         output = params["output"]
-        scanned = self.scan(ctx, params["surface"], float(params["margin"]))
+        scanned = self.scan(
+            ctx, params["surface"], float(params["margin"]), params["exclude"]
+        )
         if isinstance(scanned, SkillResult):
             return scanned
         frame, region, placed, seen = scanned

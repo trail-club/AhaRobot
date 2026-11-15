@@ -450,6 +450,7 @@ class SkillTests(unittest.TestCase):
         "surface": "dining_table",
         "output": "table",
         "margin": 0.5,
+        "exclude": [],
         "roles": TABLE_ROLES,
     }
 
@@ -572,19 +573,44 @@ class SkillTests(unittest.TestCase):
             detection("cookies", (4.1, -3.4, 0.075), 1, (0.06, 0.1, 0.15)),
             detection("pringles", (6.0, -3.4, 0.115), 2, (0.075, 0.075, 0.23)),
         ]
-        params = {
-            "surface": "floor",
-            "output": "trash",
-            "margin": 1.5,
-            "roles": {"floor": {"category_key": "ppc.trash_category"}},
-        }
         objects = FakeObjects(scene, robot=(3.65, -3.1, -0.44))
         result, _ = run(
-            PerceiveObjects, objects, params, {"ppc.trash_category": "snacks"}
+            PerceiveObjects,
+            objects,
+            self.FLOOR_PARAMS,
+            {"ppc.trash_category": "snacks"},
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["trash.floor"]["label"], "cookies")
         self.assertTrue(all(z == 0.0 for _, (_, _, z) in objects.looked[:3]))
+
+    FLOOR_PARAMS = {
+        "surface": "floor",
+        "output": "trash",
+        "margin": 1.5,
+        "exclude": ["trash_box"],
+        "roles": {"floor": {"category_key": "ppc.trash_category"}},
+    }
+
+    def test_trash_in_the_bin_is_not_floor_trash(self):
+        # The table's trash, put in the bin (4.5, -3.5) just before, is nearer
+        # the robot than the floor trash and lies near the floor.
+        scene = [
+            detection("pringles", (4.5, -3.45, 0.12), 1, (0.075, 0.075, 0.23)),
+            detection("cookies", (4.9, -3.0, 0.075), 2, (0.06, 0.1, 0.15)),
+        ]
+        memory = {"ppc.trash_category": "snacks"}
+        robot = (3.65, -3.1, -0.44)
+        result, logs = run(
+            PerceiveObjects, FakeObjects(scene, robot), self.FLOOR_PARAMS, memory
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["trash.floor"]["label"], "cookies")
+        self.assertTrue(any("in trash_box" in line for line in logs))
+        # Without the exclusion the binned object would be taken.
+        params = dict(self.FLOOR_PARAMS, exclude=[])
+        result, _ = run(PerceiveObjects, FakeObjects(scene, robot), params, memory)
+        self.assertEqual(result.outputs["trash.floor"]["label"], "pringles")
 
     def test_cancel_ends_the_scan(self):
         objects = FakeObjects(table_scene())
@@ -661,6 +687,10 @@ class ValidationTests(unittest.TestCase):
             dict(good, roles={"cup": {"colour": "red"}}),
             dict(good, roles={"a b": {}}),
             dict(good, surface=""),
+            {k: v for k, v in good.items() if k != "exclude"},
+            dict(good, exclude="trash_box"),
+            dict(good, exclude=[""]),
+            dict(good, exclude=["floor"]),
         ]
         for params in bad:
             with self.subTest(params=params), self.assertRaises(ValueError):
@@ -686,6 +716,11 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             skill.ready()
         subgoal.params["surface"] = "floor"
+        skill.ready()
+        subgoal.params["exclude"] = ["dustbin"]
+        with self.assertRaises(ValueError):
+            skill.ready()
+        subgoal.params["exclude"] = ["trash_box"]
         skill.ready()
 
 

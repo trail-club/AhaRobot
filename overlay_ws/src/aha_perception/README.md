@@ -330,7 +330,7 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
   "{object_size: {x: 0.06, y: 0.06, z: 0.12}, furniture: shelf, furniture_level: 3, clearance: 0.05}"
 ```
 
-シミュレーションのworldの家具は [config/furniture/rcjo2026_arena.yaml](config/furniture/rcjo2026_arena.yaml)（frame `world`、形状はworldのSDFから）。
+シミュレーションのworldの家具は [config/furniture/rcjo2026_arena.yaml](config/furniture/rcjo2026_arena.yaml)（frame `world`、形状はworldのSDFから）。ゴミ箱（`trash_box`）の段はふたの上面（0.75 m）で、外形は入れた物体を除くのにも使う（[aha_tasksの物体の認識](../aha_tasks/README.md#物体の認識)）。
 `world` のTFは `sim.launch.py world_tf:=true` が出す。
 
 ```bash

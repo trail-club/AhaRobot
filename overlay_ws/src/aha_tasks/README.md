@@ -414,11 +414,13 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 
 | スキル | params | 動作 |
 | --- | --- | --- |
-| `perceive_objects` | `surface`、`output`、`roles`、`margin` | `surface` の上の物体を、`roles` の順に役割へ割り当てる。1つ以上の役割が見つかれば成功し、見つからない役割は結果のメッセージに出す。終了後は台の手前を見る |
+| `perceive_objects` | `surface`、`output`、`roles`、`margin`、`exclude` | `surface` の上の物体を、`roles` の順に役割へ割り当てる。1つ以上の役割が見つかれば成功し、見つからない役割は結果のメッセージに出す。終了後は台の手前を見る |
 | `perceive_shelf` | `surface`、`objects`、`output` | 棚の各段の物体を左右の群に分け、群のカテゴリと、`objects`（記憶のキー）の物体の置き場所を出す |
 
 - `surface` は家具の設定（[aha_perceptionの家具の設定](../aha_perception/README.md#家具の設定)）の家具の名前か `floor`。
   家具の外形を `margin` m広げた範囲（食卓は審判が50 cmまで動かすため0.5 m）、`floor` はロボットから `margin` m以内を探す。
+- `exclude` の家具（家具の設定の名前）の外形を0.05 m広げた範囲の物体は、高さによらず候補にしない。
+  `trash.floor.perceive` は `["trash_box"]` で、直前にゴミ箱へ入れた食卓のゴミ（床の近くにあり、ゴミのカテゴリ）を床のゴミとして選ばない。
 - 物体はその中心が段の高さ − 0.02 m以上で、底（中心 − 箱の高さの半分）が段の高さ + 0.15 m以下なら、その段にある（皿の上の物体、横に倒れた物体も含む）。
   条件を満たす段が複数あれば、最も高い段とする。
 - 頭は、1段の台では上面の中心（長さ1.3 mを超える辺は両端から0.3 m内側の点も）、棚では各段の0.1 m上、床ではロボットの前方0.8 mの正面・左右0.5 radを、近い順に見る。
