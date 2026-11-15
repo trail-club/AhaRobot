@@ -243,7 +243,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 `detect_doorbell` は、開始してから届いた最初の `/aha/perception/audio/doorbell`（`aha_msgs/SoundEvent`）で成功し、
 `doorbell.heard` に `doorbell` か `knock` を出力する。開始前の検出は使わない。
 `timeout`（既定120 s、実時間）で失敗する。
-検出器が検出できる状態でなければ（publisherがない。モデルの読み込みと音声入力の開始を終えるまで作らない）すぐに失敗する。待っている間に検出器が止まったときも、そこで失敗する。
+検出器が検出できる状態でなければ（publisherがない。モデルの読み込みと音声入力の開始を終えるまで作らず、`doorbell_input:=topic` では音声が2 s 届かないと消す）すぐに失敗する。待っている間に検出器が止まったときも、そこで失敗する。
 
 検出器は音声コンテナで起動する（[ドアベル検出](../aha_perception/docs/audio.md#ドアベル検出)）。
 シミュレーションでは `guests:=true` の `sim_sounds` が `/aha/sim/audio` にマイク音を出すので、検出器を `doorbell_input:=topic` で起動する。`perception:=truth`（`e2e:=debug` の既定）では `sim_sounds` が検出の代わりも出すので、検出器は起動しない。

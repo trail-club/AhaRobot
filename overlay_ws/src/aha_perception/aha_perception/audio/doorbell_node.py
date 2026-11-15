@@ -1,7 +1,8 @@
 """aha_audio_doorbell: microphone -> BEATs-SED (GPU) -> doorbell / knock events.
 
 Topics
-  /aha/perception/audio/doorbell    aha_msgs/SoundEvent           start of each detection
+  /aha/perception/audio/doorbell    aha_msgs/SoundEvent           start of each detection;
+                                    the publisher exists only while the node listens
   /aha/perception/audio/models      std_msgs/String (JSON)        loaded model (latched)
   /aha/perception/audio/tts_active  std_msgs/Bool (sub)           ignore the audio while True
   /aha/sim/audio                    std_msgs/Float32MultiArray (sub, input: topic)
@@ -33,12 +34,16 @@ FRAME = int(HOP * SAMPLE_RATE)
 
 
 class TopicStream:
-    """MicStream's interface over the simulated audio topic. A silent topic only
-    warns: the simulation may start after this node."""
+    """MicStream's interface over the simulated audio topic. The simulation may
+    start after this node and restart while it runs, so a silent topic does not
+    end the node: `on_flow(True)` when the audio starts, `on_flow(False)` when none
+    has come for STALL_S."""
 
-    def __init__(self, node):
+    def __init__(self, node, on_flow):
         self._q: queue.Queue[tuple[np.ndarray, float]] = queue.Queue(maxsize=200)
         self._last = time.monotonic()
+        self._flowing = False
+        self._on_flow = on_flow
         self._log = node.get_logger()
         node.create_subscription(Float32MultiArray, TOPIC_SIM_AUDIO, self._on_audio, 50)
 
@@ -60,12 +65,17 @@ class TopicStream:
             try:
                 block, t = self._q.get(timeout=0.2)
             except queue.Empty:
-                if time.monotonic() - self._last > STALL_S:
-                    self._log.warn(
-                        f"no audio on {TOPIC_SIM_AUDIO}", throttle_duration_sec=10.0
-                    )
+                if self._flowing and time.monotonic() - self._last > STALL_S:
+                    self._flowing = False
+                    pending = np.zeros(0, np.float32)
+                    self._log.warn(f"no audio on {TOPIC_SIM_AUDIO}; not listening")
+                    self._on_flow(False)
                 continue
             self._last = time.monotonic()
+            if not self._flowing:
+                self._flowing = True
+                self._log.info(f"audio on {TOPIC_SIM_AUDIO}; listening")
+                self._on_flow(True)
             pending = np.concatenate([pending, block])
             while len(pending) >= FRAME:
                 out, pending = pending[:FRAME], pending[FRAME:]
@@ -80,7 +90,10 @@ class DoorbellNode(AudioModelNode):
         self.declare_parameter("capture_rate", SAMPLE_RATE)
         self.declare_parameter("mute_tail_ms", 300)
         self.entry = self.registry.entry("doorbell", MODEL)
-        self.pub_event = None  # created in start(), once the node can detect
+        # detect_doorbell takes the publisher as the sign that the node listens:
+        # it exists only once the model is loaded and while audio comes in.
+        self.pub_event = None
+        self._pub_lock = threading.Lock()
         self.create_subscription(Bool, TOPIC_TTS_ACTIVE, self._on_tts_active, 10)
         self._tts_active = False
         self._muted_until = 0.0
@@ -105,12 +118,12 @@ class DoorbellNode(AudioModelNode):
                 FRAME,
             )
         elif source == "topic":
-            self.stream = TopicStream(self)
+            self.stream = TopicStream(self, self._listen)
         else:
             raise ValueError(f"input must be mic or topic, not {source!r}")
         self.stream.start()
-        # detect_doorbell takes a publisher as the sign that the detector listens.
-        self.pub_event = self.create_publisher(SoundEvent, TOPIC_DOORBELL, 10)
+        if source == "mic":
+            self._listen(True)  # a stalled microphone ends the node instead
         for name, loop in (
             ("capture", self._capture_loop),
             ("score", self._score_loop),
@@ -121,6 +134,19 @@ class DoorbellNode(AudioModelNode):
         self.get_logger().info(
             f"ready: {self.engine.tag} on {source}, window {spec['window']} s"
         )
+
+    def _listen(self, on: bool) -> None:
+        """Create or remove the event publisher; old audio leaves the window."""
+        with self._pub_lock:
+            if on and self.pub_event is None:
+                self.pub_event = self.create_publisher(SoundEvent, TOPIC_DOORBELL, 10)
+            elif not on and self.pub_event is not None:
+                self.destroy_publisher(self.pub_event)
+                self.pub_event = None
+        with self._fresh:
+            self.window.clear()
+            self._latest = -1.0  # the score loop resets the rules
+            self._fresh.notify_all()
 
     # ---------------------------------------------------------------- audio
     def _on_tts_active(self, msg: Bool) -> None:
@@ -176,7 +202,10 @@ class DoorbellNode(AudioModelNode):
         )
         msg.header.stamp = Time(seconds=t).to_msg()
         msg.header.frame_id = "microphone"
-        self.pub_event.publish(msg)
+        with self._pub_lock:
+            if self.pub_event is None:  # the audio stopped meanwhile
+                return
+            self.pub_event.publish(msg)
         self.get_logger().info(
             f"{LABELS[target]} (score {score:.3f} >= {threshold:.3f})"
         )

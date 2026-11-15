@@ -80,7 +80,8 @@ class DetectDoorbell(Skill):
         if bell.detectors() == 0:
             return SkillResult(
                 False,
-                f"No publisher on {DOORBELL_TOPIC}; is aha_audio_doorbell running?",
+                f"No publisher on {DOORBELL_TOPIC}; is aha_audio_doorbell running"
+                " and hearing audio?",
             )
         timeout = positive(ctx.params, "timeout", 120.0)
         start = time.monotonic()
@@ -90,7 +91,8 @@ class DetectDoorbell(Skill):
         except DetectorLost:
             return SkillResult(
                 False,
-                f"aha_audio_doorbell stopped after {time.monotonic() - start:.1f} s "
+                f"aha_audio_doorbell stopped listening after "
+                f"{time.monotonic() - start:.1f} s "
                 f"(no publisher on {DOORBELL_TOPIC})",
             )
         if event is None:
