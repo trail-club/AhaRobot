@@ -6,10 +6,13 @@
     link_head_tilt
       └── camera_link                    (fixed; D435i body center, x forward, z up at zero head joints)
             └── camera_color_optical_frame  (fixed; RGB optical center, REP-103 optical: z forward, x right, y down)
+    link_l6 / link_r6
+      └── {left,right}_wrist_camera_link           (fixed; wrist D435i body center)
+            └── {left,right}_wrist_camera_optical_frame  (fixed; its RGB optical center)
 
-  Camera frames are always emitted because the real head RealSense (D435i)
-  publishes in camera_color_optical_frame. The Gazebo sensor is emitted only
-  when sim:=true.
+  Camera frames are always emitted because the real robot carries the
+  D435i cameras (the head one publishes in camera_color_optical_frame). The
+  Gazebo sensors are emitted only when sim:=true and cameras:=true.
 
   Gazebo topics (bridged to ROS by aha_perception/launch/perception.launch.py):
     head_camera/{image,depth_image,camera_info}  rgbd_camera, depth aligned to color
@@ -54,20 +57,28 @@
   <xacro:property name="camera_depth_far"          value="10.0"/>
   <xacro:property name="camera_rgb_noise_stddev" value="$(arg camera_rgb_noise_stddev)"/>
 
-  <!-- The Camera component (including its bracket) is already part of both
-       upstream link_[lr]6.STL meshes. Use its CAD placement from
-       Astra_Hardwares/Astra/Astra.STEP instead of adding another camera body.
-       CAD link6 coordinates (X,Y,Z) map to wrist (60-Y, X, 28+Z), in mm.
-       The Camera origin is (0,34,73) mm, and its lens looks 30 degrees down
-       from wrist +z. Wrist +x points DOWN with the arm extended, so this
-       placement is above the grasp center (0.063, 0, 0.195).
-       The lens front is 16 mm along the camera's viewing axis. These are CAD
-       design values; optical calibration on the real robot is not available. -->
-  <xacro:property name="wrist_camera_mount_xyz" value="0.026 0 0.101"/>
-  <xacro:property name="wrist_camera_mount_pitch" value="${-pi/3}"/>
-  <xacro:property name="wrist_camera_lens_offset" value="0.016"/>
+  <!-- Wrist D435i on the wrist part of aha_perception/hardware/wrist_cam_mount_d435i,
+       relative to link_l6 / link_r6 (same for both arms). The part replaces
+       the upstream Effector and camera in link_[lr]6 (meshes/
+       wrist_cam_mount_d435i_link6.stl). Part frame (+Y toward the fingertips,
+       +Z away from the fingers) maps to link_6 as (56 - Z, -X, Y + 75) mm.
+       The camera looks along the fingers tilted 30 deg toward them; its back
+       face lies on the back plate, whose lower edge is at part (Y -4.194,
+       Z 45.8) mm = link_6 (10.2, 0, 70.806) mm.
+       Camera x = (sin t, 0, cos t), z = (-cos t, 0, sin t) in link_6.
+       <side>_wrist_camera_link is the body center (as camera_link) and
+       <side>_wrist_camera_optical_frame the RGB optical center. The D435i
+       body is part of the link_[lr]6 mesh (like the upstream camera), so
+       this link has no geometry. Design values; the real camera is not
+       calibrated. -->
+  <xacro:property name="wrist_camera_tilt" value="${radians(30)}"/>
+  <xacro:property name="wrist_camera_back_edge_x" value="0.0102"/>
+  <xacro:property name="wrist_camera_back_edge_z" value="0.070806"/>
+  <xacro:property name="wrist_camera_mount_xyz"
+                  value="${wrist_camera_back_edge_x + camera_body_x/2*sin(wrist_camera_tilt) - camera_body_z/2*cos(wrist_camera_tilt)} 0 ${wrist_camera_back_edge_z + camera_body_x/2*cos(wrist_camera_tilt) + camera_body_z/2*sin(wrist_camera_tilt)}"/>
+  <xacro:property name="wrist_camera_mount_pitch" value="${wrist_camera_tilt - pi/2}"/>
 
-  <xacro:macro name="aha_wrist_camera" params="side parent">
+  <xacro:macro name="aha_wrist_camera" params="side parent gz_sensor">
     <link name="${side}_wrist_camera_link"/>
     <joint name="${side}_wrist_camera_joint" type="fixed">
       <parent link="${parent}"/>
@@ -78,11 +89,13 @@
     <joint name="${side}_wrist_camera_optical_joint" type="fixed">
       <parent link="${side}_wrist_camera_link"/>
       <child link="${side}_wrist_camera_optical_frame"/>
-      <origin xyz="${wrist_camera_lens_offset} 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+      <origin xyz="${camera_color_xyz}" rpy="${-pi/2} 0 ${-pi/2}"/>
     </joint>
+    <xacro:if value="${gz_sensor}">
     <gazebo reference="${side}_wrist_camera_link">
       <sensor name="${side}_wrist_camera" type="camera">
-        <pose>${wrist_camera_lens_offset} 0 0 0 0 0</pose>
+        <!-- Same offset as the optical joint so the image origin is the optical frame -->
+        <pose>${camera_color_xyz} 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>${camera_rate}</update_rate>
         <visualize>false</visualize>
@@ -90,7 +103,7 @@
         <gz_frame_id>${side}_wrist_camera_optical_frame</gz_frame_id>
         <camera>
           <camera_info_topic>${side}_wrist_camera/camera_info</camera_info_topic>
-          <horizontal_fov>${pi/2}</horizontal_fov>
+          <horizontal_fov>${camera_hfov}</horizontal_fov>
           <image>
             <width>${camera_width}</width>
             <height>${camera_height}</height>
@@ -101,6 +114,7 @@
         </camera>
       </sensor>
     </gazebo>
+    </xacro:if>
   </xacro:macro>
 
   <xacro:macro name="aha_sensors" params="sim cameras:=true">
@@ -160,10 +174,11 @@
           </camera>
         </sensor>
       </gazebo>
-      <xacro:aha_wrist_camera side="left" parent="link_l6"/>
-      <xacro:aha_wrist_camera side="right" parent="link_r6"/>
       </xacro:if>
     </xacro:if>
+
+    <xacro:aha_wrist_camera side="left" parent="link_l6" gz_sensor="${sim and cameras}"/>
+    <xacro:aha_wrist_camera side="right" parent="link_r6" gz_sensor="${sim and cameras}"/>
 
   </xacro:macro>
 

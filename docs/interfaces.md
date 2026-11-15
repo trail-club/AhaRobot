@@ -227,7 +227,7 @@ TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固�
 `robot_state_publisher` が配信する。定義は [sensors.xacro](../overlay_ws/src/aha_description/urdf/sensors.xacro)、
 取付位置は [頭部ブラケット](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md)の設計値。
 
-## 手首カメラ（シミュレーション）
+## 手首カメラ
 
 | Topic | 型 | frame |
 | --- | --- | --- |
@@ -236,12 +236,13 @@ TFは `link_head_tilt` → `camera_link` → `camera_color_optical_frame`（固�
 | `/camera/right_wrist/image_raw` | `sensor_msgs/msg/Image`（rgb8） | `right_wrist_camera_optical_frame` |
 | `/camera/right_wrist/camera_info` | `sensor_msgs/msg/CameraInfo` | 同上 |
 
-両カメラは640×480、15 Hz。画像とCameraInfoは同じ時刻・optical frameを持つ。
-TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link` →
-`{left,right}_wrist_camera_optical_frame`（固定joint）で、robot_state_publisherが配信する。
-既存の手首カメラ部品のCAD配置に合わせ、グリッパ上側のレンズ位置を使う。
-取付位置・光学特性・表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
-実機のURDFには手首カメラはない。
+topicはシミュレーションのみ（実機の手首カメラの配信経路はない）。両カメラは640×480、15 Hz。
+画像とCameraInfoは同じ時刻・optical frameを持つ。
+TFは `link_l6` / `link_r6` → `{left,right}_wrist_camera_link`（D435iの本体中心）→
+`{left,right}_wrist_camera_optical_frame`（RGB光学中心）の固定jointで、実機・シミュレーションとも
+robot_state_publisherが配信する。取付位置は [手首部品](../overlay_ws/src/aha_perception/hardware/wrist_cam_mount_d435i/README.md#ロボットモデルurdfへの反映)の設計値。
+実機への取り付け状況は [カメラの検証記録](context/camera.md)を参照。
+表示手順は [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーション)を参照。
 
 `sim.launch.py use_perception:=true` またはタスク評価の既定設定で
 `camera_bridge.launch.py` が頭部と手首のカメラをbridgeする。
