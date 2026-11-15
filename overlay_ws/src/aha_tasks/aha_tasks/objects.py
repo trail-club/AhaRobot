@@ -650,6 +650,22 @@ class Objects:
         with self.lock:
             return [m for s, _, m in self.history if s > mark]
 
+    def image_time(self):
+        """Seconds of the node clock, the time base of the detections' stamps."""
+        return self.node.get_clock().now().nanoseconds * 1e-9
+
+    def fresh(self, mark, taken):
+        """The messages after `mark` of images taken at or after `taken`: a slow
+        detector (object_perception.py, seconds per image) answers for images
+        from before the head turned."""
+        with self.lock:
+            return [
+                m
+                for s, _, m in self.history
+                if s > mark
+                and m.header.stamp.sec + m.header.stamp.nanosec * 1e-9 >= taken
+            ]
+
     def now(self):
         """Simulation seconds when active; otherwise monotonic wall seconds."""
         clock = self.node.get_clock()
@@ -748,15 +764,17 @@ class Objects:
         else:
             points = region.look_points(self.robot_pose(frame)[:2])
         mark = self.mark()
+        fresh = 0  # messages of images taken while the head looked at a point
         for point in points:
             self.look_at(frame, point)
             if not self.pause(self.look_settle, cancelled):
                 raise RuntimeError("The wait clock stopped")
-            before = self.mark()
+            before, settled = self.mark(), self.image_time()
             if not self.pause(
-                self.dwell, cancelled, until=lambda: self.mark() > before
+                self.dwell, cancelled, until=lambda: bool(self.fresh(before, settled))
             ):
                 raise RuntimeError("The wait clock stopped")
+            fresh += len(self.fresh(before, settled))
         messages = self.since(mark)
         if not messages:
             raise RuntimeError(f"No {OBJECTS_TOPIC} while looking at {surface}")
@@ -766,7 +784,7 @@ class Objects:
         messages = [m for m in messages if m.header.frame_id == frame]
         percepts = cluster([observations_of(m) for m in messages], self.category)
         # Seen at least twice, unless the detector is slower than 2 per head pose.
-        least = 2 if len(messages) >= 2 * len(points) else 1
+        least = 2 if fresh >= 2 * len(points) else 1
         percepts = [p for p in percepts if p.count >= least]
         return frame, region, on_region(percepts, region), percepts
 

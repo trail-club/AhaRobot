@@ -371,8 +371,13 @@ def detection(label, xyz, track, size=(0.1, 0.1, 0.1), yaw=None):
     )
 
 
+def stamp(seconds):
+    return SimpleNamespace(sec=int(seconds), nanosec=int(seconds % 1 * 1e9))
+
+
 class FakeObjects(Objects):
-    """Objects without ROS: every mark() delivers the scene's detections."""
+    """Objects without ROS: every mark() delivers the scene's detections, of an
+    image taken at that time (the fake image clock counts the marks)."""
 
     look_settle = 0.0
     dwell = 0.01
@@ -387,13 +392,23 @@ class FakeObjects(Objects):
         self.sequence = 0
         self.scene, self.robot, self.frame = scene, robot, frame
         self.looked = []
+        self.clock = 0.0
+
+    def image_time(self):
+        return self.clock
+
+    def deliver(self, objects, taken):
+        self._on_objects(
+            SimpleNamespace(
+                header=SimpleNamespace(frame_id=self.frame, stamp=stamp(taken)),
+                objects=list(objects),
+            )
+        )
 
     def mark(self):
+        self.clock += 1.0
         if self.scene is not None:
-            message = SimpleNamespace(
-                header=SimpleNamespace(frame_id=self.frame), objects=list(self.scene)
-            )
-            self._on_objects(message)
+            self.deliver(self.scene, self.clock)
         return super().mark()
 
     def transform(self, target, source):
