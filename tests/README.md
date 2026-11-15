@@ -13,6 +13,7 @@
 | --- | --- |
 | [aha_test_msgs](ros/aha_test_msgs/) | 置く動作のaction `PlaceObject` |
 | [aha_test_description](ros/aha_test_description/) | 試験用のロボットのxacro（把持物体の固定、MoveItの昇降の下限より上から始める初期位置0.01 m。`sim.launch.py` の `initial_lift` は使わない）と、本番の `controllers.yaml` に昇降のcontrollerの差分を重ねてビルド時に作る設定 |
+| [aha_test_frame](ros/aha_test_frame/README.md) | 台車と昇降のない骨組みに載せた実機のモデル・起動・カメラと腕の校正 |
 | [aha_test_manipulation](ros/aha_test_manipulation/README.md) | 両腕のMoveIt設定、perceptionの置き場所の候補へ持っている物体を置くaction server、シミュレーションの把持 |
 | [aha_test_orchestration](ros/aha_test_orchestration/README.md) | ローカルLLMで置く段と場所を決めて置く処理、台車の仮の移動（odomのみ、障害物の確認なし） |
 | [aha_test_ui](ros/aha_test_ui/README.md) | 状態・LLMとの会話・イベントを表示するモニタ |
@@ -30,7 +31,7 @@ cd /app/overlay_ws
 colcon build --symlink-install --base-paths src ../tests/ros
 source install/setup.bash
 colcon test --base-paths src ../tests/ros \
-  --packages-select aha_test_description aha_test_manipulation aha_test_orchestration aha_test_ui
+  --packages-select aha_test_description aha_test_frame aha_test_manipulation aha_test_orchestration aha_test_ui
 ```
 
 ## 置く動作の試験環境の起動

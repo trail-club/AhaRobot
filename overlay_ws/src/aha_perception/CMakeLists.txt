@@ -46,6 +46,7 @@ install(
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_sim_control_panel test/test_sim_control_panel.py TIMEOUT 60)
+  ament_add_pytest_test(test_head_look_at test/test_head_look_at.py TIMEOUT 60)
   foreach(test_name classify detectors merge normals preprocess regression)
     ament_add_pytest_test(test_planes_${test_name} test/test_planes_${test_name}.py TIMEOUT 120)
   endforeach()

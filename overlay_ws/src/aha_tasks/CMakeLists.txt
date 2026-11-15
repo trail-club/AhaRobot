@@ -8,6 +8,8 @@ install(PROGRAMS scripts/task_runner scripts/task_monitor scripts/sim_guests DES
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_people_skills test/test_people_skills.py TIMEOUT 60)
+  ament_add_pytest_test(test_gaze test/test_gaze.py TIMEOUT 60)
+  ament_add_pytest_test(test_gestures test/test_gestures.py TIMEOUT 60)
   ament_add_pytest_test(test_guests test/test_guests.py TIMEOUT 60)
   ament_add_pytest_test(test_gpsr_plan test/test_gpsr_plan.py TIMEOUT 60)
   ament_add_pytest_test(test_task_definitions test/test_task_definitions.py TIMEOUT 60)
