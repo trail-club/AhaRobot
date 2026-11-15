@@ -80,7 +80,7 @@ class DoorbellNode(AudioModelNode):
         self.declare_parameter("capture_rate", SAMPLE_RATE)
         self.declare_parameter("mute_tail_ms", 300)
         self.entry = self.registry.entry("doorbell", MODEL)
-        self.pub_event = self.create_publisher(SoundEvent, TOPIC_DOORBELL, 10)
+        self.pub_event = None  # created in start(), once the node can detect
         self.create_subscription(Bool, TOPIC_TTS_ACTIVE, self._on_tts_active, 10)
         self._tts_active = False
         self._muted_until = 0.0
@@ -108,6 +108,9 @@ class DoorbellNode(AudioModelNode):
             self.stream = TopicStream(self)
         else:
             raise ValueError(f"input must be mic or topic, not {source!r}")
+        self.stream.start()
+        # detect_doorbell takes a publisher as the sign that the detector listens.
+        self.pub_event = self.create_publisher(SoundEvent, TOPIC_DOORBELL, 10)
         for name, loop in (
             ("capture", self._capture_loop),
             ("score", self._score_loop),
@@ -115,7 +118,6 @@ class DoorbellNode(AudioModelNode):
             threading.Thread(
                 target=self.watched, args=(loop,), name=name, daemon=True
             ).start()
-        self.stream.start()
         self.get_logger().info(
             f"ready: {self.engine.tag} on {source}, window {spec['window']} s"
         )
