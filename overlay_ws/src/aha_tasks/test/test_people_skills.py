@@ -52,13 +52,17 @@ class FakeClient:
         self.srv_name = name
         self.answer = answer
         self.requests = []
+        self.delay = lambda request: 0.0  # s until the reply
 
     def wait_for_service(self, timeout_sec):
         return True
 
     def call_async(self, request):
         self.requests.append(request)
-        future = SimpleNamespace(done=lambda: True, cancel=lambda: None)
+        ready = time.monotonic() + self.delay(request)
+        future = SimpleNamespace(
+            done=lambda: time.monotonic() >= ready, cancel=lambda: None
+        )
         future.result = lambda: self.answer(request)
         return future
 
@@ -660,9 +664,9 @@ class FailureTests(unittest.TestCase):
         timeouts = []
         call = people.call
 
-        def spy(client, request, timeout, cancelled):
+        def spy(client, request, timeout, cancelled, deadline):
             timeouts.append(timeout)
-            return call(client, request, timeout, cancelled)
+            return call(client, request, timeout, cancelled, deadline)
 
         people.call = spy
         FindDescribedPerson(runtime(people)).execute(
@@ -711,6 +715,45 @@ class FailureTests(unittest.TestCase):
         self.assertFalse(result.success)
         # One person per check of the deadline: not all five (1.5 s).
         self.assertLess(time.monotonic() - started, 1.2)
+
+    def test_a_vlm_that_does_not_answer_is_cut_at_the_timeout(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])}
+            },
+        )
+        people.classify.delay = lambda request: 0.0 if request.skip_vlm else 60.0
+        started = time.monotonic()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        self.assertIn("within", result.message)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(classified(people), [(1, True), (1, False)])
+
+        people.classify.requests.clear()
+        started = time.monotonic()
+        result = CountPeople(runtime(people)).execute(
+            context({"output": "n", "gesture": "waving persons", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        self.assertIn("did not finish", result.message)
+        self.assertLess(time.monotonic() - started, 1.5)
+
+    def test_the_look_at_a_person_is_cut_at_the_timeout(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={1: {"rules": ("standing", "none")}},
+        )
+        people.look_settle = 10.0
+        started = time.monotonic()
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        self.assertLess(time.monotonic() - started, 1.5)
 
     def test_a_name_given_after_the_track_started_is_still_found(self):
         people = FakePeople(people_message(person(5, 1.0, 0.0)))

@@ -173,16 +173,17 @@ class People:
             return None, f"No {PEOPLE_TOPIC}; is person_perception running?"
         return None, f"Not found within {timeout:.0f} s"
 
-    def call(self, client, request, timeout, cancelled):
+    def call(self, client, request, timeout, cancelled, deadline=math.inf):
+        """The reply; TimeoutError after `timeout` wall seconds or at `deadline` (now())."""
         if not client.wait_for_service(timeout_sec=5.0):
             raise RuntimeError(f"{client.srv_name} is not available")
         future = client.call_async(request)
-        deadline = time.monotonic() + timeout
+        wall_deadline = time.monotonic() + timeout
         while not future.done():
             if cancelled.is_set():
                 future.cancel()
                 raise Cancelled("Cancelled")
-            if time.monotonic() > deadline:
+            if time.monotonic() > wall_deadline or self.now() >= deadline:
                 future.cancel()
                 raise TimeoutError(f"{client.srv_name} did not answer")
             time.sleep(0.05)
@@ -212,14 +213,16 @@ class People:
                 return
             time.sleep(0.05)
 
-    def attributes(self, person, description, cancelled, vlm_timeout, frame=None):
+    def attributes(
+        self, person, description, cancelled, vlm_timeout, frame=None, deadline=math.inf
+    ):
         """ClassifyPerson answers for the person, or None if they could not be judged.
 
         The head first turns to the person (when `frame` is given). Depth and
         keypoints answer at once; the VLM is asked only when the description
         still cannot be decided (clothing, unclear posture or gesture). None
-        when the track is gone or the service failed or timed out; Cancelled
-        is raised when the skill is aborted.
+        when the track is gone, the service failed or timed out, or `deadline`
+        (now()) passed meanwhile; Cancelled is raised when the skill is aborted.
         """
         if frame is not None and self.look_settle > 0:
             # The head point is the top of the mask, which is too low while the
@@ -227,7 +230,9 @@ class People:
             target = person.head
             for share in (0.5, 0.5):
                 self.look_at(frame, target)
-                self.pause(share * self.look_settle, cancelled)
+                self.pause(
+                    min(share * self.look_settle, deadline - self.now()), cancelled
+                )
                 message = self.latest()
                 same = [
                     p
@@ -246,6 +251,7 @@ class People:
                     # its own vlm_timeout; give it time to answer first.
                     SKIP_VLM_TIMEOUT if skip_vlm else vlm_timeout + SERVER_MARGIN,
                     cancelled,
+                    deadline,
                 )
             except Cancelled:
                 raise
@@ -583,6 +589,8 @@ class FindDescribedPerson(Skill):
         dwell = positive(params, "dwell", 6.0)
         height = positive(params, "look_height", 1.0)
         vlm_timeout = positive(params, "describe_timeout", 180.0)
+        timeout = positive(params, "timeout", 60.0)
+        deadline = people.now() + timeout
         checked = {}
         checked_at = []  # map positions of people already judged
         next_look = -math.inf
@@ -635,6 +643,7 @@ class FindDescribedPerson(Skill):
                         ctx.cancelled,
                         vlm_timeout,
                         message.header.frame_id,
+                        deadline,
                     )
                 except Cancelled:
                     return None  # wait_for reports the abort
@@ -646,9 +655,7 @@ class FindDescribedPerson(Skill):
                 return message, person, answers
             return None
 
-        found, reason = people.wait_for(
-            choose, positive(params, "timeout", 60.0), ctx.cancelled
-        )
+        found, reason = people.wait_for(choose, timeout, ctx.cancelled)
         if found is None:
             people.look_towards(0.0)
             if ctx.cancelled.is_set():
@@ -690,11 +697,12 @@ class CountPeople(Skill):
 
     params: {"output": "<memory key>", "description" | "gesture" | "pose" |
     "clothing": "<phrase>" (optional: everyone), "location": "<area centre>",
-    "radius": 3.0, "pans": [0.0, 0.4, -0.4], "dwell": 6.0, "look_height": 1.0}.
-    The head stays `dwell` s at each pan, again after turning to judge a
-    person; sightings less than 0.5 m apart in map are one person. Each person
-    is judged once while visible, because tracks are dropped soon after they
-    leave the view; a track lost meanwhile is tried up to MAX_JUDGEMENTS times.
+    "radius": 3.0, "pans": [0.0, 0.4, -0.4], "dwell": 6.0, "look_height": 1.0,
+    "timeout": 300.0}. The head stays `dwell` s at each pan, again after turning
+    to judge a person; sightings less than 0.5 m apart in map are one person.
+    Each person is judged once while visible, because tracks are dropped soon
+    after they leave the view; a track lost meanwhile is tried up to
+    MAX_JUDGEMENTS times.
     People who could not be judged, or whose answers cannot decide the
     description, do not count. Outputs `<output>` (the count) and
     `<output>.positions`.
@@ -717,6 +725,8 @@ class CountPeople(Skill):
         dwell = positive(params, "dwell", 6.0)
         height = positive(params, "look_height", 1.0)
         vlm_timeout = positive(params, "describe_timeout", 180.0)
+        timeout = positive(params, "timeout", 300.0)
+        deadline = people.now() + timeout
         # {"position", "ids", "judgements", "done", "match"}; match None: unknown
         found = []
         step = {"index": -1, "until": -math.inf}  # pan on show, end of its dwell
@@ -766,6 +776,7 @@ class CountPeople(Skill):
                         ctx.cancelled,
                         vlm_timeout,
                         message.header.frame_id,
+                        deadline,
                     )
                 except Cancelled:
                     return None  # wait_for reports the abort
@@ -794,9 +805,7 @@ class CountPeople(Skill):
             step["until"] = people.now() + dwell
             return None
 
-        result, reason = people.wait_for(
-            choose, positive(params, "timeout", 300.0), ctx.cancelled
-        )
+        result, reason = people.wait_for(choose, timeout, ctx.cancelled)
         people.look_towards(0.0)
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")
