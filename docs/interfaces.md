@@ -166,6 +166,8 @@ topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化�
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。
 
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+
 ### ロボットの画面
 
 `task_monitor` がロボットのタッチディスプレイの画面を提供する（[aha_tasksのロボットの画面](../overlay_ws/src/aha_tasks/README.md#ロボットの画面)）。
@@ -183,8 +185,7 @@ POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異�
 画面の状態は `GET /api/status`・`/api/events` の `screen` にも入る。GUIに埋め込んだ画面（`display/?embedded`）はSSEを開かず、GUIのページから `postMessage` で状態を受け取る（GUIのタブ1つのSSE接続は1本）。
 runnerのスキルは字幕と画像（認識の結果など）を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
 `task_monitor` が止まるときは、表示中の質問のgoalをabortする（`The screen is shutting down`）。
-
-`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+`Ask` の `request` は1回の質問のIDで、応答が届かずに送り直したgoalも同じ値にする。直前にタッチされた質問と同じ `request` のgoalは、画面に出さずにそのタッチで成功する。
 
 ## 頭部カメラ
 
