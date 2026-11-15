@@ -134,6 +134,12 @@ def launch_task(context):
         respawn_delay=2.0,
     )
     people = value("people") == "true"
+    if people and perception == "truth" and value("people_scene"):
+        # sim_person_detector.py has no ClassifyPerson and only knows the guests.
+        raise ValueError(
+            "people_scene:= with people:=true needs perception:=model "
+            "(the debug stand-in cannot judge posed people)"
+        )
     scene = task_config(f"sim/{spec.task}")
     guests = value("guests") == "true"
     if guests and not scene.is_file():

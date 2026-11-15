@@ -78,6 +78,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
 `perception:=model` を付けると、`debug` でも人の認識は `final` と同じになる（移動だけを省く）。
+`people_scene` の人を探す・数えるには `perception:=model` が要る（`sim_person_detector.py` は `classify_person` を持たず、客だけを出す）。`people:=true` と `perception:=truth` に `people_scene` を付けると起動時にエラーにする。
 `debug` で確かめられないため、`final` で確かめること：
 
 - **移動**: 経路の有無（開かないドア、壁の向こうの地点）、Nav2の失敗・時間切れ、移動中のAMCLのずれ、移動中に見える人。`sim_teleport` は目標の、地図上のロボットの半径（0.40 m）に占有・未知のセルがないことだけを見る。AMCLのTFは2 s先の時刻で配信されるため、1回の移動に約4 sかかる。移した直後の1–2枚の画像は、前後の位置が混ざったTFで測られる。
@@ -171,7 +172,9 @@ class AskNameAndDrink(Skill):
 ```python
 interaction = Interaction.of(self.runtime)
 ok, message = interaction.say("What is your name?", ctx.cancelled)
-ok, message = interaction.show(jpeg_bytes, "jpeg", "I found the cup on the table.", ctx.cancelled)
+ok, message = interaction.show(
+    jpeg_bytes, "jpeg", "I found the cup on the table.", ctx.cancelled
+)
 index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
 ```
 
