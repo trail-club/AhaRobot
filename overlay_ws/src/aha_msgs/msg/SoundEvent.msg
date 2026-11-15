@@ -5,4 +5,4 @@ std_msgs/Header header
 string          label       # "doorbell" | "knock"
 float32         score       # post-processed score that reached the threshold
 float32         threshold
-string          model       # "<repo>@<revision[:7]>"
+string          model       # "<checkpoint>@<sha256[:7]>" (e.g. BEATs_strong_1@db13a79)

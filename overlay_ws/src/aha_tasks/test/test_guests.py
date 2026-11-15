@@ -18,6 +18,7 @@ from aha_tasks.guests import (  # noqa: E402
     TRIGGERS,
     DOOR_TRIGGER,
     Guest,
+    attempts_of,
     door_open,
     guest_phase,
     guest_sdf,
@@ -71,8 +72,9 @@ class PhaseTests(unittest.TestCase):
         self.assertTrue(door_open(guests, {"guest2.open_door": "unsupported"}))
 
     def test_statuses_of_a_status_message(self):
-        message = {"subgoals": [{"id": "a", "status": "running", "title": "x"}]}
+        message = {"subgoals": [{"id": "a", "status": "running", "attempts": 2}]}
         self.assertEqual(statuses_of(message), {"a": "running"})
+        self.assertEqual(attempts_of(message), {"a": 2})
 
 
 class MotionTests(unittest.TestCase):
@@ -97,6 +99,19 @@ class MotionTests(unittest.TestCase):
         guest.set_phase(AWAY)
         guest.set_phase(ARRIVE)  # the doorbell subgoal again: rings again
         run(guest, 10.0, ENTRANCE)
+        self.assertEqual(guest.ring, "chime")
+
+    def test_rings_again_when_the_doorbell_is_retried(self):
+        guest = guest1()
+        guest.set_phase(ARRIVE)
+        guest.set_bell_attempt(1)
+        run(guest, 10.0, ENTRANCE)
+        guest.ring = None
+        guest.set_bell_attempt(1)
+        run(guest, 1.0, ENTRANCE)
+        self.assertIsNone(guest.ring)
+        guest.set_bell_attempt(2)  # failed (e.g. missed), then retried
+        guest.step(0.1, ENTRANCE)
         self.assertEqual(guest.ring, "chime")
 
     def test_walks_at_the_configured_speed(self):

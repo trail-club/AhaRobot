@@ -12,7 +12,10 @@ from pathlib import Path
 import threading
 
 from aha_tasks.guests import (
+    ARRIVE,
+    TRIGGERS,
     Guest,
+    attempts_of,
     door_open,
     guest_phase,
     guest_sdf,
@@ -61,7 +64,7 @@ def main(argv=None):
     world = f"/world/{scene['world']}"
     gz = GzNode()
     lock = threading.Lock()
-    state = {"robot": None, "statuses": {}}
+    state = {"robot": None, "statuses": {}, "attempts": {}}
 
     def on_poses(message):
         for pose in message.pose:
@@ -83,8 +86,10 @@ def main(argv=None):
     log = node.get_logger()
 
     def on_status(message):
+        status = json.loads(message.data)
         with lock:
-            state["statuses"] = statuses_of(json.loads(message.data))
+            state["statuses"] = statuses_of(status)
+            state["attempts"] = attempts_of(status)
 
     node.create_subscription(
         String,
@@ -128,6 +133,7 @@ def main(argv=None):
             return
         with lock:
             robot, statuses = state["robot"], state["statuses"]
+            attempts = state["attempts"]
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
@@ -139,6 +145,7 @@ def main(argv=None):
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase)
+            guest.set_bell_attempt(attempts.get(f"{guest.name}.{TRIGGERS[ARRIVE]}", 0))
             guest.step(dt, robot)
             if guest.ring is not None:
                 bell_pub.publish(String(data=guest.ring))

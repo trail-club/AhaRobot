@@ -67,6 +67,11 @@ def statuses_of(status):
     return {subgoal["id"]: subgoal["status"] for subgoal in status["subgoals"]}
 
 
+def attempts_of(status):
+    """Subgoal id -> number of attempts from a /aha/tasks/status message."""
+    return {subgoal["id"]: subgoal["attempts"] for subgoal in status["subgoals"]}
+
+
 def reached(statuses, subgoal):
     return statuses.get(subgoal, PENDING) != PENDING
 
@@ -126,8 +131,9 @@ class Guest:
         self.route = []
         self.clock = 0.0
         self.last_trail = None
-        self.rang = False  # rang the bell in this ARRIVE phase
+        self.rang = False  # rang the bell in this ARRIVE phase and attempt
         self.ring = None  # a bell to sound now (config "bell"); the node clears it
+        self.bell_attempt = 0  # attempts of <guest>.doorbell
 
     @property
     def z(self):
@@ -165,6 +171,11 @@ class Guest:
         elif phase == SEAT:
             self.route = [*self.config["seat_via"], self.config["seat"][:2]]
 
+    def set_bell_attempt(self, attempt):
+        """A retry of <guest>.doorbell makes the guest ring again at the door."""
+        if attempt != self.bell_attempt:
+            self.bell_attempt, self.rang = attempt, False
+
     def step(self, dt, robot=None):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
         self.clock += dt
@@ -177,7 +188,7 @@ class Guest:
                 self.yaw = self.config["seat"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
-            if not self.rang:  # rings once on reaching the door (rulebook 5.1)
+            if not self.rang:  # rings on reaching the door (rulebook 5.1)
                 self.rang, self.ring = True, self.config["bell"]
         elif self.phase == TALK:
             self._pace()
