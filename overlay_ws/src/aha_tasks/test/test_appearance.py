@@ -12,6 +12,7 @@ from aha_tasks.appearance import (  # noqa: E402
     consensus,
     normalize,
     sentence,
+    with_article,
 )
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.describe import DescribePerson  # noqa: E402
@@ -233,6 +234,26 @@ class SentenceTests(unittest.TestCase):
         features = choose_features(["carrying a black jacket", "carrying a backpack"])
         self.assertEqual(
             sentence("Charlie", features, "Emma"), "Emma, Charlie has a backpack."
+        )
+
+    def test_articles_follow_the_sound(self):
+        cases = {
+            "uniform": "a uniform",
+            "blue uniform": "a blue uniform",
+            "orange t-shirt": "an orange t-shirt",
+            "olive jacket": "an olive jacket",
+            "unbuttoned shirt": "an unbuttoned shirt",
+            "used bag": "a used bag",
+            "one-piece dress": "a one-piece dress",
+            "hoodie": "a hoodie",
+            "helmet": "a helmet",
+            "eyeglasses": "eyeglasses",
+        }
+        for phrase, expected in cases.items():
+            with self.subTest(phrase=phrase):
+                self.assertEqual(with_article(phrase), expected)
+        self.assertEqual(
+            sentence("Charlie", [("upper", "uniform")]), "Charlie is wearing a uniform."
         )
 
     def test_no_features_no_sentence(self):

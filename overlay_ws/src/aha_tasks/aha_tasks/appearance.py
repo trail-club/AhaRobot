@@ -188,10 +188,15 @@ def choose_features(appearance, limit=MAX_FEATURES):
     return ordered[:limit]
 
 
+# Vowel letters said with a consonant sound take "a": "a uniform", "a used bag".
+CONSONANT_SOUND = re.compile(r"^(?:uni|use|usu|uti|eu|ewe|one\b|once\b)")
+
+
 def with_article(phrase):
     if phrase.split()[-1] in PLURAL:
         return phrase
-    return ("an " if phrase[0] in "aeiou" else "a ") + phrase
+    vowel = phrase[0] in "aeiou" and not CONSONANT_SOUND.match(phrase)
+    return ("an " if vowel else "a ") + phrase
 
 
 def join(items):
