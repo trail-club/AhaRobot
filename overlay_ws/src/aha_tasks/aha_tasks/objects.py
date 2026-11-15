@@ -46,7 +46,7 @@ STACK_M = 0.15  # an object's bottom may be this far above it (on a plate, a box
 SCAN_EXTENT = 1.3  # m; a longer side of a table is looked at in three places
 SCAN_INSET = 0.3  # m from the ends of such a side
 LOOK_ABOVE = 0.1  # m above a level, where the head looks
-FLOOR_LOOK_DISTANCE = 1.2  # m ahead of the robot on the floor
+FLOOR_LOOK_DISTANCE = 0.8  # m ahead on the floor; the view then spans about 0.25-1.8 m
 FLOOR_PANS = (0.0, 0.5, -0.5)  # rad, + = left
 LOOK_SETTLE = 1.5  # s (wait clock) after turning the head
 DWELL = 2.0  # s (wait clock) of detections per head pose, at least one message
