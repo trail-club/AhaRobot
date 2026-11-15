@@ -125,8 +125,14 @@ class GeometryTests(unittest.TestCase):
         self.assertIsNone(nearest_seat(SEATS, (1.75, 2.6), RADIUS))
 
     def test_the_measured_front_of_a_person_at_a_seat_occupies_it(self):
-        """SAM 3.1 in the sim put the host of chair_left 0.2 m nearer the robot."""
+        """Positions SAM 3.1 measured in the sim (living_room, 1.6 m from the seats)."""
+        # Standing 0.45 m in front of a seat.
         self.assertEqual(nearest_seat(SEATS, (1.66, 2.84), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (1.0, 2.88), RADIUS), "chair_right")
+        # Seated, also at the edge of the image, and next to the other seat.
+        self.assertEqual(nearest_seat(SEATS, (1.51, 3.46), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (2.41, 3.49), RADIUS), "chair_extra")
+        self.assertEqual(nearest_seat(SEATS, (0.87, 3.49), RADIUS), "chair_right")
 
     def test_the_guest_and_people_not_seen_now_occupy_nothing(self):
         people = [

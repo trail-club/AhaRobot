@@ -22,9 +22,11 @@ from aha_tasks.people import People, check_keys, check_name, positive
 from aha_tasks.skills import LOCATION, resolve_pose
 
 TORSO = 0.4  # m above the seat point: where the head looks, a sitting torso
-# m from a seat point to a person on it: person_perception measures the visible
-# front of the body (0.2 m nearer than its middle in the sim), and someone who
-# stands at a seat blocks it too.
+# m from a seat point to a person on it. person_perception measures the visible
+# front of the body: in the sim, SAM 3.1 put seated people 0.03-0.24 m from
+# their seat and someone standing 0.45 m in front of one at 0.67 m, who blocks
+# it too. Each person takes only the nearest seat, so seats 0.8 m apart stay
+# apart.
 RADIUS = 0.8
 SETTLE = 2.0  # s for the head to turn (90 deg at 1 rad/s, and the start)
 HEAD_REACH = 1.57  # rad from the base's front; config/head.yaml pan_limits
