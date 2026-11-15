@@ -224,8 +224,12 @@ def main(argv=None):
         GetState, "/bt_navigator/get_state", on_get_state, callback_group=group
     )
 
-    def move(x, y, z, yaw):
+    def move(x, y, z, yaw, cancelled=lambda: False):
+        # A cancel is checked between tries, so that a hung set_pose does not
+        # keep a cancelled goal beyond the client's wait for its result.
         for attempt in range(1, SET_POSE_ATTEMPTS + 1):
+            if cancelled():
+                return False
             if set_pose(requests, gazebo.world, robot_model, x, y, z, yaw):
                 return True
             log.warning(f"set_pose attempt {attempt} failed")
@@ -313,7 +317,7 @@ def main(argv=None):
                     restore=here,
                 )
             if moves:
-                if not move(goal[0], goal[1], robot[2], goal[2]):
+                if not move(goal[0], goal[1], robot[2], goal[2], cancelled):
                     return fail(f"Gazebo did not move {robot_model}", restore=here)
                 # settle for the images around the move; the walk for the guests.
                 walk = distance / speed if speed > 0.0 else 0.0
