@@ -171,6 +171,8 @@ POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異�
 
 runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
+`perceive_objects` / `perceive_shelf` は `/aha/perception/objects`（[物体検出](#物体検出シミュレーションのみ)）と、TF（家具の設定のframe → 検出のframe、検出のframe → `base_footprint`）を使う（[aha_tasksの物体の認識](../overlay_ws/src/aha_tasks/README.md#物体の認識)）。
+`task.launch.py objects:=true` は検出器をframe `map` で起動し、`world` → `map` の恒等の静的TFを配信する（固定地図はGazeboのworld座標）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 
