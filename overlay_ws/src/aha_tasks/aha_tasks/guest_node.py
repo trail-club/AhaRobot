@@ -20,6 +20,7 @@ from aha_tasks.guests import (
     statuses_of,
 )
 from aha_tasks.runner import STATUS_TOPIC
+from aha_tasks.sim_sound_node import BELL_TOPIC
 
 PERIOD = 0.1  # s (simulation clock)
 REQUEST_TIMEOUT = 2000  # ms
@@ -90,6 +91,7 @@ def main(argv=None):
             reliability=ReliabilityPolicy.RELIABLE,
         ),
     )
+    bell_pub = node.create_publisher(String, BELL_TOPIC, 10)
     guests = [Guest(name, c, scene) for name, c in scene["guests"].items()]
     door = scene["door"]
     missing = list(guests)
@@ -133,6 +135,10 @@ def main(argv=None):
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase)
             guest.step(dt, robot)
+            if guest.ring is not None:
+                bell_pub.publish(String(data=guest.ring))
+                log.info(f"{guest.name}: {guest.ring} at the door")
+                guest.ring = None
             pose = (guest.x, guest.y, guest.z, guest.model_yaw)
             previous = sent.get(guest.name)
             if (

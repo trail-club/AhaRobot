@@ -2,7 +2,8 @@
 
 `people:=true` adds the head camera bridge, person_perception (DGX Spark) and
 head_look_at.py, which turns the head towards the people the skills look at.
-`guests:=true` adds sim_guests, which moves the task's simulated guests.
+`guests:=true` adds sim_guests, which moves the task's simulated guests, and
+sim_sounds, which makes the sounds they make at the door.
 """
 
 from pathlib import Path
@@ -146,6 +147,11 @@ def launch_task(context):
                 arguments=[f"--config={scene}"],
                 output="screen",
             )
+        )
+        # The microphone stream with the guests' doorbell and knocks, for
+        # aha_audio_doorbell input:=topic (wall clock, like a microphone).
+        actions.append(
+            Node(package="aha_tasks", executable="sim_sounds", output="screen")
         )
     return actions
 

@@ -84,6 +84,21 @@ class MotionTests(unittest.TestCase):
         self.assertLess(guest.x, WALL_X)
         self.assertAlmostEqual(guest.yaw, 0.0)  # looks in at the door
 
+    def test_rings_once_on_reaching_the_door(self):
+        guest = guest1()
+        guest.set_phase(ARRIVE)
+        rings = []
+        for _ in range(100):
+            guest.step(0.1, ENTRANCE)
+            if guest.ring is not None:
+                rings.append(((guest.x, guest.y), guest.ring))
+                guest.ring = None
+        self.assertEqual(rings, [(tuple(guest.config["door"]), "chime")])
+        guest.set_phase(AWAY)
+        guest.set_phase(ARRIVE)  # the doorbell subgoal again: rings again
+        run(guest, 10.0, ENTRANCE)
+        self.assertEqual(guest.ring, "chime")
+
     def test_walks_at_the_configured_speed(self):
         guest = guest1()
         start = (guest.x, guest.y)
@@ -217,6 +232,18 @@ class SceneTests(unittest.TestCase):
 
         scene = json.loads(json.dumps(SCENE))
         scene["guests"]["guest1"]["colors"]["hat"] = [0, 0, 0]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "scene.json"
+            path.write_text(json.dumps(scene))
+            with self.assertRaises(ValueError):
+                load_config(path)
+
+    def test_unknown_bell_is_rejected(self):
+        import json
+        import tempfile
+
+        scene = json.loads(json.dumps(SCENE))
+        scene["guests"]["guest2"]["bell"] = "siren"
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "scene.json"
             path.write_text(json.dumps(scene))

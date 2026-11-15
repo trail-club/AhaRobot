@@ -42,7 +42,8 @@ SCENE_KEYS = {
     "pace",
     "guests",
 }
-GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors"}
+GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors", "bell"}
+BELLS = ("chime", "knock")  # what a guest does at the door (aha_tasks.sim_sounds)
 
 
 def load_config(path):
@@ -56,6 +57,8 @@ def load_config(path):
         unknown = set(guest["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
+        if guest["bell"] not in BELLS:
+            raise ValueError(f"{path}: {name} bell must be one of {BELLS}")
     return config
 
 
@@ -123,6 +126,8 @@ class Guest:
         self.route = []
         self.clock = 0.0
         self.last_trail = None
+        self.rang = False  # rang the bell in this ARRIVE phase
+        self.ring = None  # a bell to sound now (config "bell"); the node clears it
 
     @property
     def z(self):
@@ -137,6 +142,7 @@ class Guest:
             return
         previous, self.phase = self.phase, phase
         self.clock, self.last_trail = 0.0, None
+        self.rang, self.ring = False, None
         door, threshold = self.config["door"], self.config["threshold"]
         if phase < previous or phase == SEAT and previous < FOLLOW:
             # Rewound or skipped in the task, so there is nothing to walk through.
@@ -171,6 +177,8 @@ class Guest:
                 self.yaw = self.config["seat"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
+            if not self.rang:  # rings once on reaching the door (rulebook 5.1)
+                self.rang, self.ring = True, self.config["bell"]
         elif self.phase == TALK:
             self._pace()
             self._face(robot)

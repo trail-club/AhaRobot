@@ -7,7 +7,9 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
+| `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
@@ -109,7 +111,8 @@ class AskNameAndDrink(Skill):
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を27サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate` と、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）。
+実装済みのスキルは `navigate`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）、
+ドアベルを待つ `detect_doorbell`（[ドアベルの検出](#ドアベルの検出)）。
 
 客席・ホスト・荷物置き場は固定の代替地点。ロボットは内側の `entrance` まで移動する。
 `guests:=true` でなければ入口のドアは閉じたままで、人のモデルは配置しない。ホスト・荷物のモデルは配置しない。
@@ -137,6 +140,22 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 出力の `.track` は破棄済みのことがあるため、後続スキルは名前か位置を使って客を再取得する。
 `memorize_person` をmockにした場合は外見を覚えないため、後の `locate_guests` はその客を見分けられない。
 
+### ドアベルの検出
+
+`detect_doorbell` は、開始してから届いた最初の `/aha/perception/audio/doorbell`（`aha_msgs/SoundEvent`）で成功し、
+`doorbell.heard` に `doorbell` か `knock` を出力する。開始前の検出は使わない。
+`timeout`（既定120 s、実時間）で失敗し、`labels`（既定 `["doorbell", "knock"]`）で待つ音を絞れる。
+検出器が動いていなければ（publisherがない）すぐに失敗する。
+
+検出器は音声コンテナで起動する（[ドアベル検出](../aha_perception/docs/audio.md#ドアベル検出)）。
+シミュレーションでは `guests:=true` の `sim_sounds` が `/aha/sim/audio` にマイク音を出すので、検出器を `doorbell_input:=topic` で起動する。
+
+```bash
+# 音声コンテナ（同じ ROS_DOMAIN_ID）
+ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false use_debug_ui:=false \
+  use_doorbell:=true doorbell_input:=topic
+```
+
 ### シミュレーションの客
 
 ```bash
@@ -150,7 +169,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 | サブゴールの開始 | 客の動作 |
 | --- | --- |
 | 開始前 | 床下に隠れる。worldの壁は高さ0.8 mで、頭部カメラから壁の外の人が見えるため |
-| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ |
+| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いたら1回、設定の `bell`（`chime` / `knock`）を鳴らす |
 | `<guest>.open_door` | ドアが外へ開く。以後は開いたまま |
 | `<guest>.ask` | ドアの外側で左右に0.2 m（周期6 s）動き、ロボットを向く。ルールのとおり、会話が始まるまで家には入らない |
 | `<guest>.guide` | ロボットとの距離を1.2 m保ち、ロボットが通った経路を歩いて家に入る |
@@ -164,6 +183,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
 - 待っている他の客・ホスト・荷物、会話中に頭で客を追う動作は含まない。
+- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成の2音チャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
 
 ## Pick and Place Challenge
 
