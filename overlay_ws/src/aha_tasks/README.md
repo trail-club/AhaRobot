@@ -17,6 +17,7 @@
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
 | `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
+| `aha_tasks/show_objects.py`、`aha_tasks/object_view.py` | 認識した物体を画面に1個ずつ示すスキル `show_objects` と、頭部カメラの画像に物体の枠を描く処理（ROS非依存）（[認識した物体を示す](#認識した物体を示す)） |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
@@ -197,9 +198,10 @@ index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
 | --- | --- | --- |
 | `say` | `text` を字幕に出し、TTSがあれば読み上げる | GPSRの `command.mode` |
 | `wait_start_signal` | 準備ができたことと押すボタンを `text` で伝え、`button`（既定 `Start`）のタッチを待つ。どちらも省略できる | HICの `start.signal` |
+| `show_objects` | 認識した物体を1個ずつ、頭部カメラの画像に枠を描いて `show` で示す（[認識した物体を示す](#認識した物体を示す)） | PPCの `*.show` |
 
 TTSで読み上げられなかった場合も、`wait_start_signal` はボタンを出して待つ。
-タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
+タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。
 
 `test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
 
@@ -349,8 +351,8 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 
 ## Pick and Place Challenge
 
-[ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を71サブゴールに分ける。
-実装済みのスキルは `navigate` と[物体の認識](#物体の認識)の `perceive_objects` / `perceive_shelf`（`objects:=true` が必要）で、他はmockで通過する。
+[ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を77サブゴールに分ける。
+実装済みのスキルは `navigate`、[物体の認識](#物体の認識)の `perceive_objects` / `perceive_shelf`（`objects:=true` が必要）と、認識した物体を画面に示す `show_objects`（[認識した物体を示す](#認識した物体を示す)）で、他はmockで通過する。
 
 ```bash
 ros2 launch aha_tasks task.launch.py task:=pick_and_place subgoals:='dishwasher.*'
@@ -459,6 +461,38 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 なければ物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`、`position` は片側の中央）。
 後の物体は先に決めた物体の群に加わる。空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。
 カテゴリの意味の近さ（似た物体）は判断しない。
+
+### 認識した物体を示す
+
+ルール16（Communicating Perception）は、認識した物体を審判へはっきり示すことを求める。
+指差し、取ろうとする動作、1個ずつの表示のどれでもよく、表示を使う場合は周りの様子が見える画像にし、表示したことを伝えて審判が見たことを確かめる。
+`perceive_objects` の各サブゴールの直後の `*.show`（0 pt。認識の点は直前のサブゴールに含める）で、`show_objects` が物体を1個ずつ[ロボットの画面](#ロボットの画面)に出す。
+
+```json
+{"objects": ["table.cutlery", "table.cup"], "surface": "dining_table", "dwell": 2.0}
+```
+
+`objects` は記憶のキーで、値は `perceive_objects` の出力（`label`・`position`（中心）・`frame`・`size`（外接箱、m）を持つ辞書）。
+`surface` は発話の場所（`dining_table` は「on the dining table」）、`dwell`（省略時2 s、実時間）は画像を残す時間。
+物体ごとに次を行い、最後に画像を消す。
+
+1. 頭を物体の中心へ向け（[注視](#注視)）、1.5 s（模擬時間）待つ。その後に撮られた `/camera/color/image_raw` を5 sまで待つ。
+2. 物体の外接箱（`frame` の軸に沿う）の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
+3. 画像全体（切り抜かない）に、長方形の外側へ緑の枠（黒の縁取り）と `label` の札を描き、JPEGで `show` に渡す。
+4. 「This is the mug on the dining table.」と字幕・TTSで伝える。最初の物体では前に「Please look at my screen.」を付ける。ゴミの役割（キーに `trash` を含む）では「It is trash.」を加える。発話の後、`dwell` 秒画像を残す。
+
+審判が見たことの確かめ方はルールに定めがない。画面の表示は審判に答えを求めない方針（[ロボットの画面](#ロボットの画面)）のため、タッチや発話の返事は求めず、画面を見るよう伝えて `dwell` 秒表示を保つ。
+これで「審判が見たことの確認」を満たすかは未確認。
+
+| 状態 | 動作 | 結果 |
+| --- | --- | --- |
+| キーがない・`null` | 飛ばす（何も示していない物体） | 影響しない |
+| 位置のない値（文字列のmockなど） | 「I recognized the fork on the dining table.」と発話だけ | 成功 |
+| 画像が届かない、TFがない、頭を向けても視野外（頭の可動範囲外など） | 発話だけで伝える | 失敗（失敗時のポリシーに従う） |
+| 一部が視野外 | 見えている部分に枠を描く | 成功 |
+
+頭部カメラの画像とTFを使う。シミュレーションではカメラとbridgeを起動する引数（`people:=true` など）が必要。
+物体の向き（yaw）は記録にないため、枠は `frame` の軸に沿う箱から求める。斜めに置かれた長い物体（フォークなど）は枠が実物より大きくなる。
 
 ## General Purpose Service Robot Challenge
 
