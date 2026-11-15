@@ -9,6 +9,7 @@ perceived object for the referee, and says what it is; it asks nothing back.
 
 import array
 import math
+import threading
 import time
 
 from aha_tasks.core.skill import Skill, SkillResult
@@ -19,6 +20,8 @@ SERVER_TIMEOUT = 5.0  # s (wall clock) to find a server, or to give up on a lost
 LIVENESS_PERIOD = 0.25  # s between checks that a server still runs
 RESPONSE_TIMEOUT = 5.0  # s for a server to accept or reject a goal
 SPEAK_TIMEOUT = 60.0  # s for one utterance, including other queued utterances
+# s (wall clock) to discover a running TTS, waited once per runner (at ready()).
+TTS_DISCOVERY = 2.0
 
 
 class Cancelled(Exception):
@@ -45,6 +48,7 @@ class Interaction:
         self.images = node.create_publisher(CompressedImage, IMAGE_TOPIC, 1)
         self.speaker = ActionClient(node, Speak, SPEAK_ACTION)
         self.screen = ActionClient(node, Ask, ASK_ACTION)
+        self.tts_searched = False
 
     @classmethod
     def of(cls, runtime):
@@ -52,10 +56,34 @@ class Interaction:
             runtime.interaction = cls(runtime.node)
         return runtime.interaction
 
+    def find_tts(self, cancelled=None):
+        """True if a TTS runs. The first call waits up to TTS_DISCOVERY for it.
+
+        A new client sees a running server only after DDS discovery, so a
+        runner that just started would otherwise skip its first sentences.
+        """
+        if self.speaker.server_is_ready():
+            return True
+        if not self.tts_searched:
+            self.tts_searched = True
+            try:
+                self._poll(
+                    self.speaker.server_is_ready,
+                    TTS_DISCOVERY,
+                    cancelled or threading.Event(),
+                )
+            except TimeoutError:
+                pass
+        return self.speaker.server_is_ready()
+
     def say(self, text, cancelled):
         """Caption `text`, and speak it if a TTS runs: (ok, message) when done."""
         self.captions.publish(self.String(data=text))
-        if not self.speaker.server_is_ready():
+        try:
+            speaking = self.find_tts(cancelled)
+        except Cancelled:
+            return False, "Cancelled"
+        if not speaking:
             return True, "Shown on the screen; no TTS is running"
         result, message = self._run(
             self.speaker, self.Speak.Goal(text=text), SPEAK_TIMEOUT, cancelled
@@ -207,7 +235,7 @@ class Say(Skill):
         text(params, "text")
 
     def ready(self):
-        Interaction.of(self.runtime)  # finds the TTS before the first sentence
+        Interaction.of(self.runtime).find_tts()  # before the first sentence
 
     def execute(self, ctx):
         ok, message = Interaction.of(self.runtime).say(
@@ -236,7 +264,7 @@ class WaitStartSignal(Skill):
         text(params, "button", cls.BUTTON)
 
     def ready(self):
-        Interaction.of(self.runtime)
+        Interaction.of(self.runtime).find_tts()
 
     def execute(self, ctx):
         interaction = Interaction.of(self.runtime)

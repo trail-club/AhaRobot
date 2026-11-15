@@ -378,6 +378,7 @@ class ResendTests(unittest.TestCase):
         interaction.node = SimpleNamespace(context=SimpleNamespace(ok=lambda: True))
         interaction.Ask, interaction.Speak, interaction.String = Ask, Speak, String
         interaction.captions = SimpleNamespace(publish=lambda message: None)
+        interaction.tts_searched = False
         self.interaction = interaction
 
     def ask(self):
@@ -398,6 +399,40 @@ class ResendTests(unittest.TestCase):
         self.addCleanup(timer.cancel)
         self.assertEqual(self.ask(), (None, "No screen: /aha/display/ask went away"))
         self.assertEqual(len(screen.sent), 2)
+
+    def test_say_waits_for_a_tts_still_being_discovered(self):
+        from aha_msgs.action import Speak
+
+        done = Speak.Result(success=True, message="done")
+        speaker = self.interaction.speaker = FakeClient(done, lost=0)
+        speaker.ready = False
+        timer = threading.Timer(0.1, setattr, (speaker, "ready", True))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        self.assertEqual(
+            self.interaction.say("Welcome.", threading.Event()), (True, "TTS: done")
+        )
+
+    def test_without_a_tts_only_the_first_say_waits(self):
+        self.addCleanup(
+            setattr,
+            interaction_module,
+            "TTS_DISCOVERY",
+            interaction_module.TTS_DISCOVERY,
+        )
+        interaction_module.TTS_DISCOVERY = 0.3
+        speaker = self.interaction.speaker = FakeClient(None)
+        speaker.ready = False
+        for most, least in ((1.0, 0.3), (0.1, 0.0)):
+            started = time.monotonic()
+            ok, message = self.interaction.say("Welcome.", threading.Event())
+            elapsed = time.monotonic() - started
+            self.assertEqual(
+                (ok, message), (True, "Shown on the screen; no TTS is running")
+            )
+            self.assertGreaterEqual(elapsed, least)
+            self.assertLess(elapsed, most)
+        self.assertEqual(speaker.sent, [])
 
     def test_speech_is_not_sent_again(self):
         speaker = self.interaction.speaker = FakeClient(None)
