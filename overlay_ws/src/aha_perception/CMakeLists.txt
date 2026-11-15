@@ -20,6 +20,8 @@ find_package(ament_cmake_python REQUIRED)
 # aha_perception.person_attributes: posture, gesture and clothing rules and VLM answers
 # aha_perception.pose_keypoints: ViTPose for the DGX person worker
 # aha_perception.dgx: client of the workers on GPU hosts (SSH + Docker)
+# aha_perception.object_detection: object candidates, 3D boxes and tracks for object_perception.py
+# aha_perception.object_worker: SAM 3.1 + VLM object worker on the DGX
 # aha_perception.audio: ASR / TTS stack (web/ is installed with it)
 ament_python_install_package(${PROJECT_NAME})
 
@@ -36,6 +38,7 @@ install(
     scripts/head_look_at.py
     scripts/imu_head.py
     scripts/manual_head.py
+    scripts/object_perception.py
     scripts/person_attributes_report.py
     scripts/person_perception.py
     scripts/plane_detection_node.py
@@ -67,6 +70,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_sim_person_detection test/test_sim_person_detection.py TIMEOUT 60)
   ament_add_pytest_test(test_person_perception test/test_person_perception.py TIMEOUT 120)
   ament_add_pytest_test(test_person_attributes test/test_person_attributes.py TIMEOUT 60)
+  ament_add_pytest_test(test_object_detection test/test_object_detection.py TIMEOUT 60)
+  ament_add_pytest_test(test_object_perception test/test_object_perception.py TIMEOUT 120)
   ament_add_pytest_test(test_audio_node test/test_audio_node.py TIMEOUT 60)
 endif()
 
