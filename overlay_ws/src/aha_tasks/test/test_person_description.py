@@ -26,13 +26,24 @@ class ParseTests(unittest.TestCase):
             ),
             "people wearing gray sweaters": Description(clothing=("gray", "sweater")),
             "raising_left_arm": Description(gesture="raising_left_arm"),
+            # The generator's {colorClothe} alone, as a planner may pass it.
+            "red t shirt": Description(clothing=("red", "t shirt")),
+            "a blue coat": Description(clothing=("blue", "coat")),
+            "gray sweaters": Description(clothing=("gray", "sweater")),
         }
         for phrase, expected in cases.items():
             with self.subTest(phrase):
                 self.assertEqual(parse_phrase(phrase), expected)
 
     def test_unknown_phrases_are_rejected(self):
-        for phrase in ("", "person", "person wearing a red hat", "dancing person"):
+        for phrase in (
+            "",
+            "person",
+            "person wearing a red hat",
+            "dancing person",
+            "red hat",
+            "red person",
+        ):
             with self.subTest(phrase):
                 with self.assertRaises(ValueError):
                     parse_phrase(phrase)

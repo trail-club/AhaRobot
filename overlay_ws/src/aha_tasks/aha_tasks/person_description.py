@@ -124,6 +124,14 @@ def parse_phrase(text):
         if colour is None or kind is None:
             raise ValueError(f"unknown clothing in {text!r}")
         clothing = (colour, kind)
+    else:
+        # Just the clothing, as the generator's {colorClothe}: "red t shirt".
+        bare = re.fullmatch(r"(?:an? |the )?(\w+) (.+)", words)
+        if bare:
+            colour = normalize_colour(bare.group(1))
+            kind = normalize_garment_type(bare.group(2))
+            if colour is not None and kind is not None:
+                clothing = (colour, kind)
     if gesture is None and posture is None and clothing is None:
         raise ValueError(f"no gesture, posture or clothing in {text!r}")
     return Description(gesture=gesture, posture=posture, clothing=clothing)
