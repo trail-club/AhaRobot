@@ -22,6 +22,7 @@
   "initial_state": {"robot.location": "spawn"},
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",
+    "wait_start_signal": "aha_tasks.interaction:WaitStartSignal",
     "detect_doorbell": null,
     "open_door": null,
     "find_person": "aha_tasks.people:FindPerson",
@@ -37,6 +38,8 @@
     "place_object": null
   },
   "subgoals": [
+    {"id": "start.signal", "group": "開始", "title": "開始合図を待つ", "skill": "wait_start_signal", "note": "場内から始めるため、審判が手動の開始合図を出す（§3.6.8）。画面のタッチは機体検査で承認を受ける"},
+
     {"id": "guest1.wait", "group": "1人目の客", "title": "開始位置で客を待つ", "skill": "navigate", "params": {"location": "waiting"}},
     {"id": "guest1.doorbell", "group": "1人目の客", "title": "ドアベルを検出する", "skill": "detect_doorbell", "points": 30, "note": "開始位置で待機中に即座に反応する。省略して入口へ向かってもよい"},
     {"id": "guest1.go_to_door", "group": "1人目の客", "title": "入口へ移動する", "skill": "navigate", "params": {"location": "entrance"}},

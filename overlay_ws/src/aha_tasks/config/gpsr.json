@@ -34,7 +34,7 @@
     "listen_command": null,
     "plan_commands": null,
     "report_results": null,
-    "say": null,
+    "say": "aha_tasks.interaction:Say",
     "answer_question": null,
     "find_object": null,
     "pick_object": null,

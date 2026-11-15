@@ -1,4 +1,7 @@
-"""Web GUI for subgoal task runners: live progress, partial runs and recovery."""
+"""Web GUI for subgoal task runners: live progress, partial runs and recovery.
+
+It also serves the robot's touch screen under /display/ (aha_tasks.display).
+"""
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,11 +11,20 @@ from pathlib import Path
 import threading
 import time
 
+HTML = "text/html; charset=utf-8"
+JS = "text/javascript; charset=utf-8"
+CSS = "text/css; charset=utf-8"
+# URL path -> (file under web/, content type). /display/ needs a screen.
 WEB_FILES = {
-    "index.html": "text/html; charset=utf-8",
-    "app.js": "text/javascript; charset=utf-8",
-    "style.css": "text/css; charset=utf-8",
+    "/": ("index.html", HTML),
+    "/app.js": ("app.js", JS),
+    "/style.css": ("style.css", CSS),
+    "/display/": ("display/index.html", HTML),
+    "/display/display.js": ("display/display.js", JS),
+    "/display/display.css": ("display/display.css", CSS),
 }
+DISPLAY = "/display"
+IMAGE_PREFIX = "/display/api/image/"
 COMMAND_FIELDS = {"command": str, "subgoals": list, "on_failure": str, "target": str}
 HEARTBEAT = 15.0  # seconds between SSE keepalives
 
@@ -20,10 +32,10 @@ HEARTBEAT = 15.0  # seconds between SSE keepalives
 class StatusHub:
     """Latest runner status; SSE clients wait for its version to change."""
 
-    def __init__(self):
+    def __init__(self, **payload):
         self._changed = threading.Condition()
         self.version = 0
-        self.payload = {"online": False, "status": None}
+        self.payload = payload
 
     def update(self, **changes):
         with self._changed:
@@ -51,48 +63,125 @@ def parse_command(body):
     return data
 
 
-def make_server(host, port, hub, send_command, web_dir):
-    """``send_command(dict) -> (accepted, message)`` forwards to the runner."""
+def parse_touch(body):
+    """{"question": id, "choice": index} from the screen page."""
+    data = json.loads(body or b"{}")
+    if not isinstance(data, dict):
+        raise ValueError("a JSON object is required")
+    for key in ("question", "choice"):
+        if type(data.get(key)) is not int:
+            raise ValueError(f"{key} must be an integer")
+    return data["question"], data["choice"]
+
+
+def make_server(host, port, hub, send_command, web_dir, screen=None):
+    """``send_command(dict) -> (accepted, message)`` forwards to the runner.
+
+    With ``screen`` (aha_tasks.display.Screen) the robot's screen is at /display/.
+    Requests from pages of other sites get 403, as in the audio debug UI.
+    """
+    from aha_perception.audio.web_access import allowed
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if not self._same_site():
+                return self._json(403, {"error": "request from another site"})
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
                 return self._json(200, hub.payload)
             if path == "/api/events":
-                return self._events()
-            name = "index.html" if path == "/" else path.lstrip("/")
-            if name not in WEB_FILES:
+                return self._events(hub)
+            if path.startswith(DISPLAY) and screen is None:
+                return self._json(404, {"error": "no screen"})
+            if path == DISPLAY:
+                self.send_response(301)
+                self.send_header("Location", "display/")
+                self.send_header("Content-Length", "0")
+                return self.end_headers()
+            if path == "/display/api/events":
+                return self._events(screen.hub, "screen")
+            if path.startswith(IMAGE_PREFIX):
+                return self._image(path[len(IMAGE_PREFIX) :])
+            if path not in WEB_FILES:
                 return self._json(404, {"error": "not found"})
-            self._send(200, (Path(web_dir) / name).read_bytes(), WEB_FILES[name])
+            name, content_type = WEB_FILES[path]
+            self._send(200, (Path(web_dir) / name).read_bytes(), content_type)
 
         def do_POST(self):
-            if self.path != "/api/command":
+            if not self._same_site():
+                return self._json(
+                    403, {"accepted": False, "message": "Request from another site"}
+                )
+            if self.path == "/api/command":
+                handle = self._command
+            elif self.path == "/display/api/touch" and screen is not None:
+                handle = self._touch
+            else:
                 return self._json(404, {"error": "not found"})
-            length = int(self.headers.get("Content-Length") or 0)
+            # A JSON body needs a CORS preflight, which is never granted, so a
+            # page of another site cannot post even where a browser omits Origin.
+            content_type = self.headers.get("Content-Type") or ""
+            if content_type.split(";")[0].strip() != "application/json":
+                return self._json(
+                    415, {"accepted": False, "message": "JSON body required"}
+                )
+            handle()
+
+        def _same_site(self):
+            """False for pages of other sites; on loopback, DNS rebinding too."""
+            headers = self.headers
+            return allowed(headers.get("Host") or "", headers.get("Origin"), host)
+
+        def _body(self):
+            return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+
+        def _command(self):
             try:
-                command = parse_command(self.rfile.read(length))
+                command = parse_command(self._body())
             except ValueError as error:  # includes JSON decoding errors
                 return self._json(400, {"accepted": False, "message": str(error)})
             accepted, message = send_command(command)
             self._json(200, {"accepted": accepted, "message": message})
 
-        def _events(self):
+        def _touch(self):
+            try:
+                question, choice = parse_touch(self._body())
+            except ValueError as error:
+                return self._json(400, {"accepted": False, "message": str(error)})
+            accepted, message = screen.touch(question, choice)
+            self._json(200, {"accepted": accepted, "message": message})
+
+        def _image(self, number):
+            image = screen.image(int(number)) if number.isdecimal() else None
+            if image is None:
+                return self._json(404, {"error": "no such image"})
+            mime, data = image
+            self._send(200, data, mime)
+
+        def _events(self, hub, key=None):
+            """Stream the hub's payload, or only its `key` entry when that changes."""
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            version = None
+            version, sent, written = None, None, 0.0
             try:
                 while True:
-                    latest, payload = hub.wait(version, HEARTBEAT)
-                    if latest == version:
+                    # Wake for the next keepalive even if other entries keep changing.
+                    since = time.monotonic() - written
+                    latest, payload = hub.wait(version, max(0.0, HEARTBEAT - since))
+                    version = latest
+                    data = payload if key is None else payload.get(key)
+                    if written == 0.0 or data != sent:
+                        sent = data
+                        data = json.dumps(data, ensure_ascii=False)
+                        self.wfile.write(f"data: {data}\n\n".encode())
+                    elif time.monotonic() - written >= HEARTBEAT:
                         self.wfile.write(b": keepalive\n\n")
                     else:
-                        version = latest
-                        data = json.dumps(payload, ensure_ascii=False)
-                        self.wfile.write(f"data: {data}\n\n".encode())
+                        continue
                     self.wfile.flush()
+                    written = time.monotonic()
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
@@ -105,6 +194,10 @@ def make_server(host, port, hub, send_command, web_dir):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-cache")
+            # Pages of other sites must not frame the GUI or the screen
+            # (clickjacking); the GUI frames the screen from the same origin.
+            self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
             self.end_headers()
             self.wfile.write(body)
 
@@ -175,29 +268,40 @@ def main(argv=None):
 
     from ament_index_python.packages import get_package_share_directory
     import rclpy
-    from rclpy.executors import SingleThreadedExecutor
+    from rclpy.executors import MultiThreadedExecutor
     from rclpy.node import Node
     from rclpy.signals import SignalHandlerOptions
 
+    from aha_tasks.display import Screen, ScreenBridge
+
     rclpy.init(args=ros_args, signal_handler_options=SignalHandlerOptions.NO)
     node = Node("task_monitor")
-    hub = StatusHub()
+    hub = StatusHub(online=False, status=None)
     bridge = RunnerBridge(node, hub)
+    screen = Screen(hub)  # one SSE stream carries the status and the screen
+    display_node = Node("robot_display")
+    screen_bridge = ScreenBridge(display_node, screen)
     web_dir = Path(get_package_share_directory("aha_tasks")) / "web"
-    server = make_server(args.host, args.port, hub, bridge.send, web_dir)
-    executor = SingleThreadedExecutor()
+    server = make_server(args.host, args.port, hub, bridge.send, web_dir, screen)
+    executor = MultiThreadedExecutor()  # a question waits for a touch in a callback
     executor.add_node(node)
+    executor.add_node(display_node)
     spinner = threading.Thread(target=executor.spin, daemon=True)
     spinner.start()
-    node.get_logger().info(f"Task monitor on http://localhost:{args.port}/")
+    node.get_logger().info(
+        f"Task monitor on http://localhost:{args.port}/, "
+        f"robot screen on http://localhost:{args.port}/display/"
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        screen_bridge.close()  # an open question would keep executor.shutdown() waiting
         executor.shutdown()
-        spinner.join(timeout=5.0)  # before tearing down the node
+        spinner.join(timeout=5.0)  # before tearing down the nodes
+        display_node.destroy_node()
         node.destroy_node()
         rclpy.try_shutdown()
     return 0
