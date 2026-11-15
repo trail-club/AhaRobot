@@ -77,6 +77,7 @@ class FakeCamera(HeadCamera):
 class FakeScreen:
     def __init__(self):
         self.events = []
+        self.cancel_on_show = False  # the skill is aborted while it speaks
 
     def say(self, text, cancelled):
         self.events.append(("say", text))
@@ -84,6 +85,9 @@ class FakeScreen:
 
     def show(self, image, image_format, text, cancelled):
         self.events.append(("show", text, image_format, image))
+        if self.cancel_on_show:
+            cancelled.set()
+            return False, "Cancelled"
         return True, ""
 
     def hide(self):
@@ -204,6 +208,37 @@ class ShowObjectsTests(unittest.TestCase):
         self.assertEqual(result.message, "Cancelled")
         self.assertEqual(self.screen.events[-1], ("hide",))
         self.assertEqual(len([e for e in self.screen.events if e[0] == "show"]), 1)
+
+    def test_cancel_during_the_first_speech_clears_the_screen(self):
+        self.screen.cancel_on_show = True
+        result = self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "Cancelled")
+        self.assertEqual([e[0] for e in self.screen.events], ["show", "hide"])
+
+    def test_frame_is_removed_before_an_object_only_spoken(self):
+        """The previous frame must not stay up while another object is named."""
+        memory = {
+            "table.cup": record("mug", 2.0, 0.3),
+            "table.plate": "plate",
+            "table.trash": record("pringles", -2.0, 0.0),  # behind the camera
+            "table.other1": record("apple", 2.0, -0.3),
+        }
+        result = self.run_skill(memory, objects=list(memory))
+        self.assertFalse(result.success)
+        self.assertEqual(
+            [e[0] for e in self.screen.events],
+            ["show", "hide", "say", "say", "show", "hide"],
+        )
+        self.assertEqual(
+            [e[1] for e in self.screen.events if e[0] != "hide"],
+            [
+                f"{LOOK_FIRST} I found the mug on the dining table.",
+                "I recognized the plate on the dining table.",
+                "I recognized the pringles on the dining table. That goes in the trash.",
+                "I found the apple on the dining table.",
+            ],
+        )
 
     def test_bad_record_fails(self):
         result = self.run_skill({"table.cup": {"position": [1, 2, 3]}})

@@ -250,6 +250,7 @@ class ShowObjects(Skill):
             items.append((key, label, place))
         if not items and not failed:
             return SkillResult(True, "No perceived objects to show")
+        displayed = False  # a framed image is on the screen
         try:
             for key, label, place in items:
                 trash = "trash" in key.split(".")
@@ -264,19 +265,23 @@ class ShowObjects(Skill):
                         failed.append(f"{label} ({why})")
                     else:
                         spoken.append(label)
+                    if displayed:  # the previous frame must not seem to be this object
+                        interaction.hide()
+                        displayed = False
                     text = object_sentence(label, surface, trash, shown=False)
                     self.say(interaction.say(text, ctx.cancelled), ctx)
                     continue
                 text = object_sentence(label, surface, trash)
                 if not shown:
                     text = f"{LOOK_FIRST} {text}"
+                displayed = True  # show publishes the image before speaking
                 self.say(interaction.show(picture, "jpeg", text, ctx.cancelled), ctx)
                 shown.append(label)
                 self.hold(dwell, ctx.cancelled)
         except Cancelled:
             return SkillResult(False, "Cancelled")
         finally:
-            if shown:
+            if displayed:
                 interaction.hide()
         parts = [f"shown: {', '.join(shown)}"] if shown else []
         if spoken:
