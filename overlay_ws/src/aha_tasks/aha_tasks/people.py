@@ -744,14 +744,19 @@ class CountPeople(Skill):
         step = {"index": -1, "until": -math.inf}  # pan on show, end of its dwell
 
         def entry_for(message, person):
+            # Its own ID first: two people may come closer than SAME_PERSON_M
+            # later on, and the other one's entry must not take this track.
             for entry in found:
-                if person.id in entry["ids"] or (
-                    message.header.frame_id == "map"
-                    and math.dist(planar(person.position), entry["position"][:2])
-                    < SAME_PERSON_M
-                ):
+                if person.id in entry["ids"]:
                     return entry
-            return None
+            if message.header.frame_id != "map":
+                return None
+            near = [
+                (math.dist(planar(person.position), entry["position"][:2]), i)
+                for i, entry in enumerate(found)
+            ]
+            near = [(d, i) for d, i in near if d < SAME_PERSON_M]
+            return found[min(near)[1]] if near else None
 
         def choose(message):
             # At most one judgement per call, so that the timeout is checked

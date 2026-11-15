@@ -925,6 +925,44 @@ class CountPeopleTests(unittest.TestCase):
         self.assertNotIn(4, [r.id for r in people.classify.requests])
         self.assertNotIn(5, [r.id for r in people.classify.requests])
 
+    def test_a_person_coming_close_to_a_judged_one_keeps_their_entry(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 1.7, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                2: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])},
+            },
+            vlm_failures={2: 1},
+        )
+        answer = people.classify.answer
+
+        def answer_then_come_closer(request):
+            reply = answer(request)
+            if request.id == 2 and not reply.success:
+                # Tracking moves person 2 to 0.4 m of the judged person 1.
+                people.message = people_message(
+                    person(1, 1.0, 0.0), person(2, 1.4, 0.0)
+                )
+                people.received = time.monotonic()
+            return reply
+
+        people.classify.answer = answer_then_come_closer
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "gesture": "waving persons",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                    "timeout": 10.0,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["n"], 1)
+        vlm = [r.id for r in people.classify.requests if not r.skip_vlm]
+        self.assertEqual(vlm, [2, 2])  # failed, then judged again
+
     def test_counts_everyone_without_a_description(self):
         people = FakePeople(
             people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0), frame="camera")
