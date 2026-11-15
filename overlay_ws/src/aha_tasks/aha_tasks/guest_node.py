@@ -1,22 +1,29 @@
 """Simulation only: moves the guests in Gazebo as the task runner's subgoals advance.
 
-Uses the true robot pose, which the skills never see: they only get the guests
-through the head camera and person_perception. Motion runs on the simulation
-clock, so the walking speed holds at any real time factor.
+Uses the true robot pose and the task memory (the offered seats), which the
+skills never see: they only get the guests through the head camera and
+person_perception. Motion runs on the simulation clock, so the walking speed
+holds at any real time factor. Seated people (the host) and added chairs are
+created with the guests.
 """
 
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import threading
 
 from aha_tasks.guests import (
+    CHAIR_MODEL,
     Guest,
+    chair_sdf,
     door_open,
     guest_phase,
     guest_sdf,
     load_config,
+    offered_seat,
+    seated_pose,
     statuses_of,
 )
 from aha_tasks.runner import STATUS_TOPIC
@@ -40,6 +47,25 @@ def set_pose(gz, world, name, x, y, z, yaw, timeout=REQUEST_TIMEOUT):
     return ok and reply.data
 
 
+def find_model_sdf(name):
+    """model.sdf of model://<name> in GZ_SIM_RESOURCE_PATH or sobits_gazebo_worlds."""
+    paths = os.environ.get("GZ_SIM_RESOURCE_PATH", "").split(os.pathsep)
+    roots = [Path(p) for p in paths if p]
+    try:
+        from ament_index_python.packages import get_package_share_directory
+
+        roots.append(
+            Path(get_package_share_directory("sobits_gazebo_worlds")) / "models"
+        )
+    except LookupError:
+        pass
+    for root in roots:
+        path = root / name / "model.sdf"
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"model://{name} not found")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -60,7 +86,7 @@ def main(argv=None):
     world = f"/world/{scene['world']}"
     gz = GzNode()
     lock = threading.Lock()
-    state = {"robot": None, "statuses": {}}
+    state = {"robot": None, "statuses": {}, "memory": {}}
 
     def on_poses(message):
         for pose in message.pose:
@@ -82,8 +108,10 @@ def main(argv=None):
     log = node.get_logger()
 
     def on_status(message):
+        status = json.loads(message.data)
         with lock:
-            state["statuses"] = statuses_of(json.loads(message.data))
+            state["statuses"] = statuses_of(status)
+            state["memory"] = status.get("memory", {})
 
     node.create_subscription(
         String,
@@ -97,14 +125,28 @@ def main(argv=None):
     )
     guests = [Guest(name, c, scene) for name, c in scene["guests"].items()]
     door = scene["door"]
-    missing = list(guests)
+    # People are created hidden under the floor and then moved.
+    missing = [
+        (name, guest_sdf(name, person["away"], person["colors"]))
+        for name, person in scene["guests"].items()
+    ]
+    missing += [
+        (name, guest_sdf(name, seated_pose(scene, name)[:2], person["colors"]))
+        for name, person in scene["seated"].items()
+    ]
+    chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
+    if chairs:
+        try:
+            model = find_model_sdf(CHAIR_MODEL)
+            missing += [(n, chair_sdf(model, n, p)) for n, p in chairs.items()]
+        except FileNotFoundError as error:
+            log.error(f"No chairs added: {error}")
     sent = {}
     opened = None
     last = None
 
     def spawn():
-        for guest in list(missing):
-            sdf = guest_sdf(guest.name, guest.config["away"], guest.config["colors"])
+        for name, sdf in list(missing):
             ok, reply = gz.request(
                 f"{world}/create",
                 EntityFactory(sdf=sdf),
@@ -114,8 +156,8 @@ def main(argv=None):
             )
             if not (ok and reply.data):
                 return
-            missing.remove(guest)
-            log.info(f"Spawned {guest.name} at {guest.config['away']}")
+            missing.remove((name, sdf))
+            log.info(f"Spawned {name}")
 
     def tick():
         nonlocal last, opened
@@ -126,26 +168,30 @@ def main(argv=None):
             return
         with lock:
             robot, statuses = state["robot"], state["statuses"]
+            memory = state["memory"]
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
             if move(door["model"], x, y, z, yaw):
                 opened = is_open
                 log.info(f"Door {'open' if is_open else 'closed'}")
+        poses = {name: seated_pose(scene, name) for name in scene["seated"]}
         for guest in guests:
             phase = guest_phase(guest.name, statuses)
+            seat = offered_seat(guest.name, memory, scene["seats"])
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
-            guest.set_phase(phase)
+            guest.set_phase(phase, seat)
             guest.step(dt, robot)
-            pose = (guest.x, guest.y, guest.z, guest.model_yaw)
-            previous = sent.get(guest.name)
+            poses[guest.name] = (guest.x, guest.y, guest.z, guest.model_yaw)
+        for name, pose in poses.items():
+            previous = sent.get(name)
             if (
                 previous is None
                 or max(abs(a - b) for a, b in zip(pose, previous)) > MOVED
             ):
-                if move(guest.name, *pose):
-                    sent[guest.name] = pose
+                if move(name, *pose):
+                    sent[name] = pose
 
     node.create_timer(PERIOD, tick)
     try:

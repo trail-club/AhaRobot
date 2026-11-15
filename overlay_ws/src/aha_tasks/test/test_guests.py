@@ -18,12 +18,16 @@ from aha_tasks.guests import (  # noqa: E402
     TRIGGERS,
     DOOR_TRIGGER,
     Guest,
+    chair_sdf,
     door_open,
     guest_phase,
     guest_sdf,
     load_config,
+    offered_seat,
+    seated_pose,
     statuses_of,
 )
+from aha_tasks.seats import nearest_seat  # noqa: E402
 
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 SCENE = load_config(CONFIG / "sim" / "human_interaction.json")
@@ -142,21 +146,36 @@ class MotionTests(unittest.TestCase):
             if x > WALL_X - 0.05 and x < -2.1:  # in through the 1 m gap, y from 1 to 2
                 self.assertAlmostEqual(y, 1.5, delta=0.3)
 
-    def test_goes_to_the_seat_and_faces_the_room(self):
+    def test_goes_to_the_offered_seat_and_faces_the_room(self):
         guest = guest1()
         guest.set_phase(ARRIVE)
         guest.set_phase(FOLLOW)
         guest.x, guest.y, guest.route = 0.6, 2.5, []
-        guest.set_phase(SEAT)
-        run(guest, 5.0, (1.75, 2.5))
-        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
+        guest.set_phase(SEAT, "chair_extra")
+        run(guest, 6.0, (1.25, 2.5))
+        self.assertEqual((guest.x, guest.y), (2.55, 3.05))
         self.assertAlmostEqual(guest.yaw, -math.pi / 2, places=3)
+
+    def test_without_an_offered_seat_it_takes_the_configured_one(self):
+        guest = guest1()
+        guest.set_phase(SEAT, "sofa_that_the_sim_does_not_have")
+        self.assertEqual(guest.seat, guest.config["seat"])
+
+    def test_another_seat_offered_meanwhile_turns_the_guest(self):
+        guest = guest1()
+        guest.set_phase(FOLLOW)
+        guest.x, guest.y, guest.route = 0.75, 2.6, []
+        guest.set_phase(SEAT, "chair_right")
+        run(guest, 0.2)
+        guest.set_phase(SEAT, "chair_left")
+        run(guest, 5.0)
+        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
 
     def test_seat_without_the_walk_is_a_jump(self):
         """guest2.* alone: guest1's subgoals are bypassed at once."""
         guest = guest1()
-        guest.set_phase(SEAT)
-        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
+        guest.set_phase(SEAT, "chair_right")
+        self.assertEqual((guest.x, guest.y), (0.75, 3.05))
 
     def test_rewind_goes_back_without_walking(self):
         guest = guest1()
@@ -198,8 +217,61 @@ class SceneTests(unittest.TestCase):
         self.assertLess(guest.z, 0.0)
 
     def test_guests_look_different(self):
-        colors = [guest["colors"] for guest in SCENE["guests"].values()]
-        self.assertNotEqual(colors[0]["shirt"], colors[1]["shirt"])
+        people = [*SCENE["guests"].values(), *SCENE["seated"].values()]
+        shirts = {tuple(person["colors"]["shirt"]) for person in people}
+        self.assertEqual(len(shirts), len(people))
+
+    def test_seats_match_the_task_and_a_person_there_occupies_it(self):
+        """The sim stands people in front of a seat: find_free_seat must count them."""
+        spec = load_spec(CONFIG / "human_interaction.json")
+        lists = [
+            s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"
+        ]
+        self.assertEqual(len(lists), 2)
+        self.assertEqual(lists[0], lists[1])
+        self.assertEqual(set(SCENE["seats"]), set(lists[0]))
+        for name, seat in SCENE["seats"].items():
+            with self.subTest(name):
+                self.assertEqual(nearest_seat(lists[0], seat["pose"][:2], 0.6), name)
+                if "chair" in seat:  # the added chair is where the task expects
+                    self.assertEqual(seat["chair"][:2], lists[0][name][:2])
+        mocks = [s.mock for s in spec.subgoals if s.skill == "find_free_seat"]
+        for guest, mock in zip(("guest1", "guest2"), mocks):
+            seat = mock[f"{guest}.seat"]
+            self.assertEqual(mock[f"{guest}.seat_position"], lists[0][seat])
+            # The mock is what the sim's guest is offered with the host seated.
+            self.assertEqual(seat, SCENE["guests"][guest]["seat"])
+        taken = {
+            p["seat"] for p in [*SCENE["seated"].values(), *SCENE["guests"].values()]
+        }
+        self.assertEqual(len(taken), len(SCENE["seated"]) + len(SCENE["guests"]))
+
+    def test_the_offered_seat_comes_from_memory_if_the_sim_has_it(self):
+        seats = SCENE["seats"]
+        self.assertEqual(
+            offered_seat("guest1", {"guest1.seat": "chair_left"}, seats), "chair_left"
+        )
+        self.assertIsNone(offered_seat("guest1", {"guest2.seat": "chair_left"}, seats))
+        self.assertIsNone(offered_seat("guest1", {"guest1.seat": "sofa"}, seats))
+
+    def test_the_host_stands_at_its_seat_facing_the_room(self):
+        x, y, z, yaw = seated_pose(SCENE, "host")
+        seat = SCENE["seats"][SCENE["seated"]["host"]["seat"]]["pose"]
+        self.assertEqual((x, y, z), (seat[0], seat[1], 0.0))
+        self.assertAlmostEqual(yaw, 0.0, places=5)  # the mesh faces -y at yaw 0
+
+    def test_an_added_chair_is_static_and_renamed(self):
+        model = (
+            '<?xml version="1.0" ?><sdf version="1.8"><model name="chair">'
+            '<link name="link"/></model></sdf>'
+        )
+        sdf = ET.fromstring(chair_sdf(model, "chair_extra", [2.5, 3.5, -1.5]))
+        chair = sdf.find("model")
+        self.assertEqual(chair.get("name"), "chair_extra")
+        self.assertEqual(chair.findtext("static"), "true")
+        self.assertEqual(chair.findtext("pose"), "2.5 3.5 0 0 0 -1.5")
+        with self.assertRaises(ValueError):
+            chair_sdf("<sdf/>", "chair_extra", [0, 0, 0])
 
     def test_guest_model_has_no_collision_and_every_mesh_part(self):
         sdf = guest_sdf("g", (1.0, 2.0), {"shirt": [1.0, 0.0, 0.0]})
@@ -215,13 +287,23 @@ class SceneTests(unittest.TestCase):
         import json
         import tempfile
 
-        scene = json.loads(json.dumps(SCENE))
-        scene["guests"]["guest1"]["colors"]["hat"] = [0, 0, 0]
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "scene.json"
-            path.write_text(json.dumps(scene))
-            with self.assertRaises(ValueError):
-                load_config(path)
+        def broken(change):
+            scene = json.loads(json.dumps(SCENE))
+            change(scene)
+            return scene
+
+        for scene in (
+            broken(lambda s: s["guests"]["guest1"]["colors"].update(hat=[0, 0, 0])),
+            broken(lambda s: s["guests"]["guest1"].update(seat="sofa")),
+            broken(lambda s: s["seated"]["host"].update(seat="sofa")),
+            broken(lambda s: s["seats"]["chair_left"].pop("via")),
+            broken(lambda s: s["seated"].update(guest1=s["seated"]["host"])),
+        ):
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "scene.json"
+                path.write_text(json.dumps(scene))
+                with self.assertRaises(ValueError):
+                    load_config(path)
 
 
 if __name__ == "__main__":

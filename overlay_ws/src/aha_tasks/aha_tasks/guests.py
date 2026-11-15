@@ -3,13 +3,16 @@
 A guest follows the subgoals of the task (rulebook 5.1): is hidden until it
 comes to the door when the doorbell would ring, stays outside until the robot
 starts the conversation, paces during it, follows the robot in and goes to the
-seat it offers. The phase comes from the statuses of all subgoals, so a mock
-subgoal that passes between two status messages still counts.
+seat it offers (`<guest>.seat` of the task memory). The phase comes from the
+statuses of all subgoals, so a mock subgoal that passes between two status
+messages still counts. Seated people (the host) stand at their seat from the
+start, and seats with a "chair" get a chair the world does not have.
 """
 
 import json
 import math
 from pathlib import Path
+import re
 
 AWAY, ARRIVE, TALK, FOLLOW, SEAT = range(5)
 # The start of subgoal <guest>.<name> begins the phase.
@@ -40,9 +43,14 @@ SCENE_KEYS = {
     "walk_speed",
     "follow_gap",
     "pace",
+    "seats",
+    "seated",
     "guests",
 }
-GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors"}
+GUEST_KEYS = {"away", "door", "threshold", "seat", "colors"}
+SEATED_KEYS = {"seat", "colors"}
+SEAT_KEYS = {"pose", "via"}  # and optionally "chair": [x, y, yaw] to add one
+CHAIR_MODEL = "chair"  # model://chair of sobits_gazebo_worlds, as in the world
 
 
 def load_config(path):
@@ -50,18 +58,33 @@ def load_config(path):
     config = json.loads(Path(path).read_text(encoding="utf-8"))
     if set(config) != SCENE_KEYS:
         raise ValueError(f"{path}: needs exactly {sorted(SCENE_KEYS)}")
-    for name, guest in config["guests"].items():
-        if set(guest) != GUEST_KEYS:
-            raise ValueError(f"{path}: {name} needs exactly {sorted(GUEST_KEYS)}")
-        unknown = set(guest["colors"]) - set(COLOR_PARTS)
+    for name, seat in config["seats"].items():
+        if not SEAT_KEYS <= set(seat) <= SEAT_KEYS | {"chair"}:
+            raise ValueError(f"{path}: seat {name} needs {sorted(SEAT_KEYS)}")
+    people = [*config["seated"].items(), *config["guests"].items()]
+    for name, person in people:
+        keys = SEATED_KEYS if name in config["seated"] else GUEST_KEYS
+        if set(person) != keys:
+            raise ValueError(f"{path}: {name} needs exactly {sorted(keys)}")
+        if person["seat"] not in config["seats"]:
+            raise ValueError(f"{path}: {name} has an unknown seat {person['seat']}")
+        unknown = set(person["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
+    if set(config["seated"]) & set(config["guests"]):
+        raise ValueError(f"{path}: a guest cannot also be seated")
     return config
 
 
 def statuses_of(status):
     """Subgoal id -> status from a /aha/tasks/status message."""
     return {subgoal["id"]: subgoal["status"] for subgoal in status["subgoals"]}
+
+
+def offered_seat(name, memory, seats):
+    """The seat in memory for a guest (`<name>.seat`) if the scene has it."""
+    seat = memory.get(f"{name}.seat")
+    return seat if seat in seats else None
 
 
 def reached(statuses, subgoal):
@@ -108,12 +131,34 @@ def guest_sdf(name, position, colors):
     )
 
 
+def seated_pose(scene, name):
+    """(x, y, z, model yaw) of a seated person, at their seat from the start."""
+    x, y, yaw = scene["seats"][scene["seated"][name]["seat"]]["pose"]
+    return (x, y, 0.0, math.remainder(yaw - MODEL_FRONT, math.tau))
+
+
+def chair_sdf(model_sdf, name, pose):
+    """The SDF of a chair model renamed, static and at [x, y, yaw] on the floor."""
+    x, y, yaw = pose
+    text, count = re.subn(
+        r'<model\s+name="[^"]*"\s*>',
+        f'<model name="{name}"><static>true</static><pose>{x} {y} 0 0 0 {yaw}</pose>',
+        model_sdf,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("no <model> in the chair SDF")
+    return text
+
+
 class Guest:
     """Position and heading (map-like world frame) of one guest over time."""
 
     def __init__(self, name, config, scene):
         self.name = name
         self.config = config
+        self.seats = scene["seats"]
+        self.seat = config["seat"]  # the seat it goes to or sits at
         self.speed = scene["walk_speed"]
         self.gap = scene["follow_gap"]
         self.pace = scene["pace"]
@@ -132,9 +177,15 @@ class Guest:
     def model_yaw(self):
         return math.remainder(self.yaw - MODEL_FRONT, math.tau)
 
-    def set_phase(self, phase):
+    def set_phase(self, phase, seat=None):
+        """`seat` is the one offered (a name of the scene), else the configured."""
+        seat = seat if seat in self.seats else self.config["seat"]
         if phase == self.phase:
+            if phase == SEAT and seat != self.seat:  # offered another one
+                self.seat = seat
+                self.route = self._seat_route()
             return
+        self.seat = seat
         previous, self.phase = self.phase, phase
         self.clock, self.last_trail = 0.0, None
         door, threshold = self.config["door"], self.config["threshold"]
@@ -144,8 +195,9 @@ class Guest:
             if phase == AWAY:
                 self._place(self.config["away"])
             elif phase == SEAT:
-                self._place(self.config["seat"][:2])
-                self.yaw = self.config["seat"][2]
+                pose = self.seats[seat]["pose"]
+                self._place(pose[:2])
+                self.yaw = pose[2]
             else:
                 self._place(door)
             if phase == FOLLOW:
@@ -157,7 +209,11 @@ class Guest:
         elif phase == FOLLOW:
             self.route = (self.route or [door]) + [threshold]
         elif phase == SEAT:
-            self.route = [*self.config["seat_via"], self.config["seat"][:2]]
+            self.route = self._seat_route()
+
+    def _seat_route(self):
+        seat = self.seats[self.seat]
+        return [*seat["via"], seat["pose"][:2]]
 
     def step(self, dt, robot=None):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
@@ -168,7 +224,7 @@ class Guest:
         if self.route and not (self.phase == FOLLOW and near):
             self._walk(self.speed * dt)
             if not self.route and self.phase == SEAT:
-                self.yaw = self.config["seat"][2]
+                self.yaw = self.seats[self.seat]["pose"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
         elif self.phase == TALK:

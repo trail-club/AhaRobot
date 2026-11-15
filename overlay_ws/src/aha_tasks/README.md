@@ -9,6 +9,7 @@
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
+| `aha_tasks/seats.py` | 空いている席を探す `find_free_seat`（[空席の判定](#空席の判定)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
@@ -198,15 +199,15 @@ TTSで読み上げられなかった場合も、`wait_start_signal` はボタン
 
 ## Human Robot Interaction Challenge
 
-[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
+[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を30サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）と、`offer_seat`。
+実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests` / `find_free_seat`（`people:=true` が必要）と、`offer_seat`。
 
 ロボットは場内から始めるため、最初の `start.signal` で審判の手動の開始合図（§3.6.8）として画面の `Start` のタッチを待つ。
 部分実行で `start.signal` を選ばなければ合図を待たない。
 
-客席・ホスト・荷物置き場は固定の代替地点。ロボットは内側の `entrance` まで移動する。
-`guests:=true` でなければ入口のドアは閉じたままで、人のモデルは配置しない。ホスト・荷物のモデルは配置しない。
+席の候補・ホスト・荷物置き場は固定の代替地点。ロボットは内側の `entrance` まで移動する。
+`guests:=true` でなければ入口のドアは閉じたままで、人のモデルと追加の椅子は配置しない。荷物のモデルは配置しない。
 地点は `/aha/tasks/locations` に配信し、RVizで表示できる。
 
 ```bash
@@ -239,7 +240,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests:=true ssh_user:=<Unixユーザー名>
 ```
 
-`sim_guests` が `/aha/tasks/status` のサブゴールの状態に合わせ、[config/sim/human_interaction.json](config/sim/human_interaction.json) の配置で2人の客とドアをGazeboの中で動かす。
+`sim_guests` が `/aha/tasks/status` のサブゴールの状態と記憶に合わせ、[config/sim/human_interaction.json](config/sim/human_interaction.json) の配置で2人の客とドアをGazeboの中で動かし、座っているホストと追加の椅子を置く。
 スキルには真値を渡さず、客の位置は頭部カメラと `person_perception` からだけ得る。
 未実装のスキルがmockで一瞬で通過しても、状態から段階を決めるため客の動作は飛ばない。
 
@@ -250,16 +251,19 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 | `<guest>.open_door` | ドアが外へ開く。以後は開いたまま |
 | `<guest>.ask` | ドアの外側で左右に0.2 m（周期6 s）動き、ロボットを向く。ルールのとおり、会話が始まるまで家には入らない |
 | `<guest>.guide` | ロボットとの距離を1.2 m保ち、ロボットが通った経路を歩いて家に入る |
-| `<guest>.seat` | 席の前へ歩き、部屋を向いて立つ |
+| `<guest>.seat` | 記憶の `<guest>.seat`（`find_free_seat` が選んだ席）の前へ歩き、部屋を向いて立つ。記憶にない席なら客の設定の `seat` |
 
 巻き戻しと、選択外で歩く間のない段階への移行は、歩かずに移動する。歩く速さ1.0 m/sはシミュレーション時刻。
+
+`seats` の席ごとに、人が立つ位置 `pose`（席の0.45 m前）と途中の点 `via` を書く。`chair` のある席には、worldにない椅子（`model://chair`）を置く（審判が椅子を追加する場面）。
+`seated` の人（ホスト）は起動時から席の前に立つ。ホストは `chair_left` にいるため、`find_free_seat` は1人目にホストの席を除いて `chair_right` を、2人目にさらに1人目の席を除いて `chair_extra` を選ぶ。各サブゴールの `mock` はこの席。
 
 制限：
 
 - 客は静止した立ち姿のモデル（`person_standing`）を動かすもので、脚は動かず、座らない。シャツなどの色で2人を区別し、その他の外見は同じ。
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
-- 待っている他の客・ホスト・荷物は含まない。
+- ホストは席の前に立ったまま動かない（`bag.*` の追従はmock）。待っている他の客・荷物は含まない。
 
 ### 注視
 
@@ -272,19 +276,33 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 | --- | --- | --- |
 | `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後 |
 | `follow_path(goal)` | Nav2の経路 `/plan` に沿って1.5 m先、高さ1.2 m。経路の終わりの先は経路の始点から終点への向き（進行方向）へ延ばし、始点と終点が0.3 m未満（その場で目標の向きへ回る）なら目標の向きへ延ばすため、到着時は正面を見る。新しい経路が届くまでは、目標地点から目標の向きへ1.5 m先（すでに目標にいて経路を待たずに終わっても、頭が真下や真横を向かない） | `navigate` と `robot.location` の復元（到着後は `hold`） |
-| `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`offer_seat` |
+| `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`find_free_seat`、`offer_seat` |
 | `hold()` | 最後の向き先を保つ | `navigate` の到着後、タスクの停止時（runner） |
 
 `find_person` で向けた客を、未実装の `ask_name_and_drink` の間も見続ける（ルールの「会話中に動く客を追う」）。
 `navigate` の間は進行方向を見る（「進行方向または目的地を見る」）。
 `navigate` と `robot.location` の復元はどのタスクでも頭を動かし、到着後は経路の先の点を `map` で保つ。到着後に机や床などを見るスキルは、`look_at` か `look_towards` で向き先を指示する。
 
-### 席の案内
+### 空席の判定
 
-`offer_seat` は `position`（`map` の席の点 `[x, y, z]`）を頭で見て、右腕で指し示す。
+`find_free_seat` は席の候補を順に頭で見て、人のいない最初の席を `<guest>.seat`（名前）と `<guest>.seat_position` に出力する。
 
 ```json
-{"guest": "guest1", "seat": "chair_left", "position": [1.75, 3.5, 0.5], "height": 0.8, "hold": 3.0}
+{"guest": "guest2", "seats": {"chair_left": [1.75, 3.5, 0.5], "chair_right": [0.75, 3.5, 0.5]}, "radius": 0.6, "dwell": 1.5}
+```
+
+- **候補**: `seats` は座る場所ごとの `map` の点（座面の中央、m）で、並びが優先順。ソファは座る場所ごとに分ける。人の認識は家具を出さないため、地点と同じくセットアップ日に測って書く。審判が追加した椅子や、動かされた家具は反映されない。
+- **占有**: `/aha/perception/people` の見えている人は、水平距離が `radius`（既定0.6 m）以内で最も近い席を占める。探す間に見えた人をすべて数え、すでに埋まっている席は見ずに飛ばす。案内している客（`guest` の名前、`<guest>.track`）は数えない。ホストや先に座った客は、記憶ではなく見えた人として除く（着席後に席を入れ替えることがあるため）。
+- **見た判定**: 頭を席の0.4 m上（座った人の胴）へ向け、2 s（頭の旋回）後に届いたメッセージの次のメッセージで、その席を見たとする。2 s + `dwell`（既定1.5 s）の間に誰もいなければ空席として終わり、頭は席を向いたままにする。待ち時間は他の人の認識のスキルと同じ時計で数える。
+- **見ない席**: `robot.location` の向きから左右90°（頭のpanの範囲）を超える席は見ない。案内先は席が前に来る位置にする。
+- **失敗**: 空席がなければ、席ごとの理由（`chair_left: person 3 sits there`、見えない、`map` 以外の座標など）を付けて失敗する。人の認識が止まっていれば最初の席で失敗する。
+
+### 席の案内
+
+`offer_seat` は席の点（`map` の `[x, y, z]`）を頭で見て、右腕で指し示す。席は記憶の `<guest>.seat` と `<guest>.seat_position`（`find_free_seat` の出力）で、paramsに `seat` と `position` を与えるとそれを使う。記憶にもparamsにもなければ、動かずに失敗する。
+
+```json
+{"guest": "guest1", "height": 0.8, "hold": 3.0}
 ```
 
 1. 席が右腕で指せる方向（肩から見て右100°〜左60°）になければ、Nav2でその場で席へ向く。
@@ -293,7 +311,6 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 
 出力は `<guest>.seat`（席の名前）。`robot.holding` があるとき（`guest2` は荷物を持つ）は腕を動かさず、頭だけで席を示す。
 腕は `right_arm_controller` / `lift_controller` へ関節空間の直線の軌道を送り、衝突は確認しない。開始時の姿勢から指す姿勢までの間に障害物がないことが前提で、シミュレーションの初期姿勢（全関節0）からの動作だけを確認している。
-空席の判定は含まず、席は固定の代替地点。
 
 ## Pick and Place Challenge
 

@@ -9,21 +9,27 @@
   "walk_speed": 1.0,
   "follow_gap": 1.2,
   "pace": {"amplitude": 0.2, "period": 6.0},
+  "seats": {
+    "chair_left": {"pose": [1.75, 3.05, -1.570796], "via": [[1.0, 2.6]]},
+    "chair_right": {"pose": [0.75, 3.05, -1.570796], "via": [[0.75, 2.6]]},
+    "chair_extra": {"pose": [2.55, 3.05, -1.570796], "via": [[1.25, 1.7], [2.55, 2.3]], "chair": [2.55, 3.5, -1.570796]}
+  },
+  "seated": {
+    "host": {"seat": "chair_left", "colors": {"shirt": [0.15, 0.25, 0.7], "trousers": [0.35, 0.3, 0.25]}}
+  },
   "guests": {
     "guest1": {
       "away": [-7.0, -1.0],
       "door": [-5.3, 1.5],
       "threshold": [-5.0, 1.5],
-      "seat_via": [[1.0, 3.05]],
-      "seat": [1.75, 3.05, -1.570796],
+      "seat": "chair_right",
       "colors": {"shirt": [0.75, 0.08, 0.08]}
     },
     "guest2": {
       "away": [-7.0, -2.0],
       "door": [-5.3, 1.5],
       "threshold": [-5.0, 1.5],
-      "seat_via": [[0.25, 3.05]],
-      "seat": [0.75, 3.05, -1.570796],
+      "seat": "chair_extra",
       "colors": {"shirt": [0.1, 0.45, 0.15], "trousers": [0.05, 0.05, 0.05], "hair": [0.75, 0.6, 0.25]}
     }
   }
