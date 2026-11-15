@@ -328,7 +328,7 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
 `keypoints` / `keypoint_scores` は最後に写った画像のCOCOの17点（順序は `Person.msg`）で、スコア0の点は見えていない。キーポイントを使わない設定と、ViTPoseが失敗した場合は空。
 `posture` / `gesture` は、キーポイントとDepthの規則で確かな場合だけ入る（[判定](../overlay_ws/src/aha_perception/README.md#姿勢ジェスチャ服)）。左右は本人の左右。
-`ClassifyPerson` はVLMにも聞き、服を `"<色> <種類>"`（例 `red t shirt`）で返す。`skip_vlm` では確かな規則の結果だけをすぐ返す。
+`ClassifyPerson` はVLMにも聞き、服を `"<色> <種類>"`（例 `red t shirt`）で返す。`skip_vlm` では確かな規則の結果だけをすぐ返す。VLMの呼び出しが失敗すると `success` はfalse（理由は `message`）。
 
 ## 音声
 

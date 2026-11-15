@@ -512,6 +512,7 @@ class PersonPerception(Node):
             time.sleep(0.2)
         notes = [f"rules: posture {describe(posture)}, gesture {describe(gesture)}"]
         answer = {}
+        vlm_failed = False
         if not request.skip_vlm:
             try:
                 answer = self.ask_attributes(request.id, crops)
@@ -520,6 +521,7 @@ class PersonPerception(Node):
                     f"{answer['gesture'] or '?'} in {answer['seconds']:.1f} s"
                 )
             except (TimeoutError, WorkerError, RuntimeError) as exc:
+                vlm_failed = True
                 notes.append(f"VLM failed: {exc}")
         if request.skip_vlm:
             # Only clear answers, so that an empty one tells the caller to ask
@@ -533,7 +535,9 @@ class PersonPerception(Node):
             gesture, answer.get("gesture")
         )
         response.garments = list(answer.get("garments") or [])
-        response.success = True
+        # Without the VLM's answer the clothing and unclear labels are unknown,
+        # not empty: the caller should judge again rather than take them.
+        response.success = not vlm_failed
         response.message = "; ".join(notes)
         return response
 

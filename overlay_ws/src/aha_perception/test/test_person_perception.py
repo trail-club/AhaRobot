@@ -209,6 +209,10 @@ class PersonPerceptionTest(unittest.TestCase):
         )
         self.assertTrue(quick.success, quick.message)
         self.assertEqual(list(quick.garments), [])
+        # A VLM error is a failure, not an empty answer (the fake fails for blue).
+        failed = self.call(self.classify, ClassifyPerson.Request(id=blue.id))
+        self.assertFalse(failed.success)
+        self.assertIn("VLM failed", failed.message)
         missing = self.call(self.classify, ClassifyPerson.Request(id=999))
         self.assertFalse(missing.success)
 

@@ -7,7 +7,8 @@ uint32 id
 bool skip_vlm          # true: only clear answers from depth and keypoints (no clothing),
                        # at once; empty fields then need the VLM
 ---
-bool     success
+bool     success         # false: not tracked, or the VLM was asked and did not answer
+                         # (posture / gesture then hold only the rule results)
 string   message
 string   posture         # standing / sitting / lying; empty if unknown
 string   gesture         # waving / raising_left_arm / raising_right_arm / raising_both_arms /

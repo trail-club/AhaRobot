@@ -4,7 +4,8 @@
 The VLM names the mean colour of a crop and matches crops of the same mean
 colour, so tests can tell the two people apart the same way the DGX does.
 The pose model puts the 17 keypoints of an upright figure into each box; the
-attribute question names a t shirt of the crop's colour.
+attribute question names a red t shirt for red crops and fails for blue ones,
+like a VLM error.
 """
 
 import json
@@ -77,12 +78,13 @@ class FigurePose:
 class ColourVlm:
     def ask(self, prompt, *images):
         if "upper_garments" in prompt:
-            colour = "red" if redder(images[-1]) else "blue"
+            if not redder(images[-1]):
+                raise ValueError("the VLM did not answer in JSON")
             return json.dumps(
                 {
                     "posture": "standing",
                     "gesture": "none",
-                    "upper_garments": [{"type": "t-shirt", "colour": colour}],
+                    "upper_garments": [{"type": "t-shirt", "colour": "red"}],
                 }
             )
         *references, image = images

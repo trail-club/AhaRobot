@@ -73,7 +73,9 @@ class FakePeople(People):
     now = staticmethod(time.monotonic)
     look_settle = 0.0
 
-    def __init__(self, message=None, features=("glasses",), attributes=None):
+    def __init__(
+        self, message=None, features=("glasses",), attributes=None, vlm_failures=None
+    ):
         self.lock = threading.Lock()
         self.message, self.received = message, time.monotonic()
         self.looked = []
@@ -89,6 +91,8 @@ class FakePeople(People):
         )
         # id -> {"rules": (posture, gesture), "vlm": (posture, gesture, garments)}
         self.attributes_by_id = attributes or {}
+        # id -> calls with the VLM that fail before it answers (like a timeout)
+        self.vlm_failures = dict(vlm_failures or {})
         self.classify = FakeClient("classify", self._classify)
         service = SimpleNamespace(Request=lambda **kw: SimpleNamespace(**kw))
         self.RememberPerson = self.DescribePerson = self.ClassifyPerson = service
@@ -100,6 +104,16 @@ class FakePeople(People):
         if request.skip_vlm:
             posture, gesture = known.get("rules", ("", ""))
             garments = []
+        elif self.vlm_failures.get(request.id, 0) > 0:
+            self.vlm_failures[request.id] -= 1
+            posture, gesture = known.get("rules", ("", ""))
+            return SimpleNamespace(
+                success=False,
+                message="VLM failed: the DGX worker did not answer",
+                posture=posture,
+                gesture=gesture,
+                garments=[],
+            )
         else:
             posture, gesture, garments = known["vlm"]
         return SimpleNamespace(
@@ -715,6 +729,73 @@ class FailureTests(unittest.TestCase):
         self.assertFalse(result.success)
         # One person per check of the deadline: not all five (1.5 s).
         self.assertLess(time.monotonic() - started, 1.2)
+
+    def test_a_person_the_vlm_failed_on_is_judged_again(self):
+        unclear = {
+            1: {"rules": ("standing", ""), "vlm": ("standing", "waving", ["red coat"])}
+        }
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes=unclear,
+            vlm_failures={1: 1},
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 5.0})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(classified(people), [(1, True), (1, False)] * 2)
+
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes=unclear,
+            vlm_failures={1: 1},
+        )
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "gesture": "waving persons",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["n"], 1)
+        self.assertEqual(classified(people), [(1, True), (1, False)] * 2)
+
+    def test_a_person_the_vlm_always_fails_on_is_tried_a_limited_number_of_times(
+        self,
+    ):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])}
+            },
+            vlm_failures={1: 100},
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5})
+        )
+        self.assertFalse(result.success)
+        self.assertIn("1 could not be checked", result.message)
+        self.assertEqual(classified(people), [(1, True), (1, False)] * MAX_JUDGEMENTS)
+
+        people.classify.requests.clear()
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "gesture": "waving persons",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["n"], 0)
+        self.assertIn("1 could not be checked", result.message)
+        self.assertEqual(classified(people), [(1, True), (1, False)] * MAX_JUDGEMENTS)
 
     def test_a_vlm_that_does_not_answer_is_cut_at_the_timeout(self):
         people = FakePeople(

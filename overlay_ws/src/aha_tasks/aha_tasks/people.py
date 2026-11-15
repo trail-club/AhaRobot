@@ -37,7 +37,8 @@ SKIP_VLM_TIMEOUT = 10.0  # s for ClassifyPerson without the VLM
 # s more than describe_timeout for ClassifyPerson with the VLM: the server
 # first waits for motion (up to 20 s wall clock) and then up to its vlm_timeout.
 SERVER_MARGIN = 30.0
-# Judgements of one person when counting; a track lost on the way is retried.
+# Judgements of one person; one that fails (lost track, VLM error, timeout)
+# is tried again.
 MAX_JUDGEMENTS = 2
 
 
@@ -558,7 +559,8 @@ class FindDescribedPerson(Skill):
     generator, e.g. "waving person", "person pointing to the left", "sitting
     person", "person wearing a red t shirt"; they may be combined. The head
     scans `pans`; each visible person in the area is checked once, nearest
-    first. A name matches only people person_perception remembered.
+    first (up to MAX_JUDGEMENTS times while checks fail). A name matches only
+    people person_perception remembered.
     Outputs `<role>.track` / `.position` / `.frame` and what was seen:
     `<role>.pose` / `.gesture` / `.garments`.
     """
@@ -591,17 +593,22 @@ class FindDescribedPerson(Skill):
         vlm_timeout = positive(params, "describe_timeout", 180.0)
         timeout = positive(params, "timeout", 60.0)
         deadline = people.now() + timeout
-        checked = {}
+        checked = {}  # track ID -> answers (None: not the named person)
+        failures = {}  # track ID -> judgements that failed
         checked_at = []  # map positions of people already judged
         next_look = -math.inf
 
         def judged(message, person):
             # A track lost while the head turns comes back with a new ID.
-            return person.id in checked or (
-                message.header.frame_id == "map"
-                and any(
-                    math.dist(planar(person.position), xy) < SAME_PERSON_M
-                    for xy in checked_at
+            return (
+                person.id in checked
+                or failures.get(person.id, 0) >= MAX_JUDGEMENTS
+                or (
+                    message.header.frame_id == "map"
+                    and any(
+                        math.dist(planar(person.position), xy) < SAME_PERSON_M
+                        for xy in checked_at
+                    )
                 )
             )
 
@@ -647,8 +654,10 @@ class FindDescribedPerson(Skill):
                     )
                 except Cancelled:
                     return None  # wait_for reports the abort
-            checked[person.id] = answers
-            if answers is not None:
+            if answers is None:
+                failures[person.id] = failures.get(person.id, 0) + 1
+            else:
+                checked[person.id] = answers
                 checked_at.append(planar(person.position))
             ctx.log(f"{where(person)}: {describe_answers(answers)}")
             if answers and description.matches(name=person.name, **seen(answers)):
@@ -660,9 +669,12 @@ class FindDescribedPerson(Skill):
             people.look_towards(0.0)
             if ctx.cancelled.is_set():
                 return SkillResult(False, "Cancelled")
+            unchecked = len(set(failures) - set(checked))
             return SkillResult(
                 False,
-                f"No {description.text()} person among {len(checked)} checked: {reason}",
+                f"No {description.text()} person among {len(checked)} checked"
+                + (f" ({unchecked} could not be checked)" if unchecked else "")
+                + f": {reason}",
             )
         message, person, answers = found
         frame = message.header.frame_id
