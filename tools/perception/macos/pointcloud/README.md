@@ -30,6 +30,10 @@ bash tools/perception/macos/pointcloud/start.sh --demo
 
 ## rosbridgeへの直接送信
 
+Linuxでカメラを同じ機体につなぐ場合は、RealSense ROSドライバ（`real_head_camera.launch.py camera_source:=realsense`、
+[aha_perception](../../../../overlay_ws/src/aha_perception/README.md#realsenseドライバ)）を使う。
+rosbridge経由ではDepthをJSONに変換するため、受信が遅れる。
+
 rosbridgeを別に起動している場合（例: `real_head_camera.launch.py camera:=true`）は、`stream_realsense.py` だけを実行する。
 共通の撮影環境では、`start.sh` の初回起動でビルドしたRealSense SDKのライブラリを指定する。
 pyrealsense2と [pyproject.toml](../pyproject.toml) の依存が入った他のPythonでも実行できる。
@@ -43,3 +47,7 @@ export DYLD_LIBRARY_PATH="$venv/realsense-sdk/lib"
 
 既定は送信先 `ws://127.0.0.1:9090`、640×480、撮影15 fps、送信上限5回/s。
 `--ws-url`・`--width` / `--height`・`--fps`・`--rate` で変更する。
+
+Depthには、RGBへの位置合わせの前にlibrealsenseの後処理
+（disparity変換 → spatial → temporal → depthへ戻す、オプションはSDKの既定値）を全フレームにかける。
+`--no-filter` で後処理なしのDepthを送る。有効な後処理は起動時のログに出る。

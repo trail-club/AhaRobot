@@ -24,8 +24,9 @@ from PIL import Image
 from .sam31 import color_hex, render_candidates, validate_rgb, validate_threshold
 
 
-DEFAULT_VLM_URL = "http://127.0.0.1:11434"
-DEFAULT_VLM_MODEL = "qwen3-vl:30b"
+# Qwen3.8 on the DGX Spark (tools/local-llm), reached over Cloudflare One (WARP).
+DEFAULT_VLM_URL = "http://10.99.0.1:8080/v1"
+DEFAULT_VLM_MODEL = "qwen3.8-27b"
 DEFAULT_CANDIDATE_THRESHOLD = 0.3
 MAX_PHRASES = 3
 MAX_CANDIDATES = 8
@@ -60,36 +61,46 @@ KIND_PROMPT = """The photo shows one object placed near the centre. What kind of
 Reply with JSON only: {"phrase": "..."}"""
 
 
-class OllamaClient:
-    """Minimal Ollama /api/chat client for one instruction about some images."""
+class VlmClient:
+    """Minimal OpenAI-compatible chat client for one instruction about some images.
 
-    def __init__(self, url=DEFAULT_VLM_URL, model=DEFAULT_VLM_MODEL, timeout=180):
+    The Qwen3.8 server takes images as data URLs (at most 4 per request).
+    Reasoning is off by default: on the candidate selection it took minutes and
+    thousands of tokens and still chose worse (docs/context/perception.md).
+    With `thinking=True` the reasoning is kept in `last_thinking`.
+    """
+
+    def __init__(
+        self, url=DEFAULT_VLM_URL, model=DEFAULT_VLM_MODEL, timeout=180, thinking=False
+    ):
         self.url = url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.thinking = thinking
         self.last_thinking = ""
 
     def ask(self, prompt: str, *images: np.ndarray) -> str:
-        encoded = []
+        content = [{"type": "text", "text": prompt}]
         for image in images:
             buffer = BytesIO()
             Image.fromarray(image).save(buffer, format="PNG")
-            encoded.append(base64.b64encode(buffer.getvalue()).decode("ascii"))
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{encoded}"},
+                }
+            )
         body = {
             "model": self.model,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": encoded,
-                }
-            ],
-            # Thinking models spend most tokens before answering; leave room.
-            "options": {"temperature": 0, "num_predict": 4096},
+            "messages": [{"role": "user", "content": content}],
+            # Reasoning counts towards max_tokens; leave room for the answer.
+            "max_tokens": 4096,
+            "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": self.thinking},
         }
         request = urllib.request.Request(
-            self.url + "/api/chat",
+            self.url + "/chat/completions",
             data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"},
         )
@@ -102,14 +113,15 @@ class OllamaClient:
             ) from exc
         except (urllib.error.URLError, OSError) as exc:
             raise RuntimeError(f"VLM is not reachable at {self.url}: {exc}") from exc
-        message = reply.get("message") or {}
-        self.last_thinking = message.get("thinking") or ""
-        content = message.get("content") or ""
-        if not content.strip():
+        choices = reply.get("choices") or [{}]
+        message = choices[0].get("message") or {}
+        self.last_thinking = message.get("reasoning_content") or ""
+        answer = message.get("content") or ""
+        if not answer.strip():
             raise RuntimeError(
-                "VLM returned no answer (thinking used the token budget)"
+                "VLM returned no answer (reasoning used the token budget)"
             )
-        return content
+        return answer
 
 
 class _RecordingClient:

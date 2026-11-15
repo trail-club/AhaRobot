@@ -12,7 +12,6 @@ with an index.html for checking them.
 from __future__ import annotations
 
 import argparse
-import contextlib
 from datetime import datetime
 from html import escape
 import json
@@ -377,6 +376,7 @@ def main(argv=None):
         help="generic English phrase SAM 3.1 uses to find the product in the shot;"
         " omit to let the DGX VLM choose it from the first shot",
     )
+    parser.add_argument("--vlm-url", default=sam31_vlm.DEFAULT_VLM_URL)
     parser.add_argument("--vlm-model", default=sam31_vlm.DEFAULT_VLM_MODEL)
     parser.add_argument(
         "--library", type=Path, default=ROOT / ".cache-sam31/references"
@@ -414,7 +414,6 @@ def main(argv=None):
     worker = camera = None
     status = 0
     log = None
-    stack = contextlib.ExitStack()
     try:
         interactive.configure_ssh(args)
         worker = interactive.RemoteWorker(args)
@@ -435,8 +434,7 @@ def main(argv=None):
             subprocess.run(["open", str(index)], check=False)
         kind = None
         if not args.phrase and not load_phrase(library, args.name):
-            url = stack.enter_context(interactive.vlm_tunnel(args))
-            client = sam31_vlm.OllamaClient(url, args.vlm_model, timeout=600)
+            client = sam31_vlm.VlmClient(args.vlm_url, args.vlm_model, timeout=600)
             kind = lambda rgb: sam31_vlm.kind_phrase(client, rgb)  # noqa: E731
         session(args, worker, camera, library, kind=kind)
     except (KeyboardInterrupt, EOFError):
@@ -452,7 +450,6 @@ def main(argv=None):
         print(f"[reference] {exc}", file=sys.stderr)
         status = 1
     finally:
-        stack.close()
         if camera is not None:
             camera.close()
         if worker is not None and not worker.close():

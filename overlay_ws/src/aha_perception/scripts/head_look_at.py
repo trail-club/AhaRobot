@@ -46,7 +46,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import JointState
 from std_msgs.msg import ColorRGBA, String
 from tf2_geometry_msgs import do_transform_point
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, TransformException
 from trajectory_msgs.msg import JointTrajectory
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -55,6 +55,10 @@ from aha_perception.head_config import (
     declare_head_config,
     describe,
     head_position,
+)
+from aha_perception.tf_jump import (
+    TF_RESET_MIN_INTERVAL_S,
+    JumpDetectingTransformListener,
 )
 
 BASE_FRAME = "base_link"
@@ -68,37 +72,6 @@ SPHERE_DIAMETER = 0.06
 LINE_WIDTH = 0.01
 COLOR_OK = ColorRGBA(r=1.0, g=0.5, b=0.0, a=1.0)
 COLOR_CLAMPED = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
-
-TF_JUMP_BACK_S = 1.0
-TF_RESET_MIN_INTERVAL_S = 5.0
-
-
-class JumpDetectingTransformListener(TransformListener):
-    """TransformListener that reports /tf stamps going back per child frame.
-
-    on_jump() returns True if it reset the buffer; otherwise the message is
-    dropped and the old stamps are kept, so the jump is reported again.
-    """
-
-    def __init__(self, buffer, node, on_jump):
-        self._on_jump = on_jump
-        self._latest = {}
-        super().__init__(buffer, node)
-
-    def forget(self):
-        self._latest.clear()
-
-    def callback(self, data):
-        stamps = [
-            (t.child_frame_id, t.header.stamp.sec + t.header.stamp.nanosec * 1e-9)
-            for t in data.transforms
-        ]
-        latest = self._latest
-        if any(s < latest.get(f, s) - TF_JUMP_BACK_S for f, s in stamps):
-            if not self._on_jump():
-                return
-        latest.update(stamps)
-        super().callback(data)
 
 
 class HeadLookAt(Node):

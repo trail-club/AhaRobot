@@ -42,8 +42,8 @@ def run(name, user):
         threshold=0.5,
         timeout=900,
         vlm=True,
-        vlm_url="http://127.0.0.1:11434",
-        vlm_model=common.VLM_MODEL,
+        vlm_url=common.DEFAULT_VLM_URL,
+        vlm_model=common.DEFAULT_VLM_MODEL,
         candidate_threshold=0.3,
         no_vlm_match=False,
     )

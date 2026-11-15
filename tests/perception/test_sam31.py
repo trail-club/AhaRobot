@@ -20,9 +20,9 @@ from aha_perception.sam31 import (  # noqa: E402
     Sam31Segmenter,
     load_capture,
     make_result,
-    safe_error,
     save_result,
 )
+from aha_perception.worker_io import safe_error  # noqa: E402
 
 
 class ResultTests(unittest.TestCase):

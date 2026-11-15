@@ -151,6 +151,25 @@ def parse_decision(value):
     return action
 
 
+# Task wording; the rest of the prompt describes the shared robot interface.
+TASK_PROMPTS = {
+    "default": (
+        "pick-and-place task",
+        "Use these to estimate the instructed target object and green destination table from vision. ",
+        "The target object must first be grasped and lifted, then released on the green table. ",
+    ),
+    "doing_laundry": (
+        "RoboCup@Home Doing Laundry test",
+        "Use these to locate the arena door, washing machine, laundry basket, folding table "
+        "and T-shirts from vision. ",
+        "Follow the instruction: enter once the arena door has opened (fold the arms inwards, "
+        "e.g. joint_r2=1.2, joint_r3=-1.2, joint_l2=-1.2, joint_l3=1.2, to fit through), take "
+        "T-shirts from the washing machine and the basket, and fold them flat and neatly on the "
+        "table. A gripper holds cloth only while it is closed fully on the fabric. ",
+    ),
+}
+
+
 class CodexPolicy:
     def reset(self, task_id, instruction):
         self.executable = shutil.which("codex")
@@ -172,15 +191,16 @@ class CodexPolicy:
         directory = self.directory / f"{self.index:04d}"
         directory.mkdir()
         metadata, images = save_observation(observation, directory)
+        task, perception, goal = TASK_PROMPTS.get(self.task_id, TASK_PROMPTS["default"])
         prompt = (
-            "You control AhaRobot in a simulated pick-and-place task. Choose exactly one "
+            f"You control AhaRobot in a simulated {task}. Choose exactly one "
             "robot action using the attached current camera images and sensor observation. "
             "Do not use tools or read other files. Return JSON matching the supplied schema. "
             "Include a brief situation description and a concise decision justification, "
             "not a detailed reasoning trace. The three images are head, left_wrist, right_wrist "
             "in that order. Head depth is sampled on the pixel grid in the observation (metres; "
             "null means invalid). Calibration and base_link-to-camera transforms are provided. "
-            "Use these to estimate the instructed target object and green destination table from vision. "
+            f"{perception}"
             "Simulation is paused during your decision. Your action is held for "
             f"{self.duration:g} simulation seconds, then you receive fresh observations. "
             "Base x is forward, y is left, positive yaw turns left. Velocities are m/s and rad/s. "
@@ -190,7 +210,7 @@ class CodexPolicy:
             "joint_r2..r6 and joint_l2..l6 move arms. Right gripper opens with joint_r7r=0.06 "
             "and joint_r7l=-0.06, and closes toward zero; left gripper is analogous. "
             "Head pan/tilt move the head camera; use its transform rather than assuming its direction. "
-            "The target object must first be grasped and lifted, then released on the green table. "
+            f"{goal}"
             "Continue checking the images and feedback after each action. "
             f"Joint position limits: {json.dumps(JOINT_LIMITS)}\n"
             f"Previous decisions (latest eight): {json.dumps(self.history[-8:])}\n"

@@ -409,7 +409,8 @@ class TaskEngine:
         with self._lock:
             skill = self.skills.get(subgoal.skill)
             if skill is not None:
-                self.memory.update(copy.deepcopy(skill.expected(subgoal.params)))
+                state = skill.assumed(subgoal.params, self.memory)
+                self.memory.update(copy.deepcopy(state))
             self.memory.update(copy.deepcopy(subgoal.mock))
             record = self.records[subgoal.id]
             if status == SKIPPED:

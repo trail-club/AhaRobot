@@ -1,0 +1,27 @@
+[project]
+name = "aharobot-audio-worker"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Brings NeMo: haas-asr needs >=2.7.3,<2.8, so Parakeet runs on that too.
+    "haas-asr",
+    "qwen-asr==0.0.6",
+    "kokoro==0.9.4",
+    "misaki[en]==0.9.4",
+    "en_core_web_sm",
+    "torchaudio",
+    "soundfile==0.14.0",
+    "huggingface-hub",
+    "pyyaml",
+    "setuptools>=70,<80",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.12.23"
+# Supplied by the CUDA base image, not the PyPI dependency resolver.
+exclude-dependencies = ["torch"]
+
+[tool.uv.sources]
+haas-asr = { git = "https://github.com/third-intelligence/Haas-ASR.git", rev = "acc614f68769dcbfae9dba96b48439c4a66295af" }
+en_core_web_sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

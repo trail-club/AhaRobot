@@ -1,4 +1,9 @@
-"""Subgoal task on the RCJO2026 simulation with fixed-map Nav2 and the web GUI."""
+"""Subgoal task on the RCJO2026 simulation with fixed-map Nav2 and the web GUI.
+
+`people:=true` adds the head camera bridge, person_perception (DGX Spark) and
+head_look_at.py, which turns the head towards the people the skills look at.
+`guests:=true` adds sim_guests, which moves the task's simulated guests.
+"""
 
 from pathlib import Path
 
@@ -28,6 +33,15 @@ RUNNER_OPTIONS = {
     "max_retries": "1",
     "startup_timeout": "300.0",
     "goal_timeout": "600.0",
+}
+
+
+# Launch argument -> people.launch.py argument (DGX connection).
+PEOPLE_OPTIONS = {
+    "ssh_host": "10.99.0.1",
+    "ssh_port": "2222",
+    "ssh_user": "",
+    "worker_command": "",
 }
 
 
@@ -71,13 +85,14 @@ def launch_task(context):
         + [f"--{name.replace('_', '-')}={value(name)}" for name in RUNNER_OPTIONS],
         output="screen",
     )
-    return [
+    people = value("people") == "true"
+    actions = [
         include(
             "aha_bringup",
             "sim.launch.py",
             {
                 "world": "rcjo2026",
-                "cameras": "false",
+                "cameras": "true" if people else "false",
                 "headless": value("headless"),
                 "spawn_x": x,
                 "spawn_y": y,
@@ -92,6 +107,47 @@ def launch_task(context):
         RegisterEventHandler(OnProcessExit(target_action=runner, on_exit=task_exited)),
         runner,
     ]
+    if people:
+        actions += [
+            include("aha_perception", "camera_bridge.launch.py", {}),
+            include(
+                "aha_perception",
+                "people.launch.py",
+                {
+                    "use_sim_time": "true",
+                    **{name: value(name) for name in PEOPLE_OPTIONS},
+                },
+            ),
+            # Wall clock as in sim_view.launch.py; it uses the latest TF.
+            Node(
+                package="aha_perception",
+                executable="head_look_at.py",
+                parameters=[
+                    str(
+                        Path(
+                            get_package_share_directory("aha_perception"),
+                            "config",
+                            "head.yaml",
+                        )
+                    )
+                ],
+                output="screen",
+            ),
+        ]
+    if value("guests") == "true":
+        scene = task_config(f"sim/{spec.task}")
+        if not scene.is_file():
+            raise ValueError(f"guests:=true: task {spec.task} has no {scene}")
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_guests",
+                parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={scene}"],
+                output="screen",
+            )
+        )
+    return actions
 
 
 def generate_launch_description():
@@ -102,6 +158,20 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("gui_port", default_value="8765"),
+            DeclareLaunchArgument(
+                "people",
+                default_value="false",
+                description="Head cameras and person_perception on the DGX",
+            ),
+            DeclareLaunchArgument(
+                "guests",
+                default_value="false",
+                description="Simulated guests from config/sim/<task>.json",
+            ),
+            *(
+                DeclareLaunchArgument(k, default_value=v)
+                for k, v in PEOPLE_OPTIONS.items()
+            ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
                 for k, v in RUNNER_OPTIONS.items()

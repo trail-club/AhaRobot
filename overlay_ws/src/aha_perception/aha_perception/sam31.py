@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from pathlib import Path
-import re
 from typing import BinaryIO
 from zipfile import BadZipFile
 
@@ -23,14 +21,6 @@ MODEL_ID = "facebook/sam3.1"
 HATCH_PERIOD_PX = 10
 HATCH_WIDTH_PX = 3
 OUTLINE_PX = 2
-
-
-def safe_error(error: Exception) -> str:
-    message = str(error)
-    token = os.environ.get("HF_TOKEN")
-    if token:
-        message = message.replace(token, "[redacted]")
-    return re.sub(r"hf_[A-Za-z0-9]+", "[redacted]", message)
 
 
 def validate_threshold(threshold: float) -> None:

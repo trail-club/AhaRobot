@@ -2,7 +2,8 @@
 
 Starts:
   - Gazebo Harmonic with the requested world
-  - robot_state_publisher (from xacro, sim:=true)
+  - robot_state_publisher (from xacro, sim:=true; robot_xacro:= replaces
+        aha_description's aha_robot.urdf.xacro, e.g. for a test bed)
   - spawn AhaRobot into Gazebo from the same xacro output (physics joint
     limits widened and lifts holding, see aha_gazebo.model)
   - ros_gz_bridge for /clock
@@ -10,6 +11,8 @@ Starts:
         joint_state_broadcaster, diff_drive_controller,
         left/right_arm_controller, left/right_gripper_controller,
         lift_controller, head_controller
+  - world_tf:=true  static TF world -> odom (map with use_nav:=true) from the
+        spawn pose, so world-frame configs (e.g. furniture) can be used
 """
 
 import os
@@ -119,16 +122,20 @@ def _validate_manip_rviz(context):
     return []
 
 
+def _default_xacro():
+    return str(
+        Path(get_package_share_directory("aha_description"))
+        / "urdf"
+        / "aha_robot.urdf.xacro"
+    )
+
+
 def _robot(context):
     # One xacro run for both: robot_state_publisher (and through it
     # ros2_control and MoveIt) gets the URDF, Gazebo the model with widened
     # limits and holding lifts (aha_gazebo.model).
     description = xacro.process_file(
-        str(
-            Path(get_package_share_directory("aha_description"))
-            / "urdf"
-            / "aha_robot.urdf.xacro"
-        ),
+        LaunchConfiguration("robot_xacro", default=_default_xacro()).perform(context),
         mappings={
             "sim": "true",
             "cameras": LaunchConfiguration("cameras").perform(context),
@@ -194,6 +201,28 @@ def generate_launch_description():
             "headless": LaunchConfiguration("headless"),
             "gz_args": LaunchConfiguration("gz_args"),
         }.items(),
+    )
+
+    # The odom origin is the spawn pose on the floor (2D odometry), and
+    # slam_toolbox starts map at odom.
+    world_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="world_tf",
+        arguments=[
+            "--x",
+            LaunchConfiguration("spawn_x"),
+            "--y",
+            LaunchConfiguration("spawn_y"),
+            "--yaw",
+            LaunchConfiguration("spawn_yaw"),
+            "--frame-id",
+            "world",
+            "--child-frame-id",
+            IfElseSubstitution(LaunchConfiguration("use_nav"), "map", "odom"),
+        ],
+        condition=IfCondition(LaunchConfiguration("world_tf")),
+        output="screen",
     )
 
     clock_bridge = Node(
@@ -333,6 +362,12 @@ def generate_launch_description():
             DeclareLaunchArgument("camera_rgb_noise_stddev", default_value="0.003"),
             DeclareLaunchArgument("initial_lift", default_value="0.0"),
             DeclareLaunchArgument(
+                "robot_xacro",
+                default_value=_default_xacro(),
+                description="Robot xacro (sim, cameras, camera_rgb_noise_stddev and "
+                "initial_lift are passed); default aha_description's aha_robot.urdf.xacro",
+            ),
+            DeclareLaunchArgument(
                 "robot_name",
                 default_value="aha_robot",
                 description="Gazebo model name for the spawned robot",
@@ -343,6 +378,11 @@ def generate_launch_description():
                 description="Bridge Gazebo's clock; disable when a parent launch supplies /clock",
             ),
             DeclareLaunchArgument("use_nav", default_value="false"),
+            DeclareLaunchArgument(
+                "world_tf",
+                default_value="false",
+                description="Publish world -> odom (map with use_nav) from the spawn pose",
+            ),
             DeclareLaunchArgument(
                 "activate_controllers_as_group",
                 default_value="false",
@@ -364,6 +404,7 @@ def generate_launch_description():
             gz,
             clock_bridge,
             OpaqueFunction(function=_robot),
+            world_tf,
             jsb,
             load_rest,
             *subsystems,

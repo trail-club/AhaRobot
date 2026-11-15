@@ -1,0 +1,42 @@
+# 音声スタック (aha_perception audio) のパラメータ。モデルの選択は models.yaml 側で行う。
+/**:
+  ros__parameters:
+    segments_dir: /tmp/aha_audio/segments   # ASR が書き出し、デバッグ UI が配信する (両者で共有)
+    # 推論先は launch 引数 target:=dgx|trailpc|local で選ぶ
+    request_timeout: 30.0                   # 推論 1 回の応答待ち (秒)
+    startup_timeout: 1800.0                 # 推論先の起動とモデル読み込みの待ち (秒。初回はイメージ構築を含む)
+
+aha_audio_asr:
+  ros__parameters:
+    device: cuda:0
+    # 起動時の認識言語は launch 引数 language:=ja|en で指定する (実行中も変更可)
+    preload_languages: [en, ja]    # 起動時に読み込む言語。切り替えを即時にするため両方
+    hotwords: ['']                 # 実行中にデバッグ UI / ros2 param で変更可
+    input_device: ''               # '' = ALSA default (コンテナでは PulseAudio 経由)
+    capture_rate: 16000
+    listen_timeout: 10.0
+    mute_tail_ms: 300              # TTS 終了後もしばらくマイクを無視 (残響対策)
+    keep_segments: 50
+    segmenter:
+      start_threshold: 0.5
+      end_threshold: 0.35
+      min_start_ms: 64.0
+      preroll_ms: 300.0
+      min_speech_ms: 250.0
+      turn_check_ms: 200.0
+      turn_recheck_ms: 300.0
+      turn_threshold: 0.5
+      max_silence_ms: 1200.0
+      max_segment_s: 15.0
+      tail_ms: 200.0
+
+aha_audio_tts:
+  ros__parameters:
+    device: cuda:0
+    output_device: ''
+    playback_rate: 24000
+
+aha_audio_debug_ui:
+  ros__parameters:
+    host: 127.0.0.1                # 別 PC から見るなら 0.0.0.0 (認証なしなので注意)
+    port: 8768

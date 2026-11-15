@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AhaRobot 音声</title>
+<link rel="stylesheet" href="/page.css">
+<script src="/page.js"></script>
+</head>
+<body>
+<header>
+  <h1>AhaRobot 音声</h1>
+  <span class="spacer"></span>
+  <span class="chip"><span class="dot" id="statusDot"></span><span id="statusText">読み込み中</span></span>
+</header>
+
+<main>
+  <section class="card" id="connect" hidden>
+    <p class="error" id="error" role="alert" hidden></p>
+    <div class="fields">
+      <div class="field">
+        <h2>推論先</h2>
+        <div class="seg" id="targets" role="group" aria-label="推論先"></div>
+      </div>
+      <div class="field">
+        <h2>聞き取る言語</h2>
+        <div class="seg" id="languages" role="group" aria-label="聞き取る言語"></div>
+      </div>
+      <div class="field" id="userField">
+        <h2><label for="user">ユーザー名（DGX・trailpc共通）</label></h2>
+        <input id="user" autocomplete="username" spellcheck="false" placeholder="例: shogo.sunohara">
+      </div>
+      <div class="field">
+        <h2><label for="device">マイク</label></h2>
+        <select id="device"></select>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="connectButton">接続する</button>
+      <button type="button" id="cancelButton" hidden>中止する</button>
+      <span class="step" id="step" role="status"></span>
+    </div>
+  </section>
+
+  <section class="card" id="status" hidden>
+    <div class="live" id="live">
+      <div class="now" id="now" role="status">聞いています</div>
+      <div class="meter" aria-hidden="true"><span id="level"></span></div>
+    </div>
+    <div class="place">
+      <span id="where"></span>
+      <div class="seg" id="liveLanguages" role="group" aria-label="聞き取る言語"></div>
+      <span id="languageNote"></span>
+      <span class="spacer"></span>
+      <button type="button" class="link" id="disconnectButton">切断する</button>
+    </div>
+    <details id="hotwordBox">
+      <summary>聞き取りやすくする語</summary>
+      <input id="hotwords" spellcheck="false" placeholder="読点かカンマで区切る（例: オレンジジュース, Haas=ハース）">
+      <p class="hint" id="hotwordHint"></p>
+    </details>
+  </section>
+
+  <section id="log" aria-label="会話" aria-live="polite">
+    <p class="empty" id="empty"></p>
+  </section>
+
+  <section class="card" id="speakCard" hidden>
+    <form class="composer" id="speakForm">
+      <textarea id="text" rows="1" aria-label="読み上げる文" placeholder="読み上げる英語の文を入力"></textarea>
+      <button type="submit" class="primary" id="speakButton">読み上げる</button>
+      <button type="button" id="stopButton" hidden>止める</button>
+    </form>
+    <p class="hint" id="speakHint">読み上げは英語のみです。Enterで読み上げ、Shift+Enterで改行します。</p>
+  </section>
+</main>
+
+<script>
+const ACTIVITY = {
+  listening: '聞いています', hearing: '話を聞き取っています',
+  recognizing: '文字にしています', speaking: '読み上げています',
+};
+const SILENCE_DB = -60;
+const HINT = '読み上げは英語のみです。Enterで読み上げ、Shift+Enterで改行します。';
+
+let state = {};
+let targets = {};
+let languages = {};
+let chosen = { target: 'dgx', language: 'en' };
+const items = new Map();
+
+function emptyText() {
+  if (state.status === 'ready') return '話しかけるか、下の欄に英語を入力してください。';
+  if (state.status === 'connecting') return '接続が終わると、ここに会話が表示されます。';
+  return '推論先を選んで「接続する」を押してください。';
+}
+
+function render() {
+  const { target, language, loading_language: loading } = state;
+  const ready = renderConnection(state, targets);
+  $('status').hidden = !ready;
+  $('speakCard').hidden = !ready;
+
+  selectButtons($('targets'), chosen.target);
+  selectButtons($('languages'), chosen.language);
+  selectButtons($('liveLanguages'), loading || language);
+  for (const button of $('liveLanguages').querySelectorAll('button')) button.disabled = Boolean(loading);
+
+  $('where').textContent = `${targets[target] || target}・聞き取る言語`;
+  $('languageNote').textContent = loading ? `${languages[loading]}のモデルを読み込んでいます` : '';
+
+  const speaking = state.activity === 'speaking';
+  $('now').textContent = ACTIVITY[state.activity] || ACTIVITY.listening;
+  $('live').classList.toggle('muted', speaking);
+  $('speakButton').hidden = speaking;
+  $('stopButton').hidden = !speaking;
+
+  $('hotwordHint').textContent = state.hotwords_applied
+    ? '話す前に入力すると、次の発話から使います。'
+    : '英語のモデルは対応していません。日本語のモデルで使えます。';
+
+  $('empty').textContent = emptyText();
+  $('empty').hidden = items.size > 0;
+  checkEnglish(HINT);
+}
+
+function renderDevices() {
+  const select = $('device');
+  const current = select.value || remembered('device');
+  select.replaceChildren(new Option('Macの標準のマイク', ''));
+  for (const name of state.devices || []) select.add(new Option(name.trim(), name));
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function metaOf(item) {
+  if (item.kind === 'heard') {
+    return `${languages[item.language] || ''}・話し終わりから ${item.latency_ms} ms`;
+  }
+  if (item.status === 'speaking') return '読み上げ中';
+  if (item.status === 'failed') return `読み上げられませんでした（${item.error}）`;
+  const stopped = item.status === 'stopped' ? '途中で止めました・' : '';
+  return item.first_audio_ms == null ? stopped.slice(0, -1) : `${stopped}最初の音まで ${item.first_audio_ms} ms`;
+}
+
+function renderItem(item) {
+  let node = items.get(item.id);
+  if (!node) {
+    node = document.createElement('div');
+    node.className = `msg ${item.kind}`;
+    node.append(document.createElement('div'));
+    if (item.kind !== 'notice') {
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      node.append(meta);
+    }
+    items.set(item.id, node);
+    $('log').append(node);
+  }
+  node.firstChild.textContent = item.text;
+  if (item.kind !== 'notice') node.lastChild.textContent = metaOf(item);
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+function showLevel(db) {
+  const percent = Math.max(0, Math.min(100, (db - SILENCE_DB) / -SILENCE_DB * 100));
+  $('level').style.width = `${percent}%`;
+}
+
+function onEvent(event) {
+  if (event.type === 'level') return showLevel(event.db);
+  if (event.type === 'item') {
+    renderItem(event.item);
+  } else if (event.type === 'snapshot') {
+    state = event.state;
+    for (const node of items.values()) node.remove();
+    items.clear();
+    event.history.forEach(renderItem);
+    renderDevices();
+    $('hotwords').value = (state.hotwords || []).join(', ');
+  } else if (event.type === 'state') {
+    Object.assign(state, event.state);
+  }
+  render();
+}
+
+function pick(group, key) {
+  group.addEventListener('click', ({ target }) => {
+    if (!target.dataset.value) return;
+    chosen[key] = target.dataset.value;
+    remember(key, target.dataset.value);
+    render();
+  });
+}
+
+pick($('targets'), 'target');
+pick($('languages'), 'language');
+
+bindControls(() => {
+  const device = $('device').value;
+  remember('device', device);
+  return { ...chosen, user: $('user').value.trim(), device };
+}, async (text) => {
+  await post('/api/speak', { text });
+  $('text').value = '';
+  checkEnglish(HINT);
+}, () => checkEnglish(HINT));
+$('liveLanguages').addEventListener('click', ({ target }) => {
+  const { value } = target.dataset;
+  if (value && value !== state.language) post('/api/language', { language: value });
+});
+$('hotwords').addEventListener('change', () => {
+  post('/api/hotwords', { words: $('hotwords').value.split(/[,、，]/) });
+});
+(async () => {
+  const defaults = await loadDefaults();
+  ({ targets, languages } = defaults);
+  fillButtons($('languages'), languages);
+  fillButtons($('liveLanguages'), languages);
+  chosen = {
+    target: remembered('target') || defaults.target,
+    language: remembered('language') || defaults.language,
+  };
+  listenEvents(onEvent);
+})();
+</script>
+</body>
+</html>

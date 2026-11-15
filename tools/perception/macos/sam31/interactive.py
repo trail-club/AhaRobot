@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import contextlib
 from datetime import datetime
 from html import escape
 import http.server
@@ -18,13 +17,11 @@ import queue
 import re
 import shlex
 import signal
-import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
-import time
 import uuid
 import zipfile
 import zlib
@@ -87,40 +84,6 @@ def ssh_options(args):
     if getattr(args, "identity_file", None):
         command += ["-i", str(args.identity_file), "-o", "IdentitiesOnly=yes"]
     return command
-
-
-@contextlib.contextmanager
-def vlm_tunnel(args):
-    """Local URL forwarded to the DGX VLM (Ollama listens on loopback there)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    tunnel = subprocess.Popen(
-        [
-            *ssh_options(args),
-            "-o",
-            "ExitOnForwardFailure=yes",
-            "-N",
-            "-L",
-            f"{port}:127.0.0.1:11434",
-            "--",
-            args.host,
-        ]
-    )
-    try:
-        for _ in range(100):
-            if tunnel.poll() is not None:
-                raise RuntimeError("DGXのVLMへのSSHトンネルを開始できません")
-            with contextlib.suppress(OSError):
-                socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                break
-            time.sleep(0.1)
-        else:
-            raise RuntimeError("DGXのVLMへのSSHトンネルが10秒以内につながりません")
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        tunnel.terminate()
-        tunnel.wait()
 
 
 def source_archive(destination):
@@ -464,7 +427,7 @@ class RemoteWorker:
             f"{self.args.checkpoint}:/models/sam3.1_multiplex.pt:ro",
         ]
         if self.args.vlm:
-            # Ollama listens on the DGX loopback only.
+            # The Qwen3.8 server listens on the DGX's WARP address only.
             command += ["--network", "host"]
         command += [
             image_id,
@@ -941,8 +904,9 @@ def main(argv=None):
         action="store_true",
         help="let the DGX VLM pick SAM candidates (product and brand names)",
     )
-    parser.add_argument("--vlm-url", default="http://127.0.0.1:11434")
-    parser.add_argument("--vlm-model", default="qwen3-vl:30b")
+    # Same as aha_perception.sam31_vlm: Qwen3.8 (tools/local-llm), seen from the DGX.
+    parser.add_argument("--vlm-url", default="http://10.99.0.1:8080/v1")
+    parser.add_argument("--vlm-model", default="qwen3.8-27b")
     parser.add_argument("--candidate-threshold", type=float, default=0.3)
     parser.add_argument(
         "--no-vlm-match",
@@ -962,8 +926,10 @@ def main(argv=None):
             parser.error("identity-file must be an existing private key file")
     if not args.checkpoint.startswith("/") or ":" in args.checkpoint:
         parser.error("checkpoint must be an absolute remote path without ':'")
-    if not re.fullmatch(r"http://[A-Za-z0-9.:\[\]-]+/?", args.vlm_url):
-        parser.error("vlm-url must look like http://host:port")
+    if not re.fullmatch(
+        r"http://[A-Za-z0-9.:\[\]-]+(/[A-Za-z0-9._-]+)*/?", args.vlm_url
+    ):
+        parser.error("vlm-url must look like http://host:port/v1")
     if not re.fullmatch(r"[A-Za-z0-9._:/-]+", args.vlm_model):
         parser.error("invalid vlm-model")
     if not 0 <= args.candidate_threshold <= 1:

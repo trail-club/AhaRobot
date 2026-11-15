@@ -113,6 +113,7 @@ def main(argv=None):
     )
     runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation)
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
+    runtime.skills = skills
     restorers = {}
     if navigation is not None:
         restorers[LOCATION] = lambda value, cancelled: go_to(runtime, value, cancelled)

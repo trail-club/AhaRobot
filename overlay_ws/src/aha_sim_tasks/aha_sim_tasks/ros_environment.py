@@ -17,7 +17,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image, JointState
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Empty, Float64MultiArray, String
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -115,6 +115,8 @@ class RosEnvironment(Node):
                 qos_profile_sensor_data,
             )
         self.create_subscription(String, "/evaluation/state", self.on_state, 10)
+        # Start signal for tasks that open the arena door, as the referee does.
+        self.start_publisher = self.create_publisher(Empty, "/evaluation/start", 10)
         if head_image_topic:
             self.create_subscription(
                 Image, head_image_topic, self.on_image, qos_profile_sensor_data
@@ -288,8 +290,35 @@ class RosEnvironment(Node):
             result["cameras"][name] = latest
         return result
 
+    def start_episode(self):
+        """Signal the episode start until the simulator acknowledges it."""
+        if not getattr(self.world, "started", True):
+            self.start_publisher.publish(Empty())
+
+    def on_laundry_state(self, sample):
+        from dataclasses import replace
+
+        from .laundry_evaluation import parse_state
+
+        state = parse_state(sample)
+        if self.world is not None and state.sim_time <= self.world.sim_time:
+            return
+        robot_speed = 0.0
+        if state.robot_pose is not None and self.previous_robot is not None:
+            previous_time, previous_xy = self.previous_robot
+            if state.sim_time > previous_time:
+                robot_speed = math.dist(state.robot_pose[:2], previous_xy) / (
+                    state.sim_time - previous_time
+                )
+        if state.robot_pose is not None:
+            self.previous_robot = (state.sim_time, state.robot_pose[:2])
+        self.world = replace(state, robot_speed=robot_speed)
+        self.mark("state")
+
     def on_state(self, message):
         sample = json.loads(message.data)
+        if sample.get("schema_version") == 3:
+            return self.on_laundry_state(sample)
         if sample["schema_version"] not in (1, 2) or sample["frame_id"] != "world":
             raise ValueError("Unsupported evaluation state schema or frame")
         stamp = sample["stamp"]

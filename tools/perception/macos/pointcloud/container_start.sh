@@ -2,6 +2,11 @@
 set -eo pipefail
 
 source /opt/ros/jazzy/setup.bash
+# Docker Desktop mounts the Mac ssh-agent as root:root 0660; person_perception
+# runs as the container user.
+if [[ -S "${SSH_AUTH_SOCK:-}" && ! -w "$SSH_AUTH_SOCK" ]]; then
+  sudo chown "$(id -u):$(id -g)" "$SSH_AUTH_SOCK"
+fi
 cd /app/overlay_ws
 colcon build --symlink-install --packages-select aha_perception
 source install/setup.bash

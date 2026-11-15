@@ -1,0 +1,10 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: aha_test_description
+    relative_path: urdf/aha_robot_test.urdf.xacro
+    xacro_args: sim:=true
+  srdf:
+    relative_path: srdf/aha_robot.srdf
+  package_settings:
+    author_name: trail-club manipulation squad
+    author_email: dev@trail-club.local

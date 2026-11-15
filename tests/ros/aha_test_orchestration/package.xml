@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aha_test_orchestration</name>
+  <version>0.1.0</version>
+  <description>Task-level decisions with a local LLM: where to put the held object from the perceived scene.</description>
+  <maintainer email="dev@trail-club.local">trail-club</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>aha_msgs</exec_depend>
+  <exec_depend>aha_test_msgs</exec_depend>
+  <exec_depend>aha_perception</exec_depend>
+  <exec_depend>aha_test_ui</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

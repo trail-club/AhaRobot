@@ -255,48 +255,6 @@ class SshConnectionTests(unittest.TestCase):
         self.assertNotIn("-l", command)
         reader.assert_not_called()
 
-    def vlm_tunnel(self, poll=None, connect=None):
-        """Enter vlm_tunnel with a fake ssh; returns (url or exception, Popen mock)."""
-        args = argparse.Namespace(host="dgx", user="u", port=2222, identity_file=None)
-        tunnel = Mock(poll=Mock(return_value=poll))
-        with (
-            patch.object(interactive.subprocess, "Popen", return_value=tunnel) as popen,
-            patch.object(
-                interactive.socket,
-                "create_connection",
-                side_effect=connect or OSError("refused"),
-            ),
-            patch.object(interactive.time, "sleep"),
-        ):
-            try:
-                with interactive.vlm_tunnel(args) as url:
-                    result = url
-            except RuntimeError as exc:
-                result = exc
-        return result, popen, tunnel
-
-    def test_vlm_tunnel_forwards_to_ollama_and_reaps_ssh(self):
-        url, popen, tunnel = self.vlm_tunnel(connect=lambda *a, **k: Mock())
-        command = popen.call_args.args[0]
-        self.assertRegex(url, r"^http://127\.0\.0\.1:\d+$")
-        self.assertIn("ExitOnForwardFailure=yes", command)
-        self.assertEqual(command[-2:], ["--", "dgx"])
-        self.assertTrue(command[command.index("-L") + 1].endswith(":127.0.0.1:11434"))
-        tunnel.terminate.assert_called_once()
-        tunnel.wait.assert_called_once()
-
-    def test_vlm_tunnel_raises_when_ssh_exits(self):
-        error, _, tunnel = self.vlm_tunnel(poll=255)
-        self.assertIsInstance(error, RuntimeError)
-        self.assertIn("開始できません", str(error))
-        tunnel.wait.assert_called_once()
-
-    def test_vlm_tunnel_raises_when_port_never_opens(self):
-        error, _, tunnel = self.vlm_tunnel()
-        self.assertIsInstance(error, RuntimeError)
-        self.assertIn("10秒以内", str(error))
-        tunnel.wait.assert_called_once()
-
     def test_username_prompt_ctrl_c_exits_before_remote_or_camera_setup(self):
         with (
             patch.dict(interactive.os.environ, {}, clear=True),
@@ -347,7 +305,7 @@ class FlowReportTests(unittest.TestCase):
                 }
             ],
             "vlm": {
-                "model": "qwen3-vl:30b",
+                "model": "qwen3.8-27b",
                 "phrases": ["pringles", "red snack can"],
                 "candidate_threshold": 0.3,
                 "candidates": [
@@ -422,7 +380,7 @@ class FlowReportTests(unittest.TestCase):
             "inference_seconds": 50.0,
             "objects": [],
             "vlm": {
-                "model": "qwen3-vl:30b",
+                "model": "qwen3.8-27b",
                 "phrases": ["red snack can"],
                 "candidate_threshold": 0.3,
                 "candidates": [
@@ -675,21 +633,21 @@ class InteractionTests(unittest.TestCase):
         self.assertNotIn("--vlm", plain)
         script = self.start_worker(
             vlm=True,
-            vlm_url="http://127.0.0.1:11434",
-            vlm_model="qwen3-vl:30b",
+            vlm_url="http://10.99.0.1:8080/v1",
+            vlm_model="qwen3.8-27b",
             candidate_threshold=0.3,
         )
         image_id = "sha256:" + "a" * 64
         self.assertIn("--network host " + image_id, script)
-        self.assertIn("--vlm --vlm-url http://127.0.0.1:11434", script)
-        self.assertIn("--vlm-model qwen3-vl:30b --candidate-threshold 0.3", script)
+        self.assertIn("--vlm --vlm-url http://10.99.0.1:8080/v1", script)
+        self.assertIn("--vlm-model qwen3.8-27b --candidate-threshold 0.3", script)
         self.assertNotIn("--no-match", script)
         self.assertIn(
             "--no-match",
             self.start_worker(
                 vlm=True,
-                vlm_url="http://127.0.0.1:11434",
-                vlm_model="qwen3-vl:30b",
+                vlm_url="http://10.99.0.1:8080/v1",
+                vlm_model="qwen3.8-27b",
                 candidate_threshold=0.3,
                 no_vlm_match=True,
             ),

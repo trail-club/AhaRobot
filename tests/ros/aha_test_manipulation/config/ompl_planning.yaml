@@ -1,0 +1,26 @@
+# Pipeline from moveit_configs_utils defaults; planner_configs are added from
+# its ompl_defaults.yaml by MoveItConfigsBuilder.
+planning_plugins:
+  - ompl_interface/OMPLPlanner
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+
+# Thin obstacles (5 cm table top): with the defaults (segment fraction 0.005,
+# corner blending path_tolerance 0.1 in joint units) up to 40 % of plans around
+# the table were rejected by ValidateSolution. Finer checks cost ~0.2 s per plan.
+totg:
+  path_tolerance: 0.01
+
+right_arm:
+  default_planner_config: RRTConnect
+  longest_valid_segment_fraction: 0.001
+left_arm:
+  default_planner_config: RRTConnect
+  longest_valid_segment_fraction: 0.001

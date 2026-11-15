@@ -46,7 +46,7 @@ def work_dir(step):
 
 
 def parse_boxes(answer, width, height):
-    """Qwen3-VL answers in its native list format or as the requested object."""
+    """Qwen answers in its native list format or as the requested object."""
     data = parse_json(answer)
     objects = data if isinstance(data, list) else data.get("objects", [])
     boxes = []
@@ -78,20 +78,20 @@ def valid_phrase(phrase, prompt):
 def ask_qwen(step, user):
     template = BOXES_PROMPT if step == "boxes" else PHRASE_PROMPT
     out = {}
-    with common.vlm_client(user) as client:
-        for key, run in common.runs19().items():
-            rgb, _, _ = common.load_capture(run["capture"])
-            start = time.time()
-            answer = client.ask(template.format(target=run["prompt"]), rgb)
-            h, w = rgb.shape[:2]
-            out[key] = {
-                "answer": answer,
-                "boxes": parse_boxes(answer, w, h),
-                "seconds": round(time.time() - start, 1),
-            }
-            if step == "phrase":
-                out[key]["phrase"] = str(parse_json(answer).get("phrase", ""))
-            print(f"[plan_b] {key} {run['prompt']}: {answer.strip()[:120]}", flush=True)
+    client = common.vlm_client()
+    for key, run in common.runs19().items():
+        rgb, _, _ = common.load_capture(run["capture"])
+        start = time.time()
+        answer = client.ask(template.format(target=run["prompt"]), rgb)
+        h, w = rgb.shape[:2]
+        out[key] = {
+            "answer": answer,
+            "boxes": parse_boxes(answer, w, h),
+            "seconds": round(time.time() - start, 1),
+        }
+        if step == "phrase":
+            out[key]["phrase"] = str(parse_json(answer).get("phrase", ""))
+        print(f"[plan_b] {key} {run['prompt']}: {answer.strip()[:120]}", flush=True)
     common.write_json(result_path(f"qwen_{step}"), out)
 
 
@@ -99,24 +99,21 @@ def reask(user):
     """Fallback (b): a shape phrase from the boxed crop alone, without the name."""
     qwen = common.read_json(result_path("qwen_phrase"))
     out = {}
-    with common.vlm_client(user) as client:
-        for key, run in common.runs19().items():
-            if (
-                valid_phrase(qwen[key]["phrase"], run["prompt"])
-                or not qwen[key]["boxes"]
-            ):
-                continue
-            rgb, _, _ = common.load_capture(run["capture"])
-            x0, y0, x1, y1 = qwen[key]["boxes"][0]
-            start = time.time()
-            answer = client.ask(REASK_PROMPT, np.ascontiguousarray(rgb[y0:y1, x0:x1]))
-            phrase = " ".join(str(parse_json(answer).get("phrase", "")).lower().split())
-            out[key] = {
-                "phrase": phrase,
-                "ok": valid_phrase(phrase, run["prompt"]),
-                "seconds": round(time.time() - start, 1),
-            }
-            print(f"[plan_b] {key} {run['prompt']} -> {phrase}", flush=True)
+    client = common.vlm_client()
+    for key, run in common.runs19().items():
+        if valid_phrase(qwen[key]["phrase"], run["prompt"]) or not qwen[key]["boxes"]:
+            continue
+        rgb, _, _ = common.load_capture(run["capture"])
+        x0, y0, x1, y1 = qwen[key]["boxes"][0]
+        start = time.time()
+        answer = client.ask(REASK_PROMPT, np.ascontiguousarray(rgb[y0:y1, x0:x1]))
+        phrase = " ".join(str(parse_json(answer).get("phrase", "")).lower().split())
+        out[key] = {
+            "phrase": phrase,
+            "ok": valid_phrase(phrase, run["prompt"]),
+            "seconds": round(time.time() - start, 1),
+        }
+        print(f"[plan_b] {key} {run['prompt']} -> {phrase}", flush=True)
     common.write_json(result_path("reask"), out)
 
 
@@ -180,47 +177,47 @@ def match(variant, user):
     qwen = common.read_json(result_path("qwen_phrase"))
     results = sam_results("phrase", variant)
     out = {}
-    with common.vlm_client(user) as client:
-        for key, run in common.runs19().items():
-            rgb, depth, intrinsics = common.load_capture(run["capture"])
-            dets = results[key]["detections"]
-            masks = [
-                load_mask("phrase", key, variant, n, depth.shape)
-                for n in range(1, len(dets) + 1)
-            ]
-            kept = [
-                i
-                for i, d in enumerate(dets)
-                if common.matches_any(d["bbox"], qwen[key]["boxes"])
-            ]
-            checks = []
-            if kept:
-                ref = max(kept, key=lambda i: dets[i]["score"])
-                ref_size = sam31_vlm.physical_size(masks[ref], depth, intrinsics)
-                for i in (i for i in range(len(dets)) if i not in kept):
-                    size = sam31_vlm.physical_size(masks[i], depth, intrinsics)
-                    depths = tuple(s and s["depth_m"] for s in (ref_size, size))
-                    pair = sam31_vlm.pair_image(rgb, masks[ref], masks[i], depths)
-                    start = time.time()
-                    same = sam31_vlm.match_candidate(
-                        client, pair, run["prompt"], (ref_size, size)
-                    )
-                    Image.fromarray(pair).save(
-                        work_dir("phrase") / "out" / f"{key}_{variant}_pair_{i + 1}.png"
-                    )
-                    checks.append(
-                        {
-                            "index": i,
-                            "ref": ref,
-                            "same": same,
-                            "ref_size": ref_size,
-                            "size": size,
-                            "seconds": round(time.time() - start, 1),
-                        }
-                    )
-            final = kept + [c["index"] for c in checks if c["same"]]
-            out[key] = {"kept": kept, "matches": checks, "final": final}
-            print(f"[plan_b] {key}: kept {kept} final {final}", flush=True)
+    client = common.vlm_client()
+    for key, run in common.runs19().items():
+        rgb, depth, intrinsics = common.load_capture(run["capture"])
+        dets = results[key]["detections"]
+        masks = [
+            load_mask("phrase", key, variant, n, depth.shape)
+            for n in range(1, len(dets) + 1)
+        ]
+        kept = [
+            i
+            for i, d in enumerate(dets)
+            if common.matches_any(d["bbox"], qwen[key]["boxes"])
+        ]
+        checks = []
+        if kept:
+            ref = max(kept, key=lambda i: dets[i]["score"])
+            ref_size = sam31_vlm.physical_size(masks[ref], depth, intrinsics)
+            for i in (i for i in range(len(dets)) if i not in kept):
+                size = sam31_vlm.physical_size(masks[i], depth, intrinsics)
+                depths = tuple(s and s["depth_m"] for s in (ref_size, size))
+                pair = sam31_vlm.pair_image(rgb, masks[ref], masks[i], depths)
+                start = time.time()
+                same = sam31_vlm.match_candidate(
+                    client, pair, run["prompt"], (ref_size, size)
+                )
+                Image.fromarray(pair).save(
+                    work_dir("phrase") / "out" / f"{key}_{variant}_pair_{i + 1}.png"
+                )
+                checks.append(
+                    {
+                        "index": i,
+                        "ref": ref,
+                        "same": same,
+                        "ref_size": ref_size,
+                        "size": size,
+                        "seconds": round(time.time() - start, 1),
+                    }
+                )
+        final = kept + [c["index"] for c in checks if c["same"]]
+        out[key] = {"kept": kept, "matches": checks, "final": final}
+        print(f"[plan_b] {key}: kept {kept} final {final}", flush=True)
     common.write_json(result_path(f"match_{variant}"), out)
 
 

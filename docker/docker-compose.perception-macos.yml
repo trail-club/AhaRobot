@@ -23,8 +23,12 @@ services:
       ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-1}"
       QT_X11_NO_MITSHM: "1"
       LIBGL_ALWAYS_SOFTWARE: "${LIBGL_ALWAYS_SOFTWARE:-1}"
+      # Docker Desktop forwards the Mac ssh-agent; person_perception uses it
+      # to reach the DGX without copying keys into the container.
+      SSH_AUTH_SOCK: /run/host-services/ssh-auth.sock
     volumes: !override
       - ../:/app/
+      - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock
     extra_hosts: !override []
 
   novnc:

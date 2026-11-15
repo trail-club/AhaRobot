@@ -7,6 +7,9 @@ The Mac-only boundary ends at three standard camera topics:
 * depth aligned to the RGB image
 * RGB CameraInfo
 
+Depth is post-processed (disparity, spatial, temporal filters) before it is
+aligned to color unless ``--no-filter`` is given.
+
 PointCloud2 generation intentionally stays in the ROS 2 container, where
 ``depth_image_proc`` consumes these topics. No ROS Python package is required
 on the Mac.
@@ -300,6 +303,23 @@ def _list_devices(rs: Any) -> list[Any]:
     return devices
 
 
+def make_depth_filters(rs: Any, enabled: bool) -> list[tuple[str, Any]]:
+    """Return the librealsense depth post-processing chain, in order.
+
+    Spatial and temporal filtering run in the disparity domain, as recommended
+    by the SDK. All options keep the SDK defaults.
+    """
+
+    if not enabled:
+        return []
+    return [
+        ("disparity", rs.disparity_transform(True)),
+        ("spatial", rs.spatial_filter()),
+        ("temporal", rs.temporal_filter()),
+        ("depth", rs.disparity_transform(False)),
+    ]
+
+
 def _color_frame_rgb(frame: Any, color_format: str) -> np.ndarray:
     image = np.asanyarray(frame.get_data())
     if color_format == "bgr8":
@@ -332,6 +352,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("rgb8", "bgr8"),
         default="rgb8",
         help="format requested from the camera; output is always rgb8",
+    )
+    parser.add_argument(
+        "--no-filter",
+        dest="filter",
+        action="store_false",
+        help="send depth without the disparity/spatial/temporal post-processing",
     )
     parser.add_argument("--ws-timeout", type=float, default=10.0)
     parser.add_argument(
@@ -393,6 +419,7 @@ def stream(args: argparse.Namespace) -> int:
 
     publisher = RosbridgePublisher(args.ws_url, args.ws_timeout)
     align_to_color = rs.align(rs.stream.color)
+    depth_filters = make_depth_filters(rs, args.filter)
     started = False
     sent = 0
     started_at = time.monotonic()
@@ -423,6 +450,11 @@ def stream(args: argparse.Namespace) -> int:
             f"ws={args.ws_url}; rate={args.rate:g} Hz",
             flush=True,
         )
+        if depth_filters:
+            chain = " -> ".join(name for name, _ in depth_filters)
+            print(f"[stream] depth filters: {chain} (SDK defaults)", flush=True)
+        else:
+            print("[stream] depth filters: off (--no-filter)", flush=True)
 
         publisher.advertise()
         interval = 1.0 / args.rate
@@ -433,6 +465,16 @@ def stream(args: argparse.Namespace) -> int:
                 frames = pipeline.wait_for_frames()
             except Exception as exc:
                 raise StreamError(f"RealSense frame acquisition failed: {exc}") from exc
+
+            # Filter every acquired frameset, not only the sent ones, so the
+            # temporal filter sees consecutive frames. Depth is filtered before
+            # it is aligned to color.
+            try:
+                for _, depth_filter in depth_filters:
+                    frames = depth_filter.process(frames).as_frameset()
+            except Exception as exc:
+                raise StreamError(f"RealSense depth filtering failed: {exc}") from exc
+
             now = time.monotonic()
             if now < next_send:
                 continue

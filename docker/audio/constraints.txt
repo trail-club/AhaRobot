@@ -1,0 +1,4 @@
+torch==2.11.0+cu128
+torchaudio==2.11.0+cu128
+# nemo は setuptools>=70 を要求。80 以降は `setup.py develop` が変わり colcon --symlink-install が壊れうるので 80 未満に留める
+setuptools==79.0.1
