@@ -472,8 +472,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 {"objects": ["table.cutlery", "table.cup"], "surface": "dining_table", "dwell": 2.0}
 ```
 
-`objects` は記憶のキーで、値は `perceive_objects` の出力（`label`・`position`（中心）・`frame`・`size`（物体の軸に沿う外接箱、m）を持つ辞書）。
-辞書に `yaw`（`frame` のz軸まわりの物体の向き、rad）があれば使う。
+`objects` は物体の記憶のキー（値は[記憶の受け渡し](#記憶の受け渡し)の辞書）。
 `surface` は発話の場所（`dining_table` は「on the dining table」）、`dwell`（省略時2 s、実時間）は画像を残す時間。
 物体ごとに次を行い、最後に画像を消す。
 
@@ -493,8 +492,8 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | 画像が届かない、TFがない、頭を向けても視野外（頭の可動範囲外など） | 発話だけで伝える | 失敗（失敗時のポリシーに従う） |
 | 一部が視野外 | 見えている部分に枠を描く | 成功 |
 
-頭部カメラの画像とTFを使う。シミュレーションではカメラとbridgeを起動する引数（`people:=true` など）が必要。
-`yaw` のない記録では、細長い物体（フォークなど）の枠が実物より大きくなる。
+頭部カメラの画像とTFを使う。シミュレーションでは `objects:=true` がカメラとbridgeを起動する。認識と続けて試すには、[物体の認識](#物体の認識)のコマンドの選択を `--subgoals '*.perceive*,*.show*'` にする。
+`yaw` のない記憶では、細長い物体（フォークなど）の枠が実物より大きくなる。
 
 ## General Purpose Service Robot Challenge
 
