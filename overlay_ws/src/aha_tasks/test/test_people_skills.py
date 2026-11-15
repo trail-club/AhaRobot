@@ -80,6 +80,7 @@ class FakePeople(People):
         self.message, self.received = message, time.monotonic()
         self.looked = []
         self.panned = []
+        self.followed = []
         self.remember = FakeClient(
             "remember", lambda r: SimpleNamespace(success=True, message="ok")
         )
@@ -125,6 +126,9 @@ class FakePeople(People):
 
     def look_towards(self, pan, height=1.2):
         self.panned.append(pan)
+
+    def follow(self, track=None, name=""):
+        self.followed.append((track, name))
 
 
 class FakeNavigation:
@@ -184,7 +188,8 @@ class FindPersonTests(unittest.TestCase):
         self.assertEqual(result.outputs["guest2.track"], 2)
         self.assertEqual(result.outputs["robot.location"], [2.0, 0.0, 0.0])
         self.assertEqual(navigation.goals, [[2.0, 0.0, 0.0]])
-        self.assertEqual(len(people.looked), 2)
+        # The head stays on the guest during the approach and afterwards.
+        self.assertEqual(people.followed, [(2, "")])
 
     def test_camera_frame_people_are_only_looked_at(self):
         people = FakePeople(people_message(person(5, 0.0, 0.0), frame="camera"))
@@ -241,6 +246,7 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertEqual(people.remember.requests[0].id, 7)
         self.assertEqual(people.remember.requests[0].name, "guest1")
         self.assertEqual(people.describe.requests[0].id, 7)
+        self.assertEqual(people.followed, [(7, "guest1")])
 
     def test_lost_track_falls_back_to_the_nearest_unnamed_person(self):
         people = FakePeople(

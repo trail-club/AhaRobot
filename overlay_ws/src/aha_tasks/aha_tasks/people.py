@@ -4,7 +4,10 @@ Tracks come from /aha/perception/people. A skill outputs `<role>.track` (the
 track ID) and `<role>.position` ([x, y, z] in the people frame) so that later
 skills can address the same person; a remembered name survives lost tracks.
 Described people (GPSR: gesture, posture, clothing) are checked with
-/aha/perception/classify_person. Speech is not part of these skills.
+/aha/perception/classify_person. The head goes through the runner's
+aha_tasks.gaze.Gaze: find_person and memorize_person leave it following the
+person, also through the subgoals that come next (the conversation). Speech is
+not part of these skills.
 """
 
 import itertools
@@ -13,6 +16,7 @@ import threading
 import time
 
 from aha_tasks.core.skill import Skill, SkillResult
+from aha_tasks.gaze import LOOK_HEIGHT
 from aha_tasks.person_description import parse as parse_description
 from aha_tasks.skills import LOCATION, resolve_pose
 
@@ -20,12 +24,9 @@ PEOPLE_TOPIC = "/aha/perception/people"
 REMEMBER_SERVICE = "/aha/perception/remember_person"
 DESCRIBE_SERVICE = "/aha/perception/describe_person"
 CLASSIFY_SERVICE = "/aha/perception/classify_person"
-LOOK_AT_TOPIC = "/aha/perception/look_at"
 STALE_AFTER = 2.0  # s (wall clock) without a people message
 CLOCK_STALL_TIMEOUT = 10.0  # s (wall clock) without the wait clock advancing
 MIN_GUEST_SEPARATION = 0.4  # m; closer sightings may be the same person
-LOOK_FRAME = "base_footprint"  # on the floor, so LOOK_HEIGHT is above the floor
-LOOK_DISTANCE, LOOK_HEIGHT = 2.0, 1.2  # m; about level from the head camera
 SCAN_PANS = (0.0, 0.4, -0.4)  # rad, + = the robot's left
 # Sightings closer than this (m) are one person when counting across head poses.
 SAME_PERSON_M = 0.5
@@ -107,12 +108,12 @@ class People:
 
     look_settle = LOOK_SETTLE
 
-    def __init__(self, node):
+    def __init__(self, node, gaze):
         from aha_msgs.msg import PersonArray
         from aha_msgs.srv import ClassifyPerson, DescribePerson, RememberPerson
-        from geometry_msgs.msg import PointStamped
 
         self.node = node
+        self.gaze = gaze
         self.lock = threading.Lock()
         self.message = None
         self.received = -math.inf
@@ -120,15 +121,13 @@ class People:
         self.remember = node.create_client(RememberPerson, REMEMBER_SERVICE)
         self.describe = node.create_client(DescribePerson, DESCRIBE_SERVICE)
         self.classify = node.create_client(ClassifyPerson, CLASSIFY_SERVICE)
-        self.look_at_pub = node.create_publisher(PointStamped, LOOK_AT_TOPIC, 10)
-        self.PointStamped = PointStamped
         self.RememberPerson, self.DescribePerson = RememberPerson, DescribePerson
         self.ClassifyPerson = ClassifyPerson
 
     @classmethod
     def of(cls, runtime):
         if getattr(runtime, "people", None) is None:
-            runtime.people = cls(runtime.node)
+            runtime.people = cls(runtime.node, runtime.gaze)
         return runtime.people
 
     def _on_people(self, message):
@@ -191,19 +190,16 @@ class People:
         return future.result()
 
     def look_at(self, frame, point):
-        target = self.PointStamped()
-        target.header.frame_id = frame
-        target.point = point
-        self.look_at_pub.publish(target)
+        """Look at a point and stop following (see Gaze)."""
+        self.gaze.look_at(frame, point)
 
     def look_towards(self, pan, height=LOOK_HEIGHT):
         """Turn the head `pan` rad from the base's front, towards `height` at 2 m."""
-        target = self.PointStamped()
-        target.header.frame_id = LOOK_FRAME
-        target.point.x = LOOK_DISTANCE * math.cos(pan)
-        target.point.y = LOOK_DISTANCE * math.sin(pan)
-        target.point.z = height
-        self.look_at_pub.publish(target)
+        self.gaze.look_towards(pan, height)
+
+    def follow(self, track=None, name=""):
+        """Keep the head on a person by track, else by name (see Gaze)."""
+        self.gaze.follow_person(self, track=track, name=name)
 
     def pause(self, seconds, cancelled):
         """Wait on the wait clock; gives up after CLOCK_STALL_TIMEOUT more wall seconds."""
@@ -311,7 +307,7 @@ class FindPerson(Skill):
             return SkillResult(False, f"No person: {reason}")
         message, person = found
         frame = message.header.frame_id
-        people.look_at(frame, person.head)
+        people.follow(track=person.id)
         outputs = person_outputs(role, message, person)
         ctx.log(f"Person {person.id} at {outputs[f'{role}.position']} in {frame}")
         navigation = self.runtime.navigation
@@ -323,7 +319,6 @@ class FindPerson(Skill):
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
             return SkillResult(False, f"Could not approach person {person.id}: {text}")
-        people.look_at(frame, person.head)
         outputs[LOCATION] = [round(v, 3) for v in pose]
         return SkillResult(True, f"Facing person {person.id}", outputs)
 
@@ -363,6 +358,7 @@ class MemorizePerson(Skill):
         if found is None:
             return SkillResult(False, f"No person to memorize: {reason}")
         message, person = found
+        people.follow(track=person.id, name=guest)
         reply = people.call(
             people.remember,
             people.RememberPerson.Request(id=person.id, name=guest),

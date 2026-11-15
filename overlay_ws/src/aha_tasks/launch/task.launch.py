@@ -1,7 +1,7 @@
 """Subgoal task on the RCJO2026 simulation with fixed-map Nav2 and the web GUI.
 
-`people:=true` adds the head camera bridge, person_perception (DGX Spark) and
-head_look_at.py, which turns the head towards the people the skills look at.
+head_look_at.py turns the head where the skills look (aha_tasks.gaze).
+`people:=true` adds the head camera bridge and person_perception (DGX Spark).
 `guests:=true` adds sim_guests, which moves the task's simulated guests.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
@@ -108,6 +108,21 @@ def launch_task(context):
         ),
         RegisterEventHandler(OnProcessExit(target_action=runner, on_exit=task_exited)),
         runner,
+        # Wall clock as in sim_view.launch.py; it uses the latest TF.
+        Node(
+            package="aha_perception",
+            executable="head_look_at.py",
+            parameters=[
+                str(
+                    Path(
+                        get_package_share_directory("aha_perception"),
+                        "config",
+                        "head.yaml",
+                    )
+                )
+            ],
+            output="screen",
+        ),
     ]
     if people:
         actions += [
@@ -119,21 +134,6 @@ def launch_task(context):
                     "use_sim_time": "true",
                     **{name: value(name) for name in PEOPLE_OPTIONS},
                 },
-            ),
-            # Wall clock as in sim_view.launch.py; it uses the latest TF.
-            Node(
-                package="aha_perception",
-                executable="head_look_at.py",
-                parameters=[
-                    str(
-                        Path(
-                            get_package_share_directory("aha_perception"),
-                            "config",
-                            "head.yaml",
-                        )
-                    )
-                ],
-                output="screen",
             ),
         ]
     if value("guests") == "true":
