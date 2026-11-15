@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core import load_spec  # noqa: E402
@@ -304,8 +305,89 @@ class LaunchSwitchTests(unittest.TestCase):
             spec = importlib.util.spec_from_file_location("task_launch", LAUNCH)
             cls.launch = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cls.launch)
+            from launch import LaunchContext
+            from launch.actions import RegisterEventHandler
+            from launch.event_handlers import OnProcessExit
         except ImportError as error:  # host without ROS
             raise unittest.SkipTest(f"no ROS launch: {error}")
+        cls.LaunchContext = LaunchContext
+        cls.RegisterEventHandler = RegisterEventHandler
+        cls.OnProcessExit = OnProcessExit
+
+    def launch_task(self, **arguments):
+        """(actions, nodes by executable, includes by file) of launch_task()."""
+        values = {
+            "task": str(PACKAGE / "config" / "human_interaction.json"),
+            "e2e": "final",
+            "navigation": "",
+            "perception": "",
+            "headless": "true",
+            "gui_port": "8765",
+            "people": "true",
+            "guests": "false",
+            **self.launch.PEOPLE_OPTIONS,
+            **self.launch.RUNNER_OPTIONS,
+            **arguments,
+        }
+        context = self.LaunchContext()
+        context.launch_configurations.update(values)
+        nodes, includes = {}, {}
+        real_node = self.launch.Node
+
+        def node(**kwargs):
+            nodes[kwargs["executable"]] = kwargs
+            return real_node(**kwargs)
+
+        def include(package, filename, launch_arguments):
+            includes[filename] = launch_arguments
+            return filename
+
+        def share(package):
+            return str(PACKAGE) if package == "aha_tasks" else f"/share/{package}"
+
+        with mock.patch.multiple(
+            self.launch, Node=node, include=include, get_package_share_directory=share
+        ):
+            actions = self.launch.launch_task(context)
+        return actions, nodes, includes
+
+    def exit_handlers(self, actions):
+        return [
+            action.event_handler
+            for action in actions
+            if isinstance(action, self.RegisterEventHandler)
+        ]
+
+    def test_final_ends_with_the_runner(self):
+        actions, nodes, includes = self.launch_task(e2e="final")
+        self.assertFalse(nodes["task_runner"]["respawn"])
+        handlers = self.exit_handlers(actions)
+        self.assertEqual(len(handlers), 1)
+        self.assertIsInstance(handlers[0], self.OnProcessExit)
+        self.assertEqual(includes["localized_nav.launch.py"]["navigation"], "true")
+        self.assertEqual(includes["people.launch.py"]["respawn"], "false")
+        self.assertNotIn("sim_teleport", nodes)
+        self.assertNotIn("sim_person_detector.py", nodes)
+
+    def test_debug_keeps_the_simulation_and_restarts_the_runner(self):
+        actions, nodes, includes = self.launch_task(e2e="debug")
+        self.assertTrue(nodes["task_runner"]["respawn"])
+        self.assertEqual(self.exit_handlers(actions), [])
+        self.assertEqual(includes["localized_nav.launch.py"]["navigation"], "false")
+        self.assertTrue(nodes["sim_teleport"]["respawn"])
+        self.assertTrue(nodes["sim_person_detector.py"]["respawn"])
+        self.assertNotIn("people.launch.py", includes)
+
+    def test_debug_with_the_real_stack_restarts_the_people_node(self):
+        actions, nodes, includes = self.launch_task(
+            e2e="debug", navigation="nav2", perception="model"
+        )
+        self.assertTrue(nodes["task_runner"]["respawn"])
+        self.assertEqual(self.exit_handlers(actions), [])
+        self.assertEqual(includes["localized_nav.launch.py"]["navigation"], "true")
+        self.assertEqual(includes["people.launch.py"]["respawn"], "true")
+        self.assertNotIn("sim_teleport", nodes)
+        self.assertNotIn("sim_person_detector.py", nodes)
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))
