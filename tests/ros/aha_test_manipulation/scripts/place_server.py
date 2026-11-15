@@ -383,7 +383,8 @@ class PlaceServer(Node):
         # for a finger it has no state of.
         self.fingers = {}
         # Why the arm readings looked frozen, kept until they change (the
-        # arm_node restarted) with the readings seen then ({joint: rad}).
+        # arm_node restarted) or the next place goal (clear_frozen), with the
+        # readings seen then ({joint: rad}).
         self.frozen = None
         self.frozen_readings = {}
         if self.param("frozen_window") > 0.0:
@@ -537,6 +538,19 @@ class PlaceServer(Node):
             changed |= frozen is not None and frozen != position
         if changed and self.frozen:
             self.get_logger().info("arm readings change again: frozen state cleared")
+            self.frozen = None
+            self.frozen_readings = {}
+
+    def clear_frozen(self):
+        """Forget a frozen state at a new place goal: an arm stopped by an
+        obstacle reads the same values while live, and would refuse every goal
+        until a restart. Truly frozen readings are flagged again during the
+        goal's first motion (frozen_window after it starts)."""
+        if self.frozen:
+            self.get_logger().warn(
+                f"new goal: frozen state cleared ({self.frozen}); detected again "
+                "if the readings stay frozen while the arm moves"
+            )
             self.frozen = None
             self.frozen_readings = {}
 
@@ -1699,6 +1713,7 @@ class PlaceServer(Node):
             if goal_handle.is_cancel_requested:
                 self.cancel_event.set()
             self.last_feedback = None
+            self.clear_frozen()
             self.execution_failed = False
             self.moved = False
             self.at_place = None

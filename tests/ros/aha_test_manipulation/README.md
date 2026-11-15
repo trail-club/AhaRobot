@@ -228,7 +228,7 @@ perceptionの `/aha/perception/place/markers` は問い合わせごとの候補�
 | `base_spot` / `base_spot_top` | [0.55, 0.45] / [0.38, 0.2] | `suggested_base_pose` で候補を置く台車からの位置 x, \|y\|。`side` は腕の外側寄り（肩から約30°）で、手先の外側に張り出す手首が物の後ろに回り、隣の物や側板に当たりにくい |
 | `group_ratio` | 0.6 | `near` までの距離が `avoid` の各点までの距離のこの倍未満の候補だけを `near` のグループとする（中間の位置はどちらのグループか分からない） |
 | `verify_place` / `verify_margin` / `verify_height_tolerance` / `verify_detections` | true / 0.03 m / 0.04 m / 1 | 戻った後の確認、置いた所から箱までの水平距離と、箱の底と支持面の高さの差の上限、確認に使う検出の数（最初を含む） |
-| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、関節ごとに、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、以後のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。止まった関節の読み（`/<arm>/arm/joint_states`）が変われば（`arm_node` の起動し直し）解除する。静止中に止まった読みは検出しない |
+| `frozen_window` / `frozen_motion` | 0（なし） / 0.05 rad | 実機の腕の軌道ブリッジのfeedbackで、関節ごとに、読みが `frozen_window` 秒同じまま指令が `frozen_motion` より動いたら、読みが止まった（基板のリセットなど）とみなし、以後のMoveItのgoalを出さずに失敗にする。実行中の動作は取り消さない（ブリッジが止まった読みの位置を保とうとするため）。止まった関節の読み（`/<arm>/arm/joint_states`）が変われば（`arm_node` の起動し直し）、または次のplaceのgoalで解除する（障害物で止められた腕も同じ読みを返すため。読みが止まったままなら、そのgoalの最初の動作で再び検出する）。静止中に止まった読みは検出しない |
 
 ## ROSインターフェース
 

@@ -132,6 +132,19 @@ def test_a_new_bridge_goal_starts_the_watch_afresh(server, clock):
     assert stub.frozen is None
 
 
+def test_a_new_place_goal_clears_the_frozen_state(server, clock):
+    # An arm stopped by an obstacle keeps reading the same values.
+    stub = node(server)
+    stub.clear_frozen = server.PlaceServer.clear_frozen.__get__(stub)
+    freeze_wrist(stub, FrozenWatch(0.5, 0.05))
+    assert stub.frozen
+    stub.on_finger_states(SimpleNamespace(name=NAMES, position=[0.7, 0.0015]))
+    assert stub.frozen
+    stub.clear_frozen()
+    assert stub.frozen is None and stub.frozen_readings == {}
+    assert any("frozen state cleared" in text for _, text in stub.logger.lines)
+
+
 def test_motions_are_refused_while_frozen(server):
     stub = node(server)
     stub.frozen = "right arm: frozen readings"
