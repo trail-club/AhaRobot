@@ -403,6 +403,13 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 `aha_tasks/objects.py` の2つのスキルは `/aha/perception/objects`（[aha_perception](../aha_perception/README.md#シミュレーションの物体検出)）を購読し、
 台を頭で見回して検出を集め、台の上の物体を求める。検出器の起動はlaunchの `objects:=true`。真値の検出器も画像からの検出器も同じtopicに出す。
 
+```bash
+ros2 launch aha_tasks task.launch.py task:=pick_and_place object_scene:=pick_and_place objects:=true e2e:=debug headless:=true
+ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別のシェル
+```
+
+選択しない移動はmockで通過し、各認識の前にrunnerがロボットをその地点へ移す（[実行の仕組み](#実行の仕組み)の状態の同期）。
+
 | スキル | params | 動作 |
 | --- | --- | --- |
 | `perceive_objects` | `surface`、`output`、`roles`、`margin` | `surface` の上の物体を、`roles` の順に役割へ割り当てる。1つ以上の役割が見つかれば成功し、見つからない役割は結果のメッセージに出す。終了後は台の手前を見る |
