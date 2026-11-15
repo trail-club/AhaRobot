@@ -97,7 +97,7 @@ class Interaction:
             prompt=prompt, choices=list(choices), timeout=float(timeout)
         )
         limit = timeout + RESPONSE_TIMEOUT if timeout > 0 else math.inf
-        result, message = self._run(self.screen, goal, limit, cancelled)
+        result, message = self._run(self.screen, goal, limit, cancelled, resend=True)
         if message == LOST:
             return None, f"No screen: {ASK_ACTION} went away"
         if result is None:
@@ -106,14 +106,31 @@ class Interaction:
             return None, result.message
         return result.index, result.choice
 
-    def _run(self, client, goal, timeout, cancelled):
-        """(result, "") of `goal`, or (None, why); the goal is cancelled on giving up."""
-        sent = client.send_goal_async(goal)
-        try:
-            handle = self._wait(sent, RESPONSE_TIMEOUT, cancelled)
-        except (Cancelled, TimeoutError) as error:
-            sent.add_done_callback(cancel_if_accepted)
-            return None, reason(error)
+    def _run(self, client, goal, timeout, cancelled, resend=False):
+        """(result, "") of `goal`, or (None, why); the goal is cancelled on giving up.
+
+        A goal sent right after the server is found can be lost, or its response.
+        With `resend`, an unanswered goal is sent again while the server runs and
+        `timeout` lasts. Only for goals that replace the previous one, as a
+        question on the screen does; a resent utterance could be spoken twice.
+        """
+        give_up = time.monotonic() + timeout
+        while True:
+            sent = client.send_goal_async(goal)
+            try:
+                handle = self._wait(sent, RESPONSE_TIMEOUT, cancelled)
+                break
+            except (Cancelled, TimeoutError) as error:
+                sent.add_done_callback(cancel_if_accepted)
+                unanswered = isinstance(error, TimeoutError)
+                if not (resend and unanswered and time.monotonic() < give_up):
+                    return None, reason(error)
+            try:  # the server may be restarting
+                self._poll(client.server_is_ready, SERVER_TIMEOUT, cancelled)
+            except Cancelled:
+                return None, "Cancelled"
+            except TimeoutError:
+                return None, LOST
         if not handle.accepted:
             return None, "the goal was rejected"
         # A server that dies never answers, so give up once it is gone.

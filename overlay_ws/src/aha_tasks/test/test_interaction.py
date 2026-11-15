@@ -1,6 +1,8 @@
 """say / show / ask through ROS against the real screen, and the skills that use them."""
 
+import math
 import os
+import select
 import subprocess
 import sys
 import threading
@@ -303,6 +305,101 @@ class RosTests(unittest.TestCase):
         self.assertTrue(result["value"].success, result["value"].message)
 
 
+class FakeFuture:
+    def __init__(self):
+        self.value, self.callbacks = None, []
+
+    def done(self):
+        return self.value is not None
+
+    def result(self):
+        return self.value
+
+    def add_done_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def set(self, value):
+        self.value = value
+        for callback in self.callbacks:
+            callback(self)
+
+
+def finished(value):
+    future = FakeFuture()
+    future.set(value)
+    return future
+
+
+class FakeClient:
+    """An action client whose first `lost` goals get no response."""
+
+    def __init__(self, result, lost=1):
+        self.result, self.lost = result, lost
+        self.ready = True
+        self.sent = []  # futures of the goal handles
+        self.cancelled = []
+
+    def server_is_ready(self):
+        return self.ready
+
+    def send_goal_async(self, goal):
+        future = FakeFuture()
+        self.sent.append(future)
+        if len(self.sent) > self.lost:
+            future.set(self.handle())
+        return future
+
+    def handle(self):
+        handle = SimpleNamespace(accepted=True)
+        handle.get_result_async = lambda: finished(SimpleNamespace(result=self.result))
+        handle.cancel_goal_async = lambda: self.cancelled.append(handle)
+        return handle
+
+
+class ResendTests(unittest.TestCase):
+    """A goal sent right after discovery, or its response, can be lost."""
+
+    def setUp(self):
+        from aha_msgs.action import Ask, Speak
+        from std_msgs.msg import String
+
+        for name in ("RESPONSE_TIMEOUT", "SERVER_TIMEOUT"):
+            value = getattr(interaction_module, name)
+            self.addCleanup(setattr, interaction_module, name, value)
+            setattr(interaction_module, name, 0.2)
+        self.Ask = Ask
+        interaction = Interaction.__new__(Interaction)
+        interaction.node = SimpleNamespace(context=SimpleNamespace(ok=lambda: True))
+        interaction.Ask, interaction.Speak, interaction.String = Ask, Speak, String
+        interaction.captions = SimpleNamespace(publish=lambda message: None)
+        self.interaction = interaction
+
+    def ask(self):
+        return self.interaction.ask("Ready to start", ["Start"], threading.Event())
+
+    def test_an_unanswered_question_is_sent_again(self):
+        touched = self.Ask.Result(success=True, index=0, choice="Start")
+        screen = self.interaction.screen = FakeClient(touched)
+        self.assertEqual(self.ask(), (0, "Start"))
+        self.assertEqual(len(screen.sent), 2)
+        screen.sent[0].set(screen.handle())  # a late response to the first
+        self.assertEqual(len(screen.cancelled), 1)
+
+    def test_resending_stops_when_the_screen_goes_away(self):
+        screen = self.interaction.screen = FakeClient(None, lost=math.inf)
+        timer = threading.Timer(0.3, setattr, (screen, "ready", False))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        self.assertEqual(self.ask(), (None, "No screen: /aha/display/ask went away"))
+        self.assertEqual(len(screen.sent), 2)
+
+    def test_speech_is_not_sent_again(self):
+        speaker = self.interaction.speaker = FakeClient(None)
+        ok, message = self.interaction.say("Welcome.", threading.Event())
+        self.assertEqual((ok, message), (False, "TTS: no answer from the server"))
+        self.assertEqual(len(speaker.sent), 1)
+
+
 class FakeGoal:
     """An Ask goal handle; `checking` runs when the bridge checks for a cancel."""
 
@@ -372,18 +469,39 @@ class RaceTests(unittest.TestCase):
 
 
 # A screen in its own process, to be killed like a crashed task monitor.
+# It prints "asked" once a question is on the screen.
 SCREEN_PROCESS = """
+import threading
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from aha_tasks.display import Screen, ScreenBridge
+
+
+def report(hub):
+    version = None
+    while True:
+        version, payload = hub.wait(version, None)
+        if payload["screen"]["question"]:
+            print("asked", flush=True)
+            return
+
+
 rclpy.init()
 node = Node("test_crashing_display")
-ScreenBridge(node, Screen())
+screen = Screen()
+threading.Thread(target=report, args=(screen.hub,), daemon=True).start()
+ScreenBridge(node, screen)
 executor = MultiThreadedExecutor()
 executor.add_node(node)
 executor.spin()
 """
+
+
+def read_line(stream, timeout):
+    ready, _, _ = select.select([stream], [], [], timeout)
+    assert ready, "Timed out"
+    return stream.readline().strip()
 
 
 class ShutdownTests(unittest.TestCase):
@@ -402,7 +520,13 @@ class ShutdownTests(unittest.TestCase):
         env["PYTHONPATH"] = os.pathsep.join(
             [source] + [p for p in [env.get("PYTHONPATH")] if p]
         )
-        screen = subprocess.Popen([sys.executable, "-c", SCREEN_PROCESS], env=env)
+        screen = subprocess.Popen(
+            [sys.executable, "-c", SCREEN_PROCESS],
+            env=env,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(screen.stdout.close)
         self.addCleanup(screen.wait, 10.0)
         self.addCleanup(screen.kill)
         rclpy.init()
@@ -414,7 +538,6 @@ class ShutdownTests(unittest.TestCase):
         threading.Thread(target=executor.spin, daemon=True).start()
         self.addCleanup(executor.shutdown)
         wait_until(interaction.screen.server_is_ready, 20.0)
-        time.sleep(1.0)  # a goal sent right after discovery can be lost
         answer = {}
         thread = threading.Thread(
             target=lambda: answer.update(
@@ -422,7 +545,8 @@ class ShutdownTests(unittest.TestCase):
             )
         )
         thread.start()
-        time.sleep(1.0)  # the goal is accepted and waits for a touch
+        # Sent right after discovery, the goal may be lost and then resent.
+        self.assertEqual(read_line(screen.stdout, 20.0), "asked")
         self.assertNotIn("value", answer)
         screen.kill()  # SIGKILL: no abort reaches the runner
         start = time.monotonic()
