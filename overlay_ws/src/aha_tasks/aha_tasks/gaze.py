@@ -113,14 +113,14 @@ class Gaze:
             self.mode = None
             self._send(frame, (point.x, point.y, point.z), force=True)
 
-    def look_towards(self, pan):
-        """Look `pan` rad (+ = left) from the base's front, about level."""
+    def look_towards(self, pan, height=LOOK_HEIGHT):
+        """Look `pan` rad (+ = left) from the base's front, at `height` m 2 m away."""
         self.look_at(
             LOOK_FRAME,
             self.Point(
                 x=LOOK_DISTANCE * math.cos(pan),
                 y=LOOK_DISTANCE * math.sin(pan),
-                z=LOOK_HEIGHT,
+                z=height,
             ),
         )
 

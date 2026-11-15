@@ -292,6 +292,19 @@ class RunPlanStepTests(unittest.TestCase):
         self.assertEqual(result.outputs, {"robot.holding": "cola"})
         self.assertEqual(skill.execute(context(plan, index=1)).outputs, {})
 
+    def test_a_step_the_skill_cannot_do_yet_passes_with_its_mock(self):
+        fake = FakeSkill()
+        fake.unsupported = lambda params: "no names yet" if "name" in params else None
+        plan = [step("fake", {"item": "x", "name": "Jules"}, mock={"a": 1})]
+        result = slot({"fake": fake}).execute(context(plan))
+        self.assertTrue(result.success, result.message)
+        self.assertIn("not implemented", result.message)
+        self.assertEqual(result.outputs, {"a": 1})
+        self.assertEqual(fake.contexts, [])
+        self.assertEqual(
+            slot({"fake": fake}).assumed({"index": 0}, {"plan": plan}), {"a": 1}
+        )
+
     def test_mock_location_of_unimplemented_step_is_physically_reached(self):
         plan = [step("todo", mock={"robot.location": "b"})]
         navigation = FakeNavigation()
@@ -394,10 +407,28 @@ class GpsrDefinitionTests(unittest.TestCase):
             if "surface" in item["params"]:
                 self.assertIn(item["params"]["surface"], self.spec.locations)
 
-    def test_runs_without_person_perception(self):
+    def test_only_the_person_steps_need_person_perception(self):
         self.assertNotIn("find_person", self.spec.skills)
-        implemented = {k for k, v in self.spec.skills.items() if v}
-        self.assertEqual(implemented, {"navigate", "run_plan_step", "say"})
+        implemented = {k: v for k, v in self.spec.skills.items() if v}
+        self.assertEqual(
+            set(implemented),
+            {
+                "navigate",
+                "run_plan_step",
+                "say",
+                "find_described_person",
+                "count_people",
+            },
+        )
+        for name in ("find_described_person", "count_people"):
+            self.assertTrue(implemented[name].startswith("aha_tasks.people:"))
+
+
+class Found(Skill):
+    """Stands in for find_described_person, which needs person_perception."""
+
+    def execute(self, ctx):
+        return SkillResult(True, "found")
 
 
 class GpsrEngineTests(unittest.TestCase):
@@ -406,6 +437,7 @@ class GpsrEngineTests(unittest.TestCase):
         holding = []
         engine, runtime = gpsr_engine(
             navigation,
+            {"find_described_person": Found(None)},
             publish=lambda status: holding.append(
                 status["memory"].get("robot.holding")
             ),

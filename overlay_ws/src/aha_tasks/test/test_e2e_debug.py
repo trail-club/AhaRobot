@@ -325,6 +325,7 @@ class LaunchSwitchTests(unittest.TestCase):
             "gui_port": "8765",
             "people": "true",
             "guests": "false",
+            "people_scene": "",
             **self.launch.PEOPLE_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
@@ -388,6 +389,14 @@ class LaunchSwitchTests(unittest.TestCase):
         self.assertEqual(includes["people.launch.py"]["respawn"], "true")
         self.assertNotIn("sim_teleport", nodes)
         self.assertNotIn("sim_person_detector.py", nodes)
+
+    def test_posed_people_need_the_models(self):
+        with self.assertRaises(ValueError):
+            self.launch_task(e2e="debug", people_scene="gpsr")
+        _, nodes, _ = self.launch_task(
+            e2e="debug", perception="model", people_scene="gpsr"
+        )
+        self.assertIn("sim_people", nodes)
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

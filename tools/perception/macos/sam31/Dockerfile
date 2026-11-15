@@ -9,7 +9,7 @@ COPY upstream/sam3 /app/upstream/sam3
 ENV UV_PROJECT_ENVIRONMENT=/opt/aharobot-sam31-venv
 RUN uv venv --python python3 --system-site-packages "$UV_PROJECT_ENVIRONMENT" \
  && uv sync --project tools/perception/macos/sam31 --locked --inexact --no-python-downloads \
- && "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import torch, torchvision, triton, sam3"
+ && "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import torch, torchvision, triton, sam3, transformers"
 ENV PATH="/opt/aharobot-sam31-venv/bin:$PATH"
 ENV PYTHONPATH=/app/overlay_ws/src/aha_perception
 ENV PYTORCH_KERNEL_CACHE_PATH=/cache/torch/kernels

@@ -321,8 +321,18 @@ class FakeVlm:
         return json.dumps({"photo": len(images) - 1})
 
 
+class FakePose:
+    def __init__(self, error=None):
+        self.error = error
+
+    def predict(self, rgb, boxes):
+        if self.error is not None:
+            raise self.error
+        return [np.tile([1.0, 2.0, 0.9], (17, 1)) for _ in boxes]
+
+
 class WorkerTests(unittest.TestCase):
-    def serve(self, lines, vlm=FakeVlm()):
+    def serve(self, lines, vlm=FakeVlm(), load_pose=None):
         output = io.StringIO()
         code = person_worker.serve(
             io.StringIO("".join(json.dumps(line) + "\n" for line in lines)),
@@ -330,6 +340,7 @@ class WorkerTests(unittest.TestCase):
             threshold=0.5,
             load_segmenter=lambda prompt, threshold: FakeSegmenter(),
             vlm=vlm,
+            load_pose=load_pose,
         )
         return code, [json.loads(line) for line in output.getvalue().splitlines()]
 
@@ -367,6 +378,43 @@ class WorkerTests(unittest.TestCase):
         by_id = {r.get("id"): r for r in responses}
         self.assertEqual(by_id[1]["type"], "error")
         self.assertEqual(by_id[2]["type"], "detections")
+
+    def test_people_have_keypoints_with_a_pose_model(self):
+        image = encode_image(np.zeros((32, 24, 3), np.uint8))
+        _, (ready, detections) = self.serve(
+            [{"type": "detect", "id": 1, "image": image}], load_pose=FakePose
+        )
+        self.assertTrue(ready["keypoints"])
+        self.assertNotIn("pose_error", ready)
+        (person,) = detections["people"]
+        self.assertEqual(person["keypoints"], [[[1.0, 2.0, 0.9]] * 17])
+        self.assertNotIn("pose_error", detections)
+
+    def test_pose_model_that_does_not_load_only_turns_keypoints_off(self):
+        def broken():
+            raise OSError("cannot download the ViTPose weights")
+
+        image = encode_image(np.zeros((32, 24, 3), np.uint8))
+        code, (ready, detections) = self.serve(
+            [{"type": "detect", "id": 1, "image": image}], load_pose=broken
+        )
+        self.assertEqual(code, 0)
+        self.assertFalse(ready["keypoints"])
+        self.assertIn("ViTPose", ready["pose_error"])
+        (person,) = detections["people"]
+        self.assertNotIn("keypoints", person)
+
+    def test_pose_failure_on_an_image_keeps_the_people(self):
+        image = encode_image(np.zeros((32, 24, 3), np.uint8))
+        _, (_, detections, again) = self.serve(
+            [{"type": "detect", "id": i, "image": image} for i in (1, 2)],
+            load_pose=lambda: FakePose(RuntimeError("CUDA out of memory")),
+        )
+        self.assertEqual(detections["type"], "detections")
+        (person,) = detections["people"]
+        self.assertEqual(person["keypoints"], [])
+        self.assertEqual(detections["pose_error"], "CUDA out of memory")
+        self.assertEqual(again["type"], "detections")  # the worker continues
 
     def test_startup_failure_is_reported(self):
         output = io.StringIO()

@@ -3,6 +3,8 @@
 head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 `people:=true` adds the head camera bridge and person_perception (DGX Spark).
 `guests:=true` adds sim_guests, which moves the task's simulated guests.
+`people_scene:=<name>` adds sim_people, which puts the posed people of
+config/sim/people/<name>.json (or a JSON path) into Gazebo.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -132,6 +134,12 @@ def launch_task(context):
         respawn_delay=2.0,
     )
     people = value("people") == "true"
+    if people and perception == "truth" and value("people_scene"):
+        # sim_person_detector.py has no ClassifyPerson and only knows the guests.
+        raise ValueError(
+            "people_scene:= with people:=true needs perception:=model "
+            "(the debug stand-in cannot judge posed people)"
+        )
     scene = task_config(f"sim/{spec.task}")
     guests = value("guests") == "true"
     if guests and not scene.is_file():
@@ -241,6 +249,24 @@ def launch_task(context):
                 output="screen",
             )
         )
+    people_scene = value("people_scene")
+    if people_scene:
+        path = (
+            Path(people_scene)
+            if people_scene.endswith(".json")
+            else task_config(f"sim/people/{people_scene}")
+        )
+        if not path.is_file():
+            raise ValueError(f"people_scene:={people_scene}: no {path}")
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_people",
+                parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={path}"],
+                output="screen",
+            )
+        )
     return actions
 
 
@@ -277,6 +303,11 @@ def generate_launch_description():
                 "guests",
                 default_value="false",
                 description="Simulated guests from config/sim/<task>.json",
+            ),
+            DeclareLaunchArgument(
+                "people_scene",
+                default_value="",
+                description="Posed people from config/sim/people/<name>.json",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)

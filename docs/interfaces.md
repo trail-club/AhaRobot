@@ -175,6 +175,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+`people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
 
 ### ロボットの画面
 
@@ -350,11 +351,15 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 | 人の表示 | `/aha/perception/people/markers` | `visualization_msgs/msg/MarkerArray` |
 | 外見を名前で覚える | `/aha/perception/remember_person` | `aha_msgs/srv/RememberPerson` |
 | 外見の特徴（VLM） | `/aha/perception/describe_person` | `aha_msgs/srv/DescribePerson` |
+| 姿勢・ジェスチャ・服 | `/aha/perception/classify_person` | `aha_msgs/srv/ClassifyPerson` |
 
 `PersonArray` は処理した画像ごとに、追跡中の全員を配信する。`header.frame_id` は `target_frame`（既定 `map`）、`header.stamp` は画像の時刻。
 各 `Person` の `position` は体の中心、`head` は体の上端、`visible` はその画像に写っていたか、`last_seen` は最後に写った画像の時刻。
 `id` は見失うと変わる。同じ人を指し続けるには `remember_person` で名前を付け、`name` で探す。
 名前は見失うまで同じ `id` に残る。見失ったあとの新しい `id` には、VLMが覚えた人と照合して名前を付ける（照合が済むまでの数秒は `name` が空）。
+`keypoints` / `keypoint_scores` は最後に写った画像のCOCOの17点（順序は `Person.msg`）で、スコア0の点は見えていない。キーポイントを使わない設定と、ViTPoseが失敗した場合は空。
+`posture` / `gesture` は、キーポイントとDepthの規則で確かな場合だけ入る（[判定](../overlay_ws/src/aha_perception/README.md#姿勢ジェスチャ服)）。左右は本人の左右。
+`ClassifyPerson` はVLMにも聞き、服を `"<色> <種類>"`（例 `red t shirt`）で返す。`skip_vlm` では確かな規則の結果だけをすぐ返す。VLMの呼び出しが失敗すると `success` はfalse（理由は `message`）。
 
 aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の位置から同じtopic・serviceを提供する（markersは配信しない。[シミュレーションの人の検出](../overlay_ws/src/aha_perception/README.md#シミュレーションの人の検出)）。
 
@@ -406,8 +411,8 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
+`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

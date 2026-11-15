@@ -39,6 +39,10 @@ class Skill:
     def ready(self):
         """Block until dependencies are available; raise on timeout."""
 
+    def unsupported(self, params):
+        """Why these params cannot be done yet, or None; a plan step is mocked then."""
+        return None
+
     def expected(self, params):
         """State that holds after success; also assumed when the subgoal is mocked."""
         return {}

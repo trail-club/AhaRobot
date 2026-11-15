@@ -102,7 +102,7 @@ class RunPlanStep(Skill):
         step = plan[index]
         mock = step.get("mock", {})
         skill = self.runtime.skills.get(step["action"])
-        if skill is None:
+        if skill is None or skill.unsupported(step["params"]):
             return mock
         return {**skill.assumed(step["params"], memory), **mock}
 
@@ -121,7 +121,10 @@ class RunPlanStep(Skill):
         label = f"Step {index + 1} (command {step['command']}): {action}"
         ctx.log(f"{label} {params}")
         skill = self.runtime.skills.get(action)
-        if skill is None:
+        why = skill.unsupported(params) if skill is not None else None
+        if why:
+            ctx.log(f"{label}: {why}")
+        if skill is None or why:
             return self._assume_mock(ctx, label, step.get("mock", {}))
         result = normalize(
             skill.execute(
