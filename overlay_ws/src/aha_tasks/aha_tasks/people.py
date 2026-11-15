@@ -595,21 +595,22 @@ class FindDescribedPerson(Skill):
         deadline = people.now() + timeout
         checked = {}  # track ID -> answers (None: not the named person)
         failures = {}  # track ID -> judgements that failed
-        checked_at = []  # map positions of people already judged
+        checked_at = []  # (map position, track ID) of people already judged
         next_look = -math.inf
 
         def judged(message, person):
-            # A track lost while the head turns comes back with a new ID.
-            return (
-                person.id in checked
-                or failures.get(person.id, 0) >= MAX_JUDGEMENTS
-                or (
-                    message.header.frame_id == "map"
-                    and any(
-                        math.dist(planar(person.position), xy) < SAME_PERSON_M
-                        for xy in checked_at
-                    )
-                )
+            if person.id in checked or failures.get(person.id, 0) >= MAX_JUDGEMENTS:
+                return True
+            if message.header.frame_id != "map":
+                return False
+            # A track lost while the head turns comes back with a new ID nearby.
+            # A judged track still in view is someone else: person_perception
+            # keeps people 0.4 m apart as separate tracks.
+            in_view = {p.id for p in message.people if p.visible}
+            return any(
+                math.dist(planar(person.position), xy) < SAME_PERSON_M
+                for xy, track in checked_at
+                if track not in in_view
             )
 
         def choose(message):
@@ -658,7 +659,7 @@ class FindDescribedPerson(Skill):
                 failures[person.id] = failures.get(person.id, 0) + 1
             else:
                 checked[person.id] = answers
-                checked_at.append(planar(person.position))
+                checked_at.append((planar(person.position), person.id))
             ctx.log(f"{where(person)}: {describe_answers(answers)}")
             if answers and description.matches(name=person.name, **seen(answers)):
                 return message, person, answers
@@ -751,9 +752,14 @@ class CountPeople(Skill):
                     return entry
             if message.header.frame_id != "map":
                 return None
+            # A lost track comes back with a new ID near its entry; an entry
+            # whose track is still in view is someone else: person_perception
+            # keeps people 0.4 m apart as separate tracks.
+            in_view = {p.id for p in message.people if p.visible}
             near = [
                 (math.dist(planar(person.position), entry["position"][:2]), i)
                 for i, entry in enumerate(found)
+                if not entry["ids"] & in_view
             ]
             near = [(d, i) for d, i in near if d < SAME_PERSON_M]
             return found[min(near)[1]] if near else None

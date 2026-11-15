@@ -503,6 +503,19 @@ def classified(people):
     return [(r.id, r.skip_vlm) for r in people.classify.requests]
 
 
+def resight_after_judging(people, track, message):
+    """Switch to `message` once the VLM has judged `track`."""
+    answer = people.classify.answer
+
+    def then_switch(request):
+        reply = answer(request)
+        if request.id == track and not request.skip_vlm:
+            people.message, people.received = message, time.monotonic()
+        return reply
+
+    people.classify.answer = then_switch
+
+
 class FindDescribedPersonTests(unittest.TestCase):
     def test_looks_at_each_person_before_judging_them(self):
         people = FakePeople(
@@ -520,6 +533,40 @@ class FindDescribedPersonTests(unittest.TestCase):
         heads = [(p.x, p.y) for _, p in people.looked]
         # Each candidate twice (again where its head is seen then), then the one found.
         self.assertEqual(heads, [(1.0, 0.0)] * 2 + [(2.0, 0.0)] * 3)
+
+    def test_a_person_next_to_a_judged_one_is_judged_too(self):
+        # 0.45 m apart: person_perception keeps them as two tracks.
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 1.0, 0.45)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                2: {"rules": ("standing", "waving")},
+            },
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 5.0, "approach": False})
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+
+    def test_a_judged_person_seen_again_is_not_judged_again(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "none", [])},
+                3: {"rules": ("standing", "waving")},
+            },
+        )
+        resight_after_judging(
+            people,
+            1,
+            people_message(person(1, 1.0, 0.0, visible=False), person(3, 1.1, 0.1)),
+        )
+        result = FindDescribedPerson(runtime(people)).execute(
+            context({"gesture": "waving person", "timeout": 0.5, "approach": False})
+        )
+        self.assertFalse(result.success)
+        self.assertNotIn(3, [r.id for r in people.classify.requests])
 
     def test_finds_the_waving_person_asking_the_vlm_only_when_unclear(self):
         people = FakePeople(
@@ -884,20 +931,27 @@ class CountPeopleTests(unittest.TestCase):
         self.assertEqual(requests.count(2), MAX_JUDGEMENTS)  # lost: retried once
 
     def test_counts_matching_people_once_each(self):
+        others = (
+            person(2, 2.0, 0.0),
+            person(3, 0.0, 2.0),
+            person(5, 9.0, 0.0),  # outside the area
+        )
         people = FakePeople(
-            people_message(
-                person(1, 1.0, 0.0),
-                person(4, 1.2, 0.1),  # the same person seen twice
-                person(2, 2.0, 0.0),
-                person(3, 0.0, 2.0),
-                person(5, 9.0, 0.0),  # outside the area
-            ),
+            people_message(person(1, 1.0, 0.0), *others),
             attributes={
                 1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])},
                 2: {"rules": ("standing", "none")},
                 3: {"rules": ("standing", "raising_left_arm")},
                 5: {"rules": ("standing", "waving")},
             },
+        )
+        resight_after_judging(
+            people,
+            1,
+            # Person 1 out of view, then seen again with a new track ID.
+            people_message(
+                person(1, 1.0, 0.0, visible=False), person(4, 1.2, 0.1), *others
+            ),
         )
         result = CountPeople(runtime(people)).execute(
             context(
@@ -962,6 +1016,30 @@ class CountPeopleTests(unittest.TestCase):
         self.assertEqual(result.outputs["n"], 1)
         vlm = [r.id for r in people.classify.requests if not r.skip_vlm]
         self.assertEqual(vlm, [2, 2])  # failed, then judged again
+
+    def test_people_side_by_side_are_counted_apart(self):
+        # 0.45 m apart on a sofa: person_perception keeps them as two tracks.
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 1.0, 0.45)),
+            attributes={
+                1: {"rules": ("sitting", "none")},
+                2: {"rules": ("sitting", "waving")},
+            },
+        )
+        result = CountPeople(runtime(people)).execute(
+            context(
+                {
+                    "output": "n",
+                    "gesture": "waving persons",
+                    "pans": [0.0],
+                    "dwell": 0.05,
+                    "timeout": 10.0,
+                }
+            )
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["n"], 1)
+        self.assertEqual(result.outputs["n.positions"], [[1.0, 0.45, 1.0]])
 
     def test_counts_everyone_without_a_description(self):
         people = FakePeople(
