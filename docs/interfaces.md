@@ -164,6 +164,7 @@ teleopなどから同時に速度指令を送らない。ゴールは `/navigate
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
+POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。
 
 ### ロボットの画面
 
@@ -178,7 +179,7 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 
 字幕と画像の購読はRELIABLE / VOLATILE（深さ10と1）。
 画面のHTTP APIは `GET /display/api/events`（SSE）、`GET /display/api/image/<id>`、
-`POST /display/api/touch`（`{"question": <id>, "choice": <ボタンの番号>}`、`Content-Type: application/json` が必要）。
+`POST /display/api/touch`（`{"question": <id>, "choice": <ボタンの番号>}`）。要求の確認はGUIのHTTP APIと同じ。
 画面の状態は `GET /api/status`・`/api/events` の `screen` にも入る。GUIに埋め込んだ画面（`display/?embedded`）はSSEを開かず、GUIのページから `postMessage` で状態を受け取る（GUIのタブ1つのSSE接続は1本）。
 runnerのスキルは字幕と画像（認識の結果など）を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
 `task_monitor` が止まるときは、表示中の質問のgoalをabortする（`The screen is shutting down`）。

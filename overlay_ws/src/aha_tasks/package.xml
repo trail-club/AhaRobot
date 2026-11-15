@@ -22,7 +22,7 @@
   <exec_depend>visualization_msgs</exec_depend>
   <!-- robot screen (aha_tasks.display): image topic -->
   <exec_depend>sensor_msgs</exec_depend>
-  <!-- task.launch.py people:=true -->
+  <!-- task.launch.py people:=true; task_monitor uses aha_perception.audio.web_access -->
   <exec_depend>aha_perception</exec_depend>
   <!-- task.launch.py guests:=true -->
   <exec_depend>gz_msgs_vendor</exec_depend>

@@ -120,12 +120,15 @@ class ServerTests(unittest.TestCase):
     def setUp(self):
         self.hub = StatusHub(online=False, status=None)
         self.screen = Screen(self.hub)  # shared as in task_monitor
+        self.commands = []
         self.server = self.serve(self.screen)
 
+    def send_command(self, command):
+        self.commands.append(command)
+        return True, "sent"
+
     def serve(self, screen):
-        server = make_server(
-            "127.0.0.1", 0, self.hub, lambda c: (True, ""), WEB, screen
-        )
+        server = make_server("127.0.0.1", 0, self.hub, self.send_command, WEB, screen)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join, 5.0)
@@ -141,14 +144,18 @@ class ServerTests(unittest.TestCase):
         response = connection.getresponse()
         return response, response.read()
 
-    def touch(self, body, content_type="application/json"):
-        response, data = self.request(
-            "POST",
-            "/display/api/touch",
-            json.dumps(body),
-            {"Content-Type": content_type},
-        )
+    def post(self, path, body, content_type="application/json", headers=None):
+        headers = dict(headers or {}, **{"Content-Type": content_type})
+        response, data = self.request("POST", path, json.dumps(body), headers)
         return response.status, json.loads(data)
+
+    def touch(self, body, content_type="application/json", headers=None):
+        return self.post("/display/api/touch", body, content_type, headers)
+
+    def site(self, name):
+        """Headers of a fetch() from a page at http://<name>:<port>/."""
+        host = f"{name}:{self.server.server_address[1]}"
+        return {"Host": host, "Origin": f"http://{host}"}
 
     def test_pages_are_served(self):
         response, body = self.request("GET", "/display/")
@@ -196,6 +203,42 @@ class ServerTests(unittest.TestCase):
         status, _ = self.touch({"question": question.id, "choice": True})
         self.assertEqual(status, 400)
         self.assertFalse(question.done.is_set())
+
+    def test_command_needs_a_json_request(self):
+        command = {"command": "start"}
+        self.assertEqual(self.post("/api/command", command, "text/plain")[0], 415)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(
+            self.post("/api/command", command, headers=self.site("localhost")),
+            (200, {"accepted": True, "message": "sent"}),
+        )
+        self.assertEqual(self.commands, [command])
+
+    def test_requests_from_other_sites_are_refused(self):
+        question = self.screen.ask("Ready to start", ["Start"])
+        touch = {"question": question.id, "choice": 0}
+        port = self.server.server_address[1]
+        other_sites = [
+            self.site("attacker.example"),  # DNS rebinding to 127.0.0.1
+            {"Host": f"attacker.example:{port}"},
+            {"Host": f"localhost:{port}", "Origin": "http://attacker.example"},
+            {"Host": f"localhost:{port}", "Origin": "null"},
+        ]
+        for headers in other_sites:
+            self.assertEqual(self.touch(touch, headers=headers)[0], 403, headers)
+            status, _ = self.post("/api/command", {"command": "start"}, headers=headers)
+            self.assertEqual(status, 403, headers)
+            response, _ = self.request("GET", "/api/status", headers=headers)
+            self.assertEqual(response.status, 403, headers)
+        self.assertFalse(question.done.is_set())
+        self.assertEqual(self.commands, [])
+        # The GUI and the screen, opened at localhost or 127.0.0.1.
+        response, _ = self.request("GET", "/", headers={"Host": f"localhost:{port}"})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            self.touch(touch, headers=self.site("127.0.0.1")),
+            (200, {"accepted": True, "message": "Start"}),
+        )
 
     def test_image_is_served_while_shown(self):
         self.screen.show_image(b"\x89PNG", "image/png")

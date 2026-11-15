@@ -78,10 +78,14 @@ def make_server(host, port, hub, send_command, web_dir, screen=None):
     """``send_command(dict) -> (accepted, message)`` forwards to the runner.
 
     With ``screen`` (aha_tasks.display.Screen) the robot's screen is at /display/.
+    Requests from pages of other sites get 403, as in the audio debug UI.
     """
+    from aha_perception.audio.web_access import allowed
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if not self._same_site():
+                return self._json(403, {"error": "request from another site"})
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
                 return self._json(200, hub.payload)
@@ -104,11 +108,29 @@ def make_server(host, port, hub, send_command, web_dir, screen=None):
             self._send(200, (Path(web_dir) / name).read_bytes(), content_type)
 
         def do_POST(self):
+            if not self._same_site():
+                return self._json(
+                    403, {"accepted": False, "message": "Request from another site"}
+                )
             if self.path == "/api/command":
-                return self._command()
-            if self.path == "/display/api/touch" and screen is not None:
-                return self._touch()
-            self._json(404, {"error": "not found"})
+                handle = self._command
+            elif self.path == "/display/api/touch" and screen is not None:
+                handle = self._touch
+            else:
+                return self._json(404, {"error": "not found"})
+            # A JSON body needs a CORS preflight, which is never granted, so a
+            # page of another site cannot post even where a browser omits Origin.
+            content_type = self.headers.get("Content-Type") or ""
+            if content_type.split(";")[0].strip() != "application/json":
+                return self._json(
+                    415, {"accepted": False, "message": "JSON body required"}
+                )
+            handle()
+
+        def _same_site(self):
+            """False for pages of other sites; on loopback, DNS rebinding too."""
+            headers = self.headers
+            return allowed(headers.get("Host") or "", headers.get("Origin"), host)
 
         def _body(self):
             return self.rfile.read(int(self.headers.get("Content-Length") or 0))
@@ -122,12 +144,6 @@ def make_server(host, port, hub, send_command, web_dir, screen=None):
             self._json(200, {"accepted": accepted, "message": message})
 
         def _touch(self):
-            # A JSON body needs a CORS preflight, so other sites cannot touch.
-            content_type = self.headers.get("Content-Type") or ""
-            if content_type.split(";")[0].strip() != "application/json":
-                return self._json(
-                    415, {"accepted": False, "message": "JSON body required"}
-                )
             try:
                 question, choice = parse_touch(self._body())
             except ValueError as error:
