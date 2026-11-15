@@ -1,0 +1,40 @@
+{
+  "ycb": {
+    "apple": {"model": "ycb_013_apple"},
+    "orange": {"model": "ycb_017_orange"},
+    "lemon": {"model": "ycb_014_lemon"},
+    "peach": {"model": "ycb_015_peach"},
+    "banana": {"model": "ycb_011_banana", "yaw": -65},
+    "pear": {"model": "ycb_016_pear", "yaw": -63},
+    "plum": {"model": "ycb_018_plum"},
+    "strawberry": {"model": "ycb_012_strawberry"},
+    "tuna can": {"model": "ycb_007_tuna_fish_can"},
+    "spam": {"model": "ycb_005_spam", "yaw": 87},
+    "tomato soup": {"model": "ycb_010_tomato_soup_can"},
+    "mustard": {"model": "ycb_006_mustard_bottle", "yaw": 24},
+    "fork": {"model": "ycb_030_fork"},
+    "knife": {"model": "ycb_032_knife"},
+    "spoon": {"model": "ycb_031_spoon", "yaw": 24},
+    "mug": {"model": "ycb_025_mug", "yaw": 39},
+    "plate": {"model": "ycb_029_plate"},
+    "bowl": {"model": "ycb_024_bowl"},
+    "rubiks cube": {"model": "ycb_077_rubiks_cube", "yaw": -27}
+  },
+  "printed": {
+    "milk": {"text": "MILK", "body": "#f4f4ee", "band": "#2457c5", "ink": "#2457c5", "cap": "#2457c5", "mass": 0.3},
+    "cereal": {"text": "CORN FLAKES", "body": "#f2c12e", "band": "#c8261d", "ink": "#c8261d", "cap": "#f2c12e", "mass": 0.25},
+    "cola": {"text": "COLA", "body": "#c51d23", "band": "#c51d23", "ink": "#ffffff", "cap": "#c0c0c0", "mass": 0.35},
+    "lemonade": {"text": "LEMONADE", "body": "#f7e64a", "band": "#f7e64a", "ink": "#2e7d32", "cap": "#c0c0c0", "mass": 0.35},
+    "green tea": {"text": "GREEN TEA", "body": "#3f8f3a", "band": "#e8f5e9", "ink": "#ffffff", "cap": "#e8f5e9", "mass": 0.5},
+    "red bull": {"text": "RED BULL", "body": "#c9ccd3", "band": "#1d3e8f", "ink": "#d0202f", "cap": "#c0c0c0", "mass": 0.27},
+    "pringles": {"text": "PRINGLES", "body": "#d2232a", "band": "#d2232a", "ink": "#ffffff", "cap": "#f2f2f2", "mass": 0.2},
+    "cookies": {"text": "COOKIES", "body": "#7b4a26", "band": "#f1dfbf", "ink": "#f1dfbf", "cap": "#7b4a26", "mass": 0.2},
+    "chocolate jello": {"text": "CHOCOLATE JELLO", "body": "#4a2a1a", "band": "#d63a2f", "ink": "#ffffff", "cap": "#4a2a1a", "mass": 0.1},
+    "strawberry jello": {"text": "STRAWBERRY JELLO", "body": "#e0435a", "band": "#d63a2f", "ink": "#ffffff", "cap": "#e0435a", "mass": 0.1},
+    "cup noodle": {"text": "CUP NOODLE", "body": "#fafafa", "band": "#d52b1e", "ink": "#d52b1e", "cap": "#fafafa", "mass": 0.08},
+    "cleanser": {"text": "CLEANSER", "body": "#f7f7f7", "band": "#1b75bc", "ink": "#1b75bc", "cap": "#1b75bc", "mass": 0.5},
+    "sponge": {"text": "", "body": "#f5d33b", "band": "#2f8f46", "ink": "#2f8f46", "cap": "#2f8f46", "mass": 0.01},
+    "dishwasher tab": {"text": "TAB", "body": "#ffffff", "band": "#1f6fd1", "ink": "#1f6fd1", "cap": "#ffffff", "mass": 0.02},
+    "toothpaste": {"text": "TOOTHPASTE", "body": "#ffffff", "band": "#d71920", "ink": "#d71920", "cap": "#ffffff", "mass": 0.12}
+  }
+}

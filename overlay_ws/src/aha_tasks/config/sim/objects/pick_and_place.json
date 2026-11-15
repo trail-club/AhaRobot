@@ -1,0 +1,29 @@
+{
+  "world": "rcjo2026_arena",
+  "objects": [
+    {"name": "plate", "label": "plate", "on": "dining_table", "position": [-2.0, -1.62], "yaw": 0.0, "role": "table.plate"},
+    {"name": "fork", "label": "fork", "on": "dining_table", "position": [-2.18, -1.62], "yaw": 1.5708, "role": "table.cutlery"},
+    {"name": "mug", "label": "mug", "on": "dining_table", "position": [-1.76, -1.55], "yaw": 0.5, "role": "table.cup"},
+    {"name": "chocolate_jello", "label": "chocolate jello", "on": "dining_table", "position": [-2.36, -1.55], "yaw": 0.3, "role": "table.trash"},
+    {"name": "apple", "label": "apple", "on": "dining_table", "position": [-1.7, -1.76], "yaw": 0.0, "role": "table.other1"},
+    {"name": "cola", "label": "cola", "on": "dining_table", "position": [-2.32, -1.78], "yaw": 0.0, "role": "table.other2"},
+    {"name": "cookies", "label": "cookies", "on": "floor", "position": [4.15, -3.25], "yaw": 0.4, "role": "trash.floor"},
+    {"name": "bowl", "label": "bowl", "on": "tall_table", "position": [0.7, -0.47], "yaw": 0.0, "role": "breakfast.bowl"},
+    {"name": "spoon", "label": "spoon", "on": "tall_table", "position": [0.87, -0.48], "yaw": 1.5708, "role": "breakfast.spoon"},
+    {"name": "dishwasher_tab", "label": "dishwasher tab", "on": "tall_table", "position": [0.66, -0.63], "yaw": 0.0, "role": "dishwasher.tab"},
+    {"name": "red_bull", "label": "red bull", "on": "long_table", "position": [1.88, -0.5], "yaw": 0.0, "role": "extra.obj1"},
+    {"name": "rubiks_cube", "label": "rubiks cube", "on": "long_table", "position": [2.12, -0.5], "yaw": 0.3, "role": "extra.obj2"},
+    {"name": "cleanser", "label": "cleanser", "on": "shelf", "level": 2, "position": [3.04, 3.42], "yaw": 0.0},
+    {"name": "sponge", "label": "sponge", "on": "shelf", "level": 2, "position": [3.18, 3.4], "yaw": 0.0},
+    {"name": "cereal", "label": "cereal", "on": "shelf", "level": 3, "position": [3.01, 3.4], "yaw": 1.5708, "role": "breakfast.cereal"},
+    {"name": "tuna_can", "label": "tuna can", "on": "shelf", "level": 3, "position": [3.17, 3.42], "yaw": 0.0},
+    {"name": "tomato_soup", "label": "tomato soup", "on": "shelf", "level": 3, "position": [3.28, 3.42], "yaw": 0.0},
+    {"name": "mustard", "label": "mustard", "on": "shelf", "level": 3, "position": [3.4, 3.42], "yaw": 0.0},
+    {"name": "milk", "label": "milk", "on": "shelf", "level": 4, "position": [3.0, 3.42], "yaw": 0.0, "role": "breakfast.milk"},
+    {"name": "green_tea", "label": "green tea", "on": "shelf", "level": 4, "position": [3.12, 3.42], "yaw": 0.0},
+    {"name": "lemonade", "label": "lemonade", "on": "shelf", "level": 4, "position": [3.23, 3.42], "yaw": 0.0},
+    {"name": "orange", "label": "orange", "on": "shelf", "level": 5, "position": [3.0, 3.43], "yaw": 0.0},
+    {"name": "lemon", "label": "lemon", "on": "shelf", "level": 5, "position": [3.11, 3.43], "yaw": 0.0},
+    {"name": "peach", "label": "peach", "on": "shelf", "level": 5, "position": [3.22, 3.43], "yaw": 0.0}
+  ]
+}

@@ -326,6 +326,7 @@ class LaunchSwitchTests(unittest.TestCase):
             "people": "true",
             "guests": "false",
             "people_scene": "",
+            "object_scene": "",
             **self.launch.PEOPLE_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
@@ -397,6 +398,17 @@ class LaunchSwitchTests(unittest.TestCase):
             e2e="debug", perception="model", people_scene="gpsr"
         )
         self.assertIn("sim_people", nodes)
+
+    def test_object_scenes_are_spawned_by_name_or_path(self):
+        _, nodes, _ = self.launch_task(e2e="debug")
+        self.assertNotIn("sim_objects", nodes)
+        _, nodes, _ = self.launch_task(e2e="debug", object_scene="pick_and_place")
+        path = PACKAGE / "config" / "sim" / "objects" / "pick_and_place.json"
+        self.assertEqual(nodes["sim_objects"]["arguments"], [f"--config={path}"])
+        _, nodes, _ = self.launch_task(object_scene=str(path))
+        self.assertEqual(nodes["sim_objects"]["arguments"], [f"--config={path}"])
+        with self.assertRaises(ValueError):
+            self.launch_task(object_scene="no_such_scene")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))
