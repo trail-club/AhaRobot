@@ -217,14 +217,15 @@ class SceneTests(unittest.TestCase):
         self.assertLess(guest.z, 0.0)
 
     def test_guests_look_different(self):
-        people = [*SCENE["guests"].values(), *SCENE["seated"].values()]
+        people = SCENE["guests"].values()
         shirts = {tuple(person["colors"]["shirt"]) for person in people}
         self.assertEqual(len(shirts), len(people))
 
     def test_seats_match_the_task_and_a_person_there_occupies_it(self):
-        """The sim stands people in front of a seat: find_free_seat must count them.
+        """The sim seats the host and stands guests in front of a seat.
 
-        person_perception measures the front of the body, about 0.2 m nearer.
+        find_free_seat must count both. person_perception measures the front
+        of the body, nearer the robot.
         """
         spec = load_spec(CONFIG / "human_interaction.json")
         keys = {s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"}
@@ -233,6 +234,7 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(set(SCENE["seats"]), set(seats))
         for name, seat in SCENE["seats"].items():
             with self.subTest(name):
+                self.assertEqual(seat["sit"], seats[name][:2])
                 x, y, yaw = seat["pose"]  # faces the room
                 for ahead in (0.0, 0.25):
                     xy = (x + ahead * math.cos(yaw), y + ahead * math.sin(yaw))
@@ -258,11 +260,11 @@ class SceneTests(unittest.TestCase):
         self.assertIsNone(offered_seat("guest1", {"guest2.seat": "chair_left"}, seats))
         self.assertIsNone(offered_seat("guest1", {"guest1.seat": "sofa"}, seats))
 
-    def test_the_host_stands_at_its_seat_facing_the_room(self):
+    def test_the_host_sits_at_its_seat_facing_the_room(self):
         x, y, z, yaw = seated_pose(SCENE, "host")
-        seat = SCENE["seats"][SCENE["seated"]["host"]["seat"]]["pose"]
-        self.assertEqual((x, y, z), (seat[0], seat[1], 0.0))
-        self.assertAlmostEqual(yaw, 0.0, places=5)  # the mesh faces -y at yaw 0
+        seat = SCENE["seats"][SCENE["seated"]["host"]["seat"]]
+        self.assertEqual((x, y, z), (*seat["sit"], 0.0))
+        self.assertAlmostEqual(yaw, -math.pi / 2, places=5)  # sim_people faces +x
 
     def test_an_added_chair_is_static_and_renamed(self):
         model = (
@@ -300,6 +302,8 @@ class SceneTests(unittest.TestCase):
             broken(lambda s: s["guests"]["guest1"]["colors"].update(hat=[0, 0, 0])),
             broken(lambda s: s["guests"]["guest1"].update(seat="sofa")),
             broken(lambda s: s["seated"]["host"].update(seat="sofa")),
+            broken(lambda s: s["seated"]["host"].update(shirt="pink")),
+            broken(lambda s: s["seats"]["chair_left"].pop("sit")),
             broken(lambda s: s["seats"]["chair_left"].pop("via")),
             broken(lambda s: s["seated"].update(guest1=s["seated"]["host"])),
         ):

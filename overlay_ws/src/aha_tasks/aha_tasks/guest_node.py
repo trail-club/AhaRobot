@@ -3,8 +3,8 @@
 Uses the true robot pose and the task memory (the offered seats), which the
 skills never see: they only get the guests through the head camera and
 person_perception. Motion runs on the simulation clock, so the walking speed
-holds at any real time factor. Seated people (the host) and added chairs are
-created with the guests.
+holds at any real time factor. Seated people (the host, the sitting mesh of
+aha_tasks.sim_people) and added chairs are created with the guests.
 """
 
 import argparse
@@ -26,7 +26,11 @@ from aha_tasks.guests import (
     seated_pose,
     statuses_of,
 )
+from aha_tasks.people_scene_node import DEFAULT_CACHE
 from aha_tasks.runner import STATUS_TOPIC
+from aha_tasks.sim_people import HIDDEN_Z, build_meshes, person_sdf
+
+SITTING = "sitting"  # the sim_people label of seated people
 
 PERIOD = 0.1  # s (simulation clock)
 REQUEST_TIMEOUT = 2000  # ms
@@ -69,6 +73,7 @@ def find_model_sdf(name):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
     args, ros_args = parser.parse_known_args(argv)
     scene = load_config(args.config)
 
@@ -130,10 +135,19 @@ def main(argv=None):
         (name, guest_sdf(name, person["away"], person["colors"]))
         for name, person in scene["guests"].items()
     ]
-    missing += [
-        (name, guest_sdf(name, seated_pose(scene, name)[:2], person["colors"]))
-        for name, person in scene["seated"].items()
-    ]
+    seated = scene["seated"]
+    if seated:
+        try:
+            meshes = build_meshes(
+                args.cache, [(SITTING, p["shirt"]) for p in seated.values()]
+            )
+            for name, person in seated.items():
+                x, y, _, yaw = seated_pose(scene, name)
+                mesh = meshes[(SITTING, person["shirt"])]
+                missing.append((name, person_sdf(name, mesh, x, y, HIDDEN_Z, yaw)))
+        except (OSError, RuntimeError) as error:
+            log.error(f"No seated people: {error}")
+            seated = {}
     chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
     if chairs:
         try:
@@ -175,7 +189,7 @@ def main(argv=None):
             if move(door["model"], x, y, z, yaw):
                 opened = is_open
                 log.info(f"Door {'open' if is_open else 'closed'}")
-        poses = {name: seated_pose(scene, name) for name in scene["seated"]}
+        poses = {name: seated_pose(scene, name) for name in seated}
         for guest in guests:
             phase = guest_phase(guest.name, statuses)
             seat = offered_seat(guest.name, memory, scene["seats"])

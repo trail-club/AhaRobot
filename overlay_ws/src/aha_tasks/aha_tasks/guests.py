@@ -5,14 +5,17 @@ comes to the door when the doorbell would ring, stays outside until the robot
 starts the conversation, paces during it, follows the robot in and goes to the
 seat it offers (`<guest>.seat` of the task memory). The phase comes from the
 statuses of all subgoals, so a mock subgoal that passes between two status
-messages still counts. Seated people (the host) stand at their seat from the
-start, and seats with a "chair" get a chair the world does not have.
+messages still counts. Seated people (the host) sit at their seat from the
+start, as the sitting person of aha_tasks.sim_people, and seats with a "chair"
+get a chair the world does not have.
 """
 
 import json
 import math
 from pathlib import Path
 import re
+
+from aha_tasks.sim_people import SHIRT_COLOURS
 
 AWAY, ARRIVE, TALK, FOLLOW, SEAT = range(5)
 # The start of subgoal <guest>.<name> begins the phase.
@@ -48,8 +51,11 @@ SCENE_KEYS = {
     "guests",
 }
 GUEST_KEYS = {"away", "door", "threshold", "seat", "colors"}
-SEATED_KEYS = {"seat", "colors"}
-SEAT_KEYS = {"pose", "via"}  # and optionally "chair": [x, y, yaw] to add one
+SEATED_KEYS = {"seat", "shirt"}  # a shirt of sim_people.SHIRT_COLOURS
+# "pose": [x, y, yaw] where a guest stands, facing the room; "sit": [x, y]
+# where a seated person is; "via": points on the way; optionally "chair":
+# [x, y, yaw] to add one.
+SEAT_KEYS = {"pose", "sit", "via"}
 CHAIR_MODEL = "chair"  # model://chair of sobits_gazebo_worlds, as in the world
 
 
@@ -68,6 +74,10 @@ def load_config(path):
             raise ValueError(f"{path}: {name} needs exactly {sorted(keys)}")
         if person["seat"] not in config["seats"]:
             raise ValueError(f"{path}: {name} has an unknown seat {person['seat']}")
+        if name in config["seated"]:
+            if person["shirt"] not in SHIRT_COLOURS:
+                raise ValueError(f"{path}: {name} has unknown shirt {person['shirt']}")
+            continue
         unknown = set(person["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
@@ -132,9 +142,10 @@ def guest_sdf(name, position, colors):
 
 
 def seated_pose(scene, name):
-    """(x, y, z, model yaw) of a seated person, at their seat from the start."""
-    x, y, yaw = scene["seats"][scene["seated"][name]["seat"]]["pose"]
-    return (x, y, 0.0, math.remainder(yaw - MODEL_FRONT, math.tau))
+    """(x, y, z, yaw) of a seated person's sim_people model, facing the room."""
+    seat = scene["seats"][scene["seated"][name]["seat"]]
+    x, y = seat["sit"]
+    return (x, y, 0.0, seat["pose"][2])  # the model faces +x
 
 
 def chair_sdf(model_sdf, name, pose):
