@@ -17,6 +17,7 @@ from aha_tasks.guests import (
     Guest,
     attempts_of,
     door_open,
+    executing,
     guest_phase,
     guest_sdf,
     load_config,
@@ -64,7 +65,7 @@ def main(argv=None):
     world = f"/world/{scene['world']}"
     gz = GzNode()
     lock = threading.Lock()
-    state = {"robot": None, "statuses": {}, "attempts": {}}
+    state = {"robot": None, "statuses": {}, "attempts": {}, "executing": None}
 
     def on_poses(message):
         for pose in message.pose:
@@ -90,6 +91,7 @@ def main(argv=None):
         with lock:
             state["statuses"] = statuses_of(status)
             state["attempts"] = attempts_of(status)
+            state["executing"] = executing(status)
 
     node.create_subscription(
         String,
@@ -133,7 +135,7 @@ def main(argv=None):
             return
         with lock:
             robot, statuses = state["robot"], state["statuses"]
-            attempts = state["attempts"]
+            attempts, running = state["attempts"], state["executing"]
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
@@ -145,7 +147,8 @@ def main(argv=None):
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase)
-            guest.set_bell_attempt(attempts.get(f"{guest.name}.{TRIGGERS[ARRIVE]}", 0))
+            bell = f"{guest.name}.{TRIGGERS[ARRIVE]}"
+            guest.set_bell(attempts.get(bell, 0), running == bell)
             guest.step(dt, robot)
             if guest.ring is not None:
                 bell_pub.publish(String(data=guest.ring))

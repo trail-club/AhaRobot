@@ -265,7 +265,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 | サブゴールの開始 | 客の動作 |
 | --- | --- |
 | 開始前 | 床下に隠れる。worldの壁は高さ0.8 mで、頭部カメラから壁の外の人が見えるため |
-| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いたら1回、設定の `bell` を鳴らす（`chime` は毎回ランダムなチャイム、`knock` はノック）。`detect_doorbell` を再試行すると鳴らし直す |
+| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いていて、ロボットが `detect_doorbell` で待っている間に、設定の `bell` を1回鳴らす（`chime` は毎回ランダムなチャイム、`knock` はノック）。再試行すると鳴らし直す |
 | `<guest>.open_door` | ドアが外へ開く。以後は開いたまま |
 | `<guest>.ask` | ドアの外側で左右に0.2 m（周期6 s）動き、ロボットを向く。ルールのとおり、会話が始まるまで家には入らない |
 | `<guest>.guide` | ロボットとの距離を1.2 m保ち、ロボットが通った経路を歩いて家に入る |

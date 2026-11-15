@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Score every model and window of the comparison. GPU workers take jobs from one
 # queue in order (a job is claimed by creating claims/<job>); finished and claimed
-# jobs are skipped, so the script can be restarted. YAMNet runs on the CPU.
+# jobs are skipped, so the script can be restarted. A failed job gives its claim
+# back; after an interruption, delete claims/ before restarting. YAMNet runs on the CPU.
 # Logs: $DOORBELL_RESULTS/logs.
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -20,7 +21,7 @@ JOBS=(
 )
 
 run_job() {
-  local model=$1 window=$2 out
+  local model=$1 window=$2 out claim
   shift 2
   case "$model" in
     sed_*) out="$results/scores/$model/frames.npz" ;;
@@ -28,10 +29,12 @@ run_job() {
     *) out="$results/scores/$model/w${window}.npz" ;;
   esac
   [ -f "$out" ] && return
-  mkdir "$results/claims/${model}_w${window}" 2>/dev/null || return
+  claim="$results/claims/${model}_w${window}"
+  mkdir "$claim" 2>/dev/null || return
   [ "$window" = x ] && window=2
   python score.py --model "$model" --window "$window" --batch 128 --workers 6 "$@" \
-    > "$results/logs/${model}_w${window}.log" 2>&1 || echo "FAILED $model $window"
+    > "$results/logs/${model}_w${window}.log" 2>&1 \
+    || { echo "FAILED $model $window"; rmdir "$claim"; }
 }
 
 worker() {
