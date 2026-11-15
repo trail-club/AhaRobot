@@ -148,6 +148,35 @@ def person_spec(options: WorkerOptions) -> ContainerSpec:
     )
 
 
+def object_spec(options: WorkerOptions) -> ContainerSpec:
+    """object_worker in the person worker's image: SAM 3.1 and the Qwen3.8 VLM."""
+    return ContainerSpec(
+        title="DGX object worker",
+        name="objects",
+        dockerfile=PERSON_DOCKERFILE,
+        image=options.image,
+        sources=person_sources,
+        prepare=(f"test -r {shlex.quote(options.checkpoint)}"),
+        cache="aharobot-sam31",
+        docker_args=(
+            "--network",
+            "host",
+            "-v",
+            f"{options.checkpoint}:/models/sam3.1_multiplex.pt:ro",
+        ),
+        command=(
+            "-m",
+            "aha_perception.object_worker",
+            "--checkpoint",
+            "/models/sam3.1_multiplex.pt",
+            "--vlm-url",
+            options.vlm_url,
+            "--vlm-model",
+            options.vlm_model,
+        ),
+    )
+
+
 class WorkerError(RuntimeError):
     pass
 
