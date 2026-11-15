@@ -134,6 +134,8 @@ ROSの物体検出器がないため、`sim_object_detector.py` がGazeboのモ�
 姿勢はロボットのモデル（原点が `base_footprint`）からの相対で、Depthの時刻のTFで `output_frame` に直す（カメラの検出器と同じくodomのずれを含む）。
 `class_name` はラベル、`track_id` はモデルごとの番号、`size` はリストの大きさ、`confidence` は1。
 GZ_PARTITIONはシミュレーションと同じにする（launchから起動すれば同じ）。
+タスクのsimでは、[aha_tasks](../aha_tasks/README.md#シミュレーションの物体)の `object_scene:=` がリストのラベルに合う名前で物体を置く。
+リストのPPCの食器（cutlery、tableware）・Common Objects・YCBの物体の大きさは、そのsimのモデルの外接箱に合わせてある。
 
 | パラメータ | 既定 | 内容 |
 | --- | --- | --- |

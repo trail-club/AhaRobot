@@ -51,6 +51,9 @@ TeamSOBITSのリポジトリを直接参照する。Japan Open worldの形状は
 | TMCの `trofast` / その他の `wrc_*` モデル | CC BY 4.0 | [モデル別README](../upstream/tmc_wrs_gz/tmc_wrs_gz_worlds/README.md) |
 | 床の木目テクスチャ | 出典 freestocktextures.com。添付文書にCreative Commons Zeroと記載 | about-photo.txt: [TMC](../upstream/tmc_wrs_gz/tmc_wrs_gz_worlds/models/wrc_ground_plane/materials/about-photo.txt)、[SOBITS](../upstream/sobits_gazebo_worlds/models/floor_plane/materials/about-photo.txt) |
 
+`aha_tasks` のシミュレーションの物体（`object_scene:=`）は、TMCの `ycb_*` モデルをそのまま参照し、Gazeboに置くときに向きと原点だけを変える（メッシュ・テクスチャは変更しない）。
+YCBにない物体の箱・円柱とテクスチャは `aha_tasks.sim_objects` が実行時に作るもので、第三者の素材を含まない（文字はコンテナのDejaVu Sans Boldで描く）。
+
 TMCのソフトウェア向けライセンスと、モデル・テクスチャ向けライセンスは分けて扱う。
 公開画像・動画などでCC BY素材を使う場合は、素材の作者・出典・ライセンスへのリンク・変更の有無を記載する。
 条件の原文: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)。
