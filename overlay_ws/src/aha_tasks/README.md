@@ -7,15 +7,21 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
+| `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
+| `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
+| `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
+| `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
+| `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
-| `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUI |
+| `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
 | `config/sim/<task>.json` | シミュレーションの客とドアの配置 |
-| `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUIを起動 |
+| `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUI、`head_look_at.py` を起動 |
 
 ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)を参照。
 
@@ -31,18 +37,22 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction
 ```
 
 GUIは `http://localhost:8765/`（macOSは [`make forward`](../../../docs/docker.md#2-guiに接続する)）。
-Nav2がACTIVEになると待機状態になり、GUIから実行する。runnerが終了するとlaunch全体が終了する。
+ロボットの画面は同じportの `/display/` で、GUIの右の欄にも同じ画面を表示する。
+Nav2がACTIVEになると待機状態になり、GUIから実行する。runnerが終了するとlaunch全体が終了する（`e2e:=debug` を除く）。
 ロボットの初期位置（Gazeboのspawn、AMCLの初期姿勢）はタスク定義の `initial_state` の `robot.location`。
 
 | 引数 | 既定 | 内容 |
 | --- | --- | --- |
 | `task` | 必須 | `config/` のタスク名、またはJSONのパス |
+| `e2e` | `final` | `final` はNav2とDGXのモデル、`debug` はシミュレーションの代替（[e2eの確認](#e2eの確認)） |
+| `navigation` / `perception` | 空（`e2e` による） | `e2e:=debug` で代替を個別に戻す。`nav2` / `teleport`、`model` / `truth`。`final` は `nav2` / `model` だけ |
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
-| `people` | `false` | 頭部カメラのbridge、[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）、`head_look_at.py` を起動 |
+| `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
 | `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true` のDGXの接続先 |
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
+| `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -58,6 +68,43 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 経過時間は制限時間と並べて表示するが、採点・時間切れの判定はしない。
 
 ![1人目の客を部分実行したWeb GUI](../../../docs/images/aha-tasks-web-gui.png)
+
+## e2eの確認
+
+シミュレーションのタスクの通しは、`e2e` で2つを使い分ける。
+
+| | `e2e:=final`（既定） | `e2e:=debug` |
+| --- | --- | --- |
+| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
+| 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
+| runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
+
+`perception:=model` を付けると、`debug` でも人の認識は `final` と同じになる（移動だけを省く）。
+`people_scene` の人を探す・数えるには `perception:=model` が要る（`sim_person_detector.py` は `classify_person` を持たず、客だけを出す）。`people:=true` と `perception:=truth` に `people_scene` を付けると起動時にエラーにする。
+`debug` で確かめられないため、`final` で確かめること：
+
+- **移動**: 経路の有無（開かないドア、壁の向こうの地点）、Nav2の失敗・時間切れ、移動中のAMCLのずれ、移動中に見える人。`sim_teleport` は目標の、地図上のロボットの半径（0.40 m）に占有・未知のセルがないことだけを見る。AMCLのTFは2 s先の時刻で配信されるため、1回の移動に約4 sかかる。移した直後の1–2枚の画像は、前後の位置が混ざったTFで測られる。
+- **人の認識**（`perception:=truth` のとき）: SAM 3.1の見落とし・誤検出・並んだ人の結合、マスクとDepthから求める位置、VLMの特徴・照合の誤り、DGXの往復の遅れ。人は高さ1.75 mの立った体の軸として扱い、名前は覚えたモデルに直ちに付く。
+- **客の動き**: ロボットは待った後に一度に移るため、案内される客はロボットの経路をたどらず、壁を抜けて歩く。
+
+```bash
+# 1回目：起動して全体を実行（コンテナ内）
+ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests:=true e2e:=debug headless:=true
+ros2 run aha_tasks run_task --on-failure skip --output /tmp/run.json  # 別のシェル
+
+# 2回目以降：変えたnodeだけを止め（launchが再起動する）、対象のサブゴールだけを実行する
+pkill -INT -f 'lib/aha_tasks/[t]ask_runner'  # スキル・タスク定義を変えた
+pkill -INT -f '[p]erson_perception.py'       # perception:=model で認識を変えた（DGXのworkerも作り直す）
+ros2 run aha_tasks run_task --subgoals 'introduce.*' --on-failure skip
+```
+
+HICの最初の `start.signal` は画面の `Start` のタッチを待つため、GUIの右の欄の画面で押すか、`--subgoals 'guest1.wait..'` で除く。
+`run_task` はrunnerがReadyになるのを待って（再起動中なら次のrunnerを待って）始め、止まると各サブゴールの実時間（`robot.location` の復元を含む）、スキルごとの合計、全体の時間を出す。終了・失敗のほか、ポリシー `pause` で一時停止したとき（GUIで選ぶ）と、実行中にrunnerが再起動したときも止まる。完了のときだけ終了コード0。
+`--output` は要約・最後の状態・ログをJSONに書く。`final` でも同じように使える（runnerの終了でlaunchが終わるため、毎回起動する）。
+Pythonだけの変更は `--symlink-install` のビルドならそのまま反映される。ファイル・msgの追加ではビルドしてから止める。
+`run_task` が `Runner not ready in time` で終わるときは、launchのログでrunnerの起動エラーを見る（タスク定義・スキルの誤りで起動前に終わると、状態を配信しないまま再起動を繰り返す）。
+再起動したrunnerはロボットが `initial_state` の位置にいるとみなすため、最初に実行するサブゴールの記憶上の位置が初期位置なら、ロボットは移動しない。
+人の認識のnodeは覚えた名前を実行をまたいで保つ。客を覚えるより前のサブゴールから走らせ直すときは、人の認識のnodeも止める（`pkill -INT -f '[s]im_person_detector.py'` か上の `person_perception.py`）。名前の付いた客は `find_person` の対象にならないため。
 
 ## タスク定義
 
@@ -83,7 +130,7 @@ PYTHONPATH=overlay_ws/src/aha_tasks python3 overlay_ws/src/aha_tasks/scripts/tas
 ## スキルの追加
 
 `aha_tasks.core.Skill` を継承し、タスク定義の `skills` に登録する。
-インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation`・`skills`（名前からインスタンス。未実装は `None`）を使える。
+インスタンスはスキル名ごとに1つで、`self.runtime` から `node`・`spec`・`navigation`・`gaze`（[注視](#注視)）・`skills`（名前からインスタンス。未実装は `None`）を使える。
 
 ```python
 from aha_tasks.core import Skill, SkillResult
@@ -107,12 +154,59 @@ class AskNameAndDrink(Skill):
 実行しない場合の状態が記憶で変わるスキルは `assumed(params, memory)` を上書きする（既定は `expected(params)`）。
 `execute` はタスク用threadで呼ばれる。`ctx.cancelled` を監視し、中断時は速やかに戻る。
 
+## ロボットの画面
+
+`task_monitor` が `/display/` でロボットのタッチディスプレイの画面を出す。
+シミュレーションでは、GUIの右の欄の画面をクリックしてタッチの代わりにする。
+文言は英語。ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#ロボットの画面)を参照。
+
+| 表示 | 内容 |
+| --- | --- |
+| 字幕 | ロボットの発話の最新3件。最新を大きく表示する |
+| 画像 | `/aha/display/image` の1枚（認識の結果など）。質問と同時なら横に並べる |
+| 質問 | 文と1〜6個のボタン。タッチすると押したボタンを上部に表示する |
+| 待機 | 何も出していなければ `AhaRobot` の文字 |
+
+サーバーとの接続が切れると上部に `Not connected` を出し、ボタンを押せなくする。
+
+スキルは `aha_tasks.interaction.Interaction.of(self.runtime)` から使う。
+
+```python
+interaction = Interaction.of(self.runtime)
+ok, message = interaction.say("What is your name?", ctx.cancelled)
+ok, message = interaction.show(
+    jpeg_bytes, "jpeg", "I found the cup on the table.", ctx.cancelled
+)
+index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
+```
+
+- `say` は字幕を出し、TTS（`/aha/perception/audio/speak`）が起動していれば読み上げ終わるまで待つ（上限60 s）。TTSがなければ字幕だけで戻る（シミュレーション）。起動したばかりのrunnerはTTSをDDSで見つけるまで時間がかかるため、最初の1回だけ最大2 s待つ（`say` と `wait_start_signal` は `ready()` で待つ）。
+- `show` は画像（JPEGかPNGのbytes）を出し、`say` で説明する。画像は次の画像か `hide()` まで残る。認識の結果は `show` で審判に示すだけで、タッチで答えを求めない。
+- `ask` は画面にボタンを出し、タッチされると番号と文言を返す。タッチがなければ `index` が `None` で、`label` が理由（中断、`timeout` 秒の経過、置き換え、画面の終了）。`timeout` は実時間で、0以下は中断まで待つ。
+- 画面に出る質問は1つで、新しい質問は表示中の質問を置き換え、前の質問はタッチなしで終わる。
+- serverを見つけた直後に送ったgoalやその応答は失われることがある。`ask` は受け付けの応答が5 s以内になければ、serverが見えている間は質問を送り直す。送り直す前の質問がタッチされていれば、画面に出し直さずにそのタッチを返す。`say` は二重に読み上げないよう送り直さない。
+- 画面の起動を5 s待っても `/aha/display/ask` がなければ、`ask` はタッチなしで終わる。待つ間も中断を受け付ける。
+- `say` と `ask` は、待っている間にserver（TTS・`task_monitor`）が5 s続けて見えなくなると諦める。異常終了したプロセスがROSのグラフから消えるまで、DDSのリースの約20 sがかかる。
+
+| スキル | 動作 | 使うサブゴール |
+| --- | --- | --- |
+| `say` | `text` を字幕に出し、TTSがあれば読み上げる | GPSRの `command.mode` |
+| `wait_start_signal` | 準備ができたことと押すボタンを `text` で伝え、`button`（既定 `Start`）のタッチを待つ。どちらも省略できる | HICの `start.signal` |
+
+TTSで読み上げられなかった場合も、`wait_start_signal` はボタンを出して待つ。
+タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
+
+`test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
+
 ## Human Robot Interaction Challenge
 
-[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を27サブゴールに分ける。
+[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）、
+実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）、`offer_seat`、
 ドアベルを待つ `detect_doorbell`（[ドアベルの検出](#ドアベルの検出)）。
+
+ロボットは場内から始めるため、最初の `start.signal` で審判の手動の開始合図（§3.6.8）として画面の `Start` のタッチを待つ。
+部分実行で `start.signal` を選ばなければ合図を待たない。
 
 客席・ホスト・荷物置き場は固定の代替地点。ロボットは内側の `entrance` まで移動する。
 `guests:=true` でなければ入口のドアは閉じたままで、人のモデルは配置しない。ホスト・荷物のモデルは配置しない。
@@ -132,6 +226,8 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
 | `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
+
+`find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。
 
 待つ時間は `timeout`（`find_person` は30 s、`locate_guests` は60 s、`memorize_person` は10 s）、VLMは `describe_timeout`（180 s）で変更できる。`timeout` と `dwell` は模擬時間が有効ならノードの時計、それ以外はシステム時刻の補正に影響されない単調時計で数える。
 模擬時間が実時間で10 s進まなければ、`/clock` の停止を理由に失敗する。
@@ -169,7 +265,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 | サブゴールの開始 | 客の動作 |
 | --- | --- |
 | 開始前 | 床下に隠れる。worldの壁は高さ0.8 mで、頭部カメラから壁の外の人が見えるため |
-| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いたら1回、設定の `bell`（`chime` / `knock`）を鳴らす |
+| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いたら1回、設定の `bell` を鳴らす（`chime` は毎回ランダムなチャイム、`knock` はノック） |
 | `<guest>.open_door` | ドアが外へ開く。以後は開いたまま |
 | `<guest>.ask` | ドアの外側で左右に0.2 m（周期6 s）動き、ロボットを向く。ルールのとおり、会話が始まるまで家には入らない |
 | `<guest>.guide` | ロボットとの距離を1.2 m保ち、ロボットが通った経路を歩いて家に入る |
@@ -182,8 +278,42 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 - 客は静止した立ち姿のモデル（`person_standing`）を動かすもので、脚は動かず、座らない。シャツなどの色で2人を区別し、その他の外見は同じ。
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
-- 待っている他の客・ホスト・荷物、会話中に頭で客を追う動作は含まない。
-- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成の2音チャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
+- 待っている他の客・ホスト・荷物は含まない。
+- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成のチャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。チャイムは ding-dong・pinpon（日本のインターホン型）・westminster・melody・single_ding から毎回ランダムに選び、音の高さ・音色・間隔もランダム（`sim_sounds --seed` で固定）。検出器が苦手なブザー型は入れていない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
+
+### 注視
+
+runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を `/aha/perception/look_at` へ送る。
+`task.launch.py` の `head_look_at.py` が頭を向け、`map` の点は台車が動いても向け直し続ける。
+追う動作は次の指示まで続き、サブゴールをまたぐ。
+タスクが一時停止・中断・終了すると追う動作をやめ、操作パネルやteleopで頭を動かせるようにする。再開後は、スキルが次に指示するまで最後の向き先を保つ。
+
+| 指示 | 向き先 | 使うスキル |
+| --- | --- | --- |
+| `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後 |
+| `follow_path(goal)` | Nav2の経路 `/plan` に沿って1.5 m先、高さ1.2 m。経路の終わりの先は経路の始点から終点への向き（進行方向）へ延ばし、始点と終点が0.3 m未満（その場で目標の向きへ回る）なら目標の向きへ延ばすため、到着時は正面を見る。新しい経路が届くまでは、目標地点から目標の向きへ1.5 m先（すでに目標にいて経路を待たずに終わっても、頭が真下や真横を向かない） | `navigate` と `robot.location` の復元（到着後は `hold`） |
+| `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`offer_seat` |
+| `hold()` | 最後の向き先を保つ | `navigate` の到着後、タスクの停止時（runner） |
+
+`find_person` で向けた客を、未実装の `ask_name_and_drink` の間も見続ける（ルールの「会話中に動く客を追う」）。
+`navigate` の間は進行方向を見る（「進行方向または目的地を見る」）。
+`navigate` と `robot.location` の復元はどのタスクでも頭を動かし、到着後は経路の先の点を `map` で保つ。到着後に机や床などを見るスキルは、`look_at` か `look_towards` で向き先を指示する。
+
+### 席の案内
+
+`offer_seat` は `position`（`map` の席の点 `[x, y, z]`）を頭で見て、右腕で指し示す。
+
+```json
+{"guest": "guest1", "seat": "chair_left", "position": [1.75, 3.5, 0.5], "height": 0.8, "hold": 3.0}
+```
+
+1. 席が右腕で指せる方向（肩から見て右100°〜左60°）になければ、Nav2でその場で席へ向く。
+2. `lift_controller` があれば手首を床から `height` m（既定0.8 m）へ上げ、腕を席へ伸ばす。手先のx軸が席の点を通る関節値を [aha_manipulation.pointing](../aha_manipulation/aha_manipulation/pointing.py) が求める。
+3. 腕が着いたら現在のTFで関節値を求め直し、移動直後に台車がずれていれば向け直す。`hold` 秒（既定3 s、模擬時間）保ち、腕と昇降を開始時の姿勢へ戻す。頭は客（`<guest>.track`、名前）を追う。指し示す途中で失敗・キャンセル・例外（controllerやTFの時間切れ）があっても、腕と昇降を開始時の姿勢へ戻してから失敗を返す。
+
+出力は `<guest>.seat`（席の名前）。`robot.holding` があるとき（`guest2` は荷物を持つ）は腕を動かさず、頭だけで席を示す。
+腕は `right_arm_controller` / `lift_controller` へ関節空間の直線の軌道を送り、衝突は確認しない。開始時の姿勢から指す姿勢までの間に障害物がないことが前提で、シミュレーションの初期姿勢（全関節0）からの動作だけを確認している。
+空席の判定は含まず、席は固定の代替地点。
 
 ## Pick and Place Challenge
 
@@ -232,7 +362,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate` と `run_plan_step`。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -255,14 +385,56 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `find_object` | `object`、`location` | findObjInRoom、findObj |
 | `pick_object` / `place_object` | `object`、`surface` | takeObjFromPlcmt、takeObj、bringMeObjFromPlcmt / placeObjOnPlcmt、putObjInTrash（`surface: trashbin`） |
 | `deliver_object` | `object`、`person`（`operator` は命令した人） | bringMeObjFromPlcmt、deliverObjTo* |
-| `find_described_person` | `name` / `gesture` / `pose` / `clothing`、`location` | findPrsInRoom、meetPrsAtBeac、greet*、talkInfoToGestPrsInRoom |
+| `find_described_person` | `gesture` / `pose` / `clothing` / `description` / `name`、`location` | findPrsInRoom、meetPrsAtBeac、greet*、talkInfoToGestPrsInRoom、tellPrsInfo* |
 | `say` / `answer_question` | `text` / `question` | 挨拶 / talkInfo、talkInfoToGestPrsInRoom |
-| `count` | `target`、`location`、`output` | countObjOnPlcmt、countPrsInRoom、countClothPrsInRoom |
+| `count` | `target`、`location`、`output` | countObjOnPlcmt |
+| `count_people` | `output`、`gesture` / `pose` / `clothing` / `description`（省略で全員）、`location` | countPrsInRoom、countClothPrsInRoom |
 | `describe` | `target`、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt、tellPrsInfo* |
 | `tell_info` | `key`（記憶のキー）、`person` | `count` / `describe` の結果を伝える |
 | `follow_person` / `guide_person` | `person`、`location`（`follow_person` は省略可） | follow* / guide* |
 
 `find_described_person` は名前・ジェスチャ・姿勢・服で探す。HICの `find_person`（名前のない最も近い人）とは別のスキル。
+
+### 人を探す・数えるスキル
+
+人の条件は、[コマンド生成器](https://github.com/RoboCupAtHome/CommandGenerator)の句をそのまま渡す（`"waving person"`、`"person raising their left arm"`、`"persons pointing to the right"`、`"sitting person"`、`"person wearing a red t shirt"`、`"people wearing gray sweaters"`）。値だけ（`"waving"`、`"sitting"`、`"red t shirt"`）も受け付ける。
+`gesture` / `pose` / `clothing` / `description` は組み合わせられ、矛盾する指定は検証で拒否する。左右は本人の左右。
+句の解釈は [person_description.py](aha_tasks/person_description.py)、人の判定は [person_perception](../aha_perception/README.md#姿勢ジェスチャ服) の `ClassifyPerson`。
+
+- **範囲**: `location` の地点（省略時はロボットの位置）から `radius`（既定3.0 m）以内の人だけを対象にする。人が `map` 以外の座標なら範囲で絞らない。部屋の形は使わない。
+- **見回し**: 頭を `pans`（既定 `[0.0, 0.4, -0.4]` rad）へ `dwell`（既定6 s）ずつ、2 m先の高さ `look_height`（既定1.0 m）へ向ける。
+- **判定**: 1人につき、頭をその人の頭へ向けて0.75 s待ち、その時に見えた頭の位置へ向け直してさらに0.75 s待つ（頭が画像の端で切れると頭の位置が低く出るため。挙げた手も写るように）。次に `skip_vlm` で深度とキーポイントの確かな答えだけを聞く。条件の成否が決まらなければ（服、不確かな姿勢・ジェスチャ）VLMに聞く。VLMの答えは `describe_timeout`（既定180 s、person_perceptionの `vlm_timeout` に合わせる）より30 s長く待つ（サーバーは先に動きを待つため）。判定に失敗した人（見失った、VLMの失敗、時間切れ）はもう1回判定し、それでも失敗すれば「判定できず」として続ける。中断は `Cancelled` で返す。
+- **名前**: `name` は person_perceptionが覚えた名前とだけ照合する。名前がまだ付いていない人（新しいtrackには数秒後に付く）は、付くのを待つ。名前を尋ねる会話は含まない。
+- **制限時間**: `timeout` に達すると、1人の判定（注視と `ClassifyPerson` の待ち）の途中でも打ち切る。
+
+| スキル | 動作 | 出力 |
+| --- | --- | --- |
+| `find_described_person` | 見回しながら、範囲内の人を近い順に1回ずつ判定し、最初に条件に合った人を見て、`approach`（既定 `true`）なら `distance`（既定1.0 m）手前まで近づく。`timeout`（既定60 s）で失敗 | `<role>.track` / `.position` / `.frame`、見えた `<role>.pose` / `.gesture` / `.garments`、`robot.location`（`role` の既定は `person`） |
+| `count_people` | `pans` を1巡し、見えている人を1人ずつ判定する。その向きに判定していない人が残る間は次の向きへ進まず、人を判定したらその向きを `dwell` だけ見直す。1人の判定は1回（失敗した場合は2回まで）で、判定できなかった人と、答えで条件の成否が決まらなかった人は数えない。`map` で0.5 m未満の観測は同じ人とする。`timeout`（既定300 s）で失敗 | `<output>`（人数）、`<output>.positions`（条件に合った人の最後の位置） |
+
+trackは視野を外れると3 sで破棄され、見直すと別のIDになる。そのため判定は見えている間に行い、判定した人の `map` の位置から0.5 m未満に現れた新しいtrackは、同じ人として判定し直さない（数え直さない）。ただし、判定した人のtrackが同じ画像にまだ見えていれば、近くの新しいtrackは別の人として判定する。
+
+### 姿勢を付けた人
+
+`people_scene:=<名前>` は [config/sim/people/](config/sim/people/) の配置で、姿勢やジェスチャを付けた人をGazeboに置く（`sim_people`）。人はタスクの間、同じ場所で同じ姿勢を保つ。スキルには配置を渡さない。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr ssh_user:=<Unixユーザー名>
+```
+
+| 配置 | 内容 |
+| --- | --- |
+| `gpsr` | GPSRのmockの計画用。寝室に左腕を挙げた人と立つ人、オフィスに手を振る人・椅子に座る人・左を指す人 |
+| `attributes` | 人の認識の確認用。寝室・オフィス・リビングに、9種類の姿勢・ジェスチャとシャツの色が異なる10人（[person_attributes_report.py](../aha_perception/README.md#姿勢ジェスチャ服) の `--truth` に使う） |
+
+人ごとに `label`（`standing` / `sitting` / `lying` / `waving` / `raising_left_arm` / `raising_right_arm` / `raising_both_arms` / `pointing_left` / `pointing_right`）、`shirt`（`purple` / `red` / `blue` / `yellow` / `orange` / `green` / `white` / `gray` / `black`）、`position`（m。立つ・座る人は足元、寝る人は体の中央。`z` は足の裏または寝た背中の高さ）、`yaw`（体の正面の向き）を書く。
+
+- モデルはGazebo Fuelの [Male visitor](https://app.gazebosim.org/OpenRobotics/fuel/models/Male%20visitor)（version 2、CC0）。初回に取得してハッシュを確かめ、骨格の重みで姿勢を付けたメッシュとシャツの色を変えたテクスチャを `~/.cache/aharobot/sim_people` に作る。
+- 手を振る人は、前腕を左右に25°傾けた2つのメッシュを `wave_period`（模擬時間の秒）で交互に見せる。
+- 座る人は脚を椅子の座面の高さに合わせた形で、`z` 0の椅子の位置に置く。寝る人は仰向けで、頭が体の向きの後ろ（yaw 0なら−x）になる。`attributes` の寝る人は、頭が枕に埋もれないよう足をベッドの枕側へ向けている。
+- 体型は1種類（男性）で、服は半袖のTシャツと半ズボンだけ。シャツ以外の服の種類はsimでは確かめられない。
+- visualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。
+- Gazeboを動かしたまま `sim_people` を起動し直すと、同じ名前で残っている人は作り直さず位置だけ合わせる。作れない人がいても他の人は続ける。
 
 ### 地点
 

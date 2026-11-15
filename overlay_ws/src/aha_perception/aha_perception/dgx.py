@@ -22,6 +22,7 @@ import threading
 from typing import Callable
 import uuid
 
+from .pose_keypoints import DEFAULT_POSE_MODEL
 from .sam31_vlm import DEFAULT_VLM_MODEL, DEFAULT_VLM_URL
 
 
@@ -77,6 +78,7 @@ class WorkerOptions:
     prompt: str = "person"
     vlm_url: str = DEFAULT_VLM_URL  # seen from the DGX; empty disables
     vlm_model: str = DEFAULT_VLM_MODEL
+    pose_model: str = DEFAULT_POSE_MODEL  # Hugging Face ViTPose; empty disables
 
 
 @dataclass(frozen=True)
@@ -140,6 +142,8 @@ def person_spec(options: WorkerOptions) -> ContainerSpec:
             options.vlm_url,
             "--vlm-model",
             options.vlm_model,
+            "--pose-model",
+            options.pose_model,
         ),
     )
 

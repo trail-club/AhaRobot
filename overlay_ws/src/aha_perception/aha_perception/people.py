@@ -9,7 +9,8 @@ depth never leaves the robot.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from io import BytesIO
 import json
 import math
@@ -40,6 +41,12 @@ SAME_PERSON_M = 0.4
 MAX_REFERENCES = 3
 # Image time (s) before a track the VLM did not recognize is asked again.
 MATCH_RETRY = 5.0
+# Keypoints kept per track (s of image time), for gestures that are motion.
+KEYPOINT_HISTORY = 3.0
+# Recent crops per track for the VLM's attribute question, at least this far
+# apart (s of image time), so that it can see a hand move.
+RECENT_CROPS = 3
+RECENT_CROP_INTERVAL = 0.4
 
 DESCRIBE_PROMPT = """The photo shows one person; the background is darkened. List the visible features that would let someone pick this person out of a group: clothing with its colour (for example "red t-shirt", "blue jeans", "black jacket"), glasses, hat, bag, hair (for example "long hair", "short black hair", "bald"), beard.
 Only list what you can clearly see in this photo. Do not guess hidden parts, and do not mention age, gender, ethnicity or emotions.
@@ -196,6 +203,11 @@ class Detection:
     score: float
     bbox: list[int]
     crop: np.ndarray | None = None  # RGB for the VLM, background darkened
+    # (17, 3) COCO body keypoints in the tracker's frame and their scores
+    # (0: not seen); None without keypoints.
+    keypoints: np.ndarray | None = None
+    keypoint_scores: np.ndarray | None = None
+    camera: np.ndarray | None = None  # camera position in the tracker's frame
 
 
 @dataclass
@@ -211,6 +223,13 @@ class Track:
     crop_stamp: float = -math.inf
     name: str = ""  # kept until the track is lost
     match_after: float = -math.inf  # image time of the next VLM match
+    keypoints: np.ndarray | None = None  # of the last sighting
+    keypoint_scores: np.ndarray | None = None
+    # (stamp, keypoints, scores, camera) of recent sightings with keypoints,
+    # oldest first.
+    history: deque = field(default_factory=deque)
+    # (stamp, crop) of recent sightings, oldest first.
+    recent_crops: deque = field(default_factory=lambda: deque(maxlen=RECENT_CROPS))
 
     @classmethod
     def start(cls, track_id: int, detection: Detection, stamp: float) -> Track:
@@ -232,6 +251,24 @@ class Track:
             )
             if area >= 0.7 * self.crop_area or stamp - self.crop_stamp > 5.0:
                 self.crop, self.crop_area, self.crop_stamp = detection.crop, area, stamp
+            if (
+                not self.recent_crops
+                or stamp - self.recent_crops[-1][0] >= RECENT_CROP_INTERVAL
+            ):
+                self.recent_crops.append((stamp, detection.crop))
+        self.keypoints = detection.keypoints
+        self.keypoint_scores = detection.keypoint_scores
+        if detection.keypoints is not None:
+            self.history.append(
+                (
+                    stamp,
+                    detection.keypoints,
+                    detection.keypoint_scores,
+                    detection.camera,
+                )
+            )
+        while self.history and stamp - self.history[0][0] > KEYPOINT_HISTORY:
+            self.history.popleft()
 
 
 class PersonTracker:

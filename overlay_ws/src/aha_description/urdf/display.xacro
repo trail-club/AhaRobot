@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<!--
+  Robot touch screen: a Waveshare case below the head, held by printed parts on
+  a printed spine that bolts to the front of the two lift rails.
+
+  Frames:
+    base_link
+      └── display_link   (fixed; centre of the case front face, x out of the
+                          screen, y left, z up)
+
+  The case is a box (the outline of Waveshare's drawing). The printed parts are
+  their print STLs, meshes/display_mount/*.stl (mm). No inertial: the masses
+  are not measured. Gazebo merges this fixed link into base_link.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- CAD (Astra STEP: X left, Y up, Z forward; mm) to base_link (m):
+       x = (Z - 495.268) / 1000, y = X / 1000, z = (Y + 147) / 1000.
+       Matched on the head axes (STEP X 0, Y 1282, Z 545.268 = joint_head_pan
+       0.05 0 1.429) and on the top beam between the rails (STEP underside
+       Y 1341 = the base_link mesh face at z 1.488). -->
+  <!-- display_link: the case front face centre, STEP (0, Y, Z) -->
+  <xacro:property name="display_cad_y" value="1093.5"/>
+  <xacro:property name="display_cad_z" value="573.37"/>
+  <xacro:property name="display_xyz"
+                  value="${(display_cad_z - 495.268) / 1000} 0 ${(display_cad_y + 147) / 1000}"/>
+
+  <!-- Waveshare case outline: thickness, width, height -->
+  <xacro:property name="display_case_x" value="0.0261"/>
+  <xacro:property name="display_case_y" value="0.254"/>
+  <xacro:property name="display_case_z" value="0.187"/>
+  <!-- Active area, centred on the case front -->
+  <xacro:property name="display_screen_y" value="0.2179"/>
+  <xacro:property name="display_screen_z" value="0.1366"/>
+
+  <!-- One printed part. X Y Z: the STEP point (mm) at the STL origin. The STL
+       axes are STEP (X, Y, Z) unless rpy says otherwise. -->
+  <xacro:macro name="display_mount_part" params="name X Y Z rpy:='${pi/2} 0 ${pi/2}'">
+    <xacro:property name="mesh" value="package://aha_description/meshes/display_mount/${name}.stl"/>
+    <visual>
+      <origin xyz="${(Z - display_cad_z) / 1000} ${X / 1000} ${(Y - display_cad_y) / 1000}" rpy="${rpy}"/>
+      <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
+      <material name="display_mount"><color rgba="0.16 0.47 0.71 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="${(Z - display_cad_z) / 1000} ${X / 1000} ${(Y - display_cad_y) / 1000}" rpy="${rpy}"/>
+      <geometry><mesh filename="${mesh}" scale="0.001 0.001 0.001"/></geometry>
+    </collision>
+  </xacro:macro>
+
+  <xacro:macro name="aha_display" params="parent">
+    <link name="display_link">
+      <visual>
+        <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
+        <material name="display_case"><color rgba="0.14 0.15 0.17 1"/></material>
+      </visual>
+      <!-- 1 mm proud of the case so it does not flicker against the front face -->
+      <visual>
+        <origin xyz="0.0005 0 0" rpy="0 0 0"/>
+        <geometry><box size="0.001 ${display_screen_y} ${display_screen_z}"/></geometry>
+        <material name="display_screen"><color rgba="0.69 0.83 0.91 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
+      </collision>
+      <!-- The spine is a plate on the lift rails' front faces (STEP Z 477.27). -->
+      <xacro:display_mount_part name="02_lower_left" X="-133.3" Y="992" Z="497.27"/>
+      <xacro:display_mount_part name="03_lower_right" X="0.5" Y="992" Z="497.27"/>
+      <xacro:display_mount_part name="04_top_keeper" X="-45" Y="1132" Z="497.27"/>
+      <xacro:display_mount_part name="05_spine" X="-56" Y="1050" Z="477.27"/>
+    </link>
+    <joint name="display_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="display_link"/>
+      <origin xyz="${display_xyz}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+</robot>

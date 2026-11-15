@@ -23,11 +23,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/SpeechTranscript.msg
   msg/Surface.msg
   msg/SurfaceArray.msg
+  srv/ClassifyPerson.srv
   srv/DescribePerson.srv
   srv/GetPlaceCandidates.srv
   srv/RememberPerson.srv
   srv/SetNavGoal.srv
   srv/TaskCommand.srv
+  action/Ask.action
   action/PickObject.action
   action/Listen.action
   action/Speak.action

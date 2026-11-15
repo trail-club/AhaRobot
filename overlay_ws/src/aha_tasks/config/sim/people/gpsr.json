@@ -1,0 +1,11 @@
+{
+  "world": "rcjo2026_arena",
+  "wave_period": 0.8,
+  "people": {
+    "bedroom_raising_left": {"label": "raising_left_arm", "shirt": "red", "position": [-2.0, 3.0, 0.0], "yaw": -1.5708},
+    "bedroom_standing": {"label": "standing", "shirt": "blue", "position": [-0.9, 2.8, 0.0], "yaw": -2.3},
+    "office_waving": {"label": "waving", "shirt": "green", "position": [3.3, 2.6, 0.0], "yaw": -2.25},
+    "office_sitting": {"label": "sitting", "shirt": "white", "position": [1.75, 3.5, 0.0], "yaw": -1.5708},
+    "office_pointing_left": {"label": "pointing_left", "shirt": "yellow", "position": [0.6, 2.4, 0.0], "yaw": -1.0}
+  }
+}
