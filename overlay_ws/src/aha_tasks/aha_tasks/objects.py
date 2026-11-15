@@ -566,6 +566,17 @@ def observations_of(message):
     return out
 
 
+def stamp_seconds(message):
+    """Time of the image of a detection message (its header stamp)."""
+    stamp = message.header.stamp
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def in_views(seconds, views):
+    """Whether an image time lies in one of the (settled, left) intervals."""
+    return any(start <= seconds <= end for start, end in views)
+
+
 def yaw_of(q):
     return math.atan2(
         2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
@@ -660,10 +671,7 @@ class Objects:
         from before the head turned."""
         with self.lock:
             return [
-                m
-                for s, _, m in self.history
-                if s > mark
-                and m.header.stamp.sec + m.header.stamp.nanosec * 1e-9 >= taken
+                m for s, _, m in self.history if s > mark and stamp_seconds(m) >= taken
             ]
 
     def now(self):
@@ -743,7 +751,12 @@ class Objects:
         """(frame, region, percepts on it as (percept, level), percepts seen).
 
         Waits for the first detections to learn their frame, then looks at each
-        look point for look_settle + dwell (and at least one new message).
+        look point for look_settle + dwell, and until a detection of an image
+        taken after the head settled arrives. Only detections of images taken
+        while the head stood at a look point count: from its settling to the
+        turn to the next point (the last point: to the end of the scan). Images
+        from before the first turn (the end of the move, the previous view) and
+        from the head's motion are left out.
         """
         start = self.mark()
         if not self.pause(0.0, cancelled, until=lambda: self.mark() > start):
@@ -764,27 +777,39 @@ class Objects:
         else:
             points = region.look_points(self.robot_pose(frame)[:2])
         mark = self.mark()
-        fresh = 0  # messages of images taken while the head looked at a point
+        settled, left = [], []  # image times of each head pose (seconds)
         for point in points:
+            if settled:
+                left.append(self.image_time())  # the head leaves the last point
             self.look_at(frame, point)
             if not self.pause(self.look_settle, cancelled):
                 raise RuntimeError("The wait clock stopped")
-            before, settled = self.mark(), self.image_time()
+            before, still = self.mark(), self.image_time()
             if not self.pause(
-                self.dwell, cancelled, until=lambda: bool(self.fresh(before, settled))
+                self.dwell, cancelled, until=lambda: bool(self.fresh(before, still))
             ):
                 raise RuntimeError("The wait clock stopped")
-            fresh += len(self.fresh(before, settled))
+            settled.append(still)
+        left.append(self.image_time())
+        views = list(zip(settled, left))
         messages = self.since(mark)
         if not messages:
             raise RuntimeError(f"No {OBJECTS_TOPIC} while looking at {surface}")
         other = {m.header.frame_id for m in messages} - {frame}
         if other:
             log(f"Ignored detections in {sorted(other)} (not {frame})")
-        messages = [m for m in messages if m.header.frame_id == frame]
+        messages = [
+            m
+            for m in messages
+            if m.header.frame_id == frame and in_views(stamp_seconds(m), views)
+        ]
+        if not messages:
+            raise RuntimeError(
+                f"No {OBJECTS_TOPIC} of images taken while looking at {surface}"
+            )
         percepts = cluster([observations_of(m) for m in messages], self.category)
         # Seen at least twice, unless the detector is slower than 2 per head pose.
-        least = 2 if fresh >= 2 * len(points) else 1
+        least = 2 if len(messages) >= 2 * len(points) else 1
         percepts = [p for p in percepts if p.count >= least]
         return frame, region, on_region(percepts, region), percepts
 

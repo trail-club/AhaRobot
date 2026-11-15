@@ -507,6 +507,36 @@ class SkillTests(unittest.TestCase):
         # Identity: the box of a camera detector is along the map axes.
         self.assertEqual(result.outputs["table.cup"]["yaw"], 0.0)
 
+    def test_detections_of_images_before_settling_are_ignored(self):
+        class Stale(FakeObjects):
+            """A slow detector: late answers for images from before the first
+            look and from the head's motion, with an extra object each."""
+
+            def look_at(self, frame, xyz):
+                if not self.looked:  # taken at the end of the move
+                    self.deliver([detection("cookies", (-2.1, -1.7, 0.87), 11)], 0.5)
+                super().look_at(frame, xyz)
+                # Taken while the head turns, before it settles at this point.
+                self.deliver(
+                    [detection("orange", (-2.0, -1.5, 0.835), 12)], self.clock + 0.5
+                )
+
+        objects = Stale(table_scene())
+        result, _ = run(
+            PerceiveObjects,
+            objects,
+            self.TABLE_PARAMS,
+            {"ppc.trash_category": "snacks"},
+        )
+        self.assertTrue(result.success, result.message)
+        labels = {k: v["label"] for k, v in result.outputs.items()}
+        self.assertNotIn("orange", labels.values())
+        self.assertEqual(
+            (labels["table.trash"], labels["table.other1"], labels["table.other2"]),
+            ("cookies", "apple", "cola"),
+        )
+        self.assertNotEqual(result.outputs["table.trash"]["track"], 11)
+
     def test_missing_roles_get_no_key(self):
         scene = [d for d in table_scene() if d.class_name not in ("cookies", "cola")]
         result, _ = run(
