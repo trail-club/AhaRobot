@@ -49,10 +49,11 @@ def image_type(compressed_format):
 
 
 class Question:
-    def __init__(self, number, prompt, choices):
+    def __init__(self, number, prompt, choices, request=""):
         self.id = number
         self.prompt = prompt
         self.choices = choices
+        self.request = request  # the client's id of the ask (Ask goal `request`)
         self.done = threading.Event()  # touched, or ended without a touch
         self.index = None
         self.ended = None  # why it ended without a touch
@@ -73,6 +74,7 @@ class Screen:
         self._lock = threading.Lock()
         self._numbers = itertools.count(1)
         self._question = None
+        self._touched = None  # (request, index) of the last touched question
         self._open = True
         self._captions = deque(maxlen=lines)
         self._image = None  # (number, MIME type, bytes)
@@ -114,19 +116,25 @@ class Screen:
                 return None
             return self._image[1], self._image[2]
 
-    def ask(self, prompt, choices):
+    def ask(self, prompt, choices, request=""):
         """Show a question; the one on the screen ends as replaced.
 
-        After `shutdown` the question ends at once.
+        After `shutdown` the question ends at once. A `request` that was the
+        last one touched is not shown again: it is a resent goal whose first
+        try the client never heard of, and it gets that touch.
         """
         choices = list(choices)
         error = check_question(choices)
         if error:
             raise ValueError(error)
         with self._lock:
-            question = Question(next(self._numbers), prompt.strip(), choices)
+            question = Question(next(self._numbers), prompt.strip(), choices, request)
             if not self._open:
                 question.end(CLOSED)
+                return question
+            if request and self._touched and self._touched[0] == request:
+                question.index = self._touched[1]
+                question.done.set()
                 return question
             if self._question is not None:
                 self._question.end(REPLACED)
@@ -168,6 +176,8 @@ class Screen:
                 return False, f"No button {index}"
             question.index = index
             question.done.set()
+            if question.request:
+                self._touched = (question.request, index)
             self._question = None
             self._publish()
             return True, question.choices[index]
@@ -247,7 +257,7 @@ class ScreenBridge:
     def _answer(self, goal_handle):
         goal = goal_handle.request
         result = self.Ask.Result(index=-1)
-        question = self.screen.ask(goal.prompt, goal.choices)
+        question = self.screen.ask(goal.prompt, goal.choices, goal.request)
         timeout = float(goal.timeout)
         deadline = time.monotonic() + timeout if timeout > 0 else math.inf
         try:

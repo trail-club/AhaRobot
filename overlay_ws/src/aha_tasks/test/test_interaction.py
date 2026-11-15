@@ -343,6 +343,7 @@ class FakeClient:
         self.result, self.lost = result, lost
         self.ready = True
         self.sent = []  # futures of the goal handles
+        self.goals = []
         self.cancelled = []
 
     def server_is_ready(self):
@@ -351,6 +352,7 @@ class FakeClient:
     def send_goal_async(self, goal):
         future = FakeFuture()
         self.sent.append(future)
+        self.goals.append(goal)
         if len(self.sent) > self.lost:
             future.set(self.handle())
         return future
@@ -389,6 +391,11 @@ class ResendTests(unittest.TestCase):
         screen = self.interaction.screen = FakeClient(touched)
         self.assertEqual(self.ask(), (0, "Start"))
         self.assertEqual(len(screen.sent), 2)
+        # The same request, so the screen answers it with a touch of the first.
+        self.assertTrue(screen.goals[0].request)
+        self.assertEqual(screen.goals[1].request, screen.goals[0].request)
+        self.assertEqual(self.ask(), (0, "Start"))  # the next question: a new one
+        self.assertNotEqual(screen.goals[2].request, screen.goals[0].request)
         screen.sent[0].set(screen.handle())  # a late response to the first
         self.assertEqual(len(screen.cancelled), 1)
 
@@ -444,10 +451,12 @@ class ResendTests(unittest.TestCase):
 class FakeGoal:
     """An Ask goal handle; `checking` runs when the bridge checks for a cancel."""
 
-    def __init__(self, choices, timeout=0.0, cancel=False, checking=None):
+    def __init__(self, choices, timeout=0.0, cancel=False, checking=None, request=""):
         from aha_msgs.action import Ask
 
-        self.request = Ask.Goal(prompt="", choices=choices, timeout=timeout)
+        self.request = Ask.Goal(
+            prompt="", choices=choices, timeout=timeout, request=request
+        )
         self.cancel = cancel
         self.checking = checking or (lambda: None)
         self.ended = None
@@ -486,6 +495,20 @@ class RaceTests(unittest.TestCase):
                 bridge.screen.touch(question["id"], 1)
 
         return touch
+
+    def test_a_resent_goal_gets_the_touch_of_its_first_try(self):
+        """The client never heard of the first goal; the referee touched it."""
+        bridge = self.bridge()
+        first = FakeGoal(
+            ["Yes", "No"], checking=self.touch_now(bridge), request="ask-1"
+        )
+        self.assertEqual(bridge._answer(first).choice, "No")
+        again = FakeGoal(["Yes", "No"], request="ask-1")
+        result = bridge._answer(again)
+        self.assertEqual(
+            (again.ended, result.success, result.choice), ("succeeded", True, "No")
+        )
+        self.assertIsNone(bridge.screen.view()["question"])
 
     def test_a_touch_at_the_timeout(self):
         bridge = self.bridge()

@@ -61,6 +61,21 @@ class ScreenTests(unittest.TestCase):
         self.assertTrue(self.screen.close(second))
         self.assertIsNone(self.payload()["question"])
 
+    def test_a_resent_question_gets_the_touch_of_its_first_try(self):
+        first = self.screen.ask("", ["Start"], request="ask-1")
+        self.assertEqual(self.screen.touch(first.id, 0), (True, "Start"))
+        again = self.screen.ask("", ["Start"], request="ask-1")
+        self.assertTrue(again.done.is_set())
+        self.assertEqual((again.index, again.ended), (0, None))
+        self.assertIsNone(self.payload()["question"])  # not shown again
+        other = self.screen.ask("", ["Start"], request="ask-2")
+        self.assertFalse(other.done.is_set())
+        self.assertEqual(self.payload()["question"]["id"], other.id)
+        # Without a request every question is shown.
+        self.assertEqual(self.screen.touch(other.id, 0), (True, "Start"))
+        plain = self.screen.ask("", ["Start"])
+        self.assertFalse(plain.done.is_set())
+
     def test_shutdown_ends_the_question_and_later_ones(self):
         question = self.screen.ask("Ready to start", ["Start"])
         self.screen.shutdown()

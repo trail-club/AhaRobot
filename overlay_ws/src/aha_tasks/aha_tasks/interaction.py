@@ -11,6 +11,7 @@ import array
 import math
 import threading
 import time
+import uuid
 
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.display import ASK_ACTION, CAPTION_TOPIC, IMAGE_TOPIC, image_type
@@ -121,8 +122,12 @@ class Interaction:
             return None, "Cancelled"
         except TimeoutError:
             return None, f"No screen: {ASK_ACTION} is not served"
+        # A resent goal keeps `request`, so a touch of the first try is not lost.
         goal = self.Ask.Goal(
-            prompt=prompt, choices=list(choices), timeout=float(timeout)
+            prompt=prompt,
+            choices=list(choices),
+            timeout=float(timeout),
+            request=uuid.uuid4().hex,
         )
         limit = timeout + RESPONSE_TIMEOUT if timeout > 0 else math.inf
         result, message = self._run(self.screen, goal, limit, cancelled, resend=True)
