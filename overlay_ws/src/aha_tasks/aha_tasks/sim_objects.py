@@ -737,6 +737,21 @@ def load_scene(path, catalog: Catalog, furniture: dict) -> Scene:
     return scene
 
 
+def stale_models(names, scene: Scene, object_list) -> list[str]:
+    """Gazebo model names that look like objects but are not in the scene.
+
+    A name counts as an object when it matches a pattern of the object list
+    (sim_object_detector.py would report it), e.g. the objects of another
+    scene placed earlier in the same Gazebo. Other models (furniture, the
+    robot, guests, people) never match."""
+    wanted = {o.name for o in scene.objects}
+    return sorted(
+        name
+        for name in names
+        if name and name not in wanted and object_list.for_model(name) is not None
+    )
+
+
 def displacement(obj: SceneObject, pose: np.ndarray) -> tuple[float, float]:
     """(distance m, tilt rad) of a Gazebo world pose (4x4) from the resting pose."""
     distance = float(np.linalg.norm(pose[:3, 3] - np.array(obj.position)))

@@ -207,7 +207,7 @@ TTSで読み上げられなかった場合も、`wait_start_signal` はボタン
 ```bash
 ros2 launch aha_tasks task.launch.py task:=pick_and_place object_scene:=pick_and_place
 ros2 run aha_tasks sim_objects --config pick_and_place          # 起動中のGazeboで、動いた物体を置き直す
-ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さずに、無い・動いた・倒れた物体を出す
+ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さずに、無い・動いた・倒れた・配置にない物体を出す
 ```
 
 | 配置 | 内容 |
@@ -235,6 +235,7 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。
 `sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば位置を戻す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
+物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。`--check` は消さずに警告する。
 
 制限：
 

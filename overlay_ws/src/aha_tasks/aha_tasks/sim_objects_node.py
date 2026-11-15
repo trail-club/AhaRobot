@@ -2,10 +2,14 @@
 
 Objects missing from the world are spawned; objects of the same name left
 from an earlier run (e.g. moved by the robot) are put back to their scene
-pose, so running it again resets the scene. After ``--settle`` seconds the
+pose, so running it again resets the scene. Models that the object list
+would detect as an object but that are not in the scene (e.g. of another
+scene placed earlier in the same Gazebo) are removed first; other models
+(furniture, the robot, guests, people) are never touched. After ``--settle`` seconds the
 objects are checked against their resting poses, and the program exits:
 0 when every object is in the world, 1 otherwise. A moved or tipped object
-only gives a warning. ``--check`` only does the check (nothing is moved).
+only gives a warning. ``--check`` only does the check (nothing is moved or
+removed; objects not in the scene are reported).
 Skills never see the scene file.
 """
 
@@ -16,7 +20,13 @@ import sys
 import threading
 import time
 
-from aha_tasks.sim_objects import Catalog, SceneError, displacement, load_scene
+from aha_tasks.sim_objects import (
+    Catalog,
+    SceneError,
+    displacement,
+    load_scene,
+    stale_models,
+)
 
 REQUEST_TIMEOUT = 2000  # ms
 DEFAULT_CACHE = Path.home() / ".cache" / "aharobot" / "sim_objects"
@@ -74,7 +84,7 @@ def main(argv=None):
     parser.add_argument(
         "--check",
         action="store_true",
-        help="only report missing, moved and tipped objects",
+        help="only report missing, moved, tipped and stale objects",
     )
     args, _ = parser.parse_known_args(argv)
     try:
@@ -86,6 +96,7 @@ def main(argv=None):
 
     from gz.msgs10.boolean_pb2 import Boolean
     from gz.msgs10.entity_factory_pb2 import EntityFactory
+    from gz.msgs10.entity_pb2 import Entity
     from gz.msgs10.pose_pb2 import Pose
     from gz.msgs10.pose_v_pb2 import Pose_V
     from gz.transport13 import Node as GzNode
@@ -136,6 +147,25 @@ def main(argv=None):
         return ok and reply.data
 
     present = poses()
+    stale = stale_models(present, scene, catalog.object_list)
+    if stale and args.check:
+        log(f"warning: objects not in the scene: {', '.join(stale)}")
+    elif stale:
+        for name in stale:
+            removed = request("remove", Entity(name=name, type=Entity.MODEL), Boolean)
+            log(
+                f"removed {name} (not in the scene)"
+                if removed
+                else f"could not remove {name}"
+            )
+        asked = time.monotonic()
+        while time.monotonic() < asked + 10.0:
+            current = poses(newer_than=asked)
+            if current is not None and not set(stale) & set(current):
+                break
+            time.sleep(0.2)
+        else:
+            log("warning: removed objects are still in Gazebo")
     for obj in [] if args.check else scene.objects:
         x, y, z, yaw = obj.spawn_pose()
         if obj.name in present:

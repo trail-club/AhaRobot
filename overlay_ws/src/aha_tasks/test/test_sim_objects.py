@@ -24,6 +24,7 @@ from aha_tasks.sim_objects import (  # noqa: E402
     footprints_overlap,
     load_scene,
     printed_layout,
+    stale_models,
 )
 
 PACKAGE = Path(__file__).resolve().parents[1]
@@ -227,6 +228,36 @@ class SceneTests(SceneFixture):
             self.assertEqual(levels[roles[role].level], {roles[role].category})
         for role in ("table.other1", "table.other2"):
             self.assertIn(roles[role].category, categories)
+
+    def test_only_objects_of_another_scene_are_stale(self):
+        scene = self.scene("pick_and_place")
+        present = [
+            *(o.name for o in self.scene("gpsr").objects),
+            *(o.name for o in scene.objects),
+            # World, robot, guests, people and held objects are never objects.
+            "dining_table",
+            "shelf",
+            "trash_box",
+            "aha_robot",
+            "guest1",
+            "bedroom_standing",
+            "office_waving__waving_a",
+            "aha_held_object_right",
+            "link",
+            "",
+        ]
+        stale = stale_models(present, scene, self.objects)
+        self.assertEqual(
+            stale,
+            sorted(["banana", "cola_2", "cup_noodle", "plum", "strawberry_jello"]),
+        )
+        self.assertEqual(
+            stale_models(present, self.scene("gpsr"), self.objects)[:3],
+            ["cereal", "chocolate_jello", "cleanser"],
+        )
+        self.assertEqual(
+            stale_models([o.name for o in scene.objects], scene, self.objects), []
+        )
 
     def test_settled_pose_check(self):
         obj = self.scene("pick_and_place").get("milk")
