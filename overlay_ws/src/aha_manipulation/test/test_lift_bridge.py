@@ -17,6 +17,7 @@ import yaml
 from action_msgs.msg import GoalStatus
 from astra_controller_interfaces.msg import JointCommand
 from control_msgs.action import FollowJointTrajectory
+from control_msgs.msg import JointTolerance
 from rclpy.action import ActionClient
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
@@ -139,9 +140,12 @@ class LiftBridgeTest(unittest.TestCase):
             lambda: not self.commands_since(time.monotonic() - 0.3), 10.0, "no commands"
         )
 
-    def send_goal(self, msg, feedback=None):
+    def send_goal(self, msg, feedback=None, path_tolerance=()):
         future = self.client.send_goal_async(
-            FollowJointTrajectory.Goal(trajectory=msg), feedback_callback=feedback
+            FollowJointTrajectory.Goal(
+                trajectory=msg, path_tolerance=list(path_tolerance)
+            ),
+            feedback_callback=feedback,
         )
         self.wait_for(future.done, 10.0, "goal response")
         return future.result()
@@ -265,6 +269,28 @@ class LiftBridgeTest(unittest.TestCase):
         self.assertEqual(result.status, GoalStatus.STATUS_SUCCEEDED, result.result)
         self.assertGreater(len(errors), 50)
         self.assertLess(max(errors), 0.015)
+        self.assertAlmostEqual(self.position("joint_r1"), target, delta=0.003)
+
+    def test_8_linear_goal_the_board_cannot_follow_is_rejected(self):
+        self.settle()
+        r1 = self.position("joint_r1")
+        target = r1 + 0.4 if r1 < 0.7 else r1 - 0.4
+        # 0.4 m in 4 s without velocities: within 0.1 m/s^2 at the knots, but
+        # the board lags (0.1 m/s)^2 / (2 * 0.1 m/s^2) = 0.05 m after the
+        # start, more than LINEAR_LAG_MARGIN of path_tolerance (0.05 m).
+        linear = arm.trajectory(["joint_r1"], [([target], 4.0)])
+        self.assertFalse(self.send_goal(linear).accepted)
+        # With room for the lag the same goal runs and reaches the end.
+        errors = []
+        handle = self.send_goal(
+            linear,
+            lambda msg: errors.append(abs(msg.feedback.error.positions[0])),
+            [JointTolerance(name="joint_r1", position=0.1)],
+        )
+        self.assertTrue(handle.accepted)
+        result = self.wait_result(handle)
+        self.assertEqual(result.status, GoalStatus.STATUS_SUCCEEDED, result.result)
+        self.assertGreater(max(errors), 0.04)
         self.assertAlmostEqual(self.position("joint_r1"), target, delta=0.003)
 
 

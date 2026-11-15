@@ -117,11 +117,16 @@ MoveIt 2.12.4ではcontroller pluginの破棄時に終了クラッシュが再�
 違うときは `<side>_lift_device` で渡す。
 `/lift_controller/joint_trajectory` と `follow_joint_trajectory`（`joint_l1` / `joint_r1`、m）を受け、
 左右の `lift_node` の `/<side>/lift/joint_command` へ1関節ずつ送り、`/<side>/lift/joint_states` を読む。
-軌道が名前を含む側の昇降だけに指令し、その側の関節状態だけを必要とするため、片側の昇降だけでも動く。
+軌道が名前を含む側の昇降だけに指令し（実行中の軌道を置き換えるときの保持は下記）、その側の関節状態だけを必要とするため、片側の昇降だけでも動く。
 制限は昇降の基板（AstraLiftController）に合わせた0〜1.19 m、0.3 m/s、0.1 m/s²。
 基板はAccelStepperの `moveTo` で目標へ動き、目標で止まれる速さまでしか出さないため、補間の現在値をそのまま送ると
 v²/(2a) 遅れる。速度付きの軌道（MoveItの軌道）では、昇降（`board_acceleration` を設定した関節）に
 補間の現在値より進行方向へ v²/(2 `board_acceleration`) 先の位置を送る。直線補間の軌道は速度が不連続で先回りしない。
+先回りすると止まるときに行き過ぎるためで、基板は速度が変わるたびに、変化量 Δv から Δv²/(2 `board_acceleration`) 遅れる。
+この遅れが `path_tolerance`（goalの指定があればその値）の8割を超える直線補間のactionゴールは、途中で中断する代わりに受け付けない。
+例えば0.4 mを4 s（0.1 m/s）で動かすと遅れは0.05 mで、既定の `path_tolerance: 0.05` では拒否される。
+速度を付ける（MoveItの時間付け）、遅くする、`path_tolerance` を広げるのいずれかで動く。
+topicの軌道は許容誤差を判定しないため、遅れたまま最後まで動く。
 フィードバックと許容誤差は補間の現在値で判定する。
 
 - 軌道は [arm_plan.py](aha_manipulation/arm_plan.py) が実測の姿勢から補間する。

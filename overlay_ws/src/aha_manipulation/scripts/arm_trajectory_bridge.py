@@ -48,8 +48,12 @@ Behaviour:
     in the direction of motion, since their board only moves as fast as it
     can still stop at the goal. A linear plan starts and stops with a jump in
     velocity the board cannot follow, so it gets the samples and the board
-    lags. Holds go to the point where the board can stop. Feedback and
-    tolerances use the sample itself.
+    lags by v^2 / (2 board_acceleration) after each velocity jump. An action
+    goal with such a plan is rejected when that lag exceeds
+    LINEAR_LAG_MARGIN of its path tolerance, since the goal would abort on
+    the way; topic trajectories have no tolerance and run with the lag.
+    Holds go to the point where the board can stop. Feedback and tolerances
+    use the sample itself.
   - Partial joint lists are accepted; the other joints of the same groups
     keep their position.
   - SIGINT/SIGTERM: sampling stops and running goals abort (their results
@@ -86,6 +90,10 @@ SPIN_TIMEOUT_S = 0.1
 LOG_THROTTLE_S = 2.0
 SHUTDOWN_TIMEOUT_S = 2.0  # s to let running goals abort and send their results
 RESULT_FLUSH_S = 0.2  # s of spinning after the last goal ended
+# Share of the path tolerance a board may lag behind a linear plan by
+# v^2 / (2 board_acceleration): the steps and the sampling add to it (the
+# AccelStepper fake lags 0.051 m where that gives 0.05 m).
+LINEAR_LAG_MARGIN = 0.8
 
 
 def seconds(duration):
@@ -324,6 +332,49 @@ class ArmTrajectoryBridge(Node):
             self.cfg.start_tolerance,
         )
 
+    def _linear_lags(self, plan):
+        """{joint: m} each board lags behind a linear `plan` (none with velocities).
+
+        The board only gets back to a moving goal at its acceleration, so
+        after a velocity jump of dv (the plan starts and ends at rest) it
+        trails by dv^2 / (2 board_acceleration).
+        """
+        if plan.velocities is not None:
+            return {}
+        spans = list(zip(plan.times, plan.positions))
+        lags = {}
+        for name, accel in self.cfg.board_accelerations.items():
+            if name not in plan.names:
+                continue
+            speeds = [0.0]
+            for (t0, p0), (t1, p1) in zip(spans, spans[1:]):
+                if t1 > t0:
+                    speeds.append((p1[name] - p0[name]) / (t1 - t0))
+            speeds.append(0.0)
+            jump = max(abs(b - a) for a, b in zip(speeds, speeds[1:]))
+            lags[name] = jump * jump / (2 * accel)
+        return lags
+
+    def _plan_goal(self, request):
+        """_plan for an action goal, also rejecting a linear plan the boards
+        cannot follow within its path tolerance (caller holds the lock)."""
+        plan = self._plan(request.trajectory)
+        names = list(request.trajectory.joint_names)
+        path_tol = tolerances(self.cfg.path_tolerance, request.path_tolerance, names)
+        off = [
+            f"{n} about {lag:.3f} {self.units[n]} (path tolerance {path_tol[n]:.3f})"
+            for n, lag in self._linear_lags(plan).items()
+            if n in path_tol and lag > LINEAR_LAG_MARGIN * path_tol[n]
+        ]
+        if off:
+            raise ValueError(
+                "the board would lag behind this trajectory without velocities by "
+                + ", ".join(off)
+                + "; give velocities (e.g. MoveIt's time parameterization), move "
+                "slower or widen path_tolerance"
+            )
+        return plan
+
     def _install(self, plan):
         """Replace the plan (caller holds the lock); returns the new plan id."""
         self.plan = plan
@@ -384,7 +435,7 @@ class ArmTrajectoryBridge(Node):
     def _on_goal(self, request):
         try:
             with self.lock:
-                self._plan(request.trajectory)
+                self._plan_goal(request)
         except ValueError as e:
             self.get_logger().error(
                 f"{self.prefix}/follow_joint_trajectory goal rejected: {e}"
@@ -406,7 +457,7 @@ class ArmTrajectoryBridge(Node):
         result = Result()
         try:
             with self.lock:
-                plan = self._plan(request.trajectory)
+                plan = self._plan_goal(request)
                 seq = self._install(plan)
         except ValueError as e:
             result.error_code = Result.INVALID_GOAL
