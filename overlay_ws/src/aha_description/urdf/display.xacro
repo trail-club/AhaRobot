@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   Robot touch screen: a Waveshare case below the head, held by printed parts on
-  a printed spine that hangs from the frame's top beam.
+  a printed spine that bolts to the front of the two lift rails.
 
   Frames:
     base_link
@@ -17,8 +17,8 @@
   <!-- CAD (Astra STEP: X left, Y up, Z forward; mm) to base_link (m):
        x = (Z - 495.268) / 1000, y = X / 1000, z = (Y + 147) / 1000.
        Matched on the head axes (STEP X 0, Y 1282, Z 545.268 = joint_head_pan
-       0.05 0 1.429) and on the beam the mount bolts to (STEP underside Y 1341 =
-       the base_link mesh face at z 1.488).
+       0.05 0 1.429) and on the top beam between the rails (STEP underside
+       Y 1341 = the base_link mesh face at z 1.488).
        The case front face centre is STEP (0, 1093.5, 586.1). -->
   <xacro:property name="display_xyz" value="0.090832 0 1.2405"/>
 
@@ -62,14 +62,11 @@
         <origin xyz="${-display_case_x/2} 0 0" rpy="0 0 0"/>
         <geometry><box size="${display_case_x} ${display_case_y} ${display_case_z}"/></geometry>
       </collision>
-      <!-- The frame adapter's STL lies on its beam face: STL (x, y, z) is
-           STEP (X, Z, -Y) from the beam underside. -->
-      <xacro:display_mount_part name="01_frame_adapter" X="-28" Y="1341" Z="425.268208"
-                                rpy="${pi} 0 ${pi/2}"/>
+      <!-- The spine's arms bear on the lift rails' front faces (STEP Z 477.27). -->
       <xacro:display_mount_part name="02_lower_left" X="-133.3" Y="992" Z="510"/>
       <xacro:display_mount_part name="03_lower_right" X="0.5" Y="992" Z="510"/>
       <xacro:display_mount_part name="04_top_keeper" X="-45" Y="1132" Z="510"/>
-      <xacro:display_mount_part name="05_spine" X="-20" Y="1058" Z="490"/>
+      <xacro:display_mount_part name="05_spine" X="-56" Y="1058" Z="477.27"/>
     </link>
     <joint name="display_joint" type="fixed">
       <parent link="${parent}"/>
