@@ -7,6 +7,7 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/describe.py`、`appearance.py` | 客の外見を別の客に伝える `describe_person` と、VLMの外見の句の扱い（[外見の説明](#外見の説明)） |
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
@@ -200,7 +201,7 @@ TTSで読み上げられなかった場合も、`wait_start_signal` はボタン
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）と、`offer_seat`。
+実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests` / `describe_person`（`people:=true` が必要）と、`offer_seat`。
 
 ロボットは場内から始めるため、最初の `start.signal` で審判の手動の開始合図（§3.6.8）として画面の `Start` のタッチを待つ。
 部分実行で `start.signal` を選ばなければ合図を待たない。
@@ -221,7 +222,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
-| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
+| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き、過半数の画像で同じ句だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
 
 `find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。
@@ -232,6 +233,25 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 同じtrack、または位置が0.4 m未満（`map` では水平距離）の客は重複とみなし、古い観測を捨てて探し続ける。
 出力の `.track` は破棄済みのことがあるため、後続スキルは名前か位置を使って客を再取得する。
 `memorize_person` をmockにした場合は外見を覚えないため、後の `locate_guests` はその客を見分けられない。
+
+### 外見の説明
+
+`describe_person`（`aha_tasks/describe.py`）は、`memorize_person` がVLMから得た `<subject>.appearance` の句から特徴を選び、`listener` の客を見ながら英語の1文で伝える。句の扱いは `aha_tasks/appearance.py`。
+
+```json
+{"subject": "guest1", "listener": "guest2", "max_features": 4}
+```
+
+ルールブックは伝えた特徴を4つまで数え、正しければ+20、誤りなら−20とする（特徴の種類は指定していない）。
+
+- `memorize_person` は、VLMが1枚の画像にだけ答えた句（ない眼鏡など）を残さない。体の部位が同じ句は部位ごとに数え、最も多い句が過半数の画像になければ部位ごと捨てる（`black pants` と `dark grey pants` に分かれた下衣など）。
+- 部位ごとに1つの句を、上衣、眼鏡、帽子、下衣、髪、ひげ、かばん、首回り、靴の順に `max_features`（既定4）まで選ぶ。部位は句の最後の名詞で決める。
+- 推量・否定を含む句（`possibly glasses`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。`with` などより後の細部は省く（`red t-shirt with a logo` → `red t-shirt`）。
+- 名前 `<role>.name` を使い、なければ `the other guest` と言う。例：`Emma, Charlie is wearing a red t-shirt and blue jeans and has short black hair.`
+- 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。言える特徴がなければ何も言わずに成功する。
+- 出力は `<subject>.told`（伝えた句のリスト）。`<subject>.appearance` がなければ失敗する。
+
+`e2e:=debug` の真値の人の特徴は `ground truth <モデル名>` だけなので、何も言わない。言う内容は `perception:=model` か `final` で確かめる。
 
 ### シミュレーションの客
 
@@ -270,7 +290,7 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 
 | 指示 | 向き先 | 使うスキル |
 | --- | --- | --- |
-| `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後 |
+| `follow_person(people, track, name)` | 人の顔（`head` の0.1 m下。`head` はマスクの上端）。trackが消えたら名前で、それもなければ直前の位置から0.5 m以内の名前のない人を引き継ぐ。見失っている間は最後の点を保つ | `find_person`、`memorize_person`、`offer_seat` の後、`describe_person` |
 | `follow_path(goal)` | Nav2の経路 `/plan` に沿って1.5 m先、高さ1.2 m。経路の終わりの先は経路の始点から終点への向き（進行方向）へ延ばし、始点と終点が0.3 m未満（その場で目標の向きへ回る）なら目標の向きへ延ばすため、到着時は正面を見る。新しい経路が届くまでは、目標地点から目標の向きへ1.5 m先（すでに目標にいて経路を待たずに終わっても、頭が真下や真横を向かない） | `navigate` と `robot.location` の復元（到着後は `hold`） |
 | `look_at(frame, point)` / `look_towards(pan)` | 固定の点。追う動作をやめる | `locate_guests`、`offer_seat` |
 | `hold()` | 最後の向き先を保つ | `navigate` の到着後、タスクの停止時（runner） |

@@ -1,0 +1,236 @@
+"""Appearance phrases and describe_person (no ROS graph)."""
+
+import os
+import sys
+import threading
+from types import SimpleNamespace
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from aha_tasks.appearance import (  # noqa: E402
+    choose_features,
+    consensus,
+    normalize,
+    sentence,
+)
+from aha_tasks.core.skill import SkillContext  # noqa: E402
+from aha_tasks.describe import DescribePerson  # noqa: E402
+
+
+class NormalizeTests(unittest.TestCase):
+    def test_parts_come_from_the_head_noun(self):
+        cases = {
+            "Red T-shirt": ("upper", "red t-shirt"),
+            "red tshirt": ("upper", "red t-shirt"),
+            "red t shirt": ("upper", "red t-shirt"),
+            "blue jeans": ("lower", "blue jeans"),
+            "short black hair": ("hair", "short black hair"),
+            "black-framed glasses": ("glasses", "black-framed glasses"),
+            "bald": ("hair", "bald"),
+            "white sneakers": ("shoes", "white sneakers"),
+        }
+        for phrase, expected in cases.items():
+            with self.subTest(phrase=phrase):
+                self.assertEqual(normalize(phrase), expected)
+
+    def test_details_after_with_are_dropped(self):
+        self.assertEqual(
+            normalize("red t-shirt with a white logo"), ("upper", "red t-shirt")
+        )
+
+    def test_hedged_negated_unknown_and_long_phrases_are_not_told(self):
+        for phrase in (
+            "possibly glasses",
+            "no glasses",
+            "not wearing a hat",
+            "red or orange shirt",
+            "smiling",
+            "slim build",
+            "light blue denim button up shirt",
+            "",
+            None,
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(normalize(phrase))
+
+
+class ConsensusTests(unittest.TestCase):
+    def test_a_feature_of_one_view_is_dropped(self):
+        views = [
+            ["green t-shirt", "short blond hair"],
+            ["Green T-shirt", "short hair", "glasses"],
+            ["green tshirt", "short blond hair"],
+        ]
+        self.assertEqual(consensus(views), ["green t-shirt", "short blond hair"])
+
+    def test_a_part_without_a_majority_phrase_is_dropped(self):
+        views = [["black pants"], ["dark grey pants"], ["grey pants"]]
+        self.assertEqual(consensus(views), [])
+
+    def test_two_of_three_agree(self):
+        views = [["black pants", "beard"], ["dark grey pants"], ["black pants"]]
+        self.assertEqual(consensus(views), ["black pants"])
+
+    def test_phrases_of_no_part_need_the_same_text(self):
+        views = [["ground truth guest1"], ["ground truth guest1"]]
+        self.assertEqual(consensus(views), ["ground truth guest1"])
+        self.assertEqual(consensus([["smiling"], ["frowning"]]), [])
+
+    def test_one_view_is_kept_as_it_is(self):
+        self.assertEqual(
+            consensus([["red t-shirt", "glasses"]]), ["red t-shirt", "glasses"]
+        )
+        self.assertEqual(consensus([]), [])
+
+
+class ChooseTests(unittest.TestCase):
+    def test_one_per_part_in_reliability_order_at_most_four(self):
+        appearance = [
+            "white sneakers",
+            "short black hair",
+            "red t-shirt",
+            "red shirt",
+            "blue jeans",
+            "glasses",
+            "beard",
+        ]
+        self.assertEqual(
+            choose_features(appearance),
+            [
+                ("upper", "red t-shirt"),
+                ("glasses", "glasses"),
+                ("lower", "blue jeans"),
+                ("hair", "short black hair"),
+            ],
+        )
+        self.assertEqual(len(choose_features(appearance, 2)), 2)
+
+    def test_nothing_usable(self):
+        self.assertEqual(choose_features(["smiling", "no hat"]), [])
+
+
+class SentenceTests(unittest.TestCase):
+    def test_wearing_and_having(self):
+        features = [
+            ("upper", "orange t-shirt"),
+            ("glasses", "glasses"),
+            ("lower", "blue jeans"),
+            ("hair", "short black hair"),
+        ]
+        self.assertEqual(
+            sentence("Charlie", features, "Emma"),
+            "Emma, Charlie is wearing an orange t-shirt, glasses and blue jeans "
+            "and has short black hair.",
+        )
+
+    def test_bald_beard_and_bag(self):
+        features = [("hair", "bald"), ("facial_hair", "beard"), ("bag", "backpack")]
+        self.assertEqual(
+            sentence("the other guest", features),
+            "The other guest has a beard and a backpack and is bald.",
+        )
+
+    def test_no_features_no_sentence(self):
+        self.assertEqual(sentence("Charlie", []), "")
+
+
+class FakePeople:
+    def __init__(self, message=None):
+        self.message = message
+        self.followed = []
+
+    def follow(self, track=None, name=""):
+        self.followed.append((track, name))
+
+    def latest(self):
+        return self.message
+
+
+class FakeInteraction:
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.said = []
+
+    def say(self, text, cancelled):
+        self.said.append(text)
+        return self.ok, "spoken" if self.ok else "TTS failed"
+
+
+def run(params, memory, people=None, speech=None):
+    people = people or FakePeople()
+    speech = speech or FakeInteraction()
+    runtime = SimpleNamespace(node=None, people=people, interaction=speech)
+    ctx = SkillContext(
+        subgoal="guest2.describe_guest1",
+        params=params,
+        memory=memory,
+        cancelled=threading.Event(),
+        log=lambda text: None,
+    )
+    return DescribePerson(runtime).execute(ctx), people, speech
+
+
+PARAMS = {"subject": "guest1", "listener": "guest2"}
+
+
+class DescribePersonTests(unittest.TestCase):
+    def test_tells_the_listener_while_looking_at_them(self):
+        memory = {
+            "guest1.appearance": ["red t-shirt", "blue jeans", "smiling"],
+            "guest1.name": "Charlie",
+            "guest2.name": "Emma",
+            "guest2.track": 4,
+        }
+        visible = SimpleNamespace(id=4, name="guest2", visible=True)
+        result, people, speech = run(
+            PARAMS, memory, FakePeople(SimpleNamespace(people=[visible]))
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            speech.said, ["Emma, Charlie is wearing a red t-shirt and blue jeans."]
+        )
+        self.assertEqual(people.followed, [(4, "guest2")])
+        self.assertEqual(result.outputs["guest1.told"], ["red t-shirt", "blue jeans"])
+
+    def test_without_names_it_says_the_other_guest(self):
+        result, _, speech = run(PARAMS, {"guest1.appearance": ["glasses"]})
+        self.assertTrue(result.success)
+        self.assertEqual(speech.said, ["The other guest is wearing glasses."])
+
+    def test_nothing_certain_is_not_said(self):
+        result, people, speech = run(PARAMS, {"guest1.appearance": ["maybe a hat"]})
+        self.assertTrue(result.success)
+        self.assertEqual(speech.said, [])
+        self.assertEqual(result.outputs["guest1.told"], [])
+
+    def test_missing_appearance_fails(self):
+        result, _, speech = run(PARAMS, {})
+        self.assertFalse(result.success)
+        self.assertIn("guest1.appearance", result.message)
+        self.assertEqual(speech.said, [])
+
+    def test_speech_failure_fails(self):
+        result, _, _ = run(
+            PARAMS, {"guest1.appearance": ["glasses"]}, speech=FakeInteraction(ok=False)
+        )
+        self.assertFalse(result.success)
+        self.assertIn("TTS failed", result.message)
+
+    def test_params_are_validated(self):
+        spec = SimpleNamespace(locations={})
+        DescribePerson.validate({**PARAMS, "max_features": 3}, spec)
+        for params in (
+            {},
+            {"subject": "guest1"},
+            {"subject": "guest1", "listener": "guest1"},
+            {**PARAMS, "max_features": 0},
+            {**PARAMS, "max_features": True},
+            {**PARAMS, "extra": 1},
+        ):
+            with self.subTest(params=params):
+                with self.assertRaises(ValueError):
+                    DescribePerson.validate(params, spec)
+
+
+if __name__ == "__main__":
+    unittest.main()

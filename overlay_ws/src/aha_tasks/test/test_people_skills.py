@@ -43,8 +43,10 @@ def person(id, x, y, name="", visible=True):
     )
 
 
-def people_message(*people, frame="map"):
-    return SimpleNamespace(header=SimpleNamespace(frame_id=frame), people=list(people))
+def people_message(*people, frame="map", stamp=0.0):
+    time = SimpleNamespace(sec=int(stamp), nanosec=round(stamp % 1 * 1e9))
+    header = SimpleNamespace(frame_id=frame, stamp=time)
+    return SimpleNamespace(header=header, people=list(people))
 
 
 class FakeClient:
@@ -237,7 +239,7 @@ class MemorizePersonTests(unittest.TestCase):
             features=("glasses", "red t-shirt"),
         )
         result = MemorizePerson(runtime(people)).execute(
-            context({"guest": "guest1"}, {"guest1.track": 7})
+            context({"guest": "guest1", "views": 1}, {"guest1.track": 7})
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(
@@ -253,7 +255,7 @@ class MemorizePersonTests(unittest.TestCase):
             people_message(person(1, 0.5, 0.0, "guest1"), person(9, 2.0, 0.0))
         )
         result = MemorizePerson(runtime(people)).execute(
-            context({"guest": "guest2"}, {"guest2.track": 4})
+            context({"guest": "guest2", "views": 1}, {"guest2.track": 4})
         )
         self.assertTrue(result.success)
         self.assertEqual(people.remember.requests[0].id, 9)
@@ -263,9 +265,91 @@ class MemorizePersonTests(unittest.TestCase):
         people.describe.answer = lambda r: SimpleNamespace(
             success=False, message="VLM timeout", features=[]
         )
-        result = MemorizePerson(runtime(people)).execute(context({"guest": "guest1"}))
+        result = MemorizePerson(runtime(people)).execute(
+            context({"guest": "guest1", "views": 1})
+        )
         self.assertFalse(result.success)
         self.assertIn("VLM timeout", result.message)
+
+    def memorize_views(self, answers, messages, params=None):
+        """MemorizePerson with one describe answer per view, in order."""
+        people = FakePeople(messages[0])
+        people.latest = Mock(
+            side_effect=itertools.chain(messages, itertools.repeat(messages[-1]))
+        )
+        people.now = itertools.count(0.0, 0.1).__next__
+        replies = iter(answers)
+        people.describe.answer = lambda r: next(replies)
+        with patch("aha_tasks.people.time.sleep"):
+            result = MemorizePerson(runtime(people)).execute(
+                context({"guest": "guest1", "timeout": 1.0, **(params or {})})
+            )
+        return result, people
+
+    def test_features_most_views_agree_on_are_kept(self):
+        def answer(*features):
+            return SimpleNamespace(success=True, message="", features=list(features))
+
+        result, people = self.memorize_views(
+            [
+                answer("green t-shirt", "short blond hair"),
+                answer("green t-shirt", "short hair", "glasses"),
+                answer("green t-shirt", "short blond hair"),
+            ],
+            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            result.outputs["guest1.appearance"], ["green t-shirt", "short blond hair"]
+        )
+        self.assertEqual(len(people.describe.requests), 3)
+
+    def test_views_wait_for_newer_images(self):
+        def answer():
+            return SimpleNamespace(success=True, message="", features=["red t-shirt"])
+
+        result, people = self.memorize_views(
+            [answer(), answer()],
+            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.2, 0.7)],
+            {"views": 2},
+        )
+        self.assertTrue(result.success, result.message)
+        # Views of the images at 0.0 and 0.7 s; the one at 0.2 s is too close.
+        self.assertEqual(people.latest.call_count, 3)
+        self.assertEqual(len(people.describe.requests), 2)
+
+    def test_failed_views_are_left_out(self):
+        result, _ = self.memorize_views(
+            [
+                SimpleNamespace(success=False, message="VLM timeout", features=[]),
+                SimpleNamespace(success=True, message="", features=["glasses"]),
+            ],
+            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6)],
+            {"views": 2},
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
+
+    def test_lost_person_ends_the_views(self):
+        result, people = self.memorize_views(
+            [SimpleNamespace(success=True, message="", features=["glasses"])],
+            [people_message(person(1, 0.5, 0.0)), people_message()],
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
+        self.assertEqual(len(people.describe.requests), 1)
+
+    def test_view_params_are_validated(self):
+        spec = SimpleNamespace(locations={})
+        MemorizePerson.validate({"guest": "g", "views": 5, "view_interval": 1}, spec)
+        for params in (
+            {"guest": "g", "views": 0},
+            {"guest": "g", "views": 1.5},
+            {"guest": "g", "view_interval": 0},
+        ):
+            with self.subTest(params=params):
+                with self.assertRaises(ValueError):
+                    MemorizePerson.validate(params, spec)
 
 
 class WaitTests(unittest.TestCase):
