@@ -227,24 +227,22 @@ class SceneTests(unittest.TestCase):
         person_perception measures the front of the body, about 0.2 m nearer.
         """
         spec = load_spec(CONFIG / "human_interaction.json")
-        lists = [
-            s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"
-        ]
-        self.assertEqual(len(lists), 2)
-        self.assertEqual(lists[0], lists[1])
-        self.assertEqual(set(SCENE["seats"]), set(lists[0]))
+        keys = {s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"}
+        self.assertEqual(len(keys), 1)  # both guests share the seats of the task
+        seats = spec.initial_state[keys.pop()]
+        self.assertEqual(set(SCENE["seats"]), set(seats))
         for name, seat in SCENE["seats"].items():
             with self.subTest(name):
                 x, y, yaw = seat["pose"]  # faces the room
                 for ahead in (0.0, 0.25):
                     xy = (x + ahead * math.cos(yaw), y + ahead * math.sin(yaw))
-                    self.assertEqual(nearest_seat(lists[0], xy, RADIUS), name)
+                    self.assertEqual(nearest_seat(seats, xy, RADIUS), name)
                 if "chair" in seat:  # the added chair is where the task expects
-                    self.assertEqual(seat["chair"][:2], lists[0][name][:2])
+                    self.assertEqual(seat["chair"][:2], seats[name][:2])
         mocks = [s.mock for s in spec.subgoals if s.skill == "find_free_seat"]
         for guest, mock in zip(("guest1", "guest2"), mocks):
             seat = mock[f"{guest}.seat"]
-            self.assertEqual(mock[f"{guest}.seat_position"], lists[0][seat])
+            self.assertEqual(mock[f"{guest}.seat_position"], seats[seat])
             # The mock is what the sim's guest is offered with the host seated.
             self.assertEqual(seat, SCENE["guests"][guest]["seat"])
         taken = {

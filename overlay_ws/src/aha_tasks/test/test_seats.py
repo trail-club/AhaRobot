@@ -187,38 +187,59 @@ class FindFreeSeatTests(unittest.TestCase):
         result = FindFreeSeat(rt).execute(context({"guest2.track": 7}))
         self.assertEqual(result.outputs["guest2.seat"], "chair_left")
 
-    def test_fails_when_every_seat_is_taken(self):
+    def test_fails_only_when_every_seat_is_seen_taken(self):
         rt = runtime([HOST, GUEST1, person(8, 2.55, 3.1)])
         result = FindFreeSeat(rt).execute(context())
         self.assertFalse(result.success)
         self.assertEqual(result.message.count("sits there"), len(SEATS))
         self.assertIn("chair_right: guest1 5 sits there", result.message)
 
-    def test_a_seat_without_a_new_image_is_not_free(self):
-        rt = runtime([], fresh=False)
+    def test_without_a_seat_seen_free_offers_the_first_not_seen_taken(self):
+        """No new image after the host's: the mock could be a taken seat."""
+        rt = runtime([HOST], fresh=False)
         result = FindFreeSeat(rt).execute(context())
-        self.assertFalse(result.success)
-        self.assertIn("chair_left: not seen", result.message)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        self.assertEqual(result.outputs["guest2.seat_position"], [0.75, 3.5, 0.5])
+        self.assertIn("not seen free", result.message)
+        self.assertIn("chair_left: person 3 sits there", result.message)
+        self.assertIn("chair_right: not seen", result.message)
+        self.assertEqual(looked_at(rt), list(SEATS))
 
-    def test_fails_without_person_perception(self):
+    def test_without_person_perception_offers_the_first_seat_at_once(self):
         rt = runtime([HOST], alive=False)
         result = FindFreeSeat(rt).execute(context())
-        self.assertFalse(result.success)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
         self.assertIn("/aha/perception/people", result.message)
+        self.assertIn("chair_right: not looked at", result.message)
         self.assertEqual(len(rt.gaze.looks), 1)
 
-    def test_fails_when_people_are_not_in_map(self):
+    def test_people_outside_map_are_not_looked_for_at_the_other_seats(self):
         rt = runtime([], frame="camera_color_optical_frame")
         result = FindFreeSeat(rt).execute(context())
-        self.assertFalse(result.success)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
         self.assertIn("not map", result.message)
+        self.assertEqual(len(rt.gaze.looks), 1)
 
     def test_seats_behind_the_robot_are_not_looked_at(self):
         rt = runtime([])
         result = FindFreeSeat(rt).execute(context({"robot.location": "facing_away"}))
-        self.assertFalse(result.success)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
         self.assertIn("out of the head's reach", result.message)
         self.assertEqual(rt.gaze.looks, [])
+
+    def test_seats_from_the_task_memory(self):
+        rt = runtime([HOST])
+        ctx = context({"living_room.seats": SEATS}, seats="living_room.seats")
+        result = FindFreeSeat(rt).execute(ctx)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        result = FindFreeSeat(rt).execute(context(seats="nowhere.seats"))
+        self.assertFalse(result.success)
+        self.assertIn("nowhere.seats", result.message)
 
     def test_cancel_stops_the_search(self):
         rt = runtime([HOST])
@@ -229,9 +250,13 @@ class FindFreeSeatTests(unittest.TestCase):
         self.assertEqual(result.message, "Cancelled")
 
     def test_params_are_validated(self):
-        spec = SimpleNamespace(locations={})
+        spec = SimpleNamespace(locations={}, initial_state={"room.seats": SEATS})
         FindFreeSeat.validate({"guest": "g", "seats": SEATS, "radius": 0.5}, spec)
+        FindFreeSeat.validate({"guest": "g", "seats": "room.seats"}, spec)
+        spec.initial_state["bad.seats"] = {"a": [1.0, 2.0]}
         for params in (
+            {"guest": "g", "seats": "other.seats"},
+            {"guest": "g", "seats": "bad.seats"},
             {"guest": "g"},
             {"guest": "g", "seats": {}},
             {"guest": "g", "seats": ["chair_left"]},
