@@ -31,10 +31,10 @@ class ScreenTests(unittest.TestCase):
         return self.screen.view()
 
     def test_a_touch_answers_the_question_on_the_screen(self):
-        question = self.screen.ask(" Is this the cup? ", ["Yes", "No"])
+        question = self.screen.ask(" Pick one ", ["Yes", "No"])
         self.assertEqual(
             self.payload()["question"],
-            {"id": question.id, "prompt": "Is this the cup?", "choices": ["Yes", "No"]},
+            {"id": question.id, "prompt": "Pick one", "choices": ["Yes", "No"]},
         )
         self.assertEqual(self.screen.touch(question.id, 1), (True, "No"))
         self.assertTrue(question.done.is_set())
@@ -209,7 +209,7 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(response.status, 404, path)
 
     def test_events_stream_the_screen(self):
-        question = self.screen.ask("Is this the cup?", ["Yes", "No"])
+        question = self.screen.ask("Pick one", ["Yes", "No"])
         port = self.server.server_address[1]
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         self.addCleanup(connection.close)

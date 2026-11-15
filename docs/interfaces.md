@@ -180,7 +180,7 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 画面のHTTP APIは `GET /display/api/events`（SSE）、`GET /display/api/image/<id>`、
 `POST /display/api/touch`（`{"question": <id>, "choice": <ボタンの番号>}`、`Content-Type: application/json` が必要）。
 画面の状態は `GET /api/status`・`/api/events` の `screen` にも入る。GUIに埋め込んだ画面（`display/?embedded`）はSSEを開かず、GUIのページから `postMessage` で状態を受け取る（GUIのタブ1つのSSE接続は1本）。
-runnerのスキルは字幕を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
+runnerのスキルは字幕と画像（認識の結果など）を配信し、`/aha/perception/audio/speak`（[音声](#音声)）があれば読み上げる。
 `task_monitor` が止まるときは、表示中の質問のgoalをabortする（`The screen is shutting down`）。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。

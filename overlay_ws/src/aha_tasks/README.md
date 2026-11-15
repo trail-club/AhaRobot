@@ -117,7 +117,7 @@ class AskNameAndDrink(Skill):
 | 表示 | 内容 |
 | --- | --- |
 | 字幕 | ロボットの発話の最新3件。最新を大きく表示する |
-| 画像 | `/aha/display/image` の1枚。質問と同時なら横（縦長の画面では上下）に並べる |
+| 画像 | `/aha/display/image` の1枚（認識の結果など）。質問と同時なら横（縦長の画面では上下）に並べる |
 | 質問 | 文と1〜6個のボタン。タッチすると押したボタンを上部に表示する |
 | 待機 | 何も出していなければ `AhaRobot` の文字 |
 
@@ -128,10 +128,12 @@ class AskNameAndDrink(Skill):
 ```python
 interaction = Interaction.of(self.runtime)
 ok, message = interaction.say("What is your name?", ctx.cancelled)
-index, label = interaction.ask("Is this the cup?", ["Yes", "No"], ctx.cancelled, timeout=30.0)
+ok, message = interaction.show(jpeg_bytes, "jpeg", "I found the cup on the table.", ctx.cancelled)
+index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
 ```
 
 - `say` は字幕を出し、TTS（`/aha/perception/audio/speak`）が起動していれば読み上げ終わるまで待つ（上限60 s）。TTSがなければ字幕だけで即座に戻る（シミュレーション）。
+- `show` は画像（JPEGかPNGのbytes）を出し、`say` で説明する。画像は次の画像か `hide()` まで残る。認識の結果は `show` で審判に示すだけで、タッチで答えを求めない。
 - `ask` は画面にボタンを出し、タッチされると番号と文言を返す。タッチがなければ `index` が `None` で、`label` が理由（中断、`timeout` 秒の経過、置き換え、画面の終了）。`timeout` は実時間で、0以下は中断まで待つ。
 - 画面に出る質問は1つで、新しい質問は表示中の質問を置き換え、前の質問はタッチなしで終わる。
 - 画面の起動を5 s待っても `/aha/display/ask` がなければ、`ask` はタッチなしで終わる。待つ間も中断を受け付ける。
@@ -143,7 +145,7 @@ index, label = interaction.ask("Is this the cup?", ["Yes", "No"], ctx.cancelled,
 | `wait_start_signal` | 準備ができたことと押すボタンを `text` で伝え、`button`（既定 `Start`）のタッチを待つ。どちらも省略できる | HICの `start.signal` |
 
 TTSで読み上げられなかった場合も、`wait_start_signal` はボタンを出して待つ。
-画像を配信するスキルはまだない。
+タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
 
 ## Human Robot Interaction Challenge
 

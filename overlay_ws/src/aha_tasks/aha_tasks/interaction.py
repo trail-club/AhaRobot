@@ -1,16 +1,18 @@
-"""Speaking and asking through the robot's speaker and touch screen.
+"""Speaking, showing and asking through the robot's speaker and touch screen.
 
 `say` shows the text as a caption on the screen (aha_tasks.display) and speaks
 it when the TTS (/aha/perception/audio/speak) is up; the simulation has no TTS,
-so there it only shows the caption. `ask` shows buttons on the screen and waits
-for a touch.
+so there it only shows the caption. `show` puts an image on the screen, e.g. a
+perceived object for the referee, and says what it is; it asks nothing back.
+`ask` shows buttons on the screen and waits for a touch.
 """
 
+import array
 import math
 import time
 
 from aha_tasks.core.skill import Skill, SkillResult
-from aha_tasks.display import ASK_ACTION, CAPTION_TOPIC
+from aha_tasks.display import ASK_ACTION, CAPTION_TOPIC, IMAGE_TOPIC, image_type
 
 SPEAK_ACTION = "/aha/perception/audio/speak"
 SERVER_TIMEOUT = 5.0  # s (wall clock) to find a server, or to give up on a lost one
@@ -28,16 +30,19 @@ class Lost(Exception):
 
 
 class Interaction:
-    """Speech and touch shared by the skills of one runner; see `of`."""
+    """Speech, images and touch shared by the skills of one runner; see `of`."""
 
     def __init__(self, node):
         from aha_msgs.action import Ask, Speak
         from rclpy.action import ActionClient
+        from sensor_msgs.msg import CompressedImage
         from std_msgs.msg import String
 
         self.node = node
         self.Ask, self.Speak, self.String = Ask, Speak, String
+        self.CompressedImage = CompressedImage
         self.captions = node.create_publisher(String, CAPTION_TOPIC, 10)
+        self.images = node.create_publisher(CompressedImage, IMAGE_TOPIC, 1)
         self.speaker = ActionClient(node, Speak, SPEAK_ACTION)
         self.screen = ActionClient(node, Ask, ASK_ACTION)
 
@@ -58,6 +63,23 @@ class Interaction:
         if result is None:
             return False, f"TTS: {message}"
         return result.success, f"TTS: {result.message}"
+
+    def show(self, image, image_format, text, cancelled):
+        """Show an image and say `text` about it: (ok, message) of `say`.
+
+        `image` is the bytes of a JPEG or PNG (`image_format` "jpeg" or "png").
+        It stays on the screen until the next image or `hide`.
+        """
+        if not image or image_type(image_format) is None:
+            raise ValueError(f"show needs a JPEG or PNG image, got {image_format!r}")
+        self.images.publish(
+            self.CompressedImage(format=image_format, data=array.array("B", image))
+        )
+        return self.say(text, cancelled)
+
+    def hide(self):
+        """Remove the image from the screen."""
+        self.images.publish(self.CompressedImage())
 
     def ask(self, prompt, choices, cancelled, timeout=0.0):
         """Buttons on the screen: (index of the touched one, its label).

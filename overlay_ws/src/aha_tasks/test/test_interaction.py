@@ -1,4 +1,4 @@
-"""say / ask through ROS against the real screen, and the skills that use them."""
+"""say / show / ask through ROS against the real screen, and the skills that use them."""
 
 import os
 import subprocess
@@ -156,7 +156,7 @@ class RosTests(unittest.TestCase):
         return self.screen.view()["question"]
 
     def test_touch_returns_the_choice(self):
-        answer, thread = self.ask_in_background("Is this the cup?", ["Yes", "No"])
+        answer, thread = self.ask_in_background("Pick one", ["Yes", "No"])
         wait_until(lambda: self.shown() is not None)
         self.assertEqual(self.shown()["choices"], ["Yes", "No"])
         self.assertEqual(self.screen.touch(self.shown()["id"], 1), (True, "No"))
@@ -237,6 +237,28 @@ class RosTests(unittest.TestCase):
         self.assertEqual(
             self.screen.view()["captions"][-1]["text"], "Hello, I am AhaRobot."
         )
+
+    def test_show_puts_the_image_and_the_caption_on_the_screen(self):
+        png = b"\x89PNG\r\n\x1a\nnot decoded"
+        wait_until(lambda: not self.interaction.speaker.server_is_ready())
+        wait_until(lambda: self.interaction.images.get_subscription_count() > 0)
+        ok, message = self.interaction.show(
+            png, "png", "This is the cup.", self.cancelled
+        )
+        self.assertTrue(ok, message)
+        wait_until(lambda: self.screen.view()["image"] is not None)
+        number = self.screen.view()["image"]["id"]
+        self.assertEqual(self.screen.image(number), ("image/png", png))
+        wait_until(lambda: self.screen.view()["captions"])
+        self.assertEqual(self.screen.view()["captions"][-1]["text"], "This is the cup.")
+        self.assertIsNone(self.shown())  # nothing to touch
+        self.interaction.hide()
+        wait_until(lambda: self.screen.view()["image"] is None)
+
+    def test_show_needs_a_jpeg_or_png(self):
+        for image, image_format in ((b"", "png"), (b"BM", "bmp"), (b"x", "")):
+            with self.assertRaises(ValueError, msg=image_format):
+                self.interaction.show(image, image_format, "Look.", self.cancelled)
 
     def test_say_waits_for_the_tts(self):
         from aha_msgs.action import Speak
