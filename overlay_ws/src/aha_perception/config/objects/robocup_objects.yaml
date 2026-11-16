@@ -6,10 +6,10 @@
 # size: x, y footprint and z height (m). shape: box | cylinder (diameter x).
 # models: fnmatch patterns of the Gazebo model names detected as the label;
 # default [<label with "_" for spaces>, <same>_*], e.g. "tuna can" matches the
-# models tuna_can and tuna_can_2. Sizes are typical of the RoboCup@Home object
-# set, simplified to boxes / upright cylinders for the simulation. The
-# simulated objects of aha_tasks (config/sim/object_models.json) have these
-# sizes: YCB models within 1.5 cm, the others exactly.
+# models tuna_can and tuna_can_2. Sizes are the bounding boxes of the objects
+# of the RoboCup Japan Open 2026 DSPL object list (YCB and the products it
+# names) as simulated by aha_tasks (config/sim/object_models.json), within
+# 1.5 cm; "cola" and "cookies" are not on that list.
 objects:
   # fruit
   - {label: apple, category: fruit, shape: cylinder, size: [0.075, 0.075, 0.075]}
@@ -24,25 +24,25 @@ objects:
   - {label: tuna can, category: food, shape: cylinder, size: [0.085, 0.085, 0.045]}
   - {label: spam, category: food, shape: box, size: [0.06, 0.10, 0.08]}
   - {label: tomato soup, category: food, shape: cylinder, size: [0.067, 0.067, 0.10]}
-  - {label: cup noodle, category: food, shape: cylinder, size: [0.095, 0.095, 0.11]}
+  - {label: cup noodle, category: food, shape: cylinder, size: [0.145, 0.145, 0.074]}  # a Donbei bowl, grasped by the rim
   - {label: mustard, category: food, shape: box, size: [0.096, 0.058, 0.192]}
-  - {label: cereal, category: food, shape: box, size: [0.06, 0.16, 0.22]}
+  - {label: cereal, category: food, shape: box, size: [0.282, 0.056, 0.203]}
   # drink
-  - {label: green tea, category: drink, shape: cylinder, size: [0.065, 0.065, 0.20]}
-  - {label: lemonade, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
-  - {label: cola, category: drink, shape: cylinder, size: [0.066, 0.066, 0.12]}
-  - {label: milk, category: drink, shape: box, size: [0.07, 0.07, 0.19]}
-  - {label: red bull, category: drink, shape: cylinder, size: [0.053, 0.053, 0.135]}
+  - {label: green tea, category: drink, shape: cylinder, size: [0.073, 0.073, 0.27]}
+  - {label: lemonade, category: drink, shape: cylinder, size: [0.067, 0.067, 0.22]}
+  - {label: cola, category: drink, shape: cylinder, size: [0.067, 0.067, 0.124]}
+  - {label: milk, category: drink, shape: box, size: [0.073, 0.072, 0.19]}
+  - {label: red bull, category: drink, shape: cylinder, size: [0.053, 0.054, 0.135]}
   # snack
-  - {label: pringles, category: snack, shape: cylinder, size: [0.075, 0.075, 0.23]}
-  - {label: cookies, category: snack, shape: box, size: [0.06, 0.10, 0.15]}
-  - {label: chocolate jello, category: snack, shape: box, size: [0.04, 0.09, 0.08]}
-  - {label: strawberry jello, category: snack, shape: box, size: [0.04, 0.09, 0.08]}
+  - {label: pringles, category: snack, shape: cylinder, size: [0.079, 0.078, 0.246]}
+  - {label: cookies, category: snack, shape: box, size: [0.04, 0.123, 0.167]}
+  - {label: chocolate jello, category: snack, shape: box, size: [0.112, 0.089, 0.038]}
+  - {label: strawberry jello, category: snack, shape: box, size: [0.073, 0.089, 0.03]}
   # cleaning supplies
-  - {label: cleanser, category: cleaning supplies, shape: cylinder, size: [0.07, 0.07, 0.20]}
-  - {label: sponge, category: cleaning supplies, shape: box, size: [0.09, 0.06, 0.04]}
-  - {label: dishwasher tab, category: cleaning supplies, shape: box, size: [0.04, 0.03, 0.015]}
-  - {label: toothpaste, category: cleaning supplies, shape: box, size: [0.19, 0.045, 0.04]}
+  - {label: cleanser, category: cleaning supplies, shape: box, size: [0.102, 0.067, 0.251]}
+  - {label: sponge, category: cleaning supplies, shape: box, size: [0.077, 0.11, 0.018]}
+  - {label: dishwasher tab, category: cleaning supplies, shape: box, size: [0.029, 0.02, 0.0085]}
+  - {label: toothpaste, category: cleaning supplies, shape: box, size: [0.162, 0.045, 0.04]}
   # cutlery and tableware (Pick and Place); plates and bowls are grasped by the rim
   - {label: fork, category: cutlery, shape: box, size: [0.195, 0.027, 0.015]}
   - {label: knife, category: cutlery, shape: box, size: [0.213, 0.02, 0.022]}

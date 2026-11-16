@@ -16,14 +16,11 @@ from aha_perception.object_list import load_object_list  # noqa: E402
 from aha_tasks.sim_objects import (  # noqa: E402
     SIZE_TOLERANCE,
     Catalog,
-    PrintedModel,
     SceneError,
-    build_printed,
     displacement,
     footprint,
     footprints_overlap,
     load_scene,
-    printed_layout,
     stale_models,
 )
 
@@ -78,11 +75,6 @@ class CatalogTests(SceneFixture):
             with self.subTest(label=label):
                 self.assertLessEqual(error, SIZE_TOLERANCE)
 
-    def test_printed_models_are_exactly_listed(self):
-        for label, model in self.catalog.models.items():
-            if isinstance(model, PrintedModel):
-                self.assertEqual(model.size, self.objects.get(label).size)
-
     def test_ycb_sdf_moves_the_origin_to_the_box_center(self):
         obj = self.scene("pick_and_place").get("mug")
         root = ET.fromstring(self.catalog.sdf(obj, Path("/unused")))
@@ -95,72 +87,11 @@ class CatalogTests(SceneFixture):
         self.assertAlmostEqual(pose[5], obj.yaw)
         for collision in model.findall("link/collision"):
             self.assertEqual(collision.findtext("surface/friction/ode/mu"), "1.0")
-            self.assertTrue(
-                collision.findtext("geometry/mesh/uri").startswith(
-                    "model://ycb_025_mug/"
-                )
-            )
-
-
-class PrintedModelTests(SceneFixture):
-    def test_mesh_has_the_size_and_valid_texture_coordinates(self):
-        for label in ("milk", "red bull", "dishwasher tab"):
-            model = self.catalog.models[label]
-            with self.subTest(label=label), tempfile.TemporaryDirectory() as cache:
-                mesh = build_printed(model, Path(cache))
-                lines = mesh.read_text().splitlines()
-                v = np.array(
-                    [
-                        [float(x) for x in ln.split()[1:]]
-                        for ln in lines
-                        if ln[:2] == "v "
-                    ]
-                )
-                vt = np.array(
-                    [
-                        [float(x) for x in ln.split()[1:]]
-                        for ln in lines
-                        if ln[:3] == "vt "
-                    ]
-                )
-                np.testing.assert_allclose(v.max(0) - v.min(0), model.size, atol=1e-5)
-                np.testing.assert_allclose((v.max(0) + v.min(0)) / 2, 0, atol=1e-5)
-                self.assertTrue(np.all((vt >= 0) & (vt <= 1)))
-                from PIL import Image
-
-                layout = printed_layout(model.shape, model.size)
-                with Image.open(mesh.with_suffix(".png")) as image:
-                    self.assertEqual(image.size, (layout["width"], layout["height"]))
-                self.assertIn(
-                    f"map_Kd {mesh.stem}.png", mesh.with_suffix(".mtl").read_text()
-                )
-                # Built once per style and size.
-                self.assertEqual(build_printed(model, Path(cache)), mesh)
-
-    def test_every_printed_model_has_its_own_material(self):
-        # Gazebo reuses a mesh material of the same name for every model.
-        from aha_tasks.sim_objects import printed_name
-
-        names = [
-            printed_name(m)
-            for m in self.catalog.models.values()
-            if isinstance(m, PrintedModel)
-        ]
-        self.assertEqual(len(names), len(set(names)))
-        model = self.catalog.models["cola"]
-        with tempfile.TemporaryDirectory() as cache:
-            mesh = build_printed(model, Path(cache))
-            self.assertIn(f"usemtl {mesh.stem}", mesh.read_text())
-            self.assertIn(f"newmtl {mesh.stem}", mesh.with_suffix(".mtl").read_text())
-
-    def test_sdf_collides_with_the_shape(self):
-        obj = self.scene("pick_and_place").get("milk")
-        with tempfile.TemporaryDirectory() as cache:
-            root = ET.fromstring(self.catalog.sdf(obj, Path(cache)))
-        size = root.findtext("model/link/collision/geometry/box/size")
-        self.assertEqual([float(v) for v in size.split()], [0.07, 0.07, 0.19])
-        uri = root.findtext("model/link/visual/geometry/mesh/uri")
-        self.assertTrue(uri.startswith("file://") and uri.endswith(".obj"))
+            uri = collision.findtext("geometry/mesh/uri")
+            # Absolute files: the built scans are not on Gazebo's resource path.
+            self.assertTrue(uri.startswith("file://"), uri)
+            self.assertTrue(Path(uri[len("file://") :]).is_file(), uri)
+            self.assertIn("/ycb_025_mug/", uri)
 
 
 class SceneTests(SceneFixture):
@@ -249,7 +180,7 @@ class SceneTests(SceneFixture):
         stale = stale_models(present, scene, self.objects)
         self.assertEqual(
             stale,
-            sorted(["banana", "cola_2", "cup_noodle", "plum", "strawberry_jello"]),
+            sorted(["banana", "cup_noodle", "green_tea", "plum", "strawberry_jello"]),
         )
         self.assertEqual(
             stale_models(present, self.scene("gpsr"), self.objects)[:3],

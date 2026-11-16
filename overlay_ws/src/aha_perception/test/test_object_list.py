@@ -21,8 +21,8 @@ def test_package_list_loads():
     for label in ("fork", "knife", "spoon", "mug", "plate", "bowl", "cereal", "milk"):
         assert objects.get(label) is not None, label
     for entry in objects.objects:
-        if entry.label in ("plate", "bowl"):
-            continue  # grasped by the rim
+        if entry.label in ("plate", "bowl", "cup noodle"):
+            continue  # grasped by the rim (the cup noodle is a Donbei bowl)
         # Every other listed object fits between the fingers (0.11 m).
         assert min(entry.size[:2]) <= 0.11, entry.label
 
