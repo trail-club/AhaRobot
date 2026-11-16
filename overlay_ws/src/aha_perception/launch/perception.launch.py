@@ -17,6 +17,8 @@ arguments are read from the command line. Starts:
     (furniture_config:=<yaml> is passed to it)
   - objects:=true         sim_object_detector.py: /aha/perception/objects from
     Gazebo ground truth (objects_config:=<yaml> for another object list)
+  - merged_points:=true   cloud_accumulator.launch.py: the head cloud
+    accumulated in odom on /aha/perception/merged_points
 
 The real camera does not use this file: camera_view.launch.py (Mac/Linux
 RealSense stream through rosbridge) and real_head_camera.launch.py (real head
@@ -144,6 +146,13 @@ def generate_launch_description():
         output="screen",
     )
 
+    merged_points = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([share, "launch", "cloud_accumulator.launch.py"])
+        ),
+        condition=IfCondition(LaunchConfiguration("merged_points")),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -192,11 +201,17 @@ def generate_launch_description():
                 default_value="",
                 description="Object list YAML of the detector (empty = the package's)",
             ),
+            DeclareLaunchArgument(
+                "merged_points",
+                default_value="false",
+                description="Accumulate the head cloud on /aha/perception/merged_points",
+            ),
             camera_bridge,
             depth_noise_node,
             pointcloud,
             sim_view,
             planes,
             objects,
+            merged_points,
         ]
     )

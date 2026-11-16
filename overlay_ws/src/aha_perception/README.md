@@ -17,7 +17,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 
 | launch | 内容 |
 | --- | --- |
-| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`depth_noise` 指定時は `sim_depth_noise.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py`、`objects:=true` で `sim_object_detector.py` |
+| `perception.launch.py` | `sim.launch.py use_perception:=true` から起動。`camera_bridge.launch.py`、`depth_noise` 指定時は `sim_depth_noise.py`、`pointcloud.launch.py`、`sim_view.launch.py`、`planes:=true` で `plane_detection.launch.py`、`objects:=true` で `sim_object_detector.py`、`merged_points:=true` で `cloud_accumulator.launch.py` |
 | `camera_bridge.launch.py` | 頭部RGB-D・左右の手首RGBカメラを `config/sim_camera_bridge.yaml` でbridge。GUI・点群処理なしでタスク評価にも使用。`depth_topic` で頭部Depthの配信先を変える |
 | `pointcloud.launch.py` | depth_image_procで `/camera/depth/points` を生成。シミュレーションと実機で共通 |
 | `sim_view.launch.py` | RViz（`rviz/sim_view.rviz`）、操作パネル、`head_look_at.py` |
@@ -25,6 +25,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `realsense.launch.py` | RealSense ROSドライバでD435iを配信する（Linux、[RealSenseドライバ](#realsenseドライバ)） |
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
+| `cloud_accumulator.launch.py` | `cloud_accumulator.py`（[点群の蓄積](#点群の蓄積)） |
 | `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
 | `audio.launch.py` | ASR・TTS・デバッグUI。別コンテナ `aha_audio` で動かし、推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
 
@@ -39,6 +40,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `manual_head.py` | サーボなしで、指令した角度を `/head_controller/joint_states` に出す（`head:=manual`） |
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
+| `cloud_accumulator.py` | 頭部カメラの点群を頭の向きを変えながら1 cmのボクセルに貯める（[点群の蓄積](#点群の蓄積)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
 | `sim_object_detector.py` | シミュレーション専用。Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
 | `sim_person_detector.py` | シミュレーション専用。`person_perception.py` の代わりに、Gazeboの真の位置から頭部カメラに見える人を出す（[シミュレーションの人の検出](#シミュレーションの人の検出)） |
@@ -94,6 +96,7 @@ ros2 launch aha_bringup sim.launch.py headless:=true use_perception:=true rviz:=
 | `planes` | `false` | 平面検出（`plane_detection.launch.py`）の起動。`max_rate:=` も渡せる |
 | `furniture_config` | 空 | 平面検出に渡す[家具の設定](#家具の設定)のYAML |
 | `depth_noise` | `none` | Depthに加えるノイズ（`none` / `d435i_filtered` / `d435i_raw`、[Depthノイズ](#depthノイズ)） |
+| `merged_points` | `false` | [点群の蓄積](#点群の蓄積)（`cloud_accumulator.launch.py`）の起動 |
 | `objects` / `objects_config` | `false` / 空 | [シミュレーションの物体検出](#シミュレーションの物体検出)の起動と物体リスト（空はパッケージの `config/objects/robocup_objects.yaml`） |
 
 Gazeboを止めずに表示だけ再起動する場合は `rviz:=false` で起動し、別ターミナルで `ros2 launch aha_perception sim_view.launch.py` を実行する。
@@ -145,6 +148,50 @@ GZ_PARTITIONはシミュレーションと同じにする（launchから起動�
 | `miss_rate` / `mislabel_rate` / `seed` | `0.0` / `0.0` / `0` | 見落とす割合、別のラベルにする割合。`seed` とモデル名ごとに決め、`seed` を変えるまで同じ物体が見落とされる・間違われる |
 
 パラメータは実行中に `ros2 param set` で変えられる。物体の向き・遮蔽の割合・検出器の誤差特性は再現しない。
+
+### 点群の蓄積
+
+```bash
+ros2 launch aha_bringup sim.launch.py use_perception:=true merged_points:=true
+ros2 service call /aha/perception/merged_points/clear std_srvs/srv/Trigger
+```
+
+`cloud_accumulator.py` が頭部カメラのDepthと色画像を `odom` の1 cmのボクセルに貯め、`/aha/perception/merged_points` に出す
+（[ROSインターフェース](../../../docs/interfaces.md#頭部点群の蓄積シミュレーションのみ)）。頭を振って見回すと1視野より広い範囲が残る。
+RVizでは Camera グループの Merged points を有効にする（既定は無効）。
+1フレームごとに次を行う（入力は最新のDepthだけ、`max_rate` 以下）。
+
+1. Depthの時刻のTFでカメラの姿勢を求める。`odom` のTFがまだない間は `base_footprint` に貯め、`odom` が出たら貯め直す。
+   その時刻のTFがないフレームは使わない。
+2. 台車が貯め始めの位置から `reset_translation` / `reset_rotation_deg` より動いたら空にする（odomのずれを貯めないため）。
+   `max_age` 秒（画像の時刻）見えていないボクセルを消す。この2つは頭や台車が動いている間も行う。
+3. Depthの時刻と `settle_time` 前のカメラの姿勢が `still_translation` / `still_rotation_deg` より違えば、ここで終える（頭・昇降・台車が動いている）。
+4. 貯めたボクセルのうち、カメラがその奥を見ている（Depthがボクセルより `clear_tolerance` かDepthノイズの3σ以上遠い）ものを消す。
+   3×3画素の最も近いDepthと比べ、物体の縁は消さない。視野外・`min_range` より近い・手前に物がある・Depthがない所は残す。
+5. `min_range`〜`max_range` のDepthをボクセルにし、`base_footprint` の `crop_min`〜`crop_max` の外と、ロボットの点を除いて加える。
+   ロボットの点は `/robot_description` の各リンクのcollisionを囲む箱（`self_padding` だけ広げる）の中の点。
+
+出力は `min_hits` フレーム以上で見えたボクセルの中心で、色は最後に見えたときの色画像（時刻が `color_tolerance` 以内で最も近いもの、なければ灰色）。
+
+| パラメータ | 既定 | 内容 |
+| --- | --- | --- |
+| `fixed_frame` / `base_frame` | `odom` / `base_footprint` | 貯めるframe（TFがなければ `base_frame`）、切り取りと台車の移動のframe |
+| `max_rate` / `publish_rate` | `5.0` / `2.0` | 処理・出力の上限頻度（Hz、wall clock） |
+| `stride` / `voxel_size` | `2` / `0.01` | 使う画素の間隔、ボクセルの大きさ（m） |
+| `min_range` / `max_range` | `0.3` / `2.0` | 貯めるDepthの範囲（m） |
+| `crop_min` / `crop_max` | `[-0.5, -1.5, -0.05]` / `[2.0, 1.5, 2.2]` | 貯める範囲（`base_frame`、m）。床も含む |
+| `self_filter` / `self_padding` | `true` / `0.02` | ロボットの点の除去、リンクの箱を広げる幅（m） |
+| `settle_time` / `still_translation` / `still_rotation_deg` | `0.3` / `0.005` / `0.5` | カメラが止まっているとする条件 |
+| `reset_translation` / `reset_rotation_deg` | `0.05` / `3.0` | 空にする台車の移動 |
+| `max_age` / `min_hits` | `60.0` / `2` | ボクセルを忘れるまでの時間（s、0は忘れない）、出力に要る観測フレーム数 |
+| `clear_tolerance` / `noise_subpixel` | `0.03` / `0.12` | 奥が見えているとするDepthの差の下限（m）、Depthノイズのsubpixel（平面検出と同じ） |
+| `color_tolerance` | `0.1` | 色画像とDepthの時刻の差の上限（s） |
+
+制限
+
+- シミュレーションだけで確認している。実機は昇降の関節状態が出ていない（ロボットの点を除けない）、`odom` がなく台車の移動を検知できないため起動しない。
+- 加える前の点だけロボットの点を除く。腕が貯めたボクセルの所へ動いても、そのボクセルは消えるまで残る。把持した物体は除かない。
+- リンクの箱は形より大きく、指の箱は把持した物体と直下の机の点も除く。
 
 ## 実機の頭部とカメラ
 
@@ -441,7 +488,7 @@ cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pillow --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
   test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py \
-  test/test_sim_person_detection.py test/test_person_attributes.py
+  test/test_sim_person_detection.py test/test_person_attributes.py test/test_cloud_map.py test/test_self_filter.py
 ```
 
 `test/test_plane_detection_node.py`（ノードのメッセージ変換）と `test/test_plane_detection_service.py`（置き場所のserviceの分岐）はrclpyとROSのメッセージが必要で、colconでだけ実行する。

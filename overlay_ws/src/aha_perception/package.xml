@@ -30,6 +30,7 @@
   <!-- audio: Python ML deps (torch / nemo / haas-asr / qwen-asr / kokoro ...) are installed by docker/audio/Dockerfile, not rosdep. -->
   <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>tf2_geometry_msgs</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>trajectory_msgs</exec_depend>
