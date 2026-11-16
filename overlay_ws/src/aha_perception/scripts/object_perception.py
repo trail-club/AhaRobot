@@ -49,6 +49,7 @@ from aha_perception.object_detection import (
     merge_detections,
     near_any,
     size_fits,
+    vlm_timeout,
 )
 from aha_perception.object_list import load_object_list
 from aha_perception.people import decode_mask, encode_image, rotation_matrix
@@ -113,6 +114,9 @@ class ObjectPerception(Node):
         self.merge_distance = p("merge_distance", 0.05).value
         self.max_rate = p("max_rate", 1.0).value
         self.request_timeout = p("request_timeout", 120.0).value
+        # The worker gives up on the VLM first: a slow VLM fails the image
+        # instead of answering after the timeout while the next images queue.
+        self.vlm_timeout = vlm_timeout(self.request_timeout, self.max_candidates)
         self.startup_timeout = p("startup_timeout", 1800.0).value
         self.tf_timeout = p("tf_timeout", 0.5).value
         self.options = WorkerOptions(
@@ -192,7 +196,7 @@ class ObjectPerception(Node):
         try:
             self.worker = DgxWorker(
                 self.options,
-                spec=object_spec(self.options),
+                spec=object_spec(self.options, self.vlm_timeout),
                 log=lambda text: self.get_logger().info(text),
                 command=self.worker_command or None,
             )

@@ -148,8 +148,11 @@ def person_spec(options: WorkerOptions) -> ContainerSpec:
     )
 
 
-def object_spec(options: WorkerOptions) -> ContainerSpec:
-    """object_worker in the person worker's image: SAM 3.1 and the Qwen3.8 VLM."""
+def object_spec(options: WorkerOptions, vlm_timeout: float) -> ContainerSpec:
+    """object_worker in the person worker's image: SAM 3.1 and the Qwen3.8 VLM.
+
+    The worker gives up on a VLM request after `vlm_timeout` seconds.
+    """
     return ContainerSpec(
         title="DGX object worker",
         name="objects",
@@ -173,6 +176,8 @@ def object_spec(options: WorkerOptions) -> ContainerSpec:
             options.vlm_url,
             "--vlm-model",
             options.vlm_model,
+            "--vlm-timeout",
+            str(vlm_timeout),
         ),
     )
 

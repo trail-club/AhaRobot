@@ -3,8 +3,9 @@
 Speaks JSON lines over the SSH stdio channel like person_worker. Requests
 carry an `id` that the response repeats and are answered one at a time.
 SAM 3.1 runs once per phrase; the pooled candidates go to the VLM in sheets
-of SHEET_TILES (two requests at a time), each with the photo with the
-candidates numbered and their close-ups. Images are JPEG base64.
+of SHEET_TILES (VLM_PARALLEL requests at a time, each given up after
+--vlm-timeout s), each with the photo with the candidates numbered and their
+close-ups. Images are JPEG base64.
 
     -> {"type": "detect", "id": 1, "image": <image>, "prompts": ["can", ...],
         "labels": [{"label": "mug", "category": "tableware",
@@ -23,7 +24,7 @@ image edge are dropped before the VLM.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import redirect_stdout
 import json
 from pathlib import Path
@@ -36,6 +37,7 @@ from .object_detection import (
     DEFAULT_CANDIDATE_THRESHOLD,
     DEFAULT_MAX_CANDIDATES,
     SHEET_TILES,
+    VLM_PARALLEL,
     crop_sheet,
     label_prompt,
     parse_labels,
@@ -46,8 +48,6 @@ from .sam31 import render_candidates, validate_threshold
 from .sam31_vlm import DEFAULT_VLM_MODEL, DEFAULT_VLM_URL, VlmClient
 from .worker_io import protocol_stream, safe_error, send_json
 
-# Concurrent VLM requests per image; the Qwen3.8 server takes 4 in all.
-VLM_PARALLEL = 2
 MAX_PROMPTS = 24
 
 
@@ -101,7 +101,10 @@ def name_candidates(vlm, rgb, masks, labels, pool=None):
     if pool is None or len(starts) == 1:
         results = [ask(start) for start in starts]
     else:
-        results = list(pool.map(ask, starts))
+        futures = [pool.submit(ask, start) for start in starts]
+        # A failed sheet must not leave the others running into the next image.
+        wait(futures)
+        results = [future.result() for future in futures]
     return [label for chunk, _ in results for label in chunk], [a for _, a in results]
 
 
@@ -197,12 +200,22 @@ def serve(input_stream, output_stream, *, load_segmenter, vlm):
         return 1
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--vlm-url", default=DEFAULT_VLM_URL, help="empty disables")
     parser.add_argument("--vlm-model", default=DEFAULT_VLM_MODEL)
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--vlm-timeout",
+        type=float,
+        required=True,
+        help="s per VLM request (object_detection.vlm_timeout)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
 
     def load_segmenter():
         from .sam31 import Sam31Segmenter
@@ -210,7 +223,9 @@ def main(argv=None):
         # The prompt is set per phrase before each prediction.
         return Sam31Segmenter("object", DEFAULT_CANDIDATE_THRESHOLD, args.checkpoint)
 
-    vlm = VlmClient(args.vlm_url, args.vlm_model) if args.vlm_url else None
+    vlm = None
+    if args.vlm_url:
+        vlm = VlmClient(args.vlm_url, args.vlm_model, timeout=args.vlm_timeout)
     return serve(sys.stdin, protocol_stream(), load_segmenter=load_segmenter, vlm=vlm)
 
 

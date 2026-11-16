@@ -457,6 +457,7 @@ ros2 launch aha_perception objects.launch.py ssh_user:=<Unixユーザー名>
 `confidence` は候補のSAM 3.1の点数 × 追跡中の同じラベルの割合、`size` は箱の大きさ、`pose` の向きは単位四元数。
 `/aha/perception/objects/markers` に箱とラベル、`/aha/perception/objects/image` に候補の輪郭とラベル・捨てた理由を描いた画像（購読がある場合）を配信する。
 DGXでの1枚の処理は約7 s（SAM 3.1が約5 s、Qwen3.8が約2 s、2026-11-15 のシミュレーションの画像で測定）で、画像は1枚ずつ送る。
+`request_timeout`（既定120 s）以内に結果のない画像は飛ばす。DGX側はQwen3.8への1回の依頼を、`request_timeout` からSAM 3.1の分の30 sを引き、順に送る回数（候補12個で1回の依頼とし、2回ずつ同時に送る）で割った時間（既定90 s）で打ち切り、その画像の失敗を先に返す。Qwen3.8が混んでも、古い画像がworkerに溜まらない。
 
 | 引数 | 既定 | 内容 |
 | --- | --- | --- |
@@ -467,7 +468,7 @@ DGXでの1枚の処理は約7 s（SAM 3.1が約5 s、Qwen3.8が約2 s、2026-11-
 | `worker_command` | 空 | DGXへ接続せず、同じプロトコルのworkerをこのコマンドで起動する（例：[fake_object_worker.py](test/fake_object_worker.py)） |
 | `respawn` | `false` | 終了したnodeを2 s後に再起動する |
 
-その他のパラメータは [config/object_perception.yaml](config/object_perception.yaml)（`prompts`・`threshold`・`max_candidates`・`border_px`・`max_size`・`robot_frames`・`robot_margin`・`merge_distance`・`gate`・`forget_after`・`max_rate`）。
+その他のパラメータは [config/object_perception.yaml](config/object_perception.yaml)（`prompts`・`threshold`・`max_candidates`・`border_px`・`max_size`・`robot_frames`・`robot_margin`・`merge_distance`・`gate`・`forget_after`・`max_rate`・`request_timeout`）。
 `debug_dir` を指定すると、処理した画像ごとに輪郭とラベルを描いた画像と、候補・VLMの回答・物体をJSONで保存する。
 workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作り、Ctrl-Cで削除する。
 
