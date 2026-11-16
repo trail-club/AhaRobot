@@ -283,7 +283,8 @@ class ListenCommand(Skill):
             if unclear >= 2:
                 ctx.log(f"No clear confirmation ({why or answer!r}); taking {text!r}")
                 return True, text
-        return True, text
+        # The last answer restated the command: it was not confirmed.
+        return False, text
 
 
 class PlanCommands(Skill):

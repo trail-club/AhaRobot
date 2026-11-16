@@ -239,6 +239,18 @@ class GrammarTests(unittest.TestCase):
 
 
 class CompleteCommandTests(unittest.TestCase):
+    def test_tell_info_needs_someone_to_tell(self):
+        count = act("count", target="drinks", location="desk")
+        for person, extra, ok in (
+            ("operator", {}, True),
+            ("Jane", {"location": "bed"}, True),
+            ("me", {}, False),
+            ("Jane", {}, False),
+        ):
+            with self.subTest(person=person, extra=extra):
+                _, errors = complete([count, act("tell_info", person=person, **extra)])
+                self.assertEqual(errors == [], ok, errors)
+
     def test_adds_navigation_keys_and_mocks(self):
         steps, errors = complete(
             [
@@ -722,6 +734,14 @@ class ListenCommandTests(unittest.TestCase):
         rt = runtime(DRINKS, "No, I said " + TIME, "yes")
         result = run_skill(ListenCommand(rt), {"command": 3})
         self.assertEqual(result.outputs, {"cmd3.text": TIME.lower()})
+
+    def test_a_last_correction_is_not_taken_unconfirmed(self):
+        corrections = ["No, I said " + TIME] * 4
+        rt = runtime(DRINKS, *corrections, None, None, None, None, None)
+        result = run_skill(
+            ListenCommand(rt), {"command": 3, "attempts": 1, "custom_operator": 0}
+        )
+        self.assertFalse(result.success)
 
     def test_no_clear_confirmation_takes_the_command(self):
         rt = runtime(DRINKS, None, "I didn't hear you")

@@ -477,6 +477,16 @@ def complete_command(steps, number, vocabulary, spec):
                     f"step {index}: tell_info needs a count, count_people, "
                     "describe or find_described_person with info before it"
                 )
+            if (
+                params.get("person") != OPERATOR
+                and "location" not in params
+                and not found_person
+            ):
+                errors.append(
+                    f"step {index}: tell_info to {params.get('person')!r} needs "
+                    f"person {OPERATOR!r}, a location, or find_described_person "
+                    "before it"
+                )
             params = {"key": last_answer or f"cmd{number}.info", **params}
         elif action in NEEDS_PERSON and not found_person:
             errors.append(
