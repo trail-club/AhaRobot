@@ -52,7 +52,8 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
 | `objects` | `false` | 頭部カメラのbridgeと物体の検出（`/aha/perception/objects`、frame `map`）を起動し、`world` → `map` の恒等の静的TFを配信する（[物体の認識](#物体の認識)） |
 | `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true`・`objects:=true` のDGXの接続先 |
-| `worker_command` | 空 | `people:=true`・`objects:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `worker_command` | 空 | `people:=true` でDGXの代わりに起動する人のworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `object_worker_command` | 空 | `objects:=true`（`perception:=model`）でDGXの代わりに起動する物体のworkerのコマンド（[物体の認識](../aha_perception/README.md#物体の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
 | `object_scene` | 空 | [シミュレーションの物体](#シミュレーションの物体)を家具に置く `sim_objects` を起動。`config/sim/objects/` の名前、またはJSONのパス |

@@ -64,13 +64,17 @@ E2E_DEFAULTS = {
 }
 CHOICES = {"navigation": ("nav2", "teleport"), "perception": ("model", "truth")}
 
-# Launch argument -> people.launch.py and objects.launch.py argument (DGX connection).
-PEOPLE_OPTIONS = {
+# Launch arguments of the DGX workers. people.launch.py and objects.launch.py
+# share the connection; each takes its own worker_command (the person and the
+# object workers speak different protocols).
+DGX_OPTIONS = {
     "ssh_host": "10.99.0.1",
     "ssh_port": "2222",
     "ssh_user": "",
     "worker_command": "",
+    "object_worker_command": "",
 }
+DGX_CONNECTION = ("ssh_host", "ssh_port", "ssh_user")
 
 
 def task_config(task):
@@ -125,7 +129,8 @@ def object_detector(perception, debug, value):
             "target_frame": "map",
             "use_sim_time": "true",
             "respawn": "true" if debug else "false",
-            **{name: value(name) for name in PEOPLE_OPTIONS},
+            **{name: value(name) for name in DGX_CONNECTION},
+            "worker_command": value("object_worker_command"),
         },
     )
 
@@ -263,7 +268,7 @@ def launch_task(context):
             {
                 "use_sim_time": "true",
                 "respawn": "true" if debug else "false",
-                **{name: value(name) for name in PEOPLE_OPTIONS},
+                **{name: value(name) for name in (*DGX_CONNECTION, "worker_command")},
             },
         )
     if people or objects:
@@ -381,7 +386,7 @@ def generate_launch_description():
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
-                for k, v in PEOPLE_OPTIONS.items()
+                for k, v in DGX_OPTIONS.items()
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
