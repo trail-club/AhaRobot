@@ -1042,13 +1042,30 @@ class AskNameTests(unittest.TestCase):
     def test_a_person_who_cannot_be_approached_is_asked_from_there(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 3.0, 0.0)))
         navigation = FakeNavigation(ok=False)
+        results = iter([False, False, True])  # both approaches to ask fail
+        navigation.navigate = lambda pose, cancelled=None: (
+            navigation.goals.append(pose) or (ok := next(results)),
+            "" if ok else "blocked",
+        )
         result, interaction = self.find(
             people, {"name": "Charlie"}, ["No, I'm Jane.", "Yes."], navigation
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["person.track"], 2)
-        self.assertEqual(len(navigation.goals), 2)
-        self.assertNotIn("robot.location", result.outputs)
+        self.assertEqual(result.outputs["person.name"], "Charlie")
+        # Approached once found, as when not asking.
+        self.assertEqual(len(navigation.goals), 3)
+        self.assertEqual(result.outputs["robot.location"], navigation.goals[-1])
+
+    def test_a_person_found_but_never_reached_fails(self):
+        people = FakePeople(people_message(person(2, 3.0, 0.0)))
+        navigation = FakeNavigation(ok=False)
+        result, interaction = self.find(
+            people, {"name": "Charlie"}, ["Yes."], navigation
+        )
+        self.assertFalse(result.success)
+        self.assertIn("Could not approach Charlie", result.message)
+        self.assertEqual(people.remembered, {"Charlie"})  # remembered all the same
 
     def test_people_with_other_names_are_not_asked(self):
         people = FakePeople(

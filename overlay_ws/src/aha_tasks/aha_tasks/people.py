@@ -681,6 +681,7 @@ class FindDescribedPerson(Skill):
         pan, next_look = None, -math.inf  # the head's pan, end of its dwell
         # [x, y, yaw] the robot moved to, and the track it went to talk to.
         moved, talked_to = None, None
+        unreached = set()  # tracks the robot could not approach to ask
 
         def judged(message, person):
             if person.id in checked or failures.get(person.id, 0) >= MAX_JUDGEMENTS:
@@ -740,6 +741,7 @@ class FindDescribedPerson(Skill):
                 ctx.log(
                     f"Could not approach person {person.id} ({text}): asking from here"
                 )
+                unreached.add(person.id)
                 return None
             origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
             return None
@@ -897,9 +899,11 @@ class FindDescribedPerson(Skill):
                 ok, text = self.remember(people, person, heard, ctx.cancelled)
                 ctx.log(text if ok else f"Could not remember {heard}: {text}")
             people.follow(track=person.id, name=heard or "")
-            if moved is not None:
-                outputs[LOCATION] = moved
-            return SkillResult(True, f"Facing {who}", outputs)
+            if person.id not in unreached:
+                if moved is not None:
+                    outputs[LOCATION] = moved
+                return SkillResult(True, f"Facing {who}", outputs)
+            # Asked from afar: approach them now, as when not asking.
         if moved is not None:
             outputs[LOCATION] = moved  # moved to talk to someone else
         people.look_at(frame, person.head)
