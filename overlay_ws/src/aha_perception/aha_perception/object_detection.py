@@ -437,18 +437,36 @@ class ObjectDetection:
     bbox: list[int]
 
 
+# Two boxes of one image are one object when, with the same label, the
+# smaller lies this much inside the other (a part found by another phrase), or
+# with different labels they overlap this much (IoU; one object named twice).
+# An object on or in another (cutlery on a plate) has a much smaller box.
+NESTED_SHARE = 0.6
+SAME_BOX_IOU = 0.5
+
+
+def same_object(a: ObjectDetection, b: ObjectDetection, distance_m: float) -> bool:
+    """Whether two detections of one image are one object: same label with
+    centres closer than `distance_m` or nested boxes, or overlapping boxes."""
+    low = np.maximum(a.centre - a.size / 2, b.centre - b.size / 2)
+    high = np.minimum(a.centre + a.size / 2, b.centre + b.size / 2)
+    overlap = float(np.prod(np.clip(high - low, 0.0, None)))
+    volumes = float(np.prod(a.size)), float(np.prod(b.size))
+    if a.label != b.label:
+        return overlap >= SAME_BOX_IOU * (sum(volumes) - overlap)
+    distance = float(np.linalg.norm(a.centre - b.centre))
+    return distance < distance_m or overlap >= NESTED_SHARE * min(volumes)
+
+
 def merge_detections(detections, distance_m=0.05):
-    """One detection per object: same label with centres closer than
-    `distance_m` (a part found by another phrase) keeps the best score."""
-    kept = []
+    """One detection per object, the best score kept: a detection is dropped
+    when it is the same object (same_object) as a better one, also as one that
+    was dropped itself (a part of a part)."""
+    kept, seen = [], []
     for detection in sorted(detections, key=lambda d: -d.score):
-        if any(
-            d.label == detection.label
-            and np.linalg.norm(d.centre - detection.centre) < distance_m
-            for d in kept
-        ):
-            continue
-        kept.append(detection)
+        if not any(same_object(d, detection, distance_m) for d in seen):
+            kept.append(detection)
+        seen.append(detection)
     return kept
 
 

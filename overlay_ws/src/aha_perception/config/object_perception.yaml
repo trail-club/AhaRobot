@@ -12,7 +12,7 @@ object_perception:
     border_px: 2            # px; masks this close to the image edge are cut off and dropped
     robot_frames: [link_l6, link_l7l, link_l7r, link_r6, link_r7l, link_r7r]  # gripper links the camera sees
     robot_margin: 0.12      # m; objects this close to a robot_frames link are the robot
-    merge_distance: 0.05    # m; one object when two candidates get the same label this close
+    merge_distance: 0.05    # m; one object when two candidates get the same label this close (or nested boxes)
     max_rate: 1.0           # images/s sent to the DGX at most; one at a time
     request_timeout: 120.0  # s to wait for one image before skipping it; the DGX gives up on the VLM first
     gate: 0.08              # m; a sighting farther from every track starts a new one (half for another label)

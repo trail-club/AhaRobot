@@ -323,7 +323,7 @@ def test_merge_keeps_one_detection_per_object():
         [
             detection("cereal", 1.0, score=0.5),
             detection("cereal", 1.03, score=0.9),
-            detection("milk", 1.05),
+            detection("milk", 1.1),  # touching the cereal
             detection("cereal", 1.3),
         ]
     )
@@ -332,6 +332,39 @@ def test_merge_keeps_one_detection_per_object():
         ("cereal", 0.9),
         ("milk", 0.8),
     ]
+
+
+def box(label, x, y, z, size, score=0.8):
+    return ObjectDetection(
+        label, np.array([x, y, z]), np.array(size, float), score, [0, 0, 1, 1]
+    )
+
+
+def test_merge_joins_parts_and_one_object_named_twice():
+    whole = box("cereal", 1.0, 0.0, 0.81, [0.06, 0.16, 0.22], score=0.7)
+    # The upper half found by another phrase: centres 5.5 cm apart.
+    part = box("cereal", 1.0, 0.0, 0.865, [0.06, 0.16, 0.11], score=0.9)
+    assert merge_detections([whole, part]) == [part]
+    # Another label for nearly the same box.
+    named = box("chocolate jello", 1.005, 0.0, 0.8, [0.06, 0.15, 0.2], score=0.6)
+    assert merge_detections([whole, named]) == [whole]
+    # The tracker then keeps one object.
+    tracker = ObjectTracker()
+    for stamp in (0.0, 1.0):
+        tracker.update(merge_detections([whole, part, named]), stamp)
+    assert len(tracker.tracks) == 1
+
+
+def test_merge_keeps_neighbours_and_objects_on_others():
+    plate = box("plate", 1.0, 0.0, 0.7135, [0.26, 0.26, 0.027])
+    fork = box("fork", 1.0, 0.03, 0.71, [0.027, 0.195, 0.015], score=0.9)
+    apple = box("apple", 1.05, -0.05, 0.765, [0.075, 0.075, 0.075])
+    bowl = box("bowl", 2.0, 0.0, 0.7275, [0.16, 0.16, 0.055])
+    spoon = box("spoon", 2.0, 0.0, 0.72, [0.194, 0.04, 0.02], score=0.9)
+    # Two touching cans of one label, seen at 45 degrees (larger boxes).
+    cans = [box("cola", 3.0 + d, -d, 0.81, [0.093, 0.093, 0.12]) for d in (0.0, 0.047)]
+    detections = [plate, fork, apple, bowl, spoon, *cans]
+    assert len(merge_detections(detections)) == len(detections)
 
 
 def test_tracker_keeps_ids_votes_labels_and_forgets():
