@@ -398,6 +398,25 @@ def test_tracker_pairs_same_labels_first():
     assert {t.id: t.label for t in seen} == {spoon.id: "spoon", bowl.id: "bowl"}
 
 
+def test_tracker_keeps_objects_on_or_in_others_apart():
+    tracker = ObjectTracker()
+    plate = box("plate", 1.0, 0.0, 0.7135, [0.26, 0.26, 0.027])
+    bowl = box("bowl", 2.0, 0.0, 0.7275, [0.16, 0.16, 0.055])
+    plate_track, bowl_track = tracker.update([plate, bowl], 0.0)
+    # The plate and the bowl are missed; a fork lying on the plate and an
+    # apple in the bowl have centres within half the gate but smaller boxes.
+    fork = box("fork", 1.0, 0.01, 0.71, [0.027, 0.195, 0.015])
+    apple = box("apple", 2.0, 0.0, 0.7375, [0.075, 0.075, 0.075])
+    seen = tracker.update([fork, apple], 1.0)
+    assert [t.label for t in seen] == ["fork", "apple"]
+    assert {t.id for t in seen}.isdisjoint({plate_track.id, bowl_track.id})
+    assert plate_track.votes == {"plate": 0.8} and plate_track.hits == 1
+    # The same box under another name is still the plate.
+    named = box("bowl", 1.01, 0.0, 0.715, [0.25, 0.25, 0.03], score=0.5)
+    (again,) = tracker.update([named], 2.0)
+    assert again.id == plate_track.id and again.label == "plate"
+
+
 def test_annotate_keeps_the_image_size():
     rgb = np.zeros((H, W, 3), np.uint8)
     image = annotate(rgb, [(rect(10, 50, 10, 50), "mug (cup 0.80)", True)])

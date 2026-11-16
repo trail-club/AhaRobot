@@ -15,6 +15,6 @@ object_perception:
     merge_distance: 0.05    # m; one object when two candidates get the same label this close (or nested boxes)
     max_rate: 1.0           # images/s sent to the DGX at most; one at a time
     request_timeout: 120.0  # s to wait for one image before skipping it; the DGX gives up on the VLM first
-    gate: 0.08              # m; a sighting farther from every track starts a new one (half for another label)
+    gate: 0.08              # m; a sighting farther from every track starts a new one (half and the same box for another label)
     forget_after: 120.0     # s of image time without a sighting before a track is dropped
     debug_dir: ""           # non-empty: save each image with its candidates and labels there
