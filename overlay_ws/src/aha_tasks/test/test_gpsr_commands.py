@@ -639,6 +639,9 @@ class ConfirmationTests(unittest.TestCase):
             "not that",
             "i didn't hear you at all",
             "pardon could you say that again",
+            "could you say it again",
+            "i didn't hear it",
+            "can you tell me again please",
         ):
             with self.subTest(rest):
                 self.assertIsNone(restated(rest, VOCABULARY))

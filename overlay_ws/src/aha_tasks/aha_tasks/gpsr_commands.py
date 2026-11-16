@@ -64,8 +64,6 @@ NO_PHRASE = re.compile(
 FILLERS = re.compile(
     r"^(?:i said|i say|it is|it's|its|it was|the command is|i mean)\s+"
 )
-# Words of a command besides the vocabulary: "bring me", "the waving person".
-COMMAND_WORDS = {"me", "person", "persons", "people", "them", "it"}
 MIN_WORDS = 3  # a command has at least this many words
 PLANNERS = ("auto", "llm", "grammar")
 STATUS_WAIT = 2.0  # s for the latched task status
@@ -103,15 +101,13 @@ def yes_no(text):
 def restated(rest, vocabulary):
     """The command in an answer such as 'no, I said bring me ...', or None.
 
-    It needs more than MIN_WORDS words and a word of a command: a name, a
-    place, an object, or me / person / people / them / it.
+    It needs more than MIN_WORDS words and a word of the arena's vocabulary
+    (a name, a place, an object or category), as every generator command
+    has: "I didn't hear it" or "Could you say it again?" is no command.
     """
     rest = FILLERS.sub("", rest.strip())
-    words = set(words_of(rest))
     if len(rest.split()) <= MIN_WORDS:
         return None
-    if words & COMMAND_WORDS:
-        return rest
     for word in vocabulary.hotwords():
         if re.search(rf"\b{re.escape(word.lower())}\b", rest):
             return rest
