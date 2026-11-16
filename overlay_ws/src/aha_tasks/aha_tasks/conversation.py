@@ -225,7 +225,13 @@ def _answered_with(text, name):
     A name in a longer reply ("Charlie is over there", "This is Charlie's
     seat") is not.
     """
-    if name.lower().split()[0] in {words[0] for words in _cued(text) if words}:
+    first = name.lower().split()[0]
+    # "My name is Jewels" (Jules misheard); not a possessive ("This is
+    # Charlie's seat").
+    if any(
+        words and "'" not in words[0] and _closest(words[0], [first])
+        for words in _cued(text)
+    ):
         return True
     rest = [t for t in _tokens(text) if t not in FILLER]
     return bool(rest) and all(_closest(t, [name]) for t in rest)

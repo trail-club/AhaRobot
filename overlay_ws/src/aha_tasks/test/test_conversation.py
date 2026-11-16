@@ -154,6 +154,7 @@ class ReplyTests(unittest.TestCase):
             "This is Charlie's seat": None,
             "I'll call Charlie for you": None,
             "Yes, Charlie": True,
+            "Yes, my name is Charly, nice to meet you": True,
             "Charlie is right there": None,
             "Sure, Charlie is over there": None,
             "Okay, Charlie is sitting over there": None,
