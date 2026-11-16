@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks import door  # noqa: E402
@@ -382,10 +383,12 @@ class FakeFuture:
 
 
 class FakeHandle:
-    def __init__(self, accepted=True, code=0, finish=True):
+    def __init__(
+        self, accepted=True, code=0, status=door.STATUS_SUCCEEDED, finish=True
+    ):
         self.accepted = accepted
         self.cancelled = False
-        result = SimpleNamespace(result=SimpleNamespace(error_code=code))
+        result = SimpleNamespace(status=status, result=SimpleNamespace(error_code=code))
         self.result = FakeFuture(result, done=finish)
 
     def get_result_async(self):
@@ -451,7 +454,7 @@ class ArmTests(unittest.TestCase):
         arms = FakeArms()
         self.assertEqual(arms.fold(threading.Event()), (True, "Folded"))
         self.assertEqual(len(arms.right.goals), 1)
-        self.assertEqual(arms.left.goals[0], (FOLDED[next(reversed(FOLDED))], 1.5))
+        self.assertEqual(arms.left.goals[0], (FOLDED[next(reversed(FOLDED))], 1.06))
         self.assertIsNone(arms.subscription)  # /joint_states only while folding
 
     def test_folded_arms_do_not_move(self):
@@ -463,7 +466,11 @@ class ArmTests(unittest.TestCase):
         for client, text in (
             (FakeClient(served=False), "is not served"),
             (FakeClient(accepted=False), "rejected the goal"),
-            (FakeClient(code=-4), "failed (-4)"),
+            (FakeClient(code=-4), "failed (status 4, -4)"),
+            # Cancelled or aborted elsewhere (e.g. the bridge shutting down),
+            # with error_code 0: the arm stopped on the way.
+            (FakeClient(status=5), "failed (status 5, 0)"),
+            (FakeClient(status=6), "failed (status 6, 0)"),
         ):
             with self.subTest(text):
                 ok, message = FakeArms(right=client).fold(threading.Event())
@@ -541,9 +548,24 @@ class SensorSubscriptionTests(unittest.TestCase):
 
 
 class FoldTests(unittest.TestCase):
+    def test_folded_within_the_real_arms_limits(self):
+        # arm_trajectory_bridge.py rejects a whole goal with one joint outside.
+        path = CONFIG.parents[1] / "aha_manipulation" / "config" / "arm.yaml"
+        bridges = yaml.safe_load(path.read_text())
+        limits = {}
+        for bridge in ("aha_left_arm_bridge", "aha_right_arm_bridge"):
+            parameters = bridges[bridge]["ros__parameters"]
+            limits.update({name: parameters[name] for name in parameters["joints"]})
+        for target in FOLDED.values():
+            for name, value in target.items():
+                with self.subTest(name):
+                    self.assertGreaterEqual(value, limits[name]["min"])
+                    self.assertLessEqual(value, limits[name]["max"])
+                    self.assertLessEqual(abs(value), 1.57)  # the URDF's limits
+
     def test_duration_from_the_farthest_joint(self):
         right, left = FOLDED.values()
-        self.assertEqual(fold_duration({}, right), 1.5)  # from zero: joint_r3 1.5 rad
+        self.assertEqual(fold_duration({}, right), 1.06)  # from zero: joint_r3
         self.assertEqual(fold_duration(dict(right), right), 0.0)  # already folded
         near = {name: value + 0.01 for name, value in left.items()}
         self.assertEqual(fold_duration(near, left), 0.0)

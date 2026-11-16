@@ -49,22 +49,24 @@ LOG_PERIOD = 30.0  # s (wall clock) between reports while waiting
 POLL = 0.05  # s
 TF_WAIT = 0.1  # s for the transform at an image's stamp
 WAITING_TEXT = "I am waiting for the door to open."
-# Arms folded in front of the body to pass a door: the right arm in MoveIt's
-# "standby" (aha_manipulation/srdf) and the left arm mirrored, both at the
-# lift's height. At zero (the simulation's start) the arms stick out about
-# 0.45 m to the sides, which does not fit through a 0.9 to 1.0 m door.
+# Arms folded to pass a door, mirrored, at the lift's height: the upper arms
+# swung 0.9 rad back, the forearms forward along the body and the grippers
+# turned in, about 0.38 m to each side (meshes; 0.53 m at zero, the
+# simulation's start, which does not fit through a 0.9 to 1.0 m door). Within
+# the real arms' limits (aha_manipulation/config/arm.yaml), which MoveIt's
+# "standby" (joint_r3 1.5) is not: the left elbow folds only to 1.08 rad.
 FOLDED = {
     "/right_arm_controller/follow_joint_trajectory": {
-        "joint_r2": -1.0,
-        "joint_r3": 1.5,
-        "joint_r4": 0.5,
+        "joint_r2": -0.9,
+        "joint_r3": 1.06,
+        "joint_r4": -0.5,
         "joint_r5": 0.0,
         "joint_r6": 0.0,
     },
     "/left_arm_controller/follow_joint_trajectory": {
-        "joint_l2": 1.0,
-        "joint_l3": -1.5,
-        "joint_l4": -0.5,
+        "joint_l2": 0.9,
+        "joint_l3": -1.06,
+        "joint_l4": 0.5,
         "joint_l5": 0.0,
         "joint_l6": 0.0,
     },
@@ -74,6 +76,7 @@ MIN_DURATION = 1.0  # s per motion
 FOLDED_WITHIN = 0.02  # rad; closer arms do not move
 SERVER_TIMEOUT = 2.0  # s (wall) for an arm controller or the joint states
 RESULT_MARGIN = 5.0  # s (wait clock) after the motion's duration
+STATUS_SUCCEEDED = 4  # action_msgs/msg/GoalStatus
 
 
 def depth_rays(depth, fx, fy, cx, cy, stride=DEPTH_STRIDE):
@@ -534,9 +537,11 @@ class Arms:
                     if stalled or waited > duration + RESULT_MARGIN:
                         return False, f"{action} did not finish in time"
                     time.sleep(0.02)
-                code = result.result().result.error_code
-                if code != 0:
-                    return False, f"{action} failed ({code})"
+                response = result.result()
+                code = response.result.error_code
+                # A cancelled or aborted goal may end with error_code 0.
+                if response.status != STATUS_SUCCEEDED or code != 0:
+                    return False, f"{action} failed (status {response.status}, {code})"
             return True, "Folded" if goals else "Already folded"
         finally:
             for _, handle, result, _ in goals:  # only after a failure
