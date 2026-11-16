@@ -1186,6 +1186,10 @@ class AskNameTests(unittest.TestCase):
             result.outputs["person.gesture.answer"], "The person is waving."
         )
         self.assertEqual([r.skip_vlm for r in people.classify.requests], [True, False])
+        # What an earlier search left under the role is overwritten.
+        self.assertEqual(result.outputs["person.name"], "")
+        self.assertIsNone(result.outputs["person.name.answer"])
+        self.assertIsNone(result.outputs["person.pose.answer"])
 
     def test_a_lost_track_is_remembered_by_its_new_track(self):
         people = FakePeople(people_message(person(2, 1.0, 0.0)))

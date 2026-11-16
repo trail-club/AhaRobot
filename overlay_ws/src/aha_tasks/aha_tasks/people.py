@@ -870,11 +870,13 @@ class FindDescribedPerson(Skill):
                 f"{role}.garments": answers["garments"],
             }
         )
-        if heard:
-            outputs[f"{role}.name"] = heard
-        if info is not None:
-            outputs[f"{role}.{info}.answer"] = person_info_sentence(
-                info, outputs[f"{role}.{info}"]
+        # Always overwrite what an earlier search left under the same role.
+        outputs[f"{role}.name"] = heard or ""
+        for key in PERSON_INFO:
+            outputs[f"{role}.{key}.answer"] = (
+                person_info_sentence(info, outputs[f"{role}.{info}"])
+                if key == info
+                else None
             )
         who = heard or f"person {person.id}"
         ctx.log(f"{who} ({description.text()}) at {outputs[f'{role}.position']}")
@@ -1060,7 +1062,12 @@ class CountPeople(Skill):
                 output: len(matching),
                 f"{output}.positions": [entry["position"] for entry in matching],
                 f"{output}.answer": count_sentence(
-                    len(matching), description, params.get("location")
+                    len(matching),
+                    description,
+                    # A pose [x, y, yaw] has no name to say.
+                    location
+                    if isinstance(location := params.get("location"), str)
+                    else None,
                 ),
             },
         )

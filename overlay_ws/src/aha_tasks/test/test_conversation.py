@@ -105,8 +105,10 @@ class NameTests(unittest.TestCase):
     def test_a_name_outside_the_list(self):
         self.assertEqual(extract_name("My name is Jewels", NAMES), "Jules")
         self.assertEqual(extract_name("Hi, I'm Kenji.", NAMES), "Kenji")
-        self.assertEqual(extract_name("Kenji", NAMES), "Kenji")
-        self.assertIsNone(extract_name("Sorry, what did you say?", NAMES))
+        self.assertIsNone(extract_name("Kenji", NAMES))  # no cue, not a name
+        for heard in ("Sorry, what did you say?", "What?", "Pardon?", "Huh?"):
+            with self.subTest(heard):
+                self.assertIsNone(extract_name(heard, NAMES))
 
     def test_names_of_the_task(self):
         self.assertEqual(names_of({}), list(NAMES))
@@ -132,6 +134,14 @@ class ReplyTests(unittest.TestCase):
             "Jane": False,
             "Hmm, what?": None,
             "Could you repeat that": None,
+            "That's not me.": False,
+            "Not me": False,
+            "Not really": False,
+            "Sure, why not": True,
+            "Sorry, I didn't hear you": None,
+            "I can't hear you": None,
+            "I don't understand": None,
+            "Excuse me?": None,
         }
         for heard, expected in cases.items():
             with self.subTest(heard):

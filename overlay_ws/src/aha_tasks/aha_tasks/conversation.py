@@ -65,12 +65,16 @@ YES_WORDS = {
     "okay",
     "me",  # "That's me", "It's me"
 }
-NO_WORDS = {"no", "nope", "nah", "not", "wrong", "incorrect", "negative", "never"}
+NO_WORDS = {"no", "nope", "nah", "wrong", "incorrect", "negative", "never"}
+# Asking back ("What?", "Pardon?", "Excuse me?"): no answer and no name.
+QUERY_WORDS = {"what", "pardon", "huh", "excuse", "again", "repeat", "sorry"}
 # Words that are not a name in a short reply.
 FILLER = (
     YES_WORDS
     | NO_WORDS
+    | QUERY_WORDS
     | {
+        "not",
         "i",
         "i'm",
         "im",
@@ -196,24 +200,42 @@ def find_name(text, names):
 
 
 def extract_name(text, names):
-    """The name a person gave in `text`: from `names` if it sounds like one."""
+    """The name a person gave in `text`: from `names` if it sounds like one.
+
+    A name not in `names` is taken only after a cue ("My name is Kenji"); a
+    lone word that is no name ("What?", "Pardon?") is not a name.
+    """
     name = find_name(text, names)
     if name is not None:
         return name
     cued = [words[0] for words in _cued(text) if words and words[0] not in FILLER]
-    if cued:
-        return cued[0].capitalize()
-    words = [t for t in _tokens(text) if t not in FILLER]
-    return words[0].capitalize() if len(words) == 1 else None
+    return cued[0].capitalize() if cued else None
+
+
+# "That's me", "It's me", a lone "Me", "I am".
+YES_PHRASE = re.compile(r"\b(?:that's|that is|it's|it is|this is|yes) me\b|^me$|^i am$")
+# Denials. A bare "not" or "n't" is no answer: "I didn't hear you", "Sure, why
+# not".
+NO_PHRASE = re.compile(
+    r"^not\b|\b(?:i'm|im|i am|that's|that is|it's|it is) not\b"
+    r"|\b(?:isn't|ain't|wasn't) me\b|\bnot (?:me|him|her)\b"
+)
 
 
 def parse_reply(text, names):
     """{"yes": bool, "no": bool, "name": <name of `names`> | None} of a reply."""
     tokens = _tokens(text)
+    joined = " ".join(tokens)
+    name = find_name(text, names)
+    denied_name = name is not None and re.search(
+        rf"\bnot {re.escape(name.lower())}\b", joined
+    )
     return {
-        "yes": any(t in YES_WORDS for t in tokens) or "i am" in " ".join(tokens),
-        "no": any(t in NO_WORDS or t.endswith("n't") for t in tokens),
-        "name": find_name(text, names),
+        "yes": any(t in YES_WORDS - {"me"} for t in tokens)
+        or bool(YES_PHRASE.search(joined)),
+        "no": any(t in NO_WORDS for t in tokens)
+        or bool(NO_PHRASE.search(joined) or denied_name),
+        "name": name,
     }
 
 
