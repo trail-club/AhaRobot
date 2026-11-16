@@ -375,6 +375,20 @@ class MeasuredModelTests(unittest.TestCase):
                     )
             self.assertEqual(colour_at(directory, "test_can", (0, 0, 0.05)), (0, 0, 0))
 
+    def test_missing_fonts_are_an_error(self):
+        from unittest import mock
+
+        from aha_tasks import object_models
+
+        spec = {
+            "size": [80, 40],
+            "items": [{"box": [0, 0, 1, 1], "text": "濃い茶", "color": "#000000"}],
+        }
+        with mock.patch.object(object_models, "CJK_FONTS", ("/no/such/font.ttf",)):
+            self.assertIsNone(object_models.font_files()["cjk"])
+            with self.assertRaises(ModelError):
+                object_models.drawing(spec)
+
     def test_box_faces_and_profile_from_a_tilted_scan(self):
         from PIL import Image
 

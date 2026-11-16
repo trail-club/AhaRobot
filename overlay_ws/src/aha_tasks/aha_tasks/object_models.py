@@ -895,13 +895,24 @@ CJK_FONTS = (
 )
 
 
+def font_files() -> dict:
+    """The font files that draw Latin and Japanese text here (None: missing)."""
+    found = {}
+    for kind, paths in (("latin", LATIN_FONTS), ("cjk", CJK_FONTS)):
+        found[kind] = next((p for p in paths if Path(p).is_file()), None)
+    return found
+
+
 def _font(cjk: bool, size: int):
     from PIL import ImageFont
 
-    for path in (CJK_FONTS if cjk else LATIN_FONTS) + LATIN_FONTS + CJK_FONTS:
-        if Path(path).is_file():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+    path = font_files()["cjk" if cjk else "latin"]
+    if path is None:  # a default font would neither scale nor draw Japanese
+        kind = "Japanese" if cjk else "Latin"
+        raise ModelError(
+            f"no {kind} font: install one of {CJK_FONTS if cjk else LATIN_FONTS}"
+        )
+    return ImageFont.truetype(path, size)
 
 
 def _runs(line: str):
@@ -1115,6 +1126,7 @@ class MeasuredModel:
             "version": SCAN_BUILD_VERSION,
             "shape": self.shape,
             "paint": self.paint,
+            "fonts": font_files(),
             "mass": self.mass,
             "size": list(self.size),
             "source": self.source,

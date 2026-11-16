@@ -236,8 +236,8 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 - `scanned`: データセットのテクスチャ付きメッシュ（アーカイブ内のOBJ・PLY・DAE、またはGLB）。`url` から取得して `sha256` で確かめ、`crop`（スキャンの座標）で台を切り落とし、`rpy`（度）・`scale` でz上・mにする。
 - `measured`: スキャンのない物体。形状（回転体の断面 `revolve`、`box`、実寸のスキャン `scan`、スキャンの点群から測った断面 `profile`）に、側面のラベル・上下の円・箱の面の画像（`paint`）を貼る。
 
-`scanned` と `measured` は初回に取得・変換して `~/.cache/aharobot/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要。`--check` は取得しない）。
-衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。
+`scanned` と `measured` は初回に取得・変換して `$AHA_CACHE_DIR/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要。`--check` は取得しない）。開発コンテナの `AHA_CACHE_DIR` はリポジトリの `.cache/aharobot`（gitignore）で、コンテナを作り直しても残る。未設定なら `~/.cache/aharobot`。取得・変換できない物体は置かずに続け、最後に無い物体として報告する（終了コード1）。
+衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。ラベルの文字はDejaVu Sans BoldとDroid Sans Fallback（Dockerfileで入れる）で描き、なければ失敗する。
 各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
 
 原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。

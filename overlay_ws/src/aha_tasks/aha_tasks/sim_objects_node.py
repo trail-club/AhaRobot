@@ -15,6 +15,7 @@ Skills never see the scene file.
 
 import argparse
 import math
+import os
 from pathlib import Path
 import sys
 import threading
@@ -29,7 +30,11 @@ from aha_tasks.sim_objects import (
 )
 
 REQUEST_TIMEOUT = 2000  # ms
-DEFAULT_CACHE = Path.home() / ".cache" / "aharobot" / "sim_objects"
+# AHA_CACHE_DIR: a directory that outlives the container (docker-compose.yml)
+DEFAULT_CACHE = (
+    Path(os.environ.get("AHA_CACHE_DIR") or Path.home() / ".cache" / "aharobot")
+    / "sim_objects"
+)
 FURNITURE = "config/furniture/rcjo2026_arena.yaml"  # aha_perception share
 OBJECT_LIST = "config/objects/robocup_objects.yaml"  # aha_perception share
 MOVED = 0.02  # m, warn when an object rests this far from its scene pose
@@ -92,15 +97,12 @@ def main(argv=None):
     except (SceneError, OSError, ValueError) as error:
         log(f"invalid scene: {error}")
         return 2
-    try:  # --check places nothing: no models to download or build
-        sdfs = (
-            {}
-            if args.check
-            else {o.name: catalog.sdf(o, args.cache) for o in scene.objects}
-        )
-    except (OSError, ValueError) as error:
-        log(f"cannot build the models: {error}")
-        return 2
+    sdfs = {}
+    for obj in [] if args.check else scene.objects:  # --check builds nothing
+        try:
+            sdfs[obj.name] = catalog.sdf(obj, args.cache)
+        except (OSError, ValueError) as error:  # e.g. offline: place the others
+            log(f"cannot build {obj.name}: {error}")
 
     from gz.msgs10.boolean_pb2 import Boolean
     from gz.msgs10.entity_factory_pb2 import EntityFactory
@@ -183,9 +185,11 @@ def main(argv=None):
             pose.orientation.w = math.cos(yaw / 2.0)
             ok = request("set_pose", pose, Boolean)
             action = "reset"
-        else:
+        elif obj.name in sdfs:
             ok = request("create", EntityFactory(sdf=sdfs[obj.name]), Boolean)
             action = "spawned"
+        else:
+            continue  # no model: reported missing below
         where = obj.on if obj.on == "floor" else f"{obj.on} level {obj.level}"
         role = f", {obj.role}" if obj.role else ""
         if ok:
