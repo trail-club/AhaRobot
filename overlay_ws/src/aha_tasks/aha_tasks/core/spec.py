@@ -1,6 +1,6 @@
 """Task definitions as ordered subgoals, validated before any motion."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fnmatch
 import json
 import math
@@ -14,6 +14,7 @@ TOP_LEVEL = {
     "rulebook",
     "time_limit",
     "locations",
+    "rooms",
     "initial_state",
     "skills",
     "subgoals",
@@ -43,6 +44,9 @@ class TaskSpec:
     initial_state: dict
     skills: dict
     subgoals: tuple
+    # {room: {location: furniture name of its top, or None}}: the furniture
+    # locations in each room, for skills that look over a room.
+    rooms: dict = field(default_factory=dict)
 
     def index(self, subgoal_id):
         for i, subgoal in enumerate(self.subgoals):
@@ -89,6 +93,8 @@ def parse_spec(data):
     for label, pose in locations.items():
         if not label or not is_pose(pose):
             raise ValueError(f"Location {label!r} must be finite [x, y, yaw]")
+
+    rooms = _rooms(_object(data, "rooms"), locations)
 
     skills = data.get("skills")
     if not isinstance(skills, dict) or not skills:
@@ -145,7 +151,30 @@ def parse_spec(data):
         initial_state=_object(data, "initial_state"),
         skills=skills,
         subgoals=tuple(subgoals),
+        rooms=rooms,
     )
+
+
+def _rooms(rooms, locations):
+    """Rooms and their furniture are location labels; a furniture name (of the
+    furniture config) or null for the top of each, and one room per location."""
+    seen = set()
+    for room, places in rooms.items():
+        if room not in locations:
+            raise ValueError(f"Room {room!r} is not a location")
+        if not isinstance(places, dict):
+            raise ValueError(f"Room {room} must map locations to furniture names")
+        for place, surface in places.items():
+            if place not in locations or place in rooms:
+                raise ValueError(f"{room}: {place!r} is not a furniture location")
+            if place in seen:
+                raise ValueError(f"{place} is in more than one room")
+            seen.add(place)
+            if surface is not None and (
+                not isinstance(surface, str) or not surface.strip()
+            ):
+                raise ValueError(f"{room}.{place}: furniture name or null")
+    return rooms
 
 
 def load_spec(path):
