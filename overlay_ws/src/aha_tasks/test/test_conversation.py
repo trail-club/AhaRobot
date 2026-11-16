@@ -152,6 +152,9 @@ class ReplyTests(unittest.TestCase):
             "This is Charlie's seat": None,
             "I'll call Charlie for you": None,
             "Yes, Charlie": True,
+            "Charlie is right there": None,
+            "Sure, Charlie is over there": None,
+            "Okay, Charlie is sitting over there": None,
         }
         for heard, expected in cases.items():
             with self.subTest(heard):

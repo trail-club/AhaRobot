@@ -239,22 +239,23 @@ def parse_reply(text, names):
     """{"yes": bool, "no": bool, "name": <name of `names`> | None} of a reply.
 
     "name" is set only when the reply gives it as the answer (_answered_with).
+    A reply that mentions a name otherwise ("Charlie is right there") is no
+    yes either: it is about someone else.
     """
     tokens = _tokens(text)
     joined = " ".join(tokens)
-    name = find_name(text, names)
-    if name is not None and not _answered_with(text, name):
-        name = None
-    denied_name = name is not None and re.search(
-        rf"\bnot {re.escape(name.lower())}\b", joined
+    found = find_name(text, names)
+    name = found if found is not None and _answered_with(text, found) else None
+    denied_name = found is not None and re.search(
+        rf"\bnot {re.escape(found.lower())}\b", joined
     )
     # A yes word right after "not" ("I'm not sure") is no yes.
     negated = {i + 1 for i, t in enumerate(tokens) if t == "not" or t.endswith("n't")}
+    yes = any(
+        t in YES_WORDS - {"me"} and i not in negated for i, t in enumerate(tokens)
+    ) or bool(YES_PHRASE.search(joined))
     return {
-        "yes": any(
-            t in YES_WORDS - {"me"} and i not in negated for i, t in enumerate(tokens)
-        )
-        or bool(YES_PHRASE.search(joined)),
+        "yes": yes and (found is None or name is not None),
         "no": any(t in NO_WORDS for t in tokens)
         or bool(NO_PHRASE.search(joined) or denied_name),
         "name": name,
