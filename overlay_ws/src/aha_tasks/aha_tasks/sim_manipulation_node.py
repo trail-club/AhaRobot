@@ -8,7 +8,9 @@ planned; the object is moved by gz-transport (aha_tasks.sim_manipulation):
   model of the target's label nearest the target (MATCH_DISTANCE), within
   `reach` of the base. The right arm reaches out over it, the model becomes
   a static copy without collision that follows the TCP (`tcp_frame`), and
-  the arm goes to the carry pose.
+  the arm goes to the carry pose. Once the object is in the hand the pick
+  succeeds, also when the arm does not get to carry (cancel, controller):
+  the message says so.
 - place (aha_msgs/action/PlaceObject, /aha/manipulation/place): the arm
   reaches out over `near` (within `reach`; over the top of a container to
   drop into), the static copy is set standing at `near` (`drop`: its centre
@@ -451,9 +453,16 @@ class Stand:
         feedback("grasping", 0.5)
         self.attach(name, entry.label, world_object)
         feedback("retreating", 0.8)
-        self.move(CARRY[0], CARRY[1], cancelled, "carry")
+        note = ""
+        try:
+            self.move(CARRY[0], CARRY[1], cancelled, "carry")
+        except Failed as error:
+            # The object is in the hand now: a failed pick would leave the task
+            # without it, and every later pick refused (Already holding).
+            note = f"; the arm is not at carry ({error})"
+            self.log.warning(f"Picked {name}{note}")
         self.log.info(f"Picked {name}")
-        return name, self.ros_pose(world_object[:3, 3], yaw_of(world_object))
+        return name, self.ros_pose(world_object[:3, 3], yaw_of(world_object)), note
 
     def place(self, goal, handle, feedback):
         self.check_arm(goal.arm)
@@ -594,8 +603,10 @@ def main(argv=None):
     def run_pick(handle):
         result = PickObject.Result()
         try:
-            name, pose = stand.pick(handle.request, handle, publish(handle, PickObject))
-            result.success, result.message = True, f"Picked {name}"
+            name, pose, note = stand.pick(
+                handle.request, handle, publish(handle, PickObject)
+            )
+            result.success, result.message = True, f"Picked {name}{note}"
             result.grasp_pose_used = pose
             return finish(handle, result, True)
         except Failed as error:

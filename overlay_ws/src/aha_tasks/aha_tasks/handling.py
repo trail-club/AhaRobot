@@ -357,6 +357,16 @@ def check_params(params, required, optional):
 # -- ROS ---------------------------------------------------------------------
 
 
+def retry_place(status):
+    """PlaceObject statuses that another spot or base pose may change."""
+    return (
+        status.STATUS_NO_SURFACE,
+        status.STATUS_NO_SPACE,
+        status.STATUS_UNREACHABLE,
+        status.STATUS_EXECUTION_FAILED,
+    )
+
+
 def wait(future, timeout, cancelled, until=None):
     """The future's result; Cancelled / TimeoutError. None once `until()` holds."""
     deadline = time.monotonic() + timeout
@@ -445,13 +455,15 @@ class Hands:
         return None if response is None else response.result
 
     def cancel(self, handle):
-        """Cancel a goal and wait (a few seconds) until it stopped."""
+        """Cancel a goal and wait (a few seconds) until it stopped: its result
+        (it may have ended otherwise meanwhile), or None without one."""
         future = handle.get_result_async()
         handle.cancel_goal_async()
         try:
-            wait(future, SERVER_TIMEOUT, threading.Event())
+            response = wait(future, SERVER_TIMEOUT, threading.Event())
         except TimeoutError:
-            pass
+            return None
+        return None if response is None else response.result
 
     def run(self, name, goal, timeout, cancelled):
         """(result, "") of a goal, or (None, why)."""
@@ -613,7 +625,9 @@ class PlaceObject(_HandSkill):
 
     params: {"object": "cola" | "<memory key>", "surface": "desk", "spot":
     "<memory key>", "arm": "right", "clearance": 0.05, "retries": 1,
-    "approach": true}. A trash bin (furniture of category "trash bin", or
+    "approach": true}. A failure is tried again only when another spot or
+    base pose may help (retry_place); STATUS_NOT_AT_SPOT (let go, but not
+    seen at the spot) counts as done with the object out of the hand. A trash bin (furniture of category "trash bin", or
     "trashbin", "trash") gets the object dropped inside. On a shelf the spot
     is next to the objects of its category (aha_tasks.objects.placement), on
     a table the free spot nearest the arm `clearance` from the objects seen,
@@ -689,11 +703,24 @@ class PlaceObject(_HandSkill):
                     return self.fail(why, outputs)
                 message = why
                 continue
-            if not result.success:
-                message = f"Place failed: {result.message}"
-                continue
-            outputs.update({HOLDING: None, HELD: None})
             where = "into" if trash else "on"
+            if not result.success:
+                status = type(result)
+                if result.status == status.STATUS_NOT_AT_SPOT:
+                    # Released: nothing to place again, and only a success
+                    # clears robot.holding (a failure rolls memory back).
+                    outputs.update({HOLDING: None, HELD: None})
+                    return SkillResult(
+                        True,
+                        f"Let go of {label} {where} {params['surface']}, but it "
+                        f"was not seen there: {result.message}",
+                        outputs,
+                    )
+                message = f"Place failed: {result.message}"
+                if result.status in retry_place(status):
+                    continue
+                break
+            outputs.update({HOLDING: None, HELD: None})
             return SkillResult(
                 True, f"Put {label} {where} {params['surface']}", outputs
             )
@@ -946,7 +973,13 @@ class DeliverObject(_HandSkill):
             if result is not None:
                 return result, "taken"
             ctx.log("Release touched on the screen")
-            hands.cancel(handle)  # the arm stays out with the object
+            # The arm stays out with the object, unless the take goal ended
+            # meanwhile (e.g. the person pulled it, then touched).
+            ended = hands.cancel(handle)
+            if ended is not None and ended.success:
+                return ended, "taken"
+            if ended is not None and ended.status != type(ended).STATUS_CANCELED:
+                return ended, ""
             goal.release = "now"
             result, why = hands.run(
                 HANDOVER_ACTION, goal, HANDOVER_MARGIN, ctx.cancelled

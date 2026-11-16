@@ -89,6 +89,16 @@ def ok(**kw):
     return Result(success=True, status=0, message="done", **kw)
 
 
+class PlaceResult(SimpleNamespace):
+    STATUS_OK, STATUS_NO_SURFACE, STATUS_NO_SPACE, STATUS_UNREACHABLE = 0, 1, 2, 3
+    STATUS_EXECUTION_FAILED, STATUS_ERROR, STATUS_CANCELED = 4, 5, 6
+    STATUS_NOT_AT_SPOT = 9
+
+
+def place_failed(status, message):
+    return PlaceResult(success=False, status=status, message=message)
+
+
 def failed(status=4, message="no grasp"):
     return Result(success=False, status=status, message=message)
 
@@ -103,10 +113,12 @@ class FakeHands:
 
     PickObject = PlaceObject = HandOver = SimpleNamespace(Goal=goal)
 
-    def __init__(self, **results):
+    def __init__(self, on_cancel=None, **results):
         self.results = {name: list(r) for name, r in results.items()}
         self.goals = []  # (action, goal)
         self.cancelled = 0
+        # The result of a cancelled goal that never finished by itself.
+        self.on_cancel = on_cancel or failed(4, "cancelled")
 
     def point(self, frame, xyz):
         return (frame, tuple(round(v, 3) for v in xyz))
@@ -130,6 +142,7 @@ class FakeHands:
 
     def cancel(self, handle):
         self.cancelled += 1
+        return handle.result or self.on_cancel
 
     def run(self, name, request, timeout, cancelled):
         return self.finish(self.start(name, request, cancelled), timeout, cancelled), ""
@@ -497,7 +510,7 @@ class PlaceTests(unittest.TestCase):
         )
 
     def test_a_failed_place_is_tried_again_and_nothing_held_fails(self):
-        hands = FakeHands(place=[failed(3, "unreachable"), ok()])
+        hands = FakeHands(place=[place_failed(3, "unreachable"), ok()])
         runtime = make_runtime(desk_scene(), robot="desk", hands=hands)
         result, _ = run(
             PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA
@@ -507,6 +520,28 @@ class PlaceTests(unittest.TestCase):
         result, _ = run(PlaceObject, runtime, {"object": "cola", "surface": "desk"})
         self.assertFalse(result.success)
         self.assertIn("Not holding", result.message)
+
+    def test_a_failure_another_spot_cannot_change_is_not_tried_again(self):
+        hands = FakeHands(place=[place_failed(5, "Nothing held"), ok()])
+        runtime = make_runtime(desk_scene(), robot="desk", hands=hands)
+        result, _ = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA
+        )
+        self.assertFalse(result.success)
+        self.assertIn("Nothing held", result.message)
+        self.assertEqual(len(hands.goals), 1)
+
+    def test_let_go_but_not_seen_at_the_spot_ends_holding(self):
+        hands = FakeHands(place=[place_failed(9, "no object seen"), ok()])
+        runtime = make_runtime(desk_scene(), robot="desk", hands=hands)
+        result, _ = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA
+        )
+        # Only a success clears robot.holding: the engine drops a failure's outputs.
+        self.assertTrue(result.success, result.message)
+        self.assertIn("not seen there: no object seen", result.message)
+        self.assertEqual((result.outputs[HOLDING], result.outputs[HELD]), (None, None))
+        self.assertEqual(len(hands.goals), 1)
 
 
 class DeliverTests(unittest.TestCase):
@@ -593,6 +628,29 @@ class DeliverTests(unittest.TestCase):
         self.assertEqual(
             runtime.interaction.asked, ["Touch Release when you hold the cola"]
         )
+
+    def test_a_touch_after_the_take_sends_nothing_more(self):
+        # The server let go and was bringing the arm back when the touch came.
+        for ended, success, goals in ((ok(), True, 1), (failed(1, "nobody"), False, 1)):
+            with self.subTest(status=ended.status):
+                hands = FakeHands(handover=[None, ok()], on_cancel=ended)
+                runtime = make_runtime(
+                    None,
+                    robot="office",
+                    hands=hands,
+                    interaction=FakeInteraction(touch=True),
+                )
+                memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+                params = {
+                    "object": "cola",
+                    "person": "Jane",
+                    "touch": True,
+                    "retries": 0,
+                }
+                result, _ = run(DeliverObject, runtime, params, memory)
+                self.assertEqual(result.success, success, result.message)
+                self.assertEqual([g.release for _, g in hands.goals], ["take"] * goals)
+                self.assertEqual(hands.cancelled, 1)
 
     def test_the_screen_is_not_used_unless_touch_is_set(self):
         hands = FakeHands(handover=[ok()])
