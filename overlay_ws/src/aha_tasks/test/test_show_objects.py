@@ -13,6 +13,7 @@ from unittest.mock import patch
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from aha_tasks.core import Skill, SkillResult, TaskEngine, parse_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 import aha_tasks.show_objects as show_objects  # noqa: E402
 from aha_tasks.show_objects import (  # noqa: E402
@@ -39,6 +40,34 @@ def record(label, x, y, z=0.0, size=(0.1, 0.1, 0.1)):
         "track": 1,
         "confidence": 1.0,
     }
+
+
+MOCK = {"table.cup": record("mug", 2.0, 0.3), "table.plate": record("plate", 2.0, -0.3)}
+
+
+def task_spec():
+    """table.perceive with a mock of two records, then table.show of them."""
+    return parse_spec(
+        {
+            "task": "show_test",
+            "skills": {
+                "perceive_objects": "aha_tasks.objects:PerceiveObjects",
+                "show_objects": "aha_tasks.show_objects:ShowObjects",
+            },
+            "subgoals": [
+                {"id": "table.perceive", "skill": "perceive_objects", "mock": MOCK},
+                {
+                    "id": "table.show",
+                    "skill": "show_objects",
+                    "params": {
+                        "objects": list(MOCK),
+                        "surface": "dining_table",
+                        "dwell": 0.0,
+                    },
+                },
+            ],
+        }
+    )
 
 
 class FakeCamera(HeadCamera):
@@ -121,18 +150,31 @@ class ShowObjectsTests(unittest.TestCase):
         self.screen = FakeScreen()
         self.gaze = FakeGaze()
         runtime = SimpleNamespace(
-            node=None, gaze=self.gaze, interaction=self.screen, head_camera=self.camera
+            node=None,
+            gaze=self.gaze,
+            interaction=self.screen,
+            head_camera=self.camera,
+            spec=task_spec(),
         )
         self.skill = ShowObjects(runtime)
         self.logs = []
 
-    def run_skill(self, memory, objects=OBJECTS, surface="dining_table", cancel=None):
+    def run_skill(
+        self,
+        memory,
+        objects=OBJECTS,
+        surface="dining_table",
+        cancel=None,
+        statuses=None,
+    ):
         cancelled = threading.Event()
         if cancel:
             cancel(cancelled)
         params = {"objects": objects, "surface": surface, "dwell": 0.0}
         ShowObjects.validate(params, None)
-        ctx = SkillContext("table.show", params, memory, cancelled, self.logs.append)
+        ctx = SkillContext(
+            "table.show", params, memory, cancelled, self.logs.append, statuses or {}
+        )
         return self.skill.execute(ctx)
 
     def test_each_record_is_framed_and_said(self):
@@ -275,10 +317,94 @@ class ShowObjectsTests(unittest.TestCase):
         self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
         self.assertEqual(self.camera.calls, ["open", "close"])
 
+    def test_mock_of_a_skipped_perception_is_neither_shown_nor_spoken(self):
+        """After a failed, skipped perception the memory holds its mock (rule 16)."""
+        result = self.run_skill(
+            dict(MOCK), objects=list(MOCK), statuses={"table.perceive": "skipped"}
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.message,
+            "not perceived (table.perceive skipped): table.cup, table.plate",
+        )
+        self.assertEqual(self.screen.events, [])
+        self.assertEqual(self.gaze.targets, [])
+        self.assertEqual(self.camera.calls, [])
+
+    def test_result_after_a_skipped_perception_is_shown(self):
+        """Only the mock value itself is held back, not a later result in the key."""
+        memory = {**MOCK, "table.plate": record("plate", 2.0, -0.2)}
+        result = self.run_skill(
+            memory, objects=list(MOCK), statuses={"table.perceive": "skipped"}
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.message,
+            "shown: plate; not perceived (table.perceive skipped): table.cup",
+        )
+        self.assertEqual([e[0] for e in self.screen.events], ["show", "hide"])
+
+    def test_mock_of_an_unselected_perception_is_shown(self):
+        for status in ("bypassed", "unsupported"):
+            with self.subTest(status=status):
+                self.screen.events.clear()
+                result = self.run_skill(
+                    dict(MOCK), objects=list(MOCK), statuses={"table.perceive": status}
+                )
+                self.assertTrue(result.success, result.message)
+                self.assertEqual(result.message, "shown: mug, plate")
+
     def test_bad_record_fails(self):
         result = self.run_skill({"table.cup": {"position": [1, 2, 3]}})
         self.assertFalse(result.success)
         self.assertIn("table.cup (not an object record)", result.message)
+
+
+class Failing(Skill):
+    def execute(self, ctx):
+        return SkillResult(False, "No object on dining_table")
+
+
+class EngineTests(unittest.TestCase):
+    """The subgoal statuses that the engine gives show_objects."""
+
+    def run_task(self, selection):
+        screen = FakeScreen()
+        runtime = SimpleNamespace(
+            node=None,
+            gaze=FakeGaze(),
+            interaction=screen,
+            head_camera=FakeCamera(),
+            spec=task_spec(),
+        )
+        skills = {
+            "perceive_objects": Failing(runtime),
+            "show_objects": ShowObjects(runtime),
+        }
+        engine = TaskEngine(runtime.spec, skills, default_policy="skip")
+        engine.set_ready()
+        ok, message = engine.start(selection)
+        self.assertTrue(ok, message)
+        deadline = time.monotonic() + 10.0
+        while not engine.finished():
+            self.assertLess(time.monotonic(), deadline, "Timed out")
+            time.sleep(0.01)
+        records = {s["id"]: s for s in engine.status()["subgoals"]}
+        return records, screen
+
+    def test_skipped_perception_is_not_shown(self):
+        records, screen = self.run_task(None)
+        self.assertEqual(records["table.perceive"]["status"], "skipped")
+        show = records["table.show"]["history"]
+        self.assertEqual(show[0]["status"], "failed")
+        self.assertIn("not perceived (table.perceive skipped)", show[0]["message"])
+        self.assertEqual(screen.events, [])
+
+    def test_unselected_perception_is_shown(self):
+        records, screen = self.run_task("table.show")
+        self.assertEqual(records["table.perceive"]["status"], "bypassed")
+        self.assertEqual(records["table.show"]["status"], "succeeded")
+        self.assertEqual([e[0] for e in screen.events], ["show", "show", "hide"])
 
 
 class FakeClock:

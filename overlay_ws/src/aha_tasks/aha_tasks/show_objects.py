@@ -16,7 +16,10 @@ The objects are task memory keys holding the records of perceive_objects:
 centre in `frame` and size the box (m) along the object's own axes, turned
 by an optional "yaw" (rad about z of `frame`); without it the frame holds
 the object at any yaw (aha_tasks.object_view.box_corners). A key that is missing or null is
-skipped. A record without a position (a mock that is only a label) is only
+skipped. The mock that the engine put in a key for a subgoal that failed and
+was skipped is not a perception: it is neither shown nor spoken, and the skill
+fails (the mock of a subgoal that was not selected is shown, to try the show
+alone). A record without a position (a mock that is only a label) is only
 spoken. An object that cannot be pictured (no camera image, no TF, out of the
 view after turning the head, the wait clock stopped while the head turned) is
 spoken instead, and the skill then fails so that the operator sees it.
@@ -27,6 +30,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+from aha_tasks.core.engine import SKIPPED
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.interaction import Interaction
 from aha_tasks.object_view import (
@@ -86,6 +90,18 @@ def is_number(value):
         and not isinstance(value, bool)
         and math.isfinite(value)
     )
+
+
+def skipped_mock(spec, statuses, key, value):
+    """Id of a skipped subgoal whose mock put `value` in `key`, or None."""
+    for subgoal in getattr(spec, "subgoals", ()):
+        if (
+            statuses.get(subgoal.id) == SKIPPED
+            and key in subgoal.mock
+            and subgoal.mock[key] == value
+        ):
+            return subgoal.id
+    return None
 
 
 def parse_record(key, value):
@@ -270,10 +286,16 @@ class ShowObjects(Skill):
         surface = ctx.params["surface"].strip()
         dwell = float(ctx.params.get("dwell", DWELL))
         items, shown, spoken, failed = [], [], [], []
+        mocked = {}  # skipped subgoal -> keys holding its mock
+        spec = getattr(self.runtime, "spec", None)
         for key in ctx.params["objects"]:
             value = ctx.memory.get(key)
             if value is None or value == "":
                 ctx.log(f"{key}: not perceived")
+                continue
+            skipped = skipped_mock(spec, ctx.statuses, key, value)
+            if skipped:
+                mocked.setdefault(skipped, []).append(key)
                 continue
             try:
                 label, place = parse_record(key, value)
@@ -282,7 +304,7 @@ class ShowObjects(Skill):
                 failed.append(f"{key} (not an object record)")
                 continue
             items.append((key, label, place))
-        if not items and not failed:
+        if not items and not failed and not mocked:
             return SkillResult(True, "No perceived objects to show")
         displayed = False  # a framed image is on the screen
         camera = None
@@ -328,7 +350,9 @@ class ShowObjects(Skill):
             parts.append(f"spoken only: {', '.join(spoken)}")
         if failed:
             parts.append(f"could not show: {', '.join(failed)}")
-        return SkillResult(not failed, "; ".join(parts))
+        for skipped, keys in mocked.items():
+            parts.append(f"not perceived ({skipped} skipped): {', '.join(keys)}")
+        return SkillResult(not failed and not mocked, "; ".join(parts))
 
     def say(self, result, ctx):
         ok, message = result

@@ -150,13 +150,14 @@ class AskNameAndDrink(Skill):
     def ready(self):  # 依存するserverを待つ
         ...
 
-    def execute(self, ctx):  # ctx.params / memory / cancelled / log
+    def execute(self, ctx):  # ctx.params / memory / cancelled / log / statuses
         guest = ctx.params["guest"]
         return SkillResult(True, "", {f"{guest}.name": name, f"{guest}.drink": drink})
 ```
 
 成功時の `outputs` はタスクの記憶へ追加され、後続が `ctx.memory` から読む。
 `expected(params)` は成功後とmock時に記憶へ追加する状態。ロボットを動かすスキルは `robot.location` を出力する。
+`ctx.statuses` は開始時の各サブゴールの状態（`/aha/tasks/status` の `status`）。`skipped` のサブゴールの出力のキーには、結果でなく `mock` が入っている。
 実行しない場合の状態が記憶で変わるスキルは `assumed(params, memory)` を上書きする（既定は `expected(params)`）。
 `execute` はタスク用threadで呼ばれる。`ctx.cancelled` を監視し、中断時は速やかに戻る。
 
@@ -488,11 +489,13 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | 状態 | 動作 | 結果 |
 | --- | --- | --- |
 | キーがない・`null` | 飛ばす（何も示していない物体） | 影響しない |
+| 失敗してスキップした認識の `mock` の値 | 示さず、発話もしない（認識していない物体） | 失敗 |
 | 位置のない値（文字列のmockなど） | 「I recognized the fork on the dining table.」と発話だけ | 成功 |
 | 画像が届かない、TFがない、頭を向けても視野外（頭の可動範囲外など）、頭を向ける間に模擬時間が10 s進まない | 発話だけで伝える | 失敗（失敗時のポリシーに従う） |
 | 一部が視野外 | 見えている部分に枠を描く | 成功 |
 
 発話だけで伝える物体の前には、前の物体の画像を消す（前の枠がその物体を指して見えないように）。中断したときも画像を消す。
+選択しなかった認識の `mock` は記録と同じく示すため、`--subgoals '*.show*'` で表示だけを試せる。
 
 頭部カメラの画像とTFを使う。シミュレーションでは `objects:=true` がカメラとbridgeを起動する。認識と続けて試すには、[物体の認識](#物体の認識)のコマンドの選択を `--subgoals '*.perceive*,*.show*'` にする。
 `yaw` のない記憶では、細長い物体（フォークなど）の枠が実物より大きくなる。
