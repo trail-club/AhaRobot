@@ -434,11 +434,21 @@ class Hands:
         return out
 
     def start(self, name, goal, cancelled):
-        """The accepted goal handle; RuntimeError if not served or rejected."""
+        """The accepted goal handle; RuntimeError if not served or rejected.
+
+        A goal still unanswered at a cancel or timeout is cancelled once the
+        server accepts it, so that the arm does not move after all."""
+        from aha_tasks.interaction import cancel_if_accepted
+
         _, client = self.clients[name]
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
             raise RuntimeError(f"{name} is not served")
-        handle = wait(client.send_goal_async(goal), SERVER_TIMEOUT, cancelled)
+        sent = client.send_goal_async(goal)
+        try:
+            handle = wait(sent, SERVER_TIMEOUT, cancelled)
+        except (Cancelled, TimeoutError):
+            sent.add_done_callback(cancel_if_accepted)
+            raise
         if not handle.accepted:
             raise RuntimeError(f"{name} rejected the goal")
         return handle
@@ -976,9 +986,13 @@ class DeliverObject(_HandSkill):
             # The arm stays out with the object, unless the take goal ended
             # meanwhile (e.g. the person pulled it, then touched).
             ended = hands.cancel(handle)
-            if ended is not None and ended.success:
+            if ended is None:
+                # It may still run, or have let go: a second goal could move
+                # the same arm, or be refused.
+                return None, f"{HANDOVER_ACTION} did not stop the take goal"
+            if ended.success:
                 return ended, "taken"
-            if ended is not None and ended.status != type(ended).STATUS_CANCELED:
+            if ended.status != type(ended).STATUS_CANCELED:
                 return ended, ""
             goal.release = "now"
             result, why = hands.run(

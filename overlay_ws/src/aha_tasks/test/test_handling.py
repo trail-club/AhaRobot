@@ -15,9 +15,11 @@ sys.path.insert(0, os.path.dirname(TEST))
 sys.path.insert(0, TEST)
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.handling import (  # noqa: E402
+    HANDOVER_ACTION,
     HELD,
     HOLDING,
     DeliverObject,
+    Hands,
     PickObject,
     PlaceObject,
     choose_object,
@@ -652,6 +654,19 @@ class DeliverTests(unittest.TestCase):
                 self.assertEqual([g.release for _, g in hands.goals], ["take"] * goals)
                 self.assertEqual(hands.cancelled, 1)
 
+    def test_no_second_goal_while_the_take_goal_may_still_run(self):
+        hands = FakeHands(handover=[None, ok()])
+        hands.on_cancel = None  # no result within the wait after the cancel
+        runtime = make_runtime(
+            None, robot="office", hands=hands, interaction=FakeInteraction(touch=True)
+        )
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        params = {"object": "cola", "person": "Jane", "touch": True}
+        result, _ = run(DeliverObject, runtime, params, memory)
+        self.assertFalse(result.success)
+        self.assertIn("did not stop the take goal", result.message)
+        self.assertEqual([g.release for _, g in hands.goals], ["take"])
+
     def test_the_screen_is_not_used_unless_touch_is_set(self):
         hands = FakeHands(handover=[ok()])
         runtime = make_runtime(
@@ -707,6 +722,52 @@ class DeliverTests(unittest.TestCase):
         )
         self.assertFalse(result.success)
         self.assertEqual(len(hands.goals), 1, "no second try unless timed out")
+
+
+class FakeFuture:
+    def __init__(self):
+        self.value, self.callbacks = None, []
+
+    def done(self):
+        return self.value is not None
+
+    def result(self):
+        return self.value
+
+    def add_done_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def set_result(self, value):
+        self.value = value
+        for callback in self.callbacks:
+            callback(self)
+
+
+class FakeClient:
+    def __init__(self):
+        self.sent = []
+
+    def wait_for_server(self, timeout_sec):
+        return True
+
+    def send_goal_async(self, goal):
+        self.sent.append(FakeFuture())
+        return self.sent[-1]
+
+
+class HandsTests(unittest.TestCase):
+    def test_a_goal_accepted_after_a_cancel_is_cancelled(self):
+        client = FakeClient()
+        hands = Hands.__new__(Hands)
+        hands.clients = {HANDOVER_ACTION: (None, client)}
+        cancelled = threading.Event()
+        cancelled.set()
+        result, why = hands.run(HANDOVER_ACTION, goal(), 1.0, cancelled)
+        self.assertEqual((result, why), (None, "Cancelled"))
+        handle = SimpleNamespace(accepted=True, cancels=0)
+        handle.cancel_goal_async = lambda: setattr(handle, "cancels", 1)
+        client.sent[0].set_result(handle)  # the late acceptance
+        self.assertEqual(handle.cancels, 1)
 
 
 class ValidationTests(unittest.TestCase):
