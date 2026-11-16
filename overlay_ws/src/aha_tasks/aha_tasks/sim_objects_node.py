@@ -89,9 +89,17 @@ def main(argv=None):
     args, _ = parser.parse_known_args(argv)
     try:
         catalog, scene = load(scene_path(args.config))
-        sdfs = {o.name: catalog.sdf(o, args.cache) for o in scene.objects}
     except (SceneError, OSError, ValueError) as error:
         log(f"invalid scene: {error}")
+        return 2
+    try:  # --check places nothing: no models to download or build
+        sdfs = (
+            {}
+            if args.check
+            else {o.name: catalog.sdf(o, args.cache) for o in scene.objects}
+        )
+    except (OSError, ValueError) as error:
+        log(f"cannot build the models: {error}")
         return 2
 
     from gz.msgs10.boolean_pb2 import Boolean
