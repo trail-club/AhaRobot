@@ -142,6 +142,12 @@ class ReplyTests(unittest.TestCase):
             "I can't hear you": None,
             "I don't understand": None,
             "Excuse me?": None,
+            "I'm not sure": None,
+            "Not sure": None,
+            "I am not able to hear you": None,
+            "It's not clear": None,
+            "I'm not.": False,
+            "No, I'm not Charlie": False,
         }
         for heard, expected in cases.items():
             with self.subTest(heard):

@@ -214,10 +214,11 @@ def extract_name(text, names):
 
 # "That's me", "It's me", a lone "Me", "I am".
 YES_PHRASE = re.compile(r"\b(?:that's|that is|it's|it is|this is|yes) me\b|^me$|^i am$")
-# Denials. A bare "not" or "n't" is no answer: "I didn't hear you", "Sure, why
-# not".
+# Denials that end the reply or name the person ("I'm not.", "Not me", "That
+# isn't me"; "not <name>" is checked in parse_reply). A bare "not" or "n't" is
+# no answer: "I didn't hear you", "I'm not sure", "Sure, why not".
 NO_PHRASE = re.compile(
-    r"^not\b|\b(?:i'm|im|i am|that's|that is|it's|it is) not\b"
+    r"^not(?: really| at all)?$|\b(?:i'm|im|i am|that's|that is|it's|it is) not$"
     r"|\b(?:isn't|ain't|wasn't) me\b|\bnot (?:me|him|her)\b"
 )
 
@@ -230,8 +231,12 @@ def parse_reply(text, names):
     denied_name = name is not None and re.search(
         rf"\bnot {re.escape(name.lower())}\b", joined
     )
+    # A yes word right after "not" ("I'm not sure") is no yes.
+    negated = {i + 1 for i, t in enumerate(tokens) if t == "not" or t.endswith("n't")}
     return {
-        "yes": any(t in YES_WORDS - {"me"} for t in tokens)
+        "yes": any(
+            t in YES_WORDS - {"me"} and i not in negated for i, t in enumerate(tokens)
+        )
         or bool(YES_PHRASE.search(joined)),
         "no": any(t in NO_WORDS for t in tokens)
         or bool(NO_PHRASE.search(joined) or denied_name),
