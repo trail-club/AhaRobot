@@ -745,6 +745,9 @@ class FollowPerson(_PersonSkill):
             if search is not None or target.track != gazed:
                 if search is not None:
                     ctx.log(f"Found the person again: track {person.id}")
+                    # The search goal (towards the last sighting, or turning
+                    # around) is not for where the person is now.
+                    pursuit.stop()
                 people.follow(track=person.id, name=person.name)
                 gazed, search = target.track, None
             gap = math.dist(robot[:2], target.position)
@@ -759,6 +762,8 @@ class FollowPerson(_PersonSkill):
                 # Come up to `distance` from them rather than stop on the way,
                 # e.g. in a doorway.
                 pursuit.finish(people, ctx.cancelled, SETTLE)
+                if ctx.cancelled.is_set():
+                    return False, "Cancelled", None
                 return True, text, sighting
             goal = None
             if gap > distance + SLACK:
