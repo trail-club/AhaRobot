@@ -36,6 +36,7 @@ from types import SimpleNamespace
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.interaction import Interaction, cancel_if_accepted
 from aha_tasks.people import (
+    CLOCK_STALL_TIMEOUT,
     People,
     check_keys,
     check_name,
@@ -396,6 +397,30 @@ def rounded(pose):
 # ---- ROS access ---------------------------------------------------------------
 
 
+class ClockWatch:
+    """Whether the wait clock stopped (Gazebo stopped), as People.wait_for checks.
+
+    A loop on the wait clock alone would never time out then.
+    """
+
+    def __init__(self, timeout=CLOCK_STALL_TIMEOUT):
+        self.timeout = timeout
+        self.last = None  # wait-clock time last seen to advance
+        self.progress = time.monotonic()  # wall time of that
+
+    def stalled(self, now):
+        wall = time.monotonic()
+        if self.last is None or now > self.last:
+            self.last, self.progress = now, wall
+            return False
+        return wall - self.progress >= self.timeout
+
+
+STALLED = (
+    f"No /clock progress for {CLOCK_STALL_TIMEOUT:.0f} s; is the simulation running?"
+)
+
+
 class Base:
     """Robot pose in map from TF, and Nav2's global costmap, for one runner."""
 
@@ -533,10 +558,14 @@ class Pursuit:
     def finish(self, people, cancelled, timeout):
         """Wait for the latest goal to end, cancelling it after `timeout`: (ok, message)."""
         deadline = people.now() + timeout
+        clock = ClockWatch()
         while (state := self.state()) == ACTIVE:
             if cancelled.is_set():
                 self.halt()
                 return False, "Cancelled"
+            if clock.stalled(people.now()):
+                self.halt()
+                return False, STALLED
             if people.now() > deadline:
                 self.halt()
                 return False, f"Nav2 did not finish within {timeout:.0f} s"
@@ -678,8 +707,11 @@ class FollowPerson(_PersonSkill):
         last, sighting = None, None
         gazed = target.track
         search = None
+        clock = ClockWatch()
         while not ctx.cancelled.is_set():
             now = people.now()
+            if clock.stalled(now):
+                return False, STALLED, None
             if now >= deadline:
                 return (
                     False,
@@ -840,7 +872,10 @@ class GuidePerson(_PersonSkill):
         failed_at = None  # `travelled` at the last abort
         pursuit.send(destination, people.now())
         gaze.follow_path(destination)
+        clock = ClockWatch()
         while not ctx.cancelled.is_set():
+            if clock.stalled(people.now()):
+                return False, STALLED, None
             if people.now() >= deadline:
                 return False, "Timed out on the way", None
             robot = base.pose()

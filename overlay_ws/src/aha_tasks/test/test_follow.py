@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.follow import (  # noqa: E402
+    ClockWatch,
     apply_update,
     ACTIVE,
     FAILED,
@@ -113,6 +114,17 @@ class GeometryTests(unittest.TestCase):
         # Clear of obstacles first, then anything outside collision.
         self.assertEqual(free_pose([poses[3], [7.5, 7.5, 2.0]], costs), [7.5, 7.5, 2.0])
         self.assertEqual(free_pose(poses, None), poses[0])  # no costmap yet
+
+    def test_a_stopped_clock_is_noticed_on_the_wall_clock(self):
+        wall = [100.0]
+        with patch("aha_tasks.follow.time.monotonic", side_effect=lambda: wall[0]):
+            clock = ClockWatch(timeout=10.0)
+            self.assertFalse(clock.stalled(5.0))
+            wall[0] += 9.0
+            self.assertFalse(clock.stalled(5.0))
+            wall[0] += 2.0
+            self.assertTrue(clock.stalled(5.0))
+            self.assertFalse(clock.stalled(5.1))  # it moves again
 
     def test_costmap_updates_are_written_into_the_grid(self):
         costmap = grid({}, width=4, height=3)
