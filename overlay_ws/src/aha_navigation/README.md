@@ -22,8 +22,10 @@ SLAMと同時に起動しない。設定は [nav2.yaml](config/nav2.yaml)（0.20
 
 ### デモ地図
 
-`rcjo2026.yaml` はworld座標に合わせた0.05 m/pixelの地図で、4部屋の外はunknown（plannerは通行しない）。
-SLAMの測量地図ではなく、[rcjo2026_geometry.json](maps/rcjo2026_geometry.json) に記録した上流worldの壁・ドア・家具のcollisionを覆う矩形を占有領域にしたもの。
+`rcjo2026.yaml` はworld座標に合わせた0.05 m/pixelの地図で、4部屋と入口のドアの外側（x −7.0〜−5.0 m、y 0.5〜2.5 m。場外から始めるタスク用）の外はunknown（plannerは通行しない）。
+SLAMの測量地図ではなく、[rcjo2026_geometry.json](maps/rcjo2026_geometry.json) に記録した上流worldの壁・家具のcollisionを覆う矩形を占有領域にしたもの。
+入口のドア（`arena_door`）は開閉するため地図に含めず、閉じたドアはLiDARで見る。
+セルの中心は `cell_anchor` から数え、地図を広げても場内のセルは変わらない。
 上流のworld・家具配置を変えたら矩形を更新して再生成する。出典は [THIRD_PARTY](../../../dependencies/THIRD_PARTY.md)。
 
 ```bash

@@ -1,0 +1,10 @@
+{
+  "world": "rcjo2026_arena",
+  "door": {
+    "model": "arena_door",
+    "closed": [-5.0, 1.5, 1.0, 1.570796],
+    "open": [-4.55, 1.975, 1.0, 0.0]
+  },
+  "trigger": "start.wait_door",
+  "location": "start_outside"
+}

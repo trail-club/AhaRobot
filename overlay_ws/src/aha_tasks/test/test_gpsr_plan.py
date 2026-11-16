@@ -106,6 +106,13 @@ def context(plan, index=0, memory=None):
     )
 
 
+class DoorOpened(Skill):
+    """Stands in for wait_door_open, which needs the head camera or /scan."""
+
+    def execute(self, ctx):
+        return SkillResult(True, "door open")
+
+
 def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", **kw):
     """Engine over the real task definition; skills as the runner builds them."""
     spec, classes = load_task(GPSR)
@@ -116,7 +123,7 @@ def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", 
         interaction=FakeInteraction(),
     )
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
-    skills.update(overrides or {})
+    skills.update({"wait_door_open": DoorOpened(runtime), **(overrides or {})})
     runtime.skills = skills
     restorers = {}
     if restore:
@@ -416,6 +423,7 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "navigate",
                 "run_plan_step",
                 "say",
+                "wait_door_open",
                 "find_described_person",
                 "count_people",
             },
@@ -445,7 +453,7 @@ class GpsrEngineTests(unittest.TestCase):
         status = run(engine)
         self.assertEqual(status["state"], "completed", status["message"])
         by_id = records(status)
-        self.assertEqual(by_id["start.wait_door"]["status"], "unsupported")
+        self.assertEqual(by_id["start.wait_door"]["status"], "succeeded")
         self.assertEqual(by_id["command.mode"]["status"], "succeeded")
         self.assertEqual(
             runtime.interaction.said, ["Please give me all three commands at once."]

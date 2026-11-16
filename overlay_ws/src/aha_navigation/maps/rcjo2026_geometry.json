@@ -1,8 +1,12 @@
 {
   "resolution": 0.05,
-  "origin": [-5.5, -4.5],
-  "size": [220, 180],
+  "origin": [-7.5, -4.5],
+  "cell_anchor": [-5.5, -4.5],
+  "size": [260, 180],
   "free_bounds": [-4.95, -4, 4.95, 4],
+  "free_areas": [
+    {"name": "outside_entrance", "bounds": [-7.0, 0.5, -4.9, 2.5]}
+  ],
   "obstacles": [
     {"name": "wall_front_left", "pose": [-5.0, 3.0, 0.0], "size": [0.1, 2.0]},
     {"name": "wall_front_center", "pose": [-5.0, -0.5, 0.0], "size": [0.1, 3.0]},
@@ -17,7 +21,6 @@
     {"name": "inside_wall_center_horizontal", "pose": [0.0, 0.0, 0.0], "size": [0.1, 2.0]},
     {"name": "inside_wall_center_vertical_front", "pose": [-0.525, 0.0, 1.57], "size": [0.1, 0.95]},
     {"name": "inside_wall_center_vertical_back", "pose": [2.025, 0.0, 1.57], "size": [0.1, 3.95]},
-    {"name": "door", "pose": [-5, 1.5, 1.5708], "size": [0.9, 0.05]},
     {"name": "dining_table", "pose": [-2, -2.25, 0], "size": [1.2, 1.8]},
     {"name": "couch_left", "pose": [-3.35, -2.75, 0], "size": [0.742, 0.846]},
     {"name": "couch_right", "pose": [-3.35, -1.75, 0], "size": [0.742, 0.846]},

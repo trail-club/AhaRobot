@@ -9,13 +9,19 @@ from pathlib import Path
 def rasterize(config):
     width, height = config["size"]
     resolution = config["resolution"]
-    xmin, ymin, xmax, ymax = config["free_bounds"]
+    # Cell centres count from cell_anchor, a cell corner, so that the cells of
+    # the arena do not change when the grid grows around it.
+    anchor = config.get("cell_anchor", config["origin"])
+    shift = [round((o - a) / resolution) for o, a in zip(config["origin"], anchor)]
+    # The arena, and the areas outside it that the robot uses (the entrance).
+    free = [config["free_bounds"]] + [a["bounds"] for a in config.get("free_areas", [])]
     pixels = bytearray()
     for row in range(height - 1, -1, -1):
-        y = config["origin"][1] + (row + 0.5) * resolution
+        y = anchor[1] + (row + shift[1] + 0.5) * resolution
         for col in range(width):
-            x = config["origin"][0] + (col + 0.5) * resolution
-            value = 254 if xmin < x < xmax and ymin < y < ymax else 205
+            x = anchor[0] + (col + shift[0] + 0.5) * resolution
+            inside = any(x0 < x < x1 and y0 < y < y1 for x0, y0, x1, y1 in free)
+            value = 254 if inside else 205
             for obstacle in config["obstacles"]:
                 ox, oy, yaw = obstacle["pose"]
                 dx, dy = x - ox, y - oy
