@@ -41,6 +41,7 @@ OPERATOR_WORDS = {"operator", "the operator", "me"}
 FACE_PANS = (0.0, 0.6, -0.6)  # rad; where the head looks for a person to face
 FACE_DWELL = 2.0  # s (wait clock) at each pan
 FACE_TIMEOUT = 6.0  # s (wait clock) to see the person
+FACE_RADIUS = 2.0  # m around the location for the person to face there
 NEAR = 1.5  # m; a closer person is only turned to, a farther one approached
 REACQUIRE = 0.7  # m from the remembered position for a new track of the person
 HEAD_ABOVE_CENTRE = 0.5  # m; where to look while the person is not seen
@@ -95,8 +96,9 @@ class TellInfo(Skill):
     The robot first turns to the person:
 
     - "operator" (or "me"): it goes to the instruction point and faces the
-      nearest person seen there;
-    - with `location`: it goes there and faces the nearest person seen;
+      nearest person seen within FACE_RADIUS;
+    - with `location`: it goes there and faces the nearest person seen within
+      FACE_RADIUS;
     - otherwise the person of `<role>.track` / `.name` / `.position`
       (find_described_person, `role` "person" by default).
 
@@ -186,12 +188,14 @@ class TellInfo(Skill):
                 people.look_towards(next(pans))
                 next_look = people.now() + FACE_DWELL
             visible = [p for p in message.people if p.visible]
+            if message.header.frame_id == "map":
+                near = [
+                    (math.dist(planar(p.position), origin), p.id, p) for p in visible
+                ]
+                near = [item for item in near if item[0] <= FACE_RADIUS]
+                return (message, min(near)[2]) if near else None
             if not visible:
                 return None
-            if message.header.frame_id == "map":
-                return message, min(
-                    visible, key=lambda p: math.dist(planar(p.position), origin)
-                )
             return message, min(
                 visible, key=lambda p: math.hypot(p.position.x, p.position.y)
             )

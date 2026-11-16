@@ -649,16 +649,19 @@ class FindDescribedPerson(Skill):
         role = params.get("role", "person")
         area = search_area(self.runtime, ctx.memory, params)
         origin = robot_xy(self.runtime, ctx.memory)
-        pans = itertools.cycle(params.get("pans", SCAN_PANS))
+        pan_list = list(params.get("pans", SCAN_PANS))
+        pans = itertools.cycle(pan_list)
         dwell = positive(params, "dwell", 6.0)
         height = positive(params, "look_height", 1.0)
         vlm_timeout = positive(params, "describe_timeout", 180.0)
         distance = positive(params, "distance", 1.0)
         timeout = positive(params, "timeout", ASK_TIMEOUT if asking else 60.0)
         deadline = people.now() + timeout
-        # A new track of a person remembered under the name gets it from the
-        # VLM within seconds: wait for that before asking them.
+        # Someone remembered under the name may be anywhere around, and a new
+        # track of them gets the name from the VLM within seconds: look all
+        # around once before asking anyone, and give each track NAME_WAIT.
         renamed = name is not None and name in people.remembered
+        looks = 0  # head turns so far
         dialogue = None
         checked = {}  # track ID -> answers (None: not the named person)
         failures = {}  # track ID -> judgements that failed
@@ -689,10 +692,13 @@ class FindDescribedPerson(Skill):
                 return False
             if not asking:
                 return True  # names come seconds after a track starts
-            return renamed and now - first_seen[person.id] < NAME_WAIT
+            return renamed and (
+                looks <= len(pan_list) or now - first_seen[person.id] < NAME_WAIT
+            )
 
         def look_next():
-            nonlocal pan, next_look
+            nonlocal pan, next_look, looks
+            looks += 1
             pan = next(pans)
             people.look_towards(pan, height)
             next_look = people.now() + dwell
@@ -812,8 +818,12 @@ class FindDescribedPerson(Skill):
             else:
                 checked[person.id] = answers
                 checked_at.append((planar(person.position), person.id))
-            said = f", {heard}" if heard else ""
-            ctx.log(f"{where(person)}: {describe_answers(answers)}{said}")
+            parts = [] if shown.empty and not need else [describe_answers(answers)]
+            if heard:
+                parts.append(heard)
+            elif name is not None or info == "name":
+                parts.append(f"not {name}" if name and match is False else "no name")
+            ctx.log(f"{where(person)}: {', '.join(parts)}")
             if match:
                 return message, person, answers, heard
             # The head turned to this person: look this way again for a full

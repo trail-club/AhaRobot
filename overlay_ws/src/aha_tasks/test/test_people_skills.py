@@ -1083,6 +1083,38 @@ class AskNameTests(unittest.TestCase):
         self.assertIn("no ASR and no screen", result.message)
         self.assertLess(time.monotonic() - started, 1.0)
 
+    def test_a_remembered_name_is_looked_for_all_around_before_asking(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        people.remembered.add("Charlie")
+
+        def charlie_comes_into_view():
+            time.sleep(0.15)
+            people._on_people(
+                people_message(person(1, 1.0, 0.0), person(4, 0.0, 2.0, "Charlie"))
+            )
+
+        thread = threading.Thread(target=charlie_comes_into_view)
+        thread.start()
+        result, interaction = self.find(
+            people, {"name": "Charlie", "pans": [0.0, 0.5], "dwell": 0.1}, ["Yes"]
+        )
+        thread.join()
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 4)
+        self.assertEqual(interaction.listened, 0)
+
+    def test_unnamed_people_are_asked_after_looking_around(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        people.remembered.add("Charlie")
+        with patch("aha_tasks.people.NAME_WAIT", 0.05):
+            result, interaction = self.find(
+                people, {"name": "Charlie", "pans": [0.0, 0.5], "dwell": 0.05}, ["Yes"]
+            )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 1)
+        self.assertEqual(interaction.listened, 1)
+        self.assertEqual(people.panned[:3], [0.0, 0.5, 0.0])
+
     def test_without_ask_only_remembered_people(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0)))
         result, interaction = self.find(
