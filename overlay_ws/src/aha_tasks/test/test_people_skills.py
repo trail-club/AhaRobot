@@ -151,6 +151,7 @@ class FakeInteraction:
         self.touched = touched
         self.said = []
         self.listened = 0
+        self.asked = 0
 
     def say(self, text, cancelled):
         self.said.append(text)
@@ -164,6 +165,7 @@ class FakeInteraction:
         return (item, "") if isinstance(item, str) else item
 
     def ask(self, prompt, choices, cancelled, timeout=0.0):
+        self.asked += 1
         return self.touched
 
 
@@ -1075,13 +1077,37 @@ class AskNameTests(unittest.TestCase):
         started = time.monotonic()
         result, interaction = self.find(
             people,
-            {"name": "Charlie"},
+            {"name": "Charlie", "touch": True},
             [(None, f"{NO_ASR}: not served")],
             touched=(None, "No screen: not served"),
         )
         self.assertFalse(result.success)
         self.assertIn("no ASR and no screen", result.message)
         self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_the_screen_is_not_used_unless_touch_is_set(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        result, interaction = self.find(
+            people,
+            {"name": "Charlie"},
+            [(None, f"{NO_ASR}: not served")],
+            touched=(0, "Yes"),
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "Cannot ask: no ASR")
+        self.assertEqual(interaction.asked, 0)
+
+    def test_an_unclear_answer_falls_back_to_the_screen_with_touch(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        result, interaction = self.find(
+            people,
+            {"name": "Charlie", "touch": True},
+            ["Hmm?", "What?"],
+            touched=(0, "Yes"),
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.name"], "Charlie")
+        self.assertEqual(interaction.asked, 1)
 
     def test_a_remembered_name_is_looked_for_all_around_before_asking(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0)))

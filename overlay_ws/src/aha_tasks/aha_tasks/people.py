@@ -19,6 +19,7 @@ import time
 
 from aha_tasks.conversation import (
     PERSON_INFO,
+    TOUCH_TIMEOUT,
     Dialogue,
     count_sentence,
     names_of,
@@ -595,7 +596,7 @@ class FindDescribedPerson(Skill):
     params: {"gesture" | "pose" | "clothing" | "description": "<phrase>",
     "name": "<name>", "info": "name" | "pose" | "gesture",
     "location": "<area centre>", "radius": 3.0, "role": "person",
-    "approach": true, "ask": true, "distance": 1.0, "pans": [0.0, 0.4, -0.4],
+    "approach": true, "ask": true, "touch": false, "distance": 1.0, "pans": [0.0, 0.4, -0.4],
     "dwell": 6.0, "look_height": 1.0, "timeout": 60.0 (120.0 when asking)}.
     Phrases are those of the GPSR command generator, e.g. "waving person",
     "person pointing to the left", "sitting person", "person wearing a red t
@@ -606,6 +607,8 @@ class FindDescribedPerson(Skill):
     `ask`, the robot also approaches each unnamed person who fits the rest of
     the description, asks whether they are that person (Dialogue) and on yes
     remembers them under the name, so that a later search finds them by name.
+    With `touch`, an unclear answer to "Are you <name>?" falls back to Yes / No
+    on the screen (this bypasses the speech recognition).
     `info` is what the robot will report about the person (anyone in the area
     if nothing else is given): their name (asked unless remembered), pose or
     gesture (the VLM is asked until it is known).
@@ -618,9 +621,17 @@ class FindDescribedPerson(Skill):
     def validate(cls, params, spec):
         description = check_description_params(
             params,
-            optional=("role", "approach", "ask", "info", "distance", *SEARCH_KEYS),
+            optional=(
+                "role",
+                "approach",
+                "ask",
+                "touch",
+                "info",
+                "distance",
+                *SEARCH_KEYS,
+            ),
         )
-        for key in ("approach", "ask"):
+        for key in ("approach", "ask", "touch"):
             if not isinstance(params.get(key, True), bool):
                 raise ValueError(f"{key} must be true or false: {params[key]!r}")
         info = params.get("info")
@@ -731,6 +742,8 @@ class FindDescribedPerson(Skill):
                     names_of(ctx.memory),
                     ctx.cancelled,
                     ctx.log,
+                    # Touch input bypasses the ASR (GPSR −50): only when asked for.
+                    touch_timeout=TOUCH_TIMEOUT if params.get("touch", False) else 0.0,
                 )
             error = come_closer(message, person)
             if error:
@@ -744,7 +757,7 @@ class FindDescribedPerson(Skill):
             if match is None:
                 if not dialogue.voice and (name is None or not dialogue.screen):
                     return STOP, "Cannot ask: no ASR" + (
-                        "" if name is None else " and no screen"
+                        " and no screen" if name is not None and dialogue.touch else ""
                     )
                 # Asked already: do not ask again.
                 failures[person.id] = MAX_JUDGEMENTS - 1

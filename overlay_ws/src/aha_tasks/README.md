@@ -409,7 +409,7 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 | `gpsr.robot_name` / `gpsr.team_name` / `gpsr.team_country` / `gpsr.team_affiliation` | `AhaRobot` / `TRAIL` / `Japan` / `the University of Tokyo` |
 | `gpsr.utc_offset` | 時刻・日付の時差（時間）。省略時はシステムの時間帯 |
 
-- **名前を尋ねる**（`find_described_person` の `name`）: 人に近づいて頭を向け、`"Excuse me, are you Charlie?"` と聞く。否定（no、not）、名前（`"I'm Jane"` は別人）、肯定（yes、`"That's me"`）の順に判断し、本人なら `remember_person` でその名前を覚えさせる。聞き取れない・判断できない答えは1回聞き直し、それでも分からなければ画面の `Yes` / `No` のタッチを10 s待つ。答えのない人は尋ね直さずに次の人へ進む。ASRも画面もなければその場で失敗する。
+- **名前を尋ねる**（`find_described_person` の `name`）: 人に近づいて頭を向け、`"Excuse me, are you Charlie?"` と聞く。否定（no、not）、名前（`"I'm Jane"` は別人）、肯定（yes、`"That's me"`）の順に判断し、本人なら `remember_person` でその名前を覚えさせる。聞き取れない・判断できない答えは1回聞き直す。それでも分からない人は尋ね直さずに次の人へ進む。`touch: true` なら、その前に画面の `Yes` / `No` のタッチを10 s待つ（音声認識の迂回として −50）。ASRがなければ（`touch: true` では画面もなければ）その場で失敗する。
 - **名前を聞く**（`info: "name"`）: `"Excuse me, what is your name?"` と聞き、一覧の名前に近い語（綴りの類似度0.8以上、またはSoundexが同じで0.54以上。`"Jewels"` は Jules）、なければ `"my name is"` などの後の語を名前とする。2回聞いて分からなければその人を諦める。
 - **`answer_question`**: `question` は生成器の `{talk}`（`"the time"`、`"your teams name"` など9種）か言い換え。キーワードで話題を決め（明日、月、週、時刻、所属、国、チーム名、今日、自己紹介の順）、決まらない質問は計画の検証で拒否する。答えは `"It is 3:05 PM."`、`"Today is Monday, November 16th, 2026."`、`"My team's affiliation is the University of Tokyo."` など。時刻は実時間。
 - **`tell_info`**: `<key>.answer` があればそれを、なければ `<key>` の値を文にして言う（`<role>.name` / `.pose` / `.gesture` は人の情報、他は `"The answer is 3."`）。値がなければ失敗する。言う前に相手を向く。`person` が `operator`（`me`）なら `instruction_point` へ戻り、`location` があればそこへ行き、その地点から2.0 m以内に見えた最も近い人を向く（頭を正面・左右0.6 radへ2 sずつ、6 sまで探す）。それ以外は `<role>.track` / `.name` / `.position`（`role` の既定は `person`）の人を向く。1.5 mより遠い人には `distance`（既定1.0 m）手前まで近づく。人が見えなければ向かずにその場で言う。

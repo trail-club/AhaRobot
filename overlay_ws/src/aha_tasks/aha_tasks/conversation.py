@@ -530,7 +530,8 @@ class Dialogue:
         self.listen_timeout = listen_timeout
         self.touch_timeout = touch_timeout
         self.voice = True  # cleared when the ASR is not served
-        self.screen = touch_timeout > 0  # cleared when the screen is not served
+        self.touch = touch_timeout > 0  # the screen may be used at all
+        self.screen = self.touch  # cleared when the screen is not served
 
     @property
     def can_ask(self):
