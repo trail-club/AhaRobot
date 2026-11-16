@@ -115,11 +115,16 @@ class AnswerQuestionTests(unittest.TestCase):
         for params in (
             {},
             {"question": ""},
-            {"question": "the capital of France"},
             {"question": "the time", "person": "me"},
         ):
             with self.assertRaises(ValueError, msg=params):
                 AnswerQuestion.validate(params, spec)
+        # An unknown question mocks only its own step, not the whole plan.
+        unknown = {"question": "the capital of France"}
+        AnswerQuestion.validate(unknown, spec)
+        skill = AnswerQuestion(SimpleNamespace())
+        self.assertIn("cannot answer", skill.unsupported(unknown))
+        self.assertIsNone(skill.unsupported({"question": "the time"}))
         no_facts = SimpleNamespace(locations=LOCATIONS, initial_state={})
         AnswerQuestion.validate({"question": "the time"}, no_facts)
         with self.assertRaises(ValueError):

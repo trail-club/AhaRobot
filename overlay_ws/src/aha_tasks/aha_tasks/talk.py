@@ -65,21 +65,29 @@ class AnswerQuestion(Skill):
     def validate(cls, params, spec):
         check_keys(params, {"question"})
         topic = question_topic(text(params, "question"))
-        if topic is None:
-            raise ValueError(
-                f"unknown question {params['question']!r}; "
+        # An unknown question is unsupported (only this step is mocked); a
+        # fact missing from the task definition is an error.
+        if topic is not None:
+            missing = missing_facts(topic, facts_of(spec.initial_state))
+            if missing:
+                raise ValueError(f"{', '.join(missing)} must be set in initial_state")
+        check_utc_offset(spec.initial_state.get(UTC_OFFSET_KEY))
+
+    def unsupported(self, params):
+        if question_topic(params["question"]) is None:
+            return (
+                f"cannot answer {params['question']!r}; "
                 f"known: {', '.join(KNOWN_QUESTIONS)}"
             )
-        missing = missing_facts(topic, facts_of(spec.initial_state))
-        if missing:
-            raise ValueError(f"{', '.join(missing)} must be set in initial_state")
-        check_utc_offset(spec.initial_state.get(UTC_OFFSET_KEY))
+        return None
 
     def ready(self):
         Interaction.of(self.runtime).find_tts()
 
     def execute(self, ctx):
         topic = question_topic(ctx.params["question"])
+        if topic is None:
+            return SkillResult(False, self.unsupported(ctx.params))
         try:
             sentence = answer(topic, facts_of(ctx.memory), local_now(ctx.memory))
         except ValueError as error:
