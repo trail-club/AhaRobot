@@ -770,8 +770,9 @@ class FindDescribedPerson(Skill):
                     return STOP, "Cannot ask: no ASR" + (
                         " and no screen" if name is not None and dialogue.touch else ""
                     )
-                # Asked already: do not ask again.
+                # Asked already: do not ask again, also under a new track ID.
                 failures[person.id] = MAX_JUDGEMENTS - 1
+                checked_at.append((planar(person.position), person.id))
             return match, heard
 
         def choose(message):

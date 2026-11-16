@@ -1083,6 +1083,29 @@ class AskNameTests(unittest.TestCase):
         self.assertIn("1 could not be checked", result.message)
         self.assertEqual(interaction.listened, 2)
 
+    def test_someone_who_cannot_answer_is_not_asked_under_a_new_track(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        heard = ["Hmm?", "What?"]
+
+        def new_track_after_asking():
+            # The person is tracked anew (e.g. out of view meanwhile).
+            people._on_people(people_message(person(9, 1.1, 0.0)))
+
+        interaction = FakeInteraction(heard)
+        listen = interaction.listen
+
+        def listen_then_retrack(*args, **kwargs):
+            reply = listen(*args, **kwargs)
+            if not interaction.heard:
+                new_track_after_asking()
+            return reply
+
+        interaction.listen = listen_then_retrack
+        skill = FindDescribedPerson(runtime(people, None, interaction))
+        result = skill.execute(context({"name": "Charlie", "timeout": 0.5}))
+        self.assertFalse(result.success)
+        self.assertEqual(interaction.listened, 2)  # not asked again as track 9
+
     def test_fails_at_once_when_nobody_can_be_asked(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)))
         started = time.monotonic()
