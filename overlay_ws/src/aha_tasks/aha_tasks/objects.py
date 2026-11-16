@@ -246,7 +246,8 @@ class Region:
         return found
 
     def look_points(self, robot_xy=None):
-        """Head targets that cover the surface, nearest first."""
+        """Head targets that cover the surface: a shelf's levels lowest first,
+        the points of a table top nearest `robot_xy` first."""
         if self.floor:
             raise ValueError("look_points of the floor need the robot pose")
         if len(self.heights) > 1:
@@ -309,6 +310,18 @@ def floor_look_points(robot_pose, floor_z=0.0):
         )
         for pan in FLOOR_PANS
     ]
+
+
+def end_look_point(region, percept, robot_xy):
+    """Where perceive_objects leaves the head, given the object of its first
+    found role: the floor: the object; a shelf: the look point of its level;
+    a table: the look point nearest the robot (its near part)."""
+    if region.floor:
+        return percept.position
+    points = region.look_points(robot_xy)
+    if len(region.heights) > 1:
+        return points[region.level_of(percept) - 1]
+    return points[0]
 
 
 def on_region(percepts, region, level=None):
@@ -893,7 +906,8 @@ class PerceiveObjects(_SurfaceSkill):
     out. A matcher gives
     labels, a category, or a memory key holding the category; {} takes any
     other known object (assign_roles). Succeeds when at least one role was
-    found; missing roles get no key.
+    found; missing roles get no key. The head then looks towards the object of
+    the first found role (end_look_point).
     """
 
     @classmethod
@@ -929,13 +943,12 @@ class PerceiveObjects(_SurfaceSkill):
             f" ({len(seen) - len(on)} other objects seen)"
         )
         assigned, missing = assign_roles(on, params["roles"], ctx.memory, origin)
-        if not region.floor and on:
-            centre = region.look_points(origin)[0]
-            Objects.of(self.runtime).look_at(frame, centre)
         if not assigned:
             return SkillResult(
                 False, f"No object for {', '.join(missing)} on {region.name}"
             )
+        first = next(assigned[r] for r in params["roles"] if r in assigned)
+        Objects.of(self.runtime).look_at(frame, end_look_point(region, first, origin))
         outputs = {f"{output}.{role}": record(p, frame) for role, p in assigned.items()}
         found = ", ".join(f"{role} {p.label}" for role, p in assigned.items())
         message = f"{found}" + (f"; missing {', '.join(missing)}" if missing else "")

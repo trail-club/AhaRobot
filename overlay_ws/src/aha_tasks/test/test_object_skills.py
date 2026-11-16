@@ -583,6 +583,8 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["trash.floor"]["label"], "cookies")
         self.assertTrue(all(z == 0.0 for _, (_, _, z) in objects.looked[:3]))
+        # Then at the trash, not the last floor pan.
+        self.assertEqual(objects.looked[3:], [("map", (4.1, -3.4, 0.075))])
 
     FLOOR_PARAMS = {
         "surface": "floor",
@@ -611,6 +613,36 @@ class SkillTests(unittest.TestCase):
         params = dict(self.FLOOR_PARAMS, exclude=[])
         result, _ = run(PerceiveObjects, FakeObjects(scene, robot), params, memory)
         self.assertEqual(result.outputs["trash.floor"]["label"], "pringles")
+
+    def test_on_the_shelf_the_head_ends_at_the_first_role_level(self):
+        heights = FURNITURE.get("shelf").heights
+        cereal, milk = (0.06, 0.16, 0.26), (0.07, 0.07, 0.19)
+        scene = [
+            detection("cereal", on_top(3.05, 3.5, heights[2], cereal), 1, cereal),
+            detection("milk", on_top(3.35, 3.5, heights[3], milk), 2, milk),
+        ]
+        shelf = furniture_region(FURNITURE.get("shelf"), (0.0, 0.0, 0.0, 0.0), 0.1)
+        levels = [("map", tuple(round(v, 3) for v in p)) for p in shelf.look_points()]
+        cases = (
+            (["cereal", "milk"], scene, 3),
+            (["milk", "cereal"], scene, 4),
+            (["cereal", "milk"], scene[1:], 4),  # no cereal: the milk's level
+        )
+        for roles, detections, level in cases:
+            with self.subTest(roles=roles, objects=len(detections)):
+                objects = FakeObjects(detections, robot=(3.2, 2.62, math.pi / 2))
+                params = {
+                    "surface": "shelf",
+                    "output": "breakfast",
+                    "margin": 0.1,
+                    "exclude": [],
+                    "roles": {role: {"labels": [role]} for role in roles},
+                }
+                result, _ = run(PerceiveObjects, objects, params)
+                self.assertTrue(result.success, result.message)
+                # Each level from the lowest, then back to the first role's.
+                self.assertEqual(objects.looked[:-1], levels)
+                self.assertEqual(objects.looked[-1], levels[level - 1])
 
     def test_cancel_ends_the_scan(self):
         objects = FakeObjects(table_scene())
