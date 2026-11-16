@@ -715,7 +715,11 @@ class FindDescribedPerson(Skill):
             next_look = people.now() + dwell
 
         def come_closer(message, person):
-            """Approach the person to talk; the head stays on them. Error or None."""
+            """Approach the person to talk; the head stays on them. Error or None.
+
+            Only a cancel is an error: a person who cannot be approached is
+            asked from where the robot is.
+            """
             nonlocal origin, moved, talked_to
             people.follow(track=person.id)
             talked_to = person.id
@@ -729,7 +733,14 @@ class FindDescribedPerson(Skill):
             pose = approach_pose(origin, planar(person.position), distance)
             ok, text = navigation.navigate(pose, ctx.cancelled)
             if not ok:
-                return f"Could not approach person {person.id} to ask: {text}"
+                if ctx.cancelled.is_set():
+                    return "Cancelled"
+                # E.g. the pose is too close to furniture: ask from here
+                # rather than give up on everyone.
+                ctx.log(
+                    f"Could not approach person {person.id} ({text}): asking from here"
+                )
+                return None
             origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
             return None
 

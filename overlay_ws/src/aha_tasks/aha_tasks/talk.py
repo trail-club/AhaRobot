@@ -167,7 +167,8 @@ class TellInfo(Skill):
         else:
             error = self.face_role(ctx, outputs)
         if error:
-            return SkillResult(False, error)
+            # Turning to or approaching them failed: tell it from here.
+            ctx.log(f"{error}: telling from here")
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")
         ok, message = Interaction.of(self.runtime).say(sentence, ctx.cancelled)

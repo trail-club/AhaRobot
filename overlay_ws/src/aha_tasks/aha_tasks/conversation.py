@@ -223,11 +223,28 @@ NO_PHRASE = re.compile(
 )
 
 
+def _answered_with(text, name):
+    """Whether `name` is the answer itself: after a cue ("I'm Charlie") or alone.
+
+    A name in a longer reply ("Charlie is over there", "This is Charlie's
+    seat") is not.
+    """
+    if name.lower().split()[0] in {words[0] for words in _cued(text) if words}:
+        return True
+    rest = [t for t in _tokens(text) if t not in FILLER]
+    return bool(rest) and all(_closest(t, [name]) for t in rest)
+
+
 def parse_reply(text, names):
-    """{"yes": bool, "no": bool, "name": <name of `names`> | None} of a reply."""
+    """{"yes": bool, "no": bool, "name": <name of `names`> | None} of a reply.
+
+    "name" is set only when the reply gives it as the answer (_answered_with).
+    """
     tokens = _tokens(text)
     joined = " ".join(tokens)
     name = find_name(text, names)
+    if name is not None and not _answered_with(text, name):
+        name = None
     denied_name = name is not None and re.search(
         rf"\bnot {re.escape(name.lower())}\b", joined
     )

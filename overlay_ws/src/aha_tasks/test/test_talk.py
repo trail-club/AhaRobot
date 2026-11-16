@@ -69,11 +69,14 @@ class FakeInteraction:
 
 
 class FakeNavigation:
-    def __init__(self):
+    def __init__(self, fail_after=None):
         self.goals = []
+        self.fail_after = fail_after  # goals that succeed before the rest fail
 
     def navigate(self, pose, cancelled=None):
         self.goals.append([round(v, 3) for v in pose])
+        if self.fail_after is not None and len(self.goals) > self.fail_after:
+            return False, "blocked"
         return True, ""
 
 
@@ -180,6 +183,16 @@ class TellInfoTests(unittest.TestCase):
         self.assertEqual(navigation.goals, [[-1.0, 0.0, 3.142], [-2.0, 0.0, 3.142]])
         self.assertEqual(result.outputs["robot.location"], [-2.0, 0.0, 3.142])
         self.assertEqual(people.followed, [(4, "")])
+
+    def test_a_failed_approach_still_tells(self):
+        people = FakePeople(people_message(person(4, -3.0, 0.0)))
+        navigation = FakeNavigation(fail_after=1)  # back, then the approach fails
+        result, said = self.tell(
+            {"key": "n", "person": "operator"}, {"n": 2}, people, navigation
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(said, ["The answer is 2."])
+        self.assertEqual(result.outputs["robot.location"], "instruction_point")
 
     def test_operator_close_by_is_only_turned_to(self):
         people = FakePeople(people_message(person(4, -1.0, 1.0)))

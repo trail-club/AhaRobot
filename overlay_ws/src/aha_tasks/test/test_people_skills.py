@@ -1039,6 +1039,17 @@ class AskNameTests(unittest.TestCase):
         self.assertEqual(people.remembered, {"Charlie"})
         self.assertEqual(people.followed[-1], (2, "Charlie"))
 
+    def test_a_person_who_cannot_be_approached_is_asked_from_there(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 3.0, 0.0)))
+        navigation = FakeNavigation(ok=False)
+        result, interaction = self.find(
+            people, {"name": "Charlie"}, ["No, I'm Jane.", "Yes."], navigation
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(len(navigation.goals), 2)
+        self.assertNotIn("robot.location", result.outputs)
+
     def test_people_with_other_names_are_not_asked(self):
         people = FakePeople(
             people_message(person(1, 1.0, 0.0, "Jane"), person(2, 2.0, 0.0))
