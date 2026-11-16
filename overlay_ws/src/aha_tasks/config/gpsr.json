@@ -45,8 +45,8 @@
     "count": null,
     "describe": null,
     "tell_info": null,
-    "follow_person": null,
-    "guide_person": null
+    "follow_person": "aha_tasks.follow:FollowPerson",
+    "guide_person": "aha_tasks.follow:GuidePerson"
   },
   "subgoals": [
     {"id": "start.wait_door", "group": "開始", "title": "ドアが開くのを待つ", "skill": "wait_door_open", "note": "代替の開始合図を使うと−100"},
