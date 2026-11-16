@@ -1,11 +1,12 @@
 """Simulation only: puts the objects of a scene file onto the furniture in Gazebo.
 
-Objects missing from the world are spawned; objects of the same name left
-from an earlier run (e.g. moved by the robot) are put back to their scene
-pose, so running it again resets the scene. Models that the object list
-would detect as an object but that are not in the scene (e.g. of another
-scene placed earlier in the same Gazebo) are removed first; other models
-(furniture, the robot, guests, people) are never touched. After ``--settle`` seconds the
+Objects are spawned at their scene pose; objects of the same name left from
+an earlier run (e.g. moved by the robot) are removed first and spawned again,
+so running it again resets the scene (moving them one by one could push one
+into another that is still in the way). Models that the object list would
+detect as an object but that are not in the scene (e.g. of another scene
+placed earlier in the same Gazebo) are removed too; other models (furniture,
+the robot, guests, people) are never touched. After ``--settle`` seconds the
 objects are checked against their resting poses, and the program exits:
 0 when every object is in the world, 1 otherwise. A moved or tipped object
 only gives a warning. ``--check`` only does the check (nothing is moved or
@@ -159,24 +160,31 @@ def main(argv=None):
 
     present = poses()
     stale = stale_models(present, scene, catalog.object_list)
+    # Scene objects left in Gazebo are spawned again; one without a model
+    # (it could not be built) is only moved back.
+    again = [o.name for o in scene.objects if o.name in present and o.name in sdfs]
     if stale and args.check:
         log(f"warning: objects not in the scene: {', '.join(stale)}")
-    elif stale:
-        for name in stale:
+    elif stale or again:
+        for name in stale + again:
             removed = request("remove", Entity(name=name, type=Entity.MODEL), Boolean)
-            log(
-                f"removed {name} (not in the scene)"
-                if removed
-                else f"could not remove {name}"
-            )
+            if name in stale:
+                log(
+                    f"removed {name} (not in the scene)"
+                    if removed
+                    else f"could not remove {name}"
+                )
+            elif not removed:
+                log(f"could not remove {name} to spawn it again")
         asked = time.monotonic()
         while time.monotonic() < asked + 10.0:
             current = poses(newer_than=asked)
-            if current is not None and not set(stale) & set(current):
+            if current is not None and not set(stale + again) & set(current):
                 break
             time.sleep(0.2)
         else:
             log("warning: removed objects are still in Gazebo")
+        present = {k: v for k, v in present.items() if k not in stale + again}
     for obj in [] if args.check else scene.objects:
         x, y, z, yaw = obj.spawn_pose()
         if obj.name in present:
