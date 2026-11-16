@@ -76,7 +76,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 
 | | `e2e:=final`（既定） | `e2e:=debug` |
 | --- | --- | --- |
-| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
+| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する。新しいgoalを受けると、実行中・待ちの古いgoalを中止する（Nav2と同じ） |
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
@@ -412,7 +412,7 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 - **ついて来ている人**: ロボットから `gap`（既定2.5 m）以内で、対象のtrack・名前の人、またはロボットの通った経路から1.2 m以内の名前のない人（対象と同時に見えていた人を除く）。経路を1.2 m戻った点を、頭が届く（左右1.4 rad以内）なら走ったまま3 s見る。見えなければ止まり、頭が届くまで台車をその場で回して5 s見る。頭の可動域（±90°）では真後ろが見えないため。
 - **終わり**: どちらも `timeout`（既定300 s）で失敗する。部屋の形は使わず、`location` の地点からの距離だけを見る。人の「stop」などの発話は聞かない。実行しない場合は、`location` があればその地点を `robot.location` とする。
 - Nav2の速度（0.2 m/s）より速く歩く人は離れていき、見えなくなると探す。人が止まらずに歩き続けると `timeout` まで終わらない。
-- `navigation:=teleport` では確かめていない（`sim_teleport` は移動ごとに待つ）。
+- `navigation:=teleport` では確かめていない（`sim_teleport` は1回の移動に約4 sかかる）。
 
 ### GPSRの歩く人
 
