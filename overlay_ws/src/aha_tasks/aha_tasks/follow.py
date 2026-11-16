@@ -742,12 +742,14 @@ class FollowPerson(_PersonSkill):
                     )
                 continue
             sighting = (message, person)
+            # The search goal (towards the last sighting, or turning around) is
+            # not for where the person is now: a new goal replaces it below, or
+            # it is cancelled (not both: Nav2 would end the new goal as well).
+            refound = search is not None
             if search is not None or target.track != gazed:
-                if search is not None:
+                if refound:
                     ctx.log(f"Found the person again: track {person.id}")
-                    # The search goal (towards the last sighting, or turning
-                    # around) is not for where the person is now.
-                    pursuit.stop()
+                    pursuit.goal = None  # any goal now differs from it
                 people.follow(track=person.id, name=person.name)
                 gazed, search = target.track, None
             gap = math.dist(robot[:2], target.position)
@@ -761,6 +763,8 @@ class FollowPerson(_PersonSkill):
                 text = f"The person stopped{where} after {target.travelled:.1f} m"
                 # Come up to `distance` from them rather than stop on the way,
                 # e.g. in a doorway.
+                if refound:
+                    pursuit.stop()
                 pursuit.finish(people, ctx.cancelled, SETTLE)
                 if ctx.cancelled.is_set():
                     return False, "Cancelled", None
@@ -778,6 +782,8 @@ class FollowPerson(_PersonSkill):
                 goal, pursuit.goal, pursuit.sent_at, pursuit.state(), now
             ):
                 pursuit.send(goal, now)
+            elif refound:
+                pursuit.stop()
         return False, "Cancelled", None
 
     def _search(self, search, people, base, target, robot, pursuit, now):
