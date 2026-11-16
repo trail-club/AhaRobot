@@ -617,3 +617,18 @@ class GpsrEngineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleAnswerTests(unittest.TestCase):
+    def test_a_new_value_without_a_sentence_clears_the_old_sentence(self):
+        from aha_tasks.plan import without_stale_answers
+
+        memory = {"count": 2, "count.answer": "There are 2 waving people."}
+        self.assertEqual(
+            without_stale_answers({"count": 3}, memory),
+            {"count": 3, "count.answer": None},
+        )
+        # A step that writes its own sentence, or another key, keeps it.
+        fresh = {"count": 3, "count.answer": "There are 3 drinks."}
+        self.assertEqual(without_stale_answers(fresh, memory), fresh)
+        self.assertEqual(without_stale_answers({"other": 1}, memory), {"other": 1})
