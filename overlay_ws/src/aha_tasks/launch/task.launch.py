@@ -5,6 +5,9 @@ head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 `guests:=true` adds sim_guests, which moves the task's simulated guests.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
+`walkers:=<name>` adds sim_walkers, which walks the people of
+config/sim/walkers/<name>.json (or a JSON path) for the GPSR follow and guide
+steps.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -39,6 +42,7 @@ from launch_ros.actions import Node
 from aha_tasks.core import load_spec
 from aha_tasks.guests import load_config as load_scene
 from aha_tasks.skills import LOCATION, resolve_pose
+from aha_tasks.walkers import load_config as load_walkers
 
 # Launch argument -> task_runner option.
 RUNNER_OPTIONS = {
@@ -189,6 +193,16 @@ def launch_task(context):
         )
     actions.append(runner)
     guest_scene = load_scene(scene) if guests else None
+    walkers = value("walkers")
+    walker_scene = None
+    if walkers:
+        walker_scene = (
+            Path(walkers)
+            if walkers.endswith(".json")
+            else task_config(f"sim/walkers/{walkers}")
+        )
+        if not walker_scene.is_file():
+            raise ValueError(f"walkers:={walkers}: no {walker_scene}")
     if navigation == "teleport":
         teleport = {"use_sim_time": True, "speed": 0.0}
         if guest_scene is not None:
@@ -210,16 +224,13 @@ def launch_task(context):
         )
     if people and perception == "truth":
         # Wall clock like sim_object_detector.py; it uses the image stamps.
+        models = list(guest_scene["guests"]) if guest_scene is not None else ["guest*"]
+        if walker_scene is not None:
+            models += list(load_walkers(walker_scene)["walkers"])
         people_node = Node(
             package="aha_perception",
             executable="sim_person_detector.py",
-            parameters=[
-                {
-                    "models": list(guest_scene["guests"])
-                    if guest_scene is not None
-                    else ["guest*"]
-                }
-            ],
+            parameters=[{"models": models}],
             output="screen",
             respawn=True,
             respawn_delay=2.0,
@@ -246,6 +257,16 @@ def launch_task(context):
                 executable="sim_guests",
                 parameters=[{"use_sim_time": True}],
                 arguments=[f"--config={scene}"],
+                output="screen",
+            )
+        )
+    if walker_scene is not None:
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_walkers",
+                parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={walker_scene}"],
                 output="screen",
             )
         )
@@ -308,6 +329,11 @@ def generate_launch_description():
                 "people_scene",
                 default_value="",
                 description="Posed people from config/sim/people/<name>.json",
+            ),
+            DeclareLaunchArgument(
+                "walkers",
+                default_value="",
+                description="GPSR walkers from config/sim/walkers/<name>.json",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
