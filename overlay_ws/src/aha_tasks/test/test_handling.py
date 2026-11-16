@@ -581,7 +581,10 @@ class DeliverTests(unittest.TestCase):
         )
         memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
         result, _ = run(
-            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory
+            DeliverObject,
+            runtime,
+            {"object": "cola", "person": "Jane", "touch": True},
+            memory,
         )
         self.assertTrue(result.success, result.message)
         self.assertIn("released by touch", result.message)
@@ -590,6 +593,18 @@ class DeliverTests(unittest.TestCase):
         self.assertEqual(
             runtime.interaction.asked, ["Touch Release when you hold the cola"]
         )
+
+    def test_the_screen_is_not_used_unless_touch_is_set(self):
+        hands = FakeHands(handover=[ok()])
+        runtime = make_runtime(
+            None, robot="office", hands=hands, interaction=FakeInteraction(touch=True)
+        )
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        result, _ = run(
+            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.interaction.asked, [])
 
     def test_asked_again_when_nobody_takes_it(self):
         hands = FakeHands(handover=[failed(1, "nobody"), ok()])

@@ -747,14 +747,14 @@ class DeliverObject(_HandSkill):
 
     params: {"object": "cola" | "<memory key>", "person": "waving person" |
     "operator", "role": "person", "distance": 1.0, "timeout": 20.0,
-    "retries": 1}. The person is at `<role>.position` / `.frame`
+    "retries": 1, "touch": false}. The person is at `<role>.position` / `.frame`
     (find_described_person); "operator" (or "me") is the person who gave the
     commands: the robot goes to the instruction point and turns to the
     nearest person there. The base comes `distance` from the person and
     faces them, says what it brings, and the handover server holds the
-    object out and lets go when the person takes it (or when the "Release"
-    button on the screen is touched), waiting `timeout` s; then it asks once
-    more for each retry.
+    object out and lets go when the person takes it (with `touch`, also when
+    the "Release" button on the screen is touched), waiting `timeout` s; then
+    it asks once more for each retry.
     """
 
     @classmethod
@@ -762,8 +762,10 @@ class DeliverObject(_HandSkill):
         check_params(
             params,
             {"object", "person"},
-            {"role", "distance", "timeout", "retries", "arm"},
+            {"role", "distance", "timeout", "retries", "arm", "touch"},
         )
+        if not isinstance(params.get("touch", False), bool):
+            raise ValueError(f"touch must be true or false: {params}")
         if "role" in params:
             check_name(params, "role")
         positive(params, "distance", DELIVER_DISTANCE)
@@ -932,8 +934,11 @@ class DeliverObject(_HandSkill):
             if index is not None:
                 touched.set()
 
+        # The team uses touch input outside HIC only when asked for.
+        touch = ctx.params.get("touch", False)
         asking = threading.Thread(target=ask, daemon=True)
-        asking.start()
+        if touch:
+            asking.start()
         try:
             result = hands.finish(
                 handle, timeout + HANDOVER_MARGIN, ctx.cancelled, until=touched.is_set
@@ -953,4 +958,5 @@ class DeliverObject(_HandSkill):
             return None, f"{HANDOVER_ACTION} did not answer in time"
         finally:
             stop.set()
-            asking.join(timeout=SERVER_TIMEOUT)
+            if touch:
+                asking.join(timeout=SERVER_TIMEOUT)
