@@ -99,12 +99,25 @@ class SimWalker(Walker):
         self.wait_gap = scene["wait_gap"]
         self.stage = WAIT
         self.running = False  # the slot of the step is running now
+        self.status = None  # the slot's last status
 
     def set_status(self, status):
         """Status of the walker's plan slot (step_status)."""
+        # Running again after it ended (a retry, which restores the robot):
+        # start over, as after a rewind.
+        retried = (
+            status == RUNNING
+            and self.stage == RUN
+            and self.status not in (None, PENDING, RUNNING)
+        )
+        self.status = status
         self.running = status == RUNNING
         stage = stage_of(status, self.stage)
-        if stage == self.stage:
+        if retried:
+            self.stage = WAIT
+            self._place(self.config["start"])
+            self.yaw = self.config["yaw"]
+        elif stage == self.stage:
             return
         previous, self.stage = self.stage, stage
         self.route, self.last_trail = [], None

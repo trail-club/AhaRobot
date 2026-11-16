@@ -89,6 +89,20 @@ class LeaderTests(unittest.TestCase):
         run(leader, 3.0, robot)
         self.assertEqual((leader.x, leader.y), stopped)
 
+    def test_a_retried_step_walks_the_route_again(self):
+        leader = walker("follow_person")
+        start = tuple(leader.config["start"])
+        robot = (start[0], start[1] - 1.2)
+        leader.set_status("running")
+        run(leader, 2.0, robot)
+        leader.set_status("failed")
+        leader.set_status("running")  # retry
+        self.assertEqual((leader.x, leader.y), start)
+        run(leader, 1.0, robot)
+        self.assertAlmostEqual(
+            math.dist(start, (leader.x, leader.y)), SCENE["walk_speed"], places=6
+        )
+
     def test_waits_for_a_robot_left_behind(self):
         leader = walker("follow_person")
         leader.set_status("running")
