@@ -540,7 +540,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 
 | スキル | params | 動作 | 出力 |
 | --- | --- | --- | --- |
-| `pick_object` | `object`、`surface`（省略可）、`arm`（`right`）、`margin`（0.1）、`retries`（1）、`approach`（`true`） | `surface` の上を走査して `object` に合う物体を選び、腕から届かなければ台車を寄せて `PickObject` を送る。失敗すると走査からやり直す | `robot.holding`（`object` の値）、`robot.held_object`（物体の辞書に `surface` を加えたもの）、寄せたときは `robot.location` |
+| `pick_object` | `object`、`surface`（省略可）、`arm`（`right`）、`margin`（家具の外形から0.1 m、`floor` はロボットからの半径1.5 m）、`retries`（1）、`approach`（`true`） | `surface` の上を走査して `object` に合う物体を選び、腕から届かなければ台車を寄せて `PickObject` を送る。失敗すると走査からやり直す | `robot.holding`（`object` の値）、`robot.held_object`（物体の辞書に `surface` を加えたもの）、寄せたときは `robot.location` |
 | `place_object` | `object`、`surface`、`spot`（省略可）、`arm`、`clearance`（0.05）、`retries`、`approach` | 置き場所を決め、届かなければ台車を寄せて `PlaceObject` を送る。別の置き場所・台車の位置で変わりうる失敗（`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `EXECUTION_FAILED`）だけ、置き場所からやり直す。`STATUS_NOT_AT_SPOT`（離したが置いた所に見えない）は物体がもう手にないため成功とし、メッセージに書く（失敗では記憶が戻り、`robot.holding` が残る） | `robot.holding` と `robot.held_object` を `null` |
 | `deliver_object` | `object`、`person`、`role`（`person`）、`distance`（1.0）、`timeout`（20）、`retries`（1）、`arm`、`touch`（`false`） | 人の前へ行き、`Here is the cola. Please take it from my hand.` と言って `HandOver` を送る | 同上 |
 
@@ -551,6 +551,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 - **人**: `person` が `operator` か `me` なら、`instruction_point` へ移動し、地点から2.5 m以内で人の認識が3 s以内に見た最も近い人へ向く。見えなければ地点の向きの1.0 m先へ差し出す。それ以外は `<role>.position` / `.frame`（`find_described_person`）の人へ `distance` まで近づく（1.3 m以内なら向きだけ合わせる）。記憶になければ失敗する。
 - **受け渡し**: 手を出す点は人の中心で、高さを0.7–1.1 mに収める。serverが受け取りを感じ取る（`release: take`）と離す。`touch: true` なら画面の `Release` のタッチでも離す（HIC以外ではタッチを使わない方針のため既定はfalse）。タッチでは `take` のgoalを取り消して（腕は出したまま）`release: now` で送り直す。取り消す間に `take` のgoalが終わっていれば（受け取られた後のタッチなど）、送り直さずにその結果を使う。5 s以内に止まったと確かめられなければ、送り直さずに失敗とする。`timeout` 秒で受け取られなければ、言い直して `retries` 回まで送る。
 - 失敗しても人に助けを求めない（§3.7の補助は最後の手段で、まず手順を飛ばす）。失敗はサブゴールの失敗としてポリシーに従う。
+- serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。
 - 持てる物体は1つで、持っている間の `pick_object` は失敗する。
 
 ### シミュレーションの把持

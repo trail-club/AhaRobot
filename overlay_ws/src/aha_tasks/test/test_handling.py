@@ -31,7 +31,7 @@ from aha_tasks.handling import (  # noqa: E402
     reach_pose,
     spot_from,
 )
-from aha_tasks.objects import Percept, furniture_region  # noqa: E402
+from aha_tasks.objects import Cancelled, Percept, furniture_region  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
 from aha_tasks.skills import LOCATION  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
@@ -379,6 +379,15 @@ class PickTests(unittest.TestCase):
         self.assertTrue(result.success, result.message)
         self.assertEqual(runtime.hands.goals[0][1].target["position"][0], 3.27)
         self.assertEqual(result.outputs[HOLDING], "object")
+
+    def test_pick_from_the_floor_around_the_robot(self):
+        scene = [detection("cola", (2.0, 2.5, 0.06), 1, COLA)]
+        runtime = make_runtime(scene, robot="office", hands=FakeHands(pick=[ok()]))
+        result, _ = run(PickObject, runtime, {"object": "cola", "surface": "floor"})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.hands.goals[0][1].target["position"], [2.0, 2.5, 0.06])
+        # Facing it, the cola at the right arm's point (0.45, -0.2).
+        self.assertEqual(runtime.navigation.goals, [[1.8, 2.05, 1.571]])
 
     def test_a_failed_pick_is_tried_again(self):
         hands = FakeHands(pick=[failed(), ok()])
@@ -755,7 +764,31 @@ class FakeClient:
         return self.sent[-1]
 
 
+class FakeHandle:
+    """A goal that ends with `on_cancel` once it is cancelled."""
+
+    def __init__(self, on_cancel):
+        self.future, self.on_cancel = FakeFuture(), on_cancel
+
+    def get_result_async(self):
+        return self.future
+
+    def cancel_goal_async(self):
+        self.future.set_result(SimpleNamespace(result=self.on_cancel))
+
+
 class HandsTests(unittest.TestCase):
+    def test_a_goal_that_succeeded_before_the_cancel_counts(self):
+        hands = Hands.__new__(Hands)
+        cancelled = threading.Event()
+        cancelled.set()
+        done = Result(success=True, status=0, message="Picked; not at carry")
+        self.assertIs(hands.finish(FakeHandle(done), 1.0, cancelled), done)
+        with self.assertRaises(Cancelled):
+            hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
+        # A timeout likewise.
+        self.assertIs(hands.finish(FakeHandle(done), 0.0, threading.Event()), done)
+
     def test_a_goal_accepted_after_a_cancel_is_cancelled(self):
         client = FakeClient()
         hands = Hands.__new__(Hands)

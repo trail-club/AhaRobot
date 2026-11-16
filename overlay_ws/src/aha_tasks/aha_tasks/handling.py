@@ -79,6 +79,9 @@ ARM_POINT = (0.45, -0.2)
 REACH = 0.75  # m from the base centre; a farther object makes the base move first
 MOVE_TOLERANCE = (0.05, 0.1)  # m, rad; a base pose this close is not driven to
 PICK_MARGIN = 0.1  # m beyond the furniture outline where objects count
+# m around the robot where objects on the floor count (the floor "margin" of
+# aha_tasks.objects, as Pick and Place's floor trash)
+FLOOR_RADIUS = 1.5
 PLACE_CLEARANCE = 0.05  # m to other objects (Pick and Place breakfast: 5 cm)
 EDGE_GAP = 0.03  # m from a table edge to the footprint of a placed object
 GRID = 0.02  # m between the spots tried on a table
@@ -454,13 +457,17 @@ class Hands:
         return handle
 
     def finish(self, handle, timeout, cancelled, until=None):
-        """The result, or None once `until()` holds; on cancel or timeout the
-        goal is cancelled and Cancelled / TimeoutError raised."""
+        """The result, or None once `until()` holds. On cancel or timeout the
+        goal is cancelled; if it succeeded all the same (the motion was done,
+        e.g. the object already in the hand), that result is returned, else
+        Cancelled / TimeoutError is raised."""
         future = handle.get_result_async()
         try:
             response = wait(future, timeout, cancelled, until)
         except (Cancelled, TimeoutError):
-            self.cancel(handle)
+            ended = self.cancel(handle)
+            if ended is not None and ended.success:
+                return ended
             raise
         return None if response is None else response.result
 
@@ -556,7 +563,8 @@ class PickObject(_HandSkill):
     "approach": true}. `surface` is a furniture name, "floor" or a task
     location in front of furniture; it may be left out when the record has a
     "surface". The surface is scanned (objects within `margin` of its
-    outline), the object chosen (choose_object), the base moved to reach it
+    outline; on the floor within `margin`, default FLOOR_RADIUS, of the
+    robot), the object chosen (choose_object), the base moved to reach it
     (approach), and the pick server asked; on failure all of it is tried
     `retries` more times.
     """
@@ -592,7 +600,11 @@ class PickObject(_HandSkill):
             try:
                 frame, region, placed, _ = objects.scan(
                     name,
-                    float(params.get("margin", PICK_MARGIN)),
+                    float(
+                        params.get(
+                            "margin", FLOOR_RADIUS if name == FLOOR else PICK_MARGIN
+                        )
+                    ),
                     ctx.cancelled,
                     ctx.log,
                 )
