@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import http.client
 import io
 import json
 import math
@@ -78,7 +79,7 @@ def download(url: str, sha256: str, cache: Path) -> Path:
         ) as out:
             for block in iter(lambda: reply.read(1 << 20), b""):
                 out.write(block)
-    except OSError as error:
+    except (OSError, http.client.HTTPException) as error:  # e.g. IncompleteRead
         raise ModelError(f"cannot download {url}: {error}") from error
     actual = _sha256(partial)
     if actual != sha256:
@@ -747,6 +748,8 @@ class ScannedModel:
             "scale": self.scale,
             "crop": [list(c) for c in self.crop] if self.crop else None,
             "mass": self.mass,
+            "size": list(self.size),
+            "source": self.source,
         }
 
 
@@ -1113,6 +1116,8 @@ class MeasuredModel:
             "shape": self.shape,
             "paint": self.paint,
             "mass": self.mass,
+            "size": list(self.size),
+            "source": self.source,
         }
 
 

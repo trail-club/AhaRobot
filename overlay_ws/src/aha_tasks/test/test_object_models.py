@@ -1,5 +1,6 @@
 """Models of real objects built from datasets: readers, scans, measured shapes."""
 
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -207,6 +208,9 @@ class ScannedModelTests(unittest.TestCase):
                 stamp = (directory / "build.json").stat().st_mtime_ns
                 self.assertEqual(build_scanned(model, tmp / "cache"), directory)
                 self.assertEqual((directory / "build.json").stat().st_mtime_ns, stamp)
+                # A changed size is checked again, not taken from the cache.
+                with self.assertRaises(ModelError):
+                    build_scanned(replace(model, size=(0.1, 0.2, 0.06)), tmp / "cache")
                 built = YcbModel("box", "test_box", 0.0, directory)
                 sdf = ET.fromstring(ycb_sdf(built, "box_1", (0, 0, 0.1, 0)))
                 uri = sdf.findtext("model/link/visual/geometry/mesh/uri")
@@ -274,6 +278,20 @@ class ScannedModelTests(unittest.TestCase):
                 build_scanned(self.scanned(archive, size=(0.2, 0.1, 0.05)), tmp / "c")
             with self.assertRaises(ModelError):  # the board left in
                 build_scanned(self.scanned(archive, crop=None), tmp / "c")
+
+    def test_a_cut_download_is_a_model_error(self):
+        import http.client
+        from unittest import mock
+
+        from aha_tasks.object_models import download
+
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.side_effect = http.client.IncompleteRead(b"")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "urllib.request.urlopen", return_value=reply
+        ):
+            with self.assertRaises(ModelError):
+                download("https://example.com/scan.zip", "0" * 64, Path(tmp))
 
     def test_solid_inertia_of_a_cube(self):
         points = np.array(
