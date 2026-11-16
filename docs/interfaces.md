@@ -173,6 +173,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
+GPSRの `find_described_person` は、人に名前を尋ねると `/aha/perception/audio/listen`（[音声](#音声)、goalの `hotwords` に名前の一覧）で答えを聞き、`/aha/perception/remember_person` でその名前を覚えさせる。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。

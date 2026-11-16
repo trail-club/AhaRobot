@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
+from aha_tasks.interaction import NO_ASR  # noqa: E402
 from aha_tasks.people import (  # noqa: E402
     MAX_JUDGEMENTS,
     SERVER_MARGIN,
@@ -78,6 +79,7 @@ class FakePeople(People):
     ):
         self.lock = threading.Lock()
         self.message, self.received = message, time.monotonic()
+        self.remembered = set()
         self.looked = []
         self.panned = []
         self.followed = []
@@ -141,9 +143,39 @@ class FakeNavigation:
         return self.ok, "" if self.ok else "blocked"
 
 
-def runtime(people, navigation=None):
+class FakeInteraction:
+    """Hears `heard` in turn (text, or (None, reason)); no touch on the screen."""
+
+    def __init__(self, heard=(), touched=(None, "timeout")):
+        self.heard = list(heard)
+        self.touched = touched
+        self.said = []
+        self.listened = 0
+
+    def say(self, text, cancelled):
+        self.said.append(text)
+        return True, "said"
+
+    def listen(self, hotwords, cancelled, timeout=10.0):
+        self.listened += 1
+        if not self.heard:
+            return None, "ASR: nothing was said"
+        item = self.heard.pop(0)
+        return (item, "") if isinstance(item, str) else item
+
+    def ask(self, prompt, choices, cancelled, timeout=0.0):
+        return self.touched
+
+
+def runtime(people, navigation=None, interaction=None):
     spec = SimpleNamespace(locations={"entrance": [0.0, 0.0, 0.0]})
-    return SimpleNamespace(node=None, spec=spec, navigation=navigation, people=people)
+    return SimpleNamespace(
+        node=None,
+        spec=spec,
+        navigation=navigation,
+        people=people,
+        interaction=interaction,
+    )
 
 
 def context(params, memory=None):
@@ -953,6 +985,8 @@ class FailureTests(unittest.TestCase):
 
     def test_a_name_given_after_the_track_started_is_still_found(self):
         people = FakePeople(people_message(person(5, 1.0, 0.0)))
+        # Remembered earlier: the VLM names a new track of Jules within seconds.
+        people.remembered.add("Jules")
 
         def named_later():
             time.sleep(0.3)
@@ -966,6 +1000,162 @@ class FailureTests(unittest.TestCase):
         thread.join()
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["person.track"], 5)
+
+
+class AskNameTests(unittest.TestCase):
+    """find_described_person asks people their name (Dialogue)."""
+
+    def find(self, people, params, heard=(), navigation=None, **kwargs):
+        interaction = FakeInteraction(heard, **kwargs)
+        skill = FindDescribedPerson(runtime(people, navigation, interaction))
+        return skill.execute(context(params)), interaction
+
+    def test_asks_people_in_turn_and_remembers_the_one(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 3.0, 0.0)))
+        navigation = FakeNavigation()
+        result, interaction = self.find(
+            people, {"name": "Charlie"}, ["No, I'm Jane.", "Yes."], navigation
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(result.outputs["person.name"], "Charlie")
+        # Turned to the near one, then went up to the other to ask.
+        self.assertEqual(navigation.goals, [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+        self.assertEqual(result.outputs["robot.location"], [2.0, 0.0, 0.0])
+        self.assertEqual(
+            interaction.said,
+            [
+                "Excuse me, are you Charlie?",
+                "Thank you.",
+                "Excuse me, are you Charlie?",
+                "Nice to meet you, Charlie.",
+            ],
+        )
+        self.assertEqual(
+            [(r.id, r.name) for r in people.remember.requests], [(2, "Charlie")]
+        )
+        self.assertEqual(people.remembered, {"Charlie"})
+        self.assertEqual(people.followed[-1], (2, "Charlie"))
+
+    def test_people_with_other_names_are_not_asked(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0, "Jane"), person(2, 2.0, 0.0))
+        )
+        result, interaction = self.find(people, {"name": "Charlie"}, ["Yes"])
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(interaction.listened, 1)
+
+    def test_the_rest_of_the_description_is_checked_first(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", "none")},
+                2: {"rules": ("standing", "waving")},
+            },
+        )
+        result, interaction = self.find(
+            people, {"name": "Charlie", "gesture": "waving person"}, ["Yes"]
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(interaction.listened, 1)
+
+    def test_someone_who_cannot_answer_is_not_asked_again(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        result, interaction = self.find(
+            people, {"name": "Charlie", "timeout": 0.5}, ["Hmm?", "What?"]
+        )
+        self.assertFalse(result.success)
+        self.assertIn("1 could not be checked", result.message)
+        self.assertEqual(interaction.listened, 2)
+
+    def test_fails_at_once_when_nobody_can_be_asked(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0)))
+        started = time.monotonic()
+        result, interaction = self.find(
+            people,
+            {"name": "Charlie"},
+            [(None, f"{NO_ASR}: not served")],
+            touched=(None, "No screen: not served"),
+        )
+        self.assertFalse(result.success)
+        self.assertIn("no ASR and no screen", result.message)
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_without_ask_only_remembered_people(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        result, interaction = self.find(
+            people, {"name": "Charlie", "ask": False, "timeout": 0.3}, ["Yes"]
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(interaction.listened, 0)
+
+    def test_info_name_of_anyone_in_the_area(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0)))
+        result, interaction = self.find(
+            people, {"info": "name", "location": "entrance"}, ["I'm Robin."]
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.name"], "Robin")
+        self.assertEqual(
+            result.outputs["person.name.answer"], "The person's name is Robin."
+        )
+        self.assertEqual(interaction.said[0], "Excuse me, what is your name?")
+        self.assertEqual(people.remembered, {"Robin"})
+
+    def test_a_remembered_name_is_not_asked(self):
+        people = FakePeople(people_message(person(1, 1.0, 0.0, "Robin")))
+        result, interaction = self.find(people, {"info": "name"})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            result.outputs["person.name.answer"], "The person's name is Robin."
+        )
+        self.assertEqual(interaction.said, [])
+        self.assertEqual(people.remember.requests, [])
+
+    def test_info_gesture_asks_the_vlm_until_it_is_known(self):
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0)),
+            attributes={
+                1: {"rules": ("standing", ""), "vlm": ("standing", "waving", [])}
+            },
+        )
+        result, interaction = self.find(people, {"info": "gesture"})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.gesture"], "waving")
+        self.assertEqual(
+            result.outputs["person.gesture.answer"], "The person is waving."
+        )
+        self.assertEqual([r.skip_vlm for r in people.classify.requests], [True, False])
+
+    def test_a_lost_track_is_remembered_by_its_new_track(self):
+        people = FakePeople(people_message(person(2, 1.0, 0.0)))
+
+        def remember(request):
+            if request.id == 2:
+                # Gone meanwhile; person_perception tracks them as 7 now.
+                people._on_people(people_message(person(7, 1.1, 0.0)))
+                return SimpleNamespace(success=False, message="person 2 is not tracked")
+            return SimpleNamespace(success=True, message="ok")
+
+        people.remember.answer = remember
+        result, _ = self.find(people, {"name": "Charlie"}, ["yes"])
+        self.assertTrue(result.success, result.message)
+        self.assertEqual([r.id for r in people.remember.requests], [2, 7])
+        self.assertEqual(people.remembered, {"Charlie"})
+
+    def test_params(self):
+        spec = SimpleNamespace(locations={"office": [0.0, 0.0, 0.0]})
+        FindDescribedPerson.validate({"info": "pose", "location": "office"}, spec)
+        FindDescribedPerson.validate({"name": "Charlie", "ask": False}, spec)
+        for params in (
+            {"info": "age"},
+            {"name": "Charlie", "ask": "yes"},
+            {"location": "office"},
+        ):
+            with self.assertRaises(ValueError, msg=params):
+                FindDescribedPerson.validate(params, spec)
 
 
 class CountPeopleTests(unittest.TestCase):
@@ -1033,6 +1223,9 @@ class CountPeopleTests(unittest.TestCase):
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["cmd1.count"], 1)
+        self.assertEqual(
+            result.outputs["cmd1.count.answer"], "There is one waving person."
+        )
         # The last sighting of the person.
         self.assertEqual(result.outputs["cmd1.count.positions"], [[1.2, 0.1, 1.0]])
         # After judging people the head looks the same way again, then moves on

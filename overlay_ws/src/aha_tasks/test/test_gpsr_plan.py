@@ -418,10 +418,14 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "say",
                 "find_described_person",
                 "count_people",
+                "answer_question",
+                "tell_info",
             },
         )
         for name in ("find_described_person", "count_people"):
             self.assertTrue(implemented[name].startswith("aha_tasks.people:"))
+        for name in ("answer_question", "tell_info"):
+            self.assertTrue(implemented[name].startswith("aha_tasks.talk:"))
 
 
 class Found(Skill):
@@ -447,9 +451,11 @@ class GpsrEngineTests(unittest.TestCase):
         by_id = records(status)
         self.assertEqual(by_id["start.wait_door"]["status"], "unsupported")
         self.assertEqual(by_id["command.mode"]["status"], "succeeded")
-        self.assertEqual(
-            runtime.interaction.said, ["Please give me all three commands at once."]
-        )
+        said = runtime.interaction.said
+        self.assertEqual(said[0], "Please give me all three commands at once.")
+        # answer_question (the time) and tell_info (the count) of the mock plan.
+        self.assertRegex(said[1], r"^It is \d+:\d\d [AP]M\.$")
+        self.assertEqual(said[2:], ["The answer is 3."])
         self.assertEqual(by_id["exec.step01"]["status"], "succeeded")
         self.assertIn("navigate", by_id["exec.step01"]["message"])
         self.assertIn("pick_object is not implemented", by_id["exec.step02"]["message"])

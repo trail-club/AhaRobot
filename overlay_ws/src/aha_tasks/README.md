@@ -14,7 +14,8 @@
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
-| `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
+| `aha_tasks/interaction.py` | スキルからの発話・聞き取りとタッチの質問、スキル `say` / `wait_start_signal` |
+| `aha_tasks/talk.py`、`aha_tasks/conversation.py` | GPSRの `answer_question` / `tell_info` と、名前・答え・質問の文（ROS非依存）（[名前を尋ねる・情報を伝える](#名前を尋ねる情報を伝える)） |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
@@ -176,11 +177,13 @@ ok, message = interaction.show(
     jpeg_bytes, "jpeg", "I found the cup on the table.", ctx.cancelled
 )
 index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
+text, why = interaction.listen(["Charlie", "Jane"], ctx.cancelled)
 ```
 
 - `say` は字幕を出し、TTS（`/aha/perception/audio/speak`）が起動していれば読み上げ終わるまで待つ（上限60 s）。TTSがなければ字幕だけで戻る（シミュレーション）。起動したばかりのrunnerはTTSをDDSで見つけるまで時間がかかるため、最初の1回だけ最大2 s待つ（`say` と `wait_start_signal` は `ready()` で待つ）。
 - `show` は画像（JPEGかPNGのbytes）を出し、`say` で説明する。画像は次の画像か `hide()` まで残る。認識の結果は `show` で審判に示すだけで、タッチで答えを求めない。
 - `ask` は画面にボタンを出し、タッチされると番号と文言を返す。タッチがなければ `index` が `None` で、`label` が理由（中断、`timeout` 秒の経過、置き換え、画面の終了）。`timeout` は実時間で、0以下は中断まで待つ。
+- `listen` はASR（`/aha/perception/audio/listen`）が聞いた次の発話1つを返す。`hotwords` は名前などの語で、`timeout`（既定10 s）は話し始めを待つ時間。ASRが5 s見つからなければ文字列なしで `No ASR` で始まる理由を返す。
 - 画面に出る質問は1つで、新しい質問は表示中の質問を置き換え、前の質問はタッチなしで終わる。
 - serverを見つけた直後に送ったgoalやその応答は失われることがある。`ask` は受け付けの応答が5 s以内になければ、serverが見えている間は質問を送り直す。送り直す前の質問がタッチされていれば、画面に出し直さずにそのタッチを返す。`say` は二重に読み上げないよう送り直さない。
 - 画面の起動を5 s待っても `/aha/display/ask` がなければ、`ask` はタッチなしで終わる。待つ間も中断を受け付ける。
@@ -342,7 +345,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）、[名前を尋ねる・情報を伝える](#名前を尋ねる情報を伝える) `answer_question` / `tell_info`。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -365,12 +368,12 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `find_object` | `object`、`location` | findObjInRoom、findObj |
 | `pick_object` / `place_object` | `object`、`surface` | takeObjFromPlcmt、takeObj、bringMeObjFromPlcmt / placeObjOnPlcmt、putObjInTrash（`surface: trashbin`） |
 | `deliver_object` | `object`、`person`（`operator` は命令した人） | bringMeObjFromPlcmt、deliverObjTo* |
-| `find_described_person` | `gesture` / `pose` / `clothing` / `description` / `name`、`location` | findPrsInRoom、meetPrsAtBeac、greet*、talkInfoToGestPrsInRoom、tellPrsInfo* |
+| `find_described_person` | `gesture` / `pose` / `clothing` / `description` / `name`、`info`（伝える情報）、`location` | findPrsInRoom、meetPrsAtBeac、meetName、greet*、meetNameAtLocThenFindInRm、talkInfoToGestPrsInRoom、tellPrsInfo*（`info`）、名前の人への deliver* / follow* / guide* |
 | `say` / `answer_question` | `text` / `question` | 挨拶 / talkInfo、talkInfoToGestPrsInRoom |
 | `count` | `target`、`location`、`output` | countObjOnPlcmt |
 | `count_people` | `output`、`gesture` / `pose` / `clothing` / `description`（省略で全員）、`location` | countPrsInRoom、countClothPrsInRoom |
-| `describe` | `target`、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt、tellPrsInfo* |
-| `tell_info` | `key`（記憶のキー）、`person` | `count` / `describe` の結果を伝える |
+| `describe` | `target`、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt |
+| `tell_info` | `key`（記憶のキー）、`person`、`role` / `location`（省略可） | count*、tell*（`count` / `count_people` / `describe` / `find_described_person` の結果を伝える） |
 | `follow_person` / `guide_person` | `person`、`location`（`follow_person` は省略可） | follow* / guide* |
 
 `find_described_person` は名前・ジェスチャ・姿勢・服で探す。HICの `find_person`（名前のない最も近い人）とは別のスキル。
@@ -384,15 +387,48 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 - **範囲**: `location` の地点（省略時はロボットの位置）から `radius`（既定3.0 m）以内の人だけを対象にする。人が `map` 以外の座標なら範囲で絞らない。部屋の形は使わない。
 - **見回し**: 頭を `pans`（既定 `[0.0, 0.4, -0.4]` rad）へ `dwell`（既定6 s）ずつ、2 m先の高さ `look_height`（既定1.0 m）へ向ける。
 - **判定**: 1人につき、頭をその人の頭へ向けて0.75 s待ち、その時に見えた頭の位置へ向け直してさらに0.75 s待つ（頭が画像の端で切れると頭の位置が低く出るため。挙げた手も写るように）。次に `skip_vlm` で深度とキーポイントの確かな答えだけを聞く。条件の成否が決まらなければ（服、不確かな姿勢・ジェスチャ）VLMに聞く。VLMの答えは `describe_timeout`（既定180 s、person_perceptionの `vlm_timeout` に合わせる）より30 s長く待つ（サーバーは先に動きを待つため）。判定に失敗した人（見失った、VLMの失敗、時間切れ）はもう1回判定し、それでも失敗すれば「判定できず」として続ける。中断は `Cancelled` で返す。
-- **名前**: `name` は person_perceptionが覚えた名前とだけ照合する。名前がまだ付いていない人（新しいtrackには数秒後に付く）は、付くのを待つ。名前を尋ねる会話は含まない。
+- **名前**: `name` はperson_perceptionが覚えた名前と照合し、その名前の人がいれば先に選ぶ。`ask`（既定 `true`）なら、名前のない人にも近づいて名前を尋ね（[名前を尋ねる](#名前を尋ねる情報を伝える)）、本人なら覚えさせる。この実行で覚えた名前を探すときは、名前のない人を尋ねる前に3 s待つ（VLMが新しいtrackに名前を付けるため）。`ask: false` は覚えた名前だけを待つ。
+- **伝える情報**: `info`（`name` / `pose` / `gesture`）は後で伝える人の情報で、他の条件がなければ範囲内の誰でもよい。`pose` / `gesture` は分かるまでVLMに聞き、`name` は覚えた名前がなければ尋ねる。
 - **制限時間**: `timeout` に達すると、1人の判定（注視と `ClassifyPerson` の待ち）の途中でも打ち切る。
 
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
-| `find_described_person` | 見回しながら、範囲内の人を近い順に1回ずつ判定し、最初に条件に合った人を見て、`approach`（既定 `true`）なら `distance`（既定1.0 m）手前まで近づく。`timeout`（既定60 s）で失敗 | `<role>.track` / `.position` / `.frame`、見えた `<role>.pose` / `.gesture` / `.garments`、`robot.location`（`role` の既定は `person`） |
-| `count_people` | `pans` を1巡し、見えている人を1人ずつ判定する。その向きに判定していない人が残る間は次の向きへ進まず、人を判定したらその向きを `dwell` だけ見直す。1人の判定は1回（失敗した場合は2回まで）で、判定できなかった人と、答えで条件の成否が決まらなかった人は数えない。`map` で0.5 m未満の観測は同じ人とする。`timeout`（既定300 s）で失敗 | `<output>`（人数）、`<output>.positions`（条件に合った人の最後の位置） |
+| `find_described_person` | 見回しながら、範囲内の人を近い順に1回ずつ判定し、最初に条件に合った人を見て、`approach`（既定 `true`）なら `distance`（既定1.0 m）手前まで近づく。`timeout`（既定60 s、名前を尋ねるときは120 s）で失敗 | `<role>.track` / `.position` / `.frame`、見えた `<role>.pose` / `.gesture` / `.garments`、分かった `<role>.name`、`<role>.<info>.answer`（文）、`robot.location`（`role` の既定は `person`） |
+| `count_people` | `pans` を1巡し、見えている人を1人ずつ判定する。その向きに判定していない人が残る間は次の向きへ進まず、人を判定したらその向きを `dwell` だけ見直す。1人の判定は1回（失敗した場合は2回まで）で、判定できなかった人と、答えで条件の成否が決まらなかった人は数えない。`map` で0.5 m未満の観測は同じ人とする。`timeout`（既定300 s）で失敗 | `<output>`（人数）、`<output>.positions`（条件に合った人の最後の位置）、`<output>.answer`（`"There are 2 waving people in the office."`） |
 
 trackは視野を外れると3 sで破棄され、見直すと別のIDになる。そのため判定は見えている間に行い、判定した人の `map` の位置から0.5 m未満に現れた新しいtrackは、同じ人として判定し直さない（数え直さない）。ただし、判定した人のtrackが同じ画像にまだ見えていれば、近くの新しいtrackは別の人として判定する。
+
+### 名前を尋ねる・情報を伝える
+
+[conversation.py](aha_tasks/conversation.py) が文を作り、答えを解釈する（ROS非依存）。発話は [ロボットの画面](#ロボットの画面) の `say`、聞き取りは `listen`（ASR、`/aha/perception/audio/listen`）。
+名前の一覧・ロボットとチームの情報はタスク定義の `initial_state` に書く。
+
+| 記憶 | 内容 |
+| --- | --- |
+| `gpsr.names` | 人の名前。既定は[CompetitionTemplate](https://github.com/RoboCupAtHome/CompetitionTemplate)の10人。ASRの `hotwords` に渡し、聞いた語と照合する |
+| `gpsr.robot_name` / `gpsr.team_name` / `gpsr.team_country` / `gpsr.team_affiliation` | `AhaRobot` / `TRAIL` / `Japan` / `the University of Tokyo` |
+| `gpsr.utc_offset` | 時刻・日付の時差（時間）。省略時はシステムの時間帯 |
+
+- **名前を尋ねる**（`find_described_person` の `name`）: 人に近づいて頭を向け、`"Excuse me, are you Charlie?"` と聞く。否定（no、not）、名前（`"I'm Jane"` は別人）、肯定（yes、`"That's me"`）の順に判断し、本人なら `remember_person` でその名前を覚えさせる。聞き取れない・判断できない答えは1回聞き直し、それでも分からなければ画面の `Yes` / `No` のタッチを10 s待つ。答えのない人は尋ね直さずに次の人へ進む。ASRも画面もなければその場で失敗する。
+- **名前を聞く**（`info: "name"`）: `"Excuse me, what is your name?"` と聞き、一覧の名前に近い語（綴りの類似度0.8以上、またはSoundexが同じで0.54以上。`"Jewels"` は Jules）、なければ `"my name is"` などの後の語を名前とする。2回聞いて分からなければその人を諦める。
+- **`answer_question`**: `question` は生成器の `{talk}`（`"the time"`、`"your teams name"` など9種）か言い換え。キーワードで話題を決め（明日、月、週、時刻、所属、国、チーム名、今日、自己紹介の順）、決まらない質問は計画の検証で拒否する。答えは `"It is 3:05 PM."`、`"Today is Monday, November 16th, 2026."`、`"My team's affiliation is the University of Tokyo."` など。時刻は実時間。
+- **`tell_info`**: `<key>.answer` があればそれを、なければ `<key>` の値を文にして言う（`<role>.name` / `.pose` / `.gesture` は人の情報、他は `"The answer is 3."`）。値がなければ失敗する。言う前に相手を向く。`person` が `operator`（`me`）なら `instruction_point` へ戻り、`location` があればそこへ行き、見えた最も近い人を向く（頭を正面・左右0.6 radへ2 sずつ、6 sまで探す）。それ以外は `<role>.track` / `.name` / `.position`（`role` の既定は `person`）の人を向く。1.5 mより遠い人には `distance`（既定1.0 m）手前まで近づく。人が見えなければ向かずにその場で言う。
+
+伝える手順の例（tellPrsInfoAtLocToPrsAtLoc）：
+
+```json
+[{"command": 1, "action": "navigate", "params": {"location": "bed"}},
+ {"command": 1, "action": "find_described_person", "params": {"info": "gesture", "location": "bed"}},
+ {"command": 1, "action": "navigate", "params": {"location": "desk"}},
+ {"command": 1, "action": "tell_info", "params": {"key": "person.gesture", "person": "person at the desk", "location": "desk"}}]
+```
+
+制限：
+
+- 人の答えは1発話だけで判断し、言い直しや「はい、でも…」のような文の意図は解釈しない。名前は一覧の語に寄せるため、一覧にない似た名前（John と Jane）は区別しないことがある。
+- 尋ねる人には `distance` 手前まで近づくため、人が多い部屋では移動と会話に時間がかかる（1人あたり移動・発話・最大2回の聞き取り）。
+- 覚えさせた名前が後の手順で付くかは、person_perceptionのVLMの照合による。照合されなければ後の手順で再び尋ねる。
+- シミュレーションにTTSはなく字幕だけ。人の声は代わりのListenのserverが要る。
 
 ### 姿勢を付けた人
 
