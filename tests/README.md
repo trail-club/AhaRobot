@@ -8,6 +8,7 @@
 | `ros/` | 試験用のROSパッケージ（下表）。`overlay_ws` の通常のビルドには含まれず、`make test` でビルド・テストする |
 | `manipulation/place_sim/` | 置く動作の試行・ストレス試行（Gazebo） |
 | `orchestration/place_llm/` | LLMで置く場所を決めて置く試行（Gazebo） |
+| `orchestration/gpsr_plan/` | GPSRの命令の計画（LLM）の評価（ROSなし） |
 
 | パッケージ（`ros/`） | 内容 |
 | --- | --- |
