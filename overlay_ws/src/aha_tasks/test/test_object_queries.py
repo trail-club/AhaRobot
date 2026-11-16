@@ -158,6 +158,8 @@ class SuperlativeTests(unittest.TestCase):
             ("most slender snack", ("thinnest", "snack")),
             ("slimmest fruit", ("thinnest", "fruit")),
             ("lightest", ("lightest", "object")),
+            ("the heaviest of the drinks", ("heaviest", "drinks")),
+            ("biggest can of cola", ("biggest", "can of cola")),
         ]:
             with self.subTest(text):
                 self.assertEqual(parse_superlative(text), expected)

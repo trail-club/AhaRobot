@@ -42,7 +42,7 @@ MARGIN = 0.1  # m beyond a furniture outline where objects still count as on it
 ARTICLES = {"the", "a", "an", "some", "any", "all", "every", "each"}
 # Words of a question around the subject: "what is the smallest item".
 FILLER = ARTICLES | {"what", "which", "is", "are", "that", "there", "me", "tell"}
-PREPOSITIONS = {"on", "in", "at", "from", "inside", "near", "of"}
+PREPOSITIONS = {"on", "in", "at", "from", "inside", "near"}
 GENERIC = {"object", "item", "thing", "one", "anything", "something", "stuff"}
 CONTAINERS = {
     "can",
@@ -296,7 +296,10 @@ def parse_superlative(text):
         raise ValueError(
             f"needs one of {', '.join(SUPERLATIVES)} (or a synonym): {text!r}"
         )
-    subject = " ".join(w for w in rest if w not in FILLER) or "object"
+    rest = [w for w in rest if w not in FILLER]
+    if rest and rest[0] == "of":
+        rest = rest[1:]  # "the heaviest of the drinks"
+    subject = " ".join(rest) or "object"
     return found[0], subject
 
 
