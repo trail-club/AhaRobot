@@ -15,11 +15,12 @@ or a container word ("tomato soup can", "can of cola"), and through the list's
 ("the name of the person") are not this module's: such steps are unsupported,
 so a plan mocks them.
 
-Superlatives (`describe`): biggest / largest: largest volume of the detected
-box (x * y * z); smallest: smallest volume; heaviest / lightest: the object
+Superlatives (`describe`): biggest / largest: largest volume of the box
+(x * y * z); smallest: smallest volume; heaviest / lightest: the object
 list's weight; thinnest: smallest of the box's three sides (thickness), then
-the second smallest. Synonyms (tiniest, slimmest, "weighs the most", ...) map
-to these.
+the second smallest. The box is the object list's size of the label (the
+official object; a camera detector sees only its front), else the detected
+box. Synonyms (tiniest, slimmest, "weighs the most", ...) map to these.
 
 Answers (`count`, `describe`) are written to `<output>` and an English
 sentence to `<output>.answer`, which `tell_info` says to the person.
@@ -303,24 +304,31 @@ def parse_superlative(text):
     return found[0], subject
 
 
-def measure(name, size, weight):
-    """Value of a percept for a superlative; None if unknown (no weight)."""
+def measure(name, percept, entry=None):
+    """Value of a percept for a superlative; None if unknown (no weight).
+
+    The size is the object list's for a listed label (`entry`, the object
+    list's ObjectType): a camera detector's box covers only the visible part.
+    Other labels use the detected box.
+    """
     kind = SUPERLATIVES[name][0]
+    size = entry.size if entry is not None else percept.size
     if kind == "volume":
         return size[0] * size[1] * size[2]
     if kind == "weight":
-        return weight
+        return entry.weight if entry is not None else None
     return tuple(sorted(size)[:2])  # thickness, then the next smallest side
 
 
-def rank(candidates, name, weight_of):
+def rank(candidates, name, entry_of=lambda label: None):
     """Candidates [(percept, ...)] best first for the superlative, then by
-    detections and confidence; those without a value are left out."""
+    detections and confidence; those without a value are left out.
+    `entry_of(label)` gives the label's object list entry or None."""
     largest = SUPERLATIVES[name][1]
     valued = []
     for item in candidates:
         percept = item[0]
-        value = measure(name, percept.size, weight_of(percept.label))
+        value = measure(name, percept, entry_of(percept.label))
         if value is not None:
             valued.append((value, item))
 
@@ -425,9 +433,10 @@ class _ObjectQuery(Skill):
     def target(self, text):
         return resolve_target(text, Objects.of(self.runtime).object_list)
 
-    def weight(self, label):
+    def entry(self, label):
+        """The object list's entry of a detected label, or None."""
         object_list = Objects.of(self.runtime).object_list
-        entry = object_list.get(label) or next(
+        return object_list.get(label) or next(
             (
                 o
                 for o in object_list.objects
@@ -435,7 +444,6 @@ class _ObjectQuery(Skill):
             ),
             None,
         )
-        return entry.weight if entry else None
 
     def say(self, ctx, text):
         ok, message = Interaction.of(self.runtime).say(text, ctx.cancelled)
@@ -643,13 +651,13 @@ class DescribeObject(_ObjectQuery):
         spec = self.runtime.spec
         if not candidates:
             return SkillResult(False, f"No {subject} {where(spec, location)}")
-        ranked = rank(candidates, superlative, self.weight)
+        ranked = rank(candidates, superlative, self.entry)
         if not ranked:
             return SkillResult(False, f"No weight of {subject} in the object list")
         ctx.log(
             f"{superlative}: "
             + ", ".join(
-                f"{p.label} {measure(superlative, p.size, self.weight(p.label))}"
+                f"{p.label} {measure(superlative, p, self.entry(p.label))}"
                 for p, *_ in ranked
             )
         )

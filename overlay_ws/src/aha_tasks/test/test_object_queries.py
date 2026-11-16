@@ -173,28 +173,30 @@ class SuperlativeTests(unittest.TestCase):
         def seen(label, size, count=3):
             return (Percept(label, "", (0, 0, 0), size, 1, 1.0, count),)
 
-        weights = {o.label: o.weight for o in OBJECT_LIST.objects}
-        desk = [
-            seen("green tea", (0.073, 0.073, 0.27)),
-            seen("lemonade", (0.067, 0.067, 0.22)),
-            seen("red bull", (0.053, 0.054, 0.135)),
-            seen("rubiks cube", (0.058, 0.059, 0.058)),
-            seen("plate", (0.26, 0.26, 0.027)),
+        # Boxes of a camera detector: the tuna can (0.045 m high) looks thick.
+        shelf = [
+            seen("tuna can", (0.09, 0.07, 0.065)),
+            seen("lemon", (0.05, 0.045, 0.057)),
+            seen("cup noodle", (0.095, 0.06, 0.11)),
+            seen("milk", (0.07, 0.07, 0.19)),
         ]
 
-        def best(name):
-            return rank(desk, name, weights.get)[0][0].label
+        def best(name, entries=OBJECT_LIST.get):
+            return rank(shelf, name, entries)[0][0].label
 
-        self.assertEqual(best("biggest"), "plate")
-        self.assertEqual(best("smallest"), "rubiks cube")
-        self.assertEqual(best("heaviest"), "green tea")
-        self.assertEqual(best("lightest"), "red bull")
-        self.assertEqual(best("thinnest"), "plate")
-        # Without a weight an object is left out.
-        self.assertEqual(rank(desk, "heaviest", lambda label: None), [])
+        # The object list's sizes and weights of the labels.
+        self.assertEqual(best("biggest"), "cup noodle")
+        self.assertEqual(best("smallest"), "lemon")
+        self.assertEqual(best("heaviest"), "milk")
+        self.assertEqual(best("lightest"), "lemon")
+        self.assertEqual(best("thinnest"), "tuna can")
+        # Labels not in the list: the detected boxes, and no weight.
+        self.assertEqual(best("biggest", lambda label: None), "milk")
+        self.assertEqual(best("thinnest", lambda label: None), "lemon")
+        self.assertEqual(rank(shelf, "heaviest"), [])
         # Ties go to the object seen more often.
-        twins = [seen("cola", (0.066,) * 3, 2), seen("lemonade", (0.066,) * 3, 5)]
-        self.assertEqual(rank(twins, "biggest", weights.get)[0][0].label, "lemonade")
+        twins = [seen("cola", (0.066,) * 3, 2), seen("cola", (0.066,) * 3, 5)]
+        self.assertEqual(rank(twins, "biggest")[0][0].count, 5)
 
 
 class PlaceTests(unittest.TestCase):
