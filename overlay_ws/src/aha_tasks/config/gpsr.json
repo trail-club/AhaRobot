@@ -26,6 +26,12 @@
     "side_tables": [0.75, -1.37, 1.570796],
     "trashbin": [3.65, -3.1, -0.44]
   },
+  "rooms": {
+    "bedroom": {"bed": null},
+    "kitchen": {"kitchen_table": "dining_table", "sofa": null},
+    "office": {"chairs": null, "shelf": "shelf"},
+    "living_room": {"desk": "long_table", "side_tables": "tall_table", "trashbin": null}
+  },
   "initial_state": {"robot.location": "spawn"},
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",
@@ -36,14 +42,14 @@
     "report_results": null,
     "say": "aha_tasks.interaction:Say",
     "answer_question": null,
-    "find_object": null,
+    "find_object": "aha_tasks.object_queries:FindObject",
     "pick_object": null,
     "place_object": null,
     "deliver_object": null,
     "find_described_person": "aha_tasks.people:FindDescribedPerson",
     "count_people": "aha_tasks.people:CountPeople",
-    "count": null,
-    "describe": null,
+    "count": "aha_tasks.object_queries:CountObjects",
+    "describe": "aha_tasks.object_queries:DescribeObject",
     "tell_info": null,
     "follow_person": null,
     "guide_person": null

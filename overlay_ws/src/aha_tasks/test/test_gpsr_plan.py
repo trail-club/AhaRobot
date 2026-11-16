@@ -106,6 +106,13 @@ def context(plan, index=0, memory=None):
     )
 
 
+class Counted(Skill):
+    """Stands in for count, which needs the object detector: 3 of everything."""
+
+    def execute(self, ctx):
+        return SkillResult(True, "counted", {ctx.params["output"]: 3})
+
+
 def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", **kw):
     """Engine over the real task definition; skills as the runner builds them."""
     spec, classes = load_task(GPSR)
@@ -116,6 +123,7 @@ def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", 
         interaction=FakeInteraction(),
     )
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
+    skills["count"] = Counted(runtime)
     skills.update(overrides or {})
     runtime.skills = skills
     restorers = {}
@@ -418,10 +426,15 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "say",
                 "find_described_person",
                 "count_people",
+                "find_object",
+                "count",
+                "describe",
             },
         )
         for name in ("find_described_person", "count_people"):
             self.assertTrue(implemented[name].startswith("aha_tasks.people:"))
+        for name in ("find_object", "count", "describe"):
+            self.assertTrue(implemented[name].startswith("aha_tasks.object_queries:"))
 
 
 class Found(Skill):
