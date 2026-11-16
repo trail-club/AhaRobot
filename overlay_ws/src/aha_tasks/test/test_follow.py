@@ -105,6 +105,8 @@ class GeometryTests(unittest.TestCase):
         poses = [[2.5, 2.5, 0.0], [3.5, 3.5, 0.0], [5.5, 5.5, 0.0], [6.5, 6.5, 1.0]]
         self.assertEqual(free_pose(poses, costs), [6.5, 6.5, 1.0])
         self.assertIsNone(free_pose(poses[:3], costs))
+        # Clear of obstacles first, then anything outside collision.
+        self.assertEqual(free_pose([poses[3], [7.5, 7.5, 2.0]], costs), [7.5, 7.5, 2.0])
         self.assertEqual(free_pose(poses, None), poses[0])  # no costmap yet
 
     def test_goals_are_replaced_at_most_once_a_period_and_only_when_moved(self):
@@ -372,6 +374,13 @@ class PursuitView:
     def go(self, pose, people, cancelled, timeout):
         return self.world.go(pose, people, cancelled, timeout)
 
+    def finish(self, people, cancelled, timeout):
+        end = self.world.t + timeout
+        while self.world.state() == ACTIVE and self.world.t < end:
+            self.world.sleep(DT)
+        self.stop()
+        return True, ""
+
 
 class Route:
     """A person walking `points` at `speed` from `start` s; optional hidden spans."""
@@ -485,9 +494,8 @@ class FollowPersonTests(unittest.TestCase):
         )
         self.assertTrue(result.success, result.message)
         x, y, _ = result.outputs["robot.location"]
-        gap = math.dist((x, y), (0.0, 5.5))
-        self.assertGreater(gap, 0.6)
-        self.assertLess(gap, 1.0 + 0.8)
+        # The last goal, `distance` short of them, is reached.
+        self.assertAlmostEqual(math.dist((x, y), (0.0, 5.5)), 1.0, places=6)
         self.assertEqual(result.outputs["person.track"], 1)
         self.assertEqual(result.outputs["person.position"][:2], [0.0, 5.5])
         self.assertIn("Charlie, I will follow you to the kitchen", world.said[0])

@@ -4,17 +4,19 @@ follow_person keeps `distance` m behind the person that find_described_person
 found (`<role>.track` / `.position`). It sends NavigateToPose goals that replace
 each other as the person moves: Nav2 preempts the running goal and keeps
 planning around obstacles. A goal is a pose `distance` m from the person facing
-them, on the robot's side and free on the global costmap. (Nav2's follow_point
+them, on the robot's side and clear on the global costmap. (Nav2's follow_point
 behaviour tree plans to the followed point itself, which the lidar marks as an
 obstacle when it is a person, and its truncated path ends with the planner's
-orientation instead of facing the person.) The head stays on the person
-(aha_tasks.gaze). A lost track is handed over by name, else to the nearest
-unnamed person near the last sighting, in a radius that grows while the person
-is lost; people seen together with the person are never taken for them. A
-person lost for SEARCH_AFTER s is looked for where they were last seen, then by
-turning the head and the base. Following ends once the person stood still for
-`stop_time` s with the robot next to them, after walking at least MIN_TRAVEL m,
-and, with a `location`, within `radius` of it.
+orientation instead of facing the person.) Close by, the robot turns on the
+spot to keep the person in front, so that someone walking past it does not get
+behind the head's reach. The head stays on the person (aha_tasks.gaze). A lost
+track is handed over by name, else to the nearest unnamed person near the last
+sighting, in a radius that grows while the person is lost; people seen
+together with the person are never taken for them. A person lost for
+SEARCH_AFTER s is looked for the way they walked, then by turning the head and
+the base. Following ends once the person stood still for `stop_time` s with the
+robot next to them, after walking at least MIN_TRAVEL m, and, with a
+`location`, within `radius` of it; the robot then completes its last goal.
 
 guide_person asks the person to follow and drives to `location`. Every
 `check_every` m, and on arrival, it checks for the person behind it, `gap` m
@@ -57,6 +59,9 @@ FACE_TURN = 0.8
 MOTION_WINDOW = 1.5  # s of sightings for the direction a person walks
 MIN_MOTION = 0.2  # m in MOTION_WINDOW for a direction
 LETHAL = 99  # OccupancyGrid value of the inscribed and lethal costs
+# Costs below this keep about 0.6 m from obstacles (inflation 0.65 m), so the
+# robot does not stop where a small localization error puts it in collision.
+CLEAR = 50
 APPROACH_STEP = math.radians(30)  # rad between alternative goals about the person
 APPROACH_TRIES = 7
 ACQUIRE_RANGE = 3.0  # m from the remembered position, or from the robot
@@ -69,7 +74,7 @@ REACQUIRE_MAX = 4.0  # m
 STILL = 0.35  # m of measured motion that still counts as standing
 CAUGHT_UP = 0.8  # m beyond `distance` within which the robot is next to them
 MIN_TRAVEL = 1.0  # m the person walks before a stop can end following
-SEEN_RECENTLY = 1.5  # s
+SETTLE = 15.0  # s for the last goal once the person stopped
 SEARCH_AFTER = 2.0  # s lost before searching
 SEARCH_PANS = (0.0, 0.9, -0.9, 1.5, -1.5)  # rad
 SEARCH_DWELL = 1.5  # s per pan
@@ -147,13 +152,17 @@ def grid_cost(grid, x, y):
 
 
 def free_pose(poses, grid):
-    """The first pose not inscribed, lethal or unknown on `grid`; the first without one."""
+    """The first pose clear of obstacles on `grid`, else the first not in collision.
+
+    None if every pose is inscribed, lethal or unknown; the first without a grid.
+    """
     if grid is None:
         return poses[0]
-    for pose in poses:
-        cost = grid_cost(grid, pose[0], pose[1])
-        if cost is not None and 0 <= cost < LETHAL:
-            return pose
+    costs = [grid_cost(grid, pose[0], pose[1]) for pose in poses]
+    for limit in (CLEAR, LETHAL):
+        for pose, cost in zip(poses, costs):
+            if cost is not None and 0 <= cost < limit:
+                return pose
     return None
 
 
@@ -489,6 +498,10 @@ class Pursuit:
     def go(self, pose, people, cancelled, timeout):
         """Send `pose` and wait for the end: (ok, message)."""
         self.send(pose, people.now())
+        return self.finish(people, cancelled, timeout)
+
+    def finish(self, people, cancelled, timeout):
+        """Wait for the latest goal to end, cancelling it after `timeout`: (ok, message)."""
         deadline = people.now() + timeout
         while (state := self.state()) == ACTIVE:
             if cancelled.is_set():
@@ -667,6 +680,9 @@ class FollowPerson(_PersonSkill):
             ):
                 where = f" at the {spoken(params['location'])}" if area else ""
                 text = f"The person stopped{where} after {target.travelled:.1f} m"
+                # Come up to `distance` from them rather than stop on the way,
+                # e.g. in a doorway.
+                pursuit.finish(people, ctx.cancelled, SETTLE)
                 return True, text, sighting
             goal = None
             if gap > distance + SLACK:
