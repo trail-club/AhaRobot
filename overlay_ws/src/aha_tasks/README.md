@@ -11,6 +11,7 @@
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/sim_objects.py`、`sim_objects` | シミュレーションの物体のモデルと配置の検証（ROS非依存）と、Gazeboの家具に物体を置くプログラム（[シミュレーションの物体](#シミュレーションの物体)） |
+| `aha_tasks/object_models.py` | データセットのスキャンと実測の形状から物体のモデルを作る（ROS非依存） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
@@ -212,7 +213,7 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 | 配置 | 内容 |
 | --- | --- |
-| `pick_and_place` | [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf) の配置（24個）。食卓（`dining_table`）にcutlery・mug・plate・ゴミ（`ppc.trash_category` のカテゴリ）・その他2個、ゴミ箱の近くの床にゴミ、`tall_table` にボウル・スプーン・洗剤タブ、補助台（`long_table`）にCommon Objects 2個。棚（`shelf`）は段ごとに1カテゴリで、2段目がcleaning supplies、3段目がfood（シリアルを含む）、4段目がdrink（牛乳を含む）、5段目（天板）がfruit。1段目（床の高さ）は空き。食卓のその他2個（apple、cola）は棚の同じカテゴリの段の隣に置ける |
+| `pick_and_place` | [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf) の配置（24個）。食卓（`dining_table`）にcutlery・mug・plate・ゴミ（`ppc.trash_category` のカテゴリ）・その他2個、ゴミ箱の近くの床にゴミ、`tall_table` にボウル・スプーン・洗剤タブ、補助台（`long_table`）にCommon Objects 2個。棚（`shelf`）は段ごとに1カテゴリで、2段目がcleaning supplies、3段目がfood（シリアルを含む。箱の高さ28 cmが段の隙間に入らないため横倒し）、4段目がdrink（牛乳を含む）、5段目（天板）がfruit。1段目（床の高さ）は空き。食卓のその他2個（apple、cola）は棚の同じカテゴリの段の隣に置ける |
 | `gpsr` | GPSRのmockの計画用（18個）。`kitchen_table` にコーラ・果物・ボウル、`desk` に飲み物3個とルービックキューブ、`side_tables` にお菓子2個、`shelf` にfood・drink・fruit |
 
 配置のJSONは、物体ごとに次のキーを持つ。
@@ -229,9 +230,15 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 正解（物体の中心・大きさ・カテゴリ・段・役割）は `aha_tasks.sim_objects.load_scene` で読める。
 
 モデルは [config/sim/object_models.json](config/sim/object_models.json) でラベルに割り当てる。
+物体は [RoboCup Japan Open 2026 DSPLの物体リスト](https://github.com/RoboCupAtHomeJP/AtHome2026/blob/main/rules/DSPL/dspl_2026_object_list.pdf) の物体（YCBと指定の製品）に合わせる。YCBにない物体は公開データセットの実物のスキャンを使い、スキャンがない物体は実測の形状に画像を貼って作る（`aha_tasks/object_models.py`）。
 
-- `ycb`: `tmc_wrs_gz_worlds` のYCBのモデル（メッシュ・質量・慣性）。`yaw`（度）でメッシュをモデルの中で回して辺をx・yに揃え、原点を衝突メッシュの外接箱の中心へ移す。外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる）。
-- `printed`: YCBにない物体。物体リストの形・大きさの箱・円柱をcollisionとし、`text` と色を印刷したテクスチャのメッシュを付ける。メッシュとテクスチャは `~/.cache/aharobot/sim_objects` に作る。
+- `ycb`: `tmc_wrs_gz_worlds` のYCBのモデル（メッシュ・質量・慣性）。`yaw`（度）でメッシュをモデルの中で回して辺をx・yに揃え、原点を衝突メッシュの外接箱の中心へ移す。
+- `scanned`: データセットのテクスチャ付きメッシュ（アーカイブ内のOBJ・PLY・DAE、またはGLB）。`url` から取得して `sha256` で確かめ、`crop`（スキャンの座標）で台を切り落とし、`rpy`（度）・`scale` でz上・mにする。
+- `measured`: スキャンのない物体。形状（回転体の断面 `revolve`、`box`、実寸のスキャン `scan`、スキャンの点群から測った断面 `profile`）に、側面のラベル・上下の円・箱の面の画像（`paint`）を貼る。
+
+`scanned` と `measured` は初回に取得・変換して `~/.cache/aharobot/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要）。
+衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。
+各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
 
 原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。
 `sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば位置を戻す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
@@ -241,7 +248,9 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 - 失敗で巻き戻しても物体の位置は戻らない。`sim_objects` を実行し直して戻す。
 - 頭部カメラのセンサは `people:=true` のときだけ有効になる。
-- 印刷した物体は箱・円柱で、ロゴや形の細部はない。YCBの物体と物体リストの大きさは最大1.2 cm違う（tuna canの高さ）。
+- 緑茶・レモネード・カップ麺（どん兵衛）・歯磨き粉の箱・食洗機タブは、再利用できる写真がないため、ラベルを製品の配色と文字から描いている。食洗機タブの大きさは推定（29×20×8.5 mm）、ボトルの断面は製品画像から測った値（約2 mm）。
+- milk・cookiesはHOPEのおもちゃの食品のスキャンで、RCJOの物体（明治おいしい牛乳など）と見た目が違う。colaとcookiesはRCJOの物体リストにない。
+- モデルの外接箱と物体リストの大きさは最大1.2 cm違う（tuna canの高さ）。
 - 食洗機と、その中の物体はない。
 
 ## Human Robot Interaction Challenge
