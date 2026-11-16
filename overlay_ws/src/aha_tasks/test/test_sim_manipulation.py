@@ -184,5 +184,19 @@ class StandPickTests(unittest.TestCase):
             self.pick(stand)  # already holding
 
 
+class StandMoveTests(unittest.TestCase):
+    def test_an_arm_timeout_is_a_failure(self):
+        def no_joint_states(joints):
+            raise TimeoutError("no /joint_states")
+
+        stand = FakeStand(carry_fails=False)
+        stand.arm = SimpleNamespace(positions=no_joint_states)
+        with self.assertRaises(Failed):
+            Stand.move(stand, 0.5, (0.0,) * 5, None, "carry")
+        stand.rest = None
+        with self.assertRaises(Failed):
+            Stand.remember_rest(stand)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -344,7 +344,10 @@ class Stand:
             return
         from aha_manipulation.pointing import ARM_JOINTS, LIFT_JOINT
 
-        values = self.arm.positions([LIFT_JOINT, *ARM_JOINTS])
+        try:
+            values = self.arm.positions([LIFT_JOINT, *ARM_JOINTS])
+        except TimeoutError as error:
+            raise Failed(f"Arm: {error}") from None
         self.rest = (values[0], tuple(values[1:]))
 
     def move(self, lift, joints, cancelled, what):
@@ -354,15 +357,21 @@ class Stand:
             return
         from aha_manipulation.pointing import ARM_JOINTS, LIFT_JOINT
 
-        current = self.arm.positions([LIFT_JOINT, *ARM_JOINTS])
-        if lift > current[0]:
-            steps = [(lift, current[1:]), (lift, joints)]
-        else:
-            steps = [(current[0], joints), (lift, joints)]
-        for step_lift, step_joints in steps:
-            ok, text = self.arm.move(step_lift, step_joints, cancelled)
-            if not ok:
-                raise Failed(f"Arm ({what}): {text}")
+        # The Arm raises TimeoutError (no /joint_states, no controller answer,
+        # not finished in time): a failure like any other, so that the callers'
+        # state (held, put, dropped) stays right.
+        try:
+            current = self.arm.positions([LIFT_JOINT, *ARM_JOINTS])
+            if lift > current[0]:
+                steps = [(lift, current[1:]), (lift, joints)]
+            else:
+                steps = [(current[0], joints), (lift, joints)]
+            for step_lift, step_joints in steps:
+                ok, text = self.arm.move(step_lift, step_joints, cancelled)
+                if not ok:
+                    raise Failed(f"Arm ({what}): {text}")
+        except TimeoutError as error:
+            raise Failed(f"Arm ({what}): {error}") from None
 
     def point(self, base_xyz, height, cancelled, what):
         """Stretch the arm towards a point in base_footprint, the hand level
