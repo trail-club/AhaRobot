@@ -208,9 +208,12 @@ def extract_name(text, names):
     """The name of `names` a person gave in `text`, or None.
 
     GPSR names come from the task's list (`gpsr.names`): a word outside it is
-    no name ("I'm fine", "Call me later", "What?").
+    no name ("I'm fine", "Call me later", "What?"). As in parse_reply, the
+    name must be the answer itself ("My name is Jane", "Jane"), not a mention
+    ("Jane is over there").
     """
-    return find_name(text, names)
+    name = find_name(text, names)
+    return name if name is not None and _answered_with(text, name) else None
 
 
 # "That's me", "It's me", a lone "Me", "I am".
