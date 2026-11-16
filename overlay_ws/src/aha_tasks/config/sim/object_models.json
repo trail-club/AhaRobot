@@ -114,7 +114,7 @@
       },
       "mass": 0.015,
       "size": [0.0531, 0.0531, 0.1347],
-      "source": "Shape: BigBIRD red_bull (Singh et al. 2014, ll4ma-lab/bigbird-meshes-fixed-normals). Label and lid: RED BULL ENERGY DRINK CAN by martin_dalm (Sketchfab 2a29aa47ffd74b6395d07cd270db4735, Objaverse), CC BY 4.0"
+      "source": "Empty can (RCJO 2026 DSPL: without liquid inside). Shape: BigBIRD red_bull (Singh et al. 2014, ll4ma-lab/bigbird-meshes-fixed-normals). Label and lid: RED BULL ENERGY DRINK CAN by martin_dalm (Sketchfab 2a29aa47ffd74b6395d07cd270db4735, Objaverse), CC BY 4.0"
     },
     "green tea": {
       "model": "itoen_koicha_1l",
