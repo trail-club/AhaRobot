@@ -17,10 +17,12 @@ from aha_tasks.core import load_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.door import (  # noqa: E402
     FOLDED,
+    Arms,
     DoorWatch,
     WaitDoorOpen,
     depth_array,
-    depth_points,
+    depth_free,
+    depth_rays,
     door_open,
     fold_duration,
     free_distance,
@@ -46,9 +48,10 @@ def pitched(rotation, down):
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]) @ rotation
 
 
-def render(wall_x=None, gap=None, floor=True, far=10.0):
+def render(wall_x=None, gap=None, floor=True, far=10.0, black=False):
     """Depth image of a level CAMERA: a wall at base x `wall_x` with an
-    opening |y| < gap / 2 (if given), the floor beyond, nothing above."""
+    opening |y| < gap / 2 (if given), the floor beyond, nothing above.
+    A black wall returns no depth."""
     rows, cols = np.mgrid[0:480, 0:640].astype(float)
     # Ray directions in the base frame for each pixel.
     rays = np.stack([(cols - CX) / FX, (rows - CY) / FY, np.ones_like(cols)], -1)
@@ -66,36 +69,53 @@ def render(wall_x=None, gap=None, floor=True, far=10.0):
         hit = (t > 0) & (z >= 0.0) & (z <= 2.0)
         if gap is not None:
             hit &= np.abs(y) >= gap / 2
-        depth = np.where(hit, np.minimum(depth, t), depth)
+        if black:
+            depth = np.where(hit, np.nan, depth)
+        else:
+            depth = np.where(hit, np.minimum(depth, t), depth)
     depth[depth > far] = np.inf  # beyond the camera's range
     return depth
 
 
-def free_ahead(depth, rotation=LEVEL, **kwargs):
-    points, valid = depth_points(depth, FX, FY, CX, CY)
-    base = to_frame(points, rotation, CAMERA)
-    return free_distance(base, min_points=door.DEPTH_MIN_POINTS, **kwargs), valid
+def free_ahead(depth, rotation=LEVEL, camera=CAMERA, distance=door.DISTANCE):
+    rays, ranges = depth_rays(depth, FX, FY, CX, CY)
+    return depth_free(rays, ranges, rotation, camera, distance)
 
 
 class CorridorTests(unittest.TestCase):
     def test_closed_door_is_near(self):
-        free, valid = free_ahead(render(wall_x=1.0))
-        self.assertAlmostEqual(free, 1.0, places=2)
-        self.assertGreater(valid, 0.9)
+        self.assertAlmostEqual(free_ahead(render(wall_x=1.0)), 1.0, places=2)
 
     def test_open_door_frees_the_corridor(self):
-        free, valid = free_ahead(render(wall_x=1.0, gap=0.9))
-        self.assertEqual(free, math.inf)  # the floor is not in the corridor
-        self.assertGreater(valid, door.MIN_VALID)
+        # Seen through the doorway: the floor beyond `distance`.
+        self.assertEqual(free_ahead(render(wall_x=1.0, gap=0.9)), math.inf)
+
+    def test_missing_depth_is_not_free(self):
+        # A black or glossy door returns no depth, but the frame and the floor
+        # around do: the frame is unusable, not an open door.
+        self.assertIsNone(free_ahead(render(wall_x=1.0, black=True)))
+        self.assertIsNone(free_ahead(np.full((480, 640), np.nan)))  # blind
+        self.assertIsNone(free_ahead(np.zeros((480, 640))))  # all too near
+        # Nothing at all within range beyond the doorway (no floor): unusable.
+        self.assertIsNone(free_ahead(render(wall_x=1.0, gap=0.9, floor=False)))
 
     def test_partly_open_door_still_blocks(self):
-        free, _ = free_ahead(render(wall_x=1.0, gap=0.3))
-        self.assertAlmostEqual(free, 1.0, places=2)
+        self.assertAlmostEqual(free_ahead(render(wall_x=1.0, gap=0.3)), 1.0, places=2)
 
     def test_robot_off_the_door_centre_sees_the_frame(self):
-        points, _ = depth_points(render(wall_x=1.0, gap=0.9), FX, FY, CX, CY)
-        base = to_frame(points, LEVEL, CAMERA + [0.0, 0.3, 0.0])  # door 0.3 m left
-        self.assertAlmostEqual(free_distance(base, min_points=20), 1.0, places=2)
+        depth = render(wall_x=1.0, gap=0.9)  # door 0.3 m left
+        free = free_ahead(depth, camera=CAMERA + [0.0, 0.3, 0.0])
+        self.assertAlmostEqual(free, 1.0, places=2)
+
+    def test_a_door_beyond_distance_counts_as_open(self):
+        # The robot must stand nearer to the door than `distance`.
+        self.assertAlmostEqual(free_ahead(render(wall_x=2.0)), 2.0, places=2)
+
+    def test_rays_and_ranges(self):
+        depth = np.array([[1.0, 0.0], [np.inf, np.nan]])
+        rays, ranges = depth_rays(depth, 1.0, 1.0, 0.0, 0.0, stride=1)
+        np.testing.assert_allclose(rays, [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]])
+        np.testing.assert_equal(ranges, [1.0, np.nan, np.nan, np.nan])
 
     def test_a_few_stray_points_do_not_block(self):
         points = np.array([[0.8, 0.0, 1.0]] * 5 + [[3.0, 0.1, 1.0]] * 30)
@@ -218,6 +238,13 @@ class FakeSensors:
         self.frames = frames  # source -> list of free distances (or None)
         self.index = 0
         self.lock = threading.Lock()
+        self.subscribed = False
+
+    def start(self):
+        self.subscribed = True
+
+    def stop(self):
+        self.subscribed = False
 
     def fresh(self):
         with self.lock:
@@ -232,7 +259,7 @@ class FakeSensors:
                     )
             return messages
 
-    def depth_free(self, message, width):
+    def depth_free(self, message, width, distance):
         return message.value
 
     scan_free = depth_free
@@ -305,11 +332,212 @@ class SkillTests(unittest.TestCase):
             {"width": 0},
             {"timeout": -1},
             {"timeout": True},
+            {"fold": "no"},
             {"door": "entrance"},
         ):
             with self.subTest(params), self.assertRaises(ValueError):
                 WaitDoorOpen.validate(params, spec)
+        WaitDoorOpen.validate({"fold": False}, spec)
         self.assertEqual(WaitDoorOpen(None).expected({}), {})  # stays outside
+
+    def execute(self, params, arms, frames):
+        sensors = FakeSensors(frames)
+        runtime = SimpleNamespace(
+            node=SimpleNamespace(get_clock=lambda: SimpleNamespace()),
+            door_sensors=sensors,
+            door_arms=arms,
+            interaction=SimpleNamespace(say=lambda text, cancelled: (True, "shown")),
+        )
+        result = WaitDoorOpen(runtime).execute(context(params))
+        self.assertFalse(sensors.subscribed)  # unsubscribed once done
+        return result
+
+    @patch.object(door, "SERVER_TIMEOUT", 0.05)
+    def test_the_skill_fails_without_folded_arms(self):
+        arms = FakeArms(right=FakeClient(served=False))
+        result = self.execute({}, arms, {"depth": [4.0]})
+        self.assertFalse(result.success)
+        self.assertIn("Could not fold the arms", result.message)
+        result = self.execute({}, FakeArms(), {"depth": [4.0]})
+        self.assertTrue(result.success, result.message)
+
+    def test_fold_false_leaves_the_arms(self):
+        arms = SimpleNamespace(fold=None)  # calling it would fail
+        result = self.execute({"fold": False}, arms, {"depth": [4.0]})
+        self.assertTrue(result.success, result.message)
+
+
+class FakeFuture:
+    def __init__(self, value=None, done=True):
+        self.value, self.finished, self.callbacks = value, done, []
+
+    def done(self):
+        return self.finished
+
+    def result(self):
+        return self.value
+
+    def add_done_callback(self, callback):
+        self.callbacks.append(callback)
+
+
+class FakeHandle:
+    def __init__(self, accepted=True, code=0, finish=True):
+        self.accepted = accepted
+        self.cancelled = False
+        result = SimpleNamespace(result=SimpleNamespace(error_code=code))
+        self.result = FakeFuture(result, done=finish)
+
+    def get_result_async(self):
+        return self.result
+
+    def cancel_goal_async(self):
+        self.cancelled = True
+
+
+class FakeClient:
+    """A FollowJointTrajectory client; on_send runs when a goal is sent."""
+
+    def __init__(self, served=True, answer=True, on_send=None, **handle):
+        self.served, self.answer, self.on_send = served, answer, on_send
+        self.handle = FakeHandle(**handle)
+        self.goals, self.futures = [], []
+
+    def wait_for_server(self, timeout_sec):
+        return self.served
+
+    def send_goal_async(self, goal):
+        self.goals.append(goal)
+        if self.on_send is not None:
+            self.on_send()
+        future = FakeFuture(self.handle, done=self.answer)
+        self.futures.append(future)
+        return future
+
+
+class FakeArms(Arms):
+    """Arms with fake controllers and joint states, at `joints` when subscribed."""
+
+    def __init__(self, joints=None, right=None, left=None):
+        self.node = SimpleNamespace(get_clock=lambda: SimpleNamespace())  # wall
+        self.lock = threading.Lock()
+        self.start_joints = dict(joints or {})
+        self.joints = {}
+        self.subscription = None
+        right_action, left_action = FOLDED
+        self.right, self.left = right or FakeClient(), left or FakeClient()
+        self.clients = {right_action: self.right, left_action: self.left}
+
+    def _subscribe(self):
+        self.joints = dict(self.start_joints)
+        self.subscription = "/joint_states"
+
+    def _unsubscribe(self):
+        self.subscription = None
+
+    def _goal(self, target, duration):
+        return dict(target), duration
+
+
+ALL_FOLDED = {
+    name: value for target in FOLDED.values() for name, value in target.items()
+}
+NEARLY_FOLDED = {name: value - 0.1 for name, value in ALL_FOLDED.items()}
+
+
+@patch.object(door, "SERVER_TIMEOUT", 0.05)
+class ArmTests(unittest.TestCase):
+    def test_folds_both_arms(self):
+        arms = FakeArms()
+        self.assertEqual(arms.fold(threading.Event()), (True, "Folded"))
+        self.assertEqual(len(arms.right.goals), 1)
+        self.assertEqual(arms.left.goals[0], (FOLDED[next(reversed(FOLDED))], 1.5))
+        self.assertIsNone(arms.subscription)  # /joint_states only while folding
+
+    def test_folded_arms_do_not_move(self):
+        arms = FakeArms(ALL_FOLDED, right=FakeClient(served=False))
+        self.assertEqual(arms.fold(threading.Event()), (True, "Already folded"))
+        self.assertEqual(arms.left.goals, [])
+
+    def test_failures_fail_unless_the_arms_are_folded(self):
+        for client, text in (
+            (FakeClient(served=False), "is not served"),
+            (FakeClient(accepted=False), "rejected the goal"),
+            (FakeClient(code=-4), "failed (-4)"),
+        ):
+            with self.subTest(text):
+                ok, message = FakeArms(right=client).fold(threading.Event())
+                self.assertFalse(ok)
+                self.assertIn(text, message)
+        arms = FakeArms(right=FakeClient(code=-4))
+        arms.right.on_send = lambda: arms.joints.update(ALL_FOLDED)  # moved anyway
+        ok, message = arms.fold(threading.Event())
+        self.assertTrue(ok)
+        self.assertIn("Folded, though", message)
+
+    @patch.object(door, "RESULT_MARGIN", 0.05)
+    def test_a_late_arm_cancels_every_running_goal(self):
+        arms = FakeArms(
+            NEARLY_FOLDED, right=FakeClient(finish=False), left=FakeClient(finish=False)
+        )
+        ok, message = arms.fold(threading.Event())  # 1 s motions
+        self.assertFalse(ok)
+        self.assertIn("did not finish in time", message)
+        self.assertTrue(arms.right.handle.cancelled and arms.left.handle.cancelled)
+
+    def test_cancelling_stops_both_arms(self):
+        arms = FakeArms(right=FakeClient(finish=False), left=FakeClient(finish=False))
+        cancelled = threading.Event()
+        threading.Timer(0.1, cancelled.set).start()
+        self.assertEqual(arms.fold(cancelled), (False, "Cancelled"))
+        self.assertTrue(arms.right.handle.cancelled and arms.left.handle.cancelled)
+
+    def test_an_unanswered_goal_cancels_the_sent_one(self):
+        arms = FakeArms(right=FakeClient(finish=False), left=FakeClient(answer=False))
+        ok, message = arms.fold(threading.Event())
+        self.assertFalse(ok)
+        self.assertIn("no answer", message)
+        self.assertTrue(arms.right.handle.cancelled)
+        # The late answer of the other is cancelled when it comes.
+        self.assertEqual(len(arms.left.futures[0].callbacks), 1)
+        self.assertFalse(arms.left.handle.cancelled)
+        arms.left.futures[0].callbacks[0](arms.left.futures[0])
+        self.assertTrue(arms.left.handle.cancelled)
+
+
+class FakeNode:
+    """Records the subscriptions of Sensors."""
+
+    def __init__(self):
+        self.topics = []
+
+    def create_subscription(self, kind, topic, callback, qos, **kwargs):
+        self.topics.append(topic)
+        return topic
+
+    def destroy_subscription(self, subscription):
+        # As rclpy: False for one destroyed already (TransformListener.__del__).
+        if subscription not in self.topics:
+            return False
+        self.topics.remove(subscription)
+        return True
+
+
+class SensorSubscriptionTests(unittest.TestCase):
+    def test_subscribed_only_while_running(self):
+        node = FakeNode()
+        sensors = door.Sensors(node)
+        self.assertEqual(node.topics, [])
+        for _ in range(2):  # a retry subscribes again
+            sensors.start()
+            sensors.start()
+            self.assertIn(door.DEPTH_TOPIC, node.topics)
+            self.assertIn(door.SCAN_TOPIC, node.topics)
+            self.assertIn("/tf", node.topics)
+            self.assertEqual(len(node.topics), len(set(node.topics)))
+            sensors.stop()
+            self.assertEqual(node.topics, [])
+            self.assertIsNone(sensors.transform("camera", None))
 
 
 class FoldTests(unittest.TestCase):

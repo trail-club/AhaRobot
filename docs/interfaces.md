@@ -173,7 +173,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
-`wait_door_open` は `/camera/depth_registered/image_rect`・`/camera/color/camera_info`・`/scan`（いずれもbest effortで購読）、TF（各センサのframe → `base_footprint`）、`/joint_states` を読み、
+`wait_door_open` は実行中だけ `/camera/depth_registered/image_rect`・`/camera/color/camera_info`・`/scan`（いずれもbest effortで購読）、TF（各センサのframe → `base_footprint`）、`/joint_states` を読み、
 `/left_arm_controller/follow_joint_trajectory` と `/right_arm_controller/follow_joint_trajectory` で腕を折りたたむ。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
