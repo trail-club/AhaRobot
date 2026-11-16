@@ -29,7 +29,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   srv/SetNavGoal.srv
   srv/TaskCommand.srv
   action/Ask.action
+  action/HandOver.action
   action/PickObject.action
+  action/PlaceObject.action
   action/Listen.action
   action/Speak.action
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs builtin_interfaces

@@ -1,0 +1,26 @@
+# Hand the object held in a gripper to a person: reach out towards them,
+# release it, and bring the arm back. Owner: manipulation squad.
+# Consumers: task.
+
+string                     arm      # "right" (default when empty) | "left"
+# Where to hold the object out (any frame), e.g. the person's body centre;
+# the hand stops within the arm's reach on the way there.
+geometry_msgs/PointStamped target
+# "take" (default when empty): release when the server senses that the
+# person takes the object (e.g. a pull on the gripper) | "now": release as
+# soon as the hand is out (the caller confirmed the take otherwise)
+string                     release
+float32                    timeout  # s to wait for the take once the hand is out; <= 0 = server default
+---
+uint8 STATUS_RELEASED=0     # handed over: released, then the arm went back (failures in message)
+uint8 STATUS_TIMEOUT=1      # no take within timeout: still held, the arm went back
+uint8 STATUS_UNREACHABLE=2  # the target cannot be reached towards: still held, the arm did not move
+uint8 STATUS_ERROR=3        # bad goal, nothing held, controllers unavailable
+uint8 STATUS_CANCELED=4     # the arm stops where it is and keeps the object
+
+bool                       success  # STATUS_RELEASED
+uint8                      status
+string                     message
+bool                       returned # the arm is back at its pose before reaching out
+---
+string                     phase    # "reaching" | "waiting" | "releasing" | "returning"
