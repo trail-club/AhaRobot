@@ -455,9 +455,14 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | `<output>.groups` | 群の `level`・`side`（`left` / `right`）・`category`・`labels`・`position`（物体の中心の平均、zは段の高さ）・`frame` |
 | `<output>.placement` | `objects` のキーごとの置き場所。`level`・`side`・`height`・`position`・`frame`・`category`・`reason` |
 
-置き場所は、同じカテゴリの群があれば最も大きい群（`reason` が `category`、`position` は群の中心）。
-なければ物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`、`position` は片側の中央）。
-後の物体は先に決めた物体の群に加わる。空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。
+置き場所の `position` は、置く物体の中心を置く点（zは段の高さ）で、段の物体と側板から棚の左右方向に0.03 m離す。
+置く物体の幅は記憶の `size` の水平の長い辺（`size` がなければ0.1 m）、段の物体の幅は向きと `size` から求める。
+
+- 同じカテゴリの群があれば、大きい群から順に、群の物体の外側（側板の側、入らなければ内側）の隣で幅が入る所（`reason` が `category`、`side` は群の側）。
+- 入る群がなければ、物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`）。
+  空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。`position` はその片側で最も広い空きの中央。
+- 後の物体は先に決めた物体の群に加わり、その隣に置く。
+
 カテゴリの意味の近さ（似た物体）は判断しない。
 
 ## General Purpose Service Robot Challenge

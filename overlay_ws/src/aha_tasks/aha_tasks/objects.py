@@ -30,7 +30,7 @@ The memory record of an object (the contract with pick / place / show):
 from __future__ import annotations
 
 from collections import Counter, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import threading
@@ -60,6 +60,8 @@ HISTORY = 2000  # detection messages kept
 # is taken among the levels in PLACE_HEIGHTS (m), nearest PREFERRED_HEIGHT.
 PLACE_HEIGHTS = (0.2, 1.0)
 PREFERRED_HEIGHT = 0.6
+PLACE_GAP = 0.03  # m kept from the objects and the side panels at a placement
+PLACE_WIDTH = 0.1  # m, an object to place without a size in its record
 SHELF_MARGIN = 0.1  # m beyond the shelf's configured outline
 EXCLUDE_MARGIN = 0.05  # m beyond the outline of excluded furniture (exclude)
 SIDES = ("left", "right")  # seen from the open side of the shelf
@@ -438,6 +440,16 @@ class Group:
     category: str
     labels: list
     position: tuple  # centre of the objects, z on the level
+    extent: tuple = (0.0, 0.0)  # local y (low, high) the objects cover
+
+
+def half_width(region, percept):
+    """Half the extent of an object along the furniture's local y."""
+    sx, sy = percept.size[:2]
+    if percept.yaw is None:
+        return math.hypot(sx, sy) / 2
+    turn = percept.yaw - region.yaw
+    return (abs(sx * math.sin(turn)) + abs(sy * math.cos(turn))) / 2
 
 
 def side_of(region, x, y):
@@ -466,6 +478,11 @@ def shelf_groups(placed, region):
         x, y, _ = (
             sum(p.position[k] for p in percepts) / len(percepts) for k in range(3)
         )
+        spans = [
+            (ly - half_width(region, p), ly + half_width(region, p))
+            for p in percepts
+            for ly in [region.local(*p.position[:2])[1]]
+        ]
         groups.append(
             Group(
                 level=level,
@@ -473,6 +490,7 @@ def shelf_groups(placed, region):
                 category=category,
                 labels=sorted(p.label for p in percepts),
                 position=(x, y, region.heights[level - 1]),
+                extent=(min(lo for lo, _ in spans), max(hi for _, hi in spans)),
             )
         )
     return groups
@@ -487,22 +505,58 @@ def categories_by_level(groups, levels):
     return out
 
 
-def part_centre(region, level, side):
-    ly = region.width / 4 * (1 if side == SIDES[0] else -1)
-    return region.world(0.0, ly, region.heights[level - 1])
+def free_spans(region, groups, level):
+    """Free stretches (low, high) of local y on a level: PLACE_GAP away from
+    the groups' objects and the side panels."""
+    edge = region.width / 2 - PLACE_GAP
+    out, start = [], -edge
+    for low, high in sorted(g.extent for g in groups if g.level == level):
+        if low - PLACE_GAP > start:
+            out.append((start, min(low - PLACE_GAP, edge)))
+        start = max(start, high + PLACE_GAP)
+    if start < edge:
+        out.append((start, edge))
+    return out
+
+
+def beside(region, groups, group, width):
+    """Local y of a free spot next to the group, on its outer side (towards its
+    side panel) or else its inner side; None without room for `width`."""
+    free = free_spans(region, groups, group.level)
+    outer = 1 if group.side == SIDES[0] else -1
+    for sign in (outer, -outer):
+        edge = group.extent[1] if sign > 0 else group.extent[0]
+        y = edge + sign * (PLACE_GAP + width / 2)
+        if any(
+            low - 1e-9 <= y - width / 2 and y + width / 2 <= high + 1e-9
+            for low, high in free
+        ):
+            return y
+    return None
+
+
+def part_spot(region, groups, level, side):
+    """Local y of the middle of the widest free stretch of a level side."""
+    low, high = (0.0, math.inf) if side == SIDES[0] else (-math.inf, 0.0)
+    spans = [(max(a, low), min(b, high)) for a, b in free_spans(region, groups, level)]
+    spans = [(a, b) for a, b in spans if b > a]
+    if not spans:
+        return region.width / 4 * (1 if side == SIDES[0] else -1)
+    a, b = max(spans, key=lambda span: span[1] - span[0])
+    return (a + b) / 2
 
 
 def placement(items, groups, region):
-    """{key: where to put it} for items [(key, label, category)].
+    """{key: where to put it} for items [(key, label, category, width)].
 
-    Next to the largest group of the same category (rule 10); otherwise in an
-    empty part (a level side without objects) at a height in PLACE_HEIGHTS
-    nearest PREFERRED_HEIGHT, which later items of that category then join;
-    otherwise in the least occupied part in reach.
+    Next to the largest group of the same category with room for the item's
+    `width` (rule 10): `position` is a free spot beside the group's objects
+    (`beside`). Otherwise in an empty part (a level side without objects) at
+    a height in PLACE_HEIGHTS nearest PREFERRED_HEIGHT, else in the least
+    occupied part in reach: `position` is the middle of the part's widest free
+    stretch (`part_spot`). Later items of the category join the item's group.
     """
-    groups = [
-        Group(g.level, g.side, g.category, list(g.labels), g.position) for g in groups
-    ]
+    groups = [replace(g, labels=list(g.labels)) for g in groups]
     reach = [
         number
         for number, height in enumerate(region.heights, start=1)
@@ -513,17 +567,22 @@ def placement(items, groups, region):
         return abs(region.heights[level - 1] - PREFERRED_HEIGHT)
 
     out = {}
-    for key, label, category in items:
-        same = [g for g in groups if same_category(g.category, category)]
-        if same:
-            group = max(same, key=lambda g: (len(g.labels), -nearness(g.level)))
-            reason, level, side, position = (
-                "category",
-                group.level,
-                group.side,
-                group.position,
-            )
+    for key, label, category, width in items:
+        same = sorted(
+            (g for g in groups if same_category(g.category, category)),
+            key=lambda g: (-len(g.labels), nearness(g.level)),
+        )
+        spots = ((g, beside(region, groups, g, width)) for g in same)
+        group, y = next(((g, y) for g, y in spots if y is not None), (None, None))
+        if group is not None:
+            reason, level, side = "category", group.level, group.side
+            inside = max(region.depth / 2 - width / 2, 0.0)
+            depth = max(-inside, min(inside, region.local(*group.position[:2])[0]))
             group.labels.append(label)
+            group.extent = (
+                min(group.extent[0], y - width / 2),
+                max(group.extent[1], y + width / 2),
+            )
         else:
             occupied = {(g.level, g.side) for g in groups}
             empty = [
@@ -546,8 +605,18 @@ def placement(items, groups, region):
                     ((lv, sd) for lv in reach for sd in SIDES),
                     key=lambda part: (counts[part], nearness(part[0])),
                 )
-            position = part_centre(region, level, side)
-            groups.append(Group(level, side, category, [label], position))
+            depth, y = 0.0, part_spot(region, groups, level, side)
+            groups.append(
+                Group(
+                    level,
+                    side,
+                    category,
+                    [label],
+                    region.world(depth, y, region.heights[level - 1]),
+                    (y - width / 2, y + width / 2),
+                )
+            )
+        position = region.world(depth, y, region.heights[level - 1])
         out[key] = {
             "level": level,
             "side": side,
@@ -969,7 +1038,8 @@ class PerceiveShelf(_SurfaceSkill):
 
     params: {"surface": "shelf", "objects": ["table.other1", "table.other2"],
     "output": "cabinet"}. `objects` are memory keys of object records (a
-    plain label of an old mock works too). Outputs `<output>.categories`
+    plain label of an old mock works too; its width is PLACE_WIDTH, else the
+    longer side of the record's size). Outputs `<output>.categories`
     (per level, lowest first, the group categories left to right),
     `<output>.groups` ([{level, side, category, labels, position, frame}]) and
     `<output>.placement` ({key: {level, side, height, position, frame, category,
@@ -1000,15 +1070,19 @@ class PerceiveShelf(_SurfaceSkill):
         items = []
         for key in params["objects"]:
             value = ctx.memory.get(key)
+            width = PLACE_WIDTH
             if isinstance(value, dict):
                 label = value.get("label", "")
                 category = value.get("category") or objects.category(label)
+                size = value.get("size")
+                if isinstance(size, list) and len(size) == 3:
+                    width = max(size[:2])  # its longer side may lie along y
             elif isinstance(value, str):
                 label, category = value, objects.category(value)
             else:
                 ctx.log(f"No object in {key}; nothing to place")
                 continue
-            items.append((key, label, category))
+            items.append((key, label, category, width))
         where = placement(items, groups, region)
         for spot in where.values():
             spot["frame"] = frame
