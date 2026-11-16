@@ -249,6 +249,9 @@ class ObjectPerception(Node):
         # The camera and gripper poses at the image time, before the robot moves
         # on and before the DGX round trip outlasts the TF buffer.
         rotation, translation = self.camera_pose(color.header.frame_id, stamp)
+        # measure_object takes a rotation as one to a frame with z up; in the
+        # camera's own frame (empty or the camera frame) keep the visible box.
+        upright = self.target_frame not in ("", color.header.frame_id)
         robot = self.robot_points(self.target_frame or color.header.frame_id, stamp)
         started = time.monotonic()
         response = self.worker.request(
@@ -281,7 +284,7 @@ class ObjectPerception(Node):
                     fy,
                     cx,
                     cy,
-                    rotation=rotation if self.target_frame else None,
+                    rotation=rotation if upright else None,
                     translation=translation,
                     footprint=min(entry.size[:2]),
                 )
