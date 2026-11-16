@@ -58,7 +58,8 @@ YES = {
 }
 NO = {"no", "nope", "nah", "wrong", "incorrect", "negative", "never"}
 NO_PHRASE = re.compile(
-    r"^not\b|\b(?:that's|that is|it's|it is) not\b|\b(?:isn't|wasn't)\b"
+    r"^not\b(?! sure\b)|\b(?:that's|that is|it's|it is) not\b(?! sure\b)"
+    r"|\b(?:isn't|wasn't)\b"
 )
 FILLERS = re.compile(
     r"^(?:i said|i say|it is|it's|its|it was|the command is|i mean)\s+"
@@ -84,13 +85,17 @@ def yes_no(text):
     if not words:
         return None, ""
     joined = " ".join(words)
+    # A yes word right after "not" ("I'm not sure") is no yes.
+    negated = {i + 1 for i, w in enumerate(words) if w == "not" or w.endswith("n't")}
     if words[0] in YES:
         return "yes", " ".join(words[1:])
     if words[0] in NO or NO_PHRASE.search(joined):
         return "no", " ".join(words[1:]) if words[0] in NO else ""
     if len(words) <= 3 and any(w in NO for w in words):
         return "no", ""
-    if len(words) <= 3 and any(w in YES for w in words):
+    if len(words) <= 3 and any(
+        w in YES for i, w in enumerate(words) if i not in negated
+    ):
         return "yes", ""
     return None, joined
 

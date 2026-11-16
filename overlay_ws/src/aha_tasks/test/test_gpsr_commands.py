@@ -603,6 +603,8 @@ class ConfirmationTests(unittest.TestCase):
             ("", None),
             ("What?", None),
             ("I didn't hear you", None),
+            ("I'm not sure", None),
+            ("Not sure", None),
         ):
             with self.subTest(answer):
                 self.assertEqual(yes_no(answer)[0], verdict)
