@@ -466,6 +466,20 @@ class SubscriptionTests(unittest.TestCase):
         self.assertEqual((camera.subscriptions, camera.image), ([], None))
 
 
+class SharedTfTests(unittest.TestCase):
+    def test_uses_the_buffer_of_the_objects(self):
+        # No second TF listener on the runner's node when the perceive skills
+        # already have one.
+        buffer = object()
+        runtime = SimpleNamespace(
+            node=SimpleNamespace(), objects=SimpleNamespace(tf=buffer)
+        )
+        camera = HeadCamera.of(runtime)
+        self.assertIs(camera.tf, buffer)
+        self.assertIsNone(camera.listener)
+        self.assertIs(HeadCamera.of(runtime), camera)
+
+
 class ParamsTests(unittest.TestCase):
     def test_valid(self):
         ShowObjects.validate({"objects": ["a.b"], "surface": "floor"}, None)

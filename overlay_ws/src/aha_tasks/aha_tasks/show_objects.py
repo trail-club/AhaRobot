@@ -140,18 +140,23 @@ class HeadCamera:
     The images are subscribed only between open() and close(), while a skill
     shows objects: the runner's single executor would otherwise take in every
     image (640x480 rgb8, about 0.9 MB at 15-30 Hz) for the rest of the task.
-    The TF listener stays.
+    TF comes from `tf`, the buffer of the runner's objects (aha_tasks.objects,
+    made when the perceive skills get ready) when there is one, so that the
+    node does not take in /tf twice; otherwise a listener of its own stays.
     """
 
-    def __init__(self, node):
-        from tf2_ros import Buffer, TransformListener
-
+    def __init__(self, node, tf=None):
         self.node = node
         self.lock = threading.Lock()
         self.image, self.info = None, None
         self.subscriptions = []
-        self.tf = Buffer()
-        self.listener = TransformListener(self.tf, node)
+        self.listener = None
+        if tf is None:
+            from tf2_ros import Buffer, TransformListener
+
+            tf = Buffer()
+            self.listener = TransformListener(tf, node)
+        self.tf = tf
 
     def open(self):
         """Subscribe to the colour image and its camera info."""
@@ -182,7 +187,8 @@ class HeadCamera:
     @classmethod
     def of(cls, runtime):
         if getattr(runtime, "head_camera", None) is None:
-            runtime.head_camera = cls(runtime.node)
+            objects = getattr(runtime, "objects", None)
+            runtime.head_camera = cls(runtime.node, getattr(objects, "tf", None))
         return runtime.head_camera
 
     def _on_image(self, message):
