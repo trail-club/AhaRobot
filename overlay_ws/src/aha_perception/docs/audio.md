@@ -98,7 +98,7 @@ make audio-run PULSE_SOURCE=alsa_output.pci-0000_80_1f.3.analog-stereo.monitor
 - 推論先を指定する：`ros2 launch aha_perception audio.launch.py target:=trailpc ssh_user:=<Unixユーザー名>`
 - 日本語で起動する：`ros2 launch aha_perception audio.launch.py language:=ja`
 - デバッグ UI を使わない：`use_debug_ui:=false`
-- ドアベル検出を使わない（HIC 以外）：`use_doorbell:=false`
+- ドアベル検出を使わない（HIC 以外）：`use_doorbell:=false`（`make audio-run USE_DOORBELL=false`）
 
 ## インターフェース
 
@@ -164,7 +164,7 @@ HIC で開始位置に待つ間のドアベル・ノック（[ルールブック
 - `/aha/perception/audio/doorbell` の publisher は、モデルを読み込み音声入力を始めてから作る。`doorbell_input:=topic` では音声が届いている間だけ作り、2 s 届かなければ消す（シミュレーションの再起動では止まらない）。マイクの音が2 s 届かないときはノードが終わる。
 - 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重み（364 MB）は `$HF_HOME/aharobot-doorbell/` に置き、起動のたびに SHA-256 を確かめる。ないか合わなければ取得し直し、取得したものも合わなければ置かずに止まる。
 
-`make audio-run` は ASR・TTS と一緒に検出器も起動する。検出器だけを起動するときは次のようにする。
+`make audio-run` は ASR・TTS と一緒に検出器も起動する（`upstream/PretrainedSED` の submodule が要る）。検出器だけを起動するときは次のようにする。
 
 ```bash
 # 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）
@@ -177,7 +177,7 @@ ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false
 | `input_device` / `capture_rate` | `''` / `16000` | ASR と同じマイクの指定。PulseAudio 経由なら ASR と同時に使える |
 | `mute_tail_ms` | `300` | TTS 終了後に判定しない時間 |
 
-launch 引数 `doorbell_input:=topic` で、マイクの代わりにシミュレーションの `/aha/sim/audio`（`aha_tasks` の `sim_sounds`）を読む。
+launch 引数 `doorbell_input:=topic`（`make audio-run DOORBELL_INPUT=topic`）で、マイクの代わりにシミュレーションの `/aha/sim/audio`（`aha_tasks` の `sim_sounds`）を読む。
 
 ## 既知の制約
 

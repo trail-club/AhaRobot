@@ -247,6 +247,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 
 検出器は音声コンテナで起動する（[ドアベル検出](../aha_perception/docs/audio.md#ドアベル検出)）。
 シミュレーションでは `guests:=true` の `sim_sounds` が `/aha/sim/audio` にマイク音を出すので、検出器を `doorbell_input:=topic` で起動する。`perception:=truth`（`e2e:=debug` の既定）では `sim_sounds` が検出の代わりも出すので、検出器は起動しない。
+ASR・TTSも使うために `make audio-run` を使うときは、`DOORBELL_INPUT=topic`（`perception:=truth` では `USE_DOORBELL=false`）を付ける。マイクを読む検出器が残ると、シミュレーションの音を聞かないまま検出器があるとみなされ、マイクの物音でも成功する。
 
 ```bash
 # 音声コンテナ（同じ ROS_DOMAIN_ID）
