@@ -743,6 +743,13 @@ class ListenCommandTests(unittest.TestCase):
         )
         self.assertFalse(result.success)
 
+    def test_a_correction_needs_a_yes(self):
+        rt = runtime(DRINKS, None, "No, I said " + TIME, None, None, None, None)
+        result = run_skill(
+            ListenCommand(rt), {"command": 3, "attempts": 1, "custom_operator": 0}
+        )
+        self.assertFalse(result.success)
+
     def test_no_clear_confirmation_takes_the_command(self):
         rt = runtime(DRINKS, None, "I didn't hear you")
         result = run_skill(ListenCommand(rt), {"command": 1})

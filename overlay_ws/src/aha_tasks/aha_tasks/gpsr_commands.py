@@ -262,6 +262,7 @@ class ListenCommand(Skill):
         timeout = float(ctx.params.get("confirm_timeout", 8.0))
         vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
         unclear = 0
+        corrected = False  # the text is a restatement from an answer
         for _ in range(4):
             self._say(
                 interaction,
@@ -275,9 +276,12 @@ class ListenCommand(Skill):
                 return True, text
             correction = restated(rest, vocabulary)
             if correction:  # "no, I said ..." or the command once more
-                text = clean(correction)
+                text, corrected = clean(correction), True
                 continue
             if verdict == "no":
+                return False, text
+            if corrected:
+                # A restated command (heard once) is taken only on a yes.
                 return False, text
             unclear += 1
             if unclear >= 2:
