@@ -689,6 +689,12 @@ class FollowPerson(_PersonSkill):
             robot = base.pose()
             message = people.latest()
             if message is None or message is last:
+                if message is None:
+                    # person_perception is silent (stopped, DGX lost): do not
+                    # drive on to where the person was.
+                    pursuit.stop()
+                if target.lost_for(now) > lost_timeout:
+                    return False, f"Lost the person for {lost_timeout:.0f} s", None
                 time.sleep(POLL)
                 continue
             last = message

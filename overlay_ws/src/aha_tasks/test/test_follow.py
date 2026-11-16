@@ -585,6 +585,17 @@ class FollowPersonTests(unittest.TestCase):
         self.assertEqual(result.outputs["person.track"], 1)
         self.assertEqual(world.followed[0], 1)
 
+    def test_gives_up_when_person_perception_goes_silent(self):
+        walker = Route(1, [(0.0, 1.0), (0.0, 5.5)])
+        world = Silent([0.0, 0.0, math.pi / 2], [walker], silent_after=4.0)
+        result = run(
+            FollowPerson, world, {"person": "them", "lost_timeout": 10.0}, FOUND
+        )
+        self.assertFalse(result.success)
+        self.assertIn("Lost", result.message)
+        self.assertLess(world.t, 4.0 + 10.0 + 1.0)
+        self.assertIsNone(world.goal)  # stopped, not driving on
+
     def test_nobody_in_view_fails_at_the_start(self):
         world = World([0.0, 0.0, math.pi / 2], [Standing(1, (0.0, -2.0))])
         result = run(FollowPerson, world, {"person": "them"})
@@ -628,6 +639,17 @@ class Pausing(Route):
         if t < self.second.start:
             return super().position(t, robot)
         return self.second.position(t, robot)
+
+
+class Silent(World):
+    """No people messages after `silent_after` s (person_perception stopped)."""
+
+    def __init__(self, robot, walkers, silent_after):
+        self.silent_after = silent_after
+        super().__init__(robot, walkers)
+
+    def latest(self):
+        return None if self.t > self.silent_after else self.message
 
 
 class Unreachable(World):
