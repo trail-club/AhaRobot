@@ -1,0 +1,26 @@
+{
+  "operator": {
+    "location": "instruction_point",
+    "confirm": "yes",
+    "commands": [
+      [
+        "Could you please retrieve the cola from the kitchen table and deliver it to the person who is waving in the office?",
+        "Grab the cola from the kitchen table and give it to the waving person in the office.",
+        "Get a cola from the kitchen table and bring it to the waving person in the office"
+      ],
+      [
+        "Could you count the drinks on the desk and let me know how many there are?",
+        "How many drinks are on the desk?",
+        "Tell me how many drinks there are on the desk"
+      ],
+      [
+        "Please go to the bedroom and tell the person with their left arm raised what time it is.",
+        "Tell the person raising their left arm in the bedroom the time.",
+        "Say the time to the person raising their left arm in the bedroom"
+      ]
+    ]
+  },
+  "radius": 1.5,
+  "fov": 1.0,
+  "delay": 1.0
+}
