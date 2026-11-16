@@ -30,7 +30,8 @@ updates the aha_perception.cloud_map.VoxelMap in fixed_frame:
    against the smallest valid depth of each 3x3 neighborhood (no range cut,
    so a far background still clears). Voxels out of view, nearer than
    min_range, occluded or without a depth return are kept.
-5. Insert: pixels with depth in [min_range, max_range], voxelized, cropped
+5. Insert: pixels with depth in [min_range, max_range], voxelized (mean
+   point and color per voxel, VoxelMap averages them over frames), cropped
    to crop_min / crop_max in base_frame, minus the robot (self_filter: the
    aha_perception.self_filter link boxes of /robot_description grown by
    self_padding, at their TF at the image stamp; insertion waits for
@@ -40,7 +41,8 @@ updates the aha_perception.cloud_map.VoxelMap in fixed_frame:
 
 Output, at most publish_rate per second, stamped with the last frame:
   /aha/perception/merged_points  sensor_msgs/PointCloud2 (x, y, z, rgb) in
-      the map frame: the voxel centers seen in at least min_hits frames
+      the map frame: the mean point of each voxel seen in at least
+      min_hits frames
 Service:
   /aha/perception/merged_points/clear  std_srvs/Trigger: empties the map
 
@@ -75,7 +77,6 @@ from tf2_ros import Buffer, TransformException
 from aha_perception.cloud_map import (
     VoxelMap,
     in_box,
-    key_centers,
     min_filter_depth,
     pose_change,
     transform_points,
@@ -438,10 +439,10 @@ class CloudAccumulator(Node):
             return np.broadcast_to(np.array(GRAY, np.uint8), shape + (3,))
         return color
 
-    def robot_mask(self, frame, centers, stamp):
+    def robot_mask(self, frame, points, stamp):
         """(N,) bool of the points on the robot, or None if it cannot be known."""
         if not self.self_filter:
-            return np.zeros(len(centers), dtype=bool)
+            return np.zeros(len(points), dtype=bool)
         boxes = self.boxes
         if boxes is None:
             self.get_logger().warn(
@@ -461,7 +462,7 @@ class CloudAccumulator(Node):
                 )
                 return None
             poses.append(pose)
-        return points_in_boxes(centers, boxes, poses)
+        return points_in_boxes(points, boxes, poses)
 
     def update_base(self, epoch, frame, base_to_map, stamp):
         """Map frame, base motion reset and forgetting, for every located frame.
@@ -548,15 +549,14 @@ class CloudAccumulator(Node):
 
         valid = np.isfinite(z) & (z >= self.min_range) & (z <= self.max_range)
         points = transform_points(camera_to_map, cloud[valid])
-        keys, rgb = voxelize(points, color[valid], self.map.voxel_size)
-        centers = key_centers(keys, self.map.voxel_size)
+        keys, points, rgb = voxelize(points, color[valid], self.map.voxel_size)
         inside = in_box(
-            transform_points(np.linalg.inv(base_to_map), centers),
+            transform_points(np.linalg.inv(base_to_map), points),
             self.crop_min,
             self.crop_max,
         )
-        keys, rgb, centers = keys[inside], rgb[inside], centers[inside]
-        on_robot = self.robot_mask(frame, centers, stamp)
+        keys, points, rgb = keys[inside], points[inside], rgb[inside]
+        on_robot = self.robot_mask(frame, points, stamp)
 
         seconds = stamp_to_seconds(stamp)
         with self.map_lock:
@@ -564,10 +564,12 @@ class CloudAccumulator(Node):
                 self.stats["reset"] += 1
                 return
             if len(self.map):
-                states = view.states(self.map.centers(), noise, self.view_options)
+                states = view.states(self.map.points, noise, self.view_options)
                 self.map.keep(states != ABSENT)
             if on_robot is not None:
-                self.map.insert(keys[~on_robot], rgb[~on_robot], seconds)
+                self.map.insert(
+                    keys[~on_robot], points[~on_robot], rgb[~on_robot], seconds
+                )
                 self.stats["inserted"] += 1
             else:
                 self.stats["not inserted"] += 1

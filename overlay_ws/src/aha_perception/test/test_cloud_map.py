@@ -33,42 +33,64 @@ def test_key_out_of_range_raises():
         pack_keys(np.array([[1 << 21, 0, 0]]))
 
 
-def test_voxelize_keeps_one_point_per_voxel():
-    points = np.array([[0.001, 0.001, 0.001], [0.009, 0.002, 0.003], [0.015, 0, 0]])
-    keys, rgb = voxelize(points, np.array([RED, BLUE, BLUE]), SIZE)
+def test_voxelize_averages_points_and_colors_per_voxel():
+    points = np.array([[0.001, 0.001, 0.001], [0.009, 0.003, 0.003], [0.015, 0, 0]])
+    keys, means, rgb = voxelize(points, np.array([RED, BLUE, BLUE]), SIZE)
     assert len(keys) == 2
-    centers = key_centers(keys, SIZE)
-    first = np.argmin(centers[:, 0])
-    np.testing.assert_allclose(centers[first], [0.005, 0.005, 0.005])
-    assert tuple(rgb[first]) == RED
+    first = np.argmin(key_centers(keys, SIZE)[:, 0])
+    np.testing.assert_allclose(means[first], [0.005, 0.002, 0.002])
+    assert tuple(rgb[first]) == (128, 0, 128)
+    np.testing.assert_allclose(means[1 - first], [0.015, 0, 0])
+
+
+def frame(points, color=RED):
+    points = np.atleast_2d(points)
+    return voxelize(points, np.tile(color, (len(points), 1)), SIZE)
+
+
+def by_key(voxel_map):
+    return {k: i for i, k in enumerate(voxel_map.keys)}
 
 
 def test_insert_counts_hits_and_replaces_color_and_stamp():
     voxel_map = VoxelMap(SIZE)
-    a, b = voxelize(np.array([[0.0, 0, 0], [0.5, 0, 0]]), np.array([RED, RED]), SIZE)[0]
-    voxel_map.insert(np.array([a, b]), np.array([RED, RED]), 1.0)
-    voxel_map.insert(np.array([b]), np.array([BLUE]), 2.0)
+    voxel_map.insert(*frame([[0.0, 0, 0], [0.5, 0, 0]]), 1.0)
+    b_keys, b_points, b_rgb = frame([[0.5, 0, 0]], BLUE)
+    voxel_map.insert(b_keys, b_points, b_rgb, 2.0)
+    a, b = frame([[0.0, 0, 0], [0.5, 0, 0]])[0]
+    index = by_key(voxel_map)
     assert len(voxel_map) == 2
-    order = np.argsort(voxel_map.keys)
-    by_key = dict(zip(voxel_map.keys[order], order, strict=True))
-    assert voxel_map.hits[by_key[a]] == 1 and voxel_map.hits[by_key[b]] == 2
-    assert tuple(voxel_map.rgb[by_key[b]]) == BLUE
-    assert voxel_map.last_seen[by_key[a]] == 1.0
-    assert voxel_map.last_seen[by_key[b]] == 2.0
+    assert voxel_map.hits[index[a]] == 1 and voxel_map.hits[index[b]] == 2
+    assert tuple(voxel_map.rgb[index[b]]) == BLUE
+    assert voxel_map.last_seen[index[a]] == 1.0
+    assert voxel_map.last_seen[index[b]] == 2.0
     with pytest.raises(ValueError):
-        voxel_map.insert(np.array([a, a]), np.array([RED, RED]), 3.0)
+        voxel_map.insert(np.array([a, a]), np.zeros((2, 3)), np.zeros((2, 3)), 3.0)
+
+
+def test_insert_averages_the_frames_then_moving_average():
+    voxel_map = VoxelMap(SIZE)
+    voxel_map.insert(*frame([0.002, 0.0, 0.0]), 1.0)
+    voxel_map.insert(*frame([0.006, 0.0, 0.0]), 2.0)
+    np.testing.assert_allclose(voxel_map.points[0], [0.004, 0, 0])
+    for i in range(20):
+        voxel_map.insert(*frame([0.004, 0.0, 0.0]), 3.0 + i)
+    voxel_map.insert(*frame([0.009, 0.0, 0.0]), 30.0)
+    # hits 23 > 10: weight MIN_WEIGHT 0.1.
+    np.testing.assert_allclose(voxel_map.points[0], [0.0045, 0, 0])
 
 
 def test_output_min_hits_and_forget():
     voxel_map = VoxelMap(SIZE)
-    keys = voxelize(np.array([[0.0, 0, 0], [0.5, 0, 0]]), np.zeros((2, 3)), SIZE)[0]
-    voxel_map.insert(keys, np.zeros((2, 3)), 1.0)
-    voxel_map.insert(keys[:1], np.zeros((1, 3)), 5.0)
+    keys, points, rgb = frame([[0.0, 0, 0], [0.5, 0, 0]])
+    voxel_map.insert(keys, points, rgb, 1.0)
+    voxel_map.insert(keys[:1], points[:1], rgb[:1], 5.0)
     xyz, _ = voxel_map.output(min_hits=2)
-    assert len(xyz) == 1
+    np.testing.assert_allclose(xyz, [[0, 0, 0]])
     assert voxel_map.forget_older(5.0, 0.0) == 0
     assert voxel_map.forget_older(5.0, 2.0) == 1
     assert len(voxel_map) == 1 and voxel_map.last_seen[0] == 5.0
+    assert voxel_map.points.shape == (1, 3)
     voxel_map.clear()
     assert len(voxel_map) == 0
 

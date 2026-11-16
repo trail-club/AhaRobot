@@ -3,9 +3,14 @@
 Kept free of rclpy so it can be tested on the host.
 
 ``VoxelMap`` keeps one entry per occupied voxel of ``voxel_size`` in the map
-frame: the color of the last observation, the number of frames that observed
-it (``hits``) and the stamp of the last one. Points are output at the voxel
-centers. Voxels are addressed by an int64 key packing the three voxel indices
+frame: the mean position of its points, the color of the last observation,
+the number of frames that observed it (``hits``) and the stamp of the last
+one. Like a PCL VoxelGrid filter the points are output at the mean, not the
+voxel center, so the grid does not quantize them. A frame contributes the
+mean of its points in the voxel; the map averages the frames with weight
+max(1 / hits, ``MIN_WEIGHT``), a running mean that turns into an
+exponential moving average, so that a slowly drifting surface follows.
+Voxels are addressed by an int64 key packing the three voxel indices
 (``KEY_BITS`` bits each, so +-2^20 voxels, 10 km at 1 cm, per axis); the keys
 are kept sorted and merged with ``np.unique``.
 """
@@ -21,6 +26,7 @@ from scipy.ndimage import minimum_filter
 KEY_BITS = 21
 KEY_OFFSET = 1 << (KEY_BITS - 1)
 KEY_MASK = (1 << KEY_BITS) - 1
+MIN_WEIGHT = 0.1
 
 
 def voxel_indices(points: np.ndarray, size: float) -> np.ndarray:
@@ -59,8 +65,8 @@ def key_centers(keys: np.ndarray, size: float) -> np.ndarray:
 
 def voxelize(
     points: np.ndarray, rgb: np.ndarray, size: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """(sorted unique keys, rgb of the first point in each voxel) of a frame.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(sorted unique keys, mean point, mean rgb) of each voxel of a frame.
 
     Points outside the key range are dropped.
     """
@@ -68,8 +74,16 @@ def voxelize(
     rgb = np.asarray(rgb, dtype=np.uint8).reshape(-1, 3)
     indices = voxel_indices(points, size)
     in_range = np.all(np.abs(indices) < KEY_OFFSET, axis=1)
-    keys, first = np.unique(pack_keys(indices[in_range]), return_index=True)
-    return keys, rgb[in_range][first]
+    points, rgb = points[in_range], rgb[in_range]
+    keys, inverse, counts = np.unique(
+        pack_keys(indices[in_range]), return_inverse=True, return_counts=True
+    )
+    means = np.empty((len(keys), 3))
+    colors = np.empty((len(keys), 3))
+    for axis in range(3):
+        means[:, axis] = np.bincount(inverse, points[:, axis], len(keys)) / counts
+        colors[:, axis] = np.bincount(inverse, rgb[:, axis], len(keys)) / counts
+    return keys, means, np.rint(colors).astype(np.uint8)
 
 
 def in_box(points: np.ndarray, lower, upper) -> np.ndarray:
@@ -109,10 +123,11 @@ def min_filter_depth(depth: np.ndarray, size: int = 3) -> np.ndarray:
 
 @dataclass
 class VoxelMap:
-    """Occupied voxels with color, hits and last-seen stamp (see module doc)."""
+    """Occupied voxels with mean point, color, hits and last-seen stamp."""
 
     voxel_size: float
     keys: np.ndarray = field(init=False, repr=False)
+    points: np.ndarray = field(init=False, repr=False)
     rgb: np.ndarray = field(init=False, repr=False)
     hits: np.ndarray = field(init=False, repr=False)
     last_seen: np.ndarray = field(init=False, repr=False)
@@ -127,15 +142,19 @@ class VoxelMap:
 
     def clear(self):
         self.keys = np.empty(0, dtype=np.int64)
+        self.points = np.empty((0, 3), dtype=np.float64)
         self.rgb = np.empty((0, 3), dtype=np.uint8)
         self.hits = np.empty(0, dtype=np.int32)
         self.last_seen = np.empty(0, dtype=np.float64)
 
-    def centers(self) -> np.ndarray:
-        return key_centers(self.keys, self.voxel_size)
+    def insert(
+        self, keys: np.ndarray, points: np.ndarray, rgb: np.ndarray, stamp: float
+    ):
+        """Add one frame's unique voxels (keys, mean points, rgb from voxelize).
 
-    def insert(self, keys: np.ndarray, rgb: np.ndarray, stamp: float):
-        """Add one frame's unique voxel keys: hits + 1, color and stamp replaced."""
+        hits + 1, the point averaged in (see module doc), color and stamp
+        replaced.
+        """
         keys = np.asarray(keys, dtype=np.int64)
         if len(keys) == 0:
             return
@@ -148,17 +167,25 @@ class VoxelMap:
         hits = np.zeros(len(merged), dtype=np.int32)
         np.add.at(hits, inverse[:old], self.hits)
         hits[inverse[old:]] += 1
+        # Zeros: a new voxel has hits 1, weight 1, so it gets the frame's point.
+        means = np.zeros((len(merged), 3), dtype=np.float64)
+        means[inverse[:old]] = self.points
+        new = inverse[old:]
+        weight = np.maximum(1.0 / hits[new], MIN_WEIGHT)[:, None]
+        means[new] += weight * (np.asarray(points, dtype=np.float64) - means[new])
         colors = np.empty((len(merged), 3), dtype=np.uint8)
         colors[inverse[:old]] = self.rgb
         colors[inverse[old:]] = np.asarray(rgb, dtype=np.uint8)
         seen = np.empty(len(merged), dtype=np.float64)
         seen[inverse[:old]] = self.last_seen
         seen[inverse[old:]] = stamp
-        self.keys, self.rgb, self.hits, self.last_seen = merged, colors, hits, seen
+        self.keys, self.points, self.rgb = merged, means, colors
+        self.hits, self.last_seen = hits, seen
 
     def keep(self, mask: np.ndarray):
         mask = np.asarray(mask, dtype=bool)
         self.keys = self.keys[mask]
+        self.points = self.points[mask]
         self.rgb = self.rgb[mask]
         self.hits = self.hits[mask]
         self.last_seen = self.last_seen[mask]
@@ -174,6 +201,6 @@ class VoxelMap:
         return removed
 
     def output(self, min_hits: int = 1) -> tuple[np.ndarray, np.ndarray]:
-        """(centers, rgb) of the voxels seen in at least min_hits frames."""
+        """(mean points, rgb) of the voxels seen in at least min_hits frames."""
         mask = self.hits >= min_hits
-        return key_centers(self.keys[mask], self.voxel_size), self.rgb[mask]
+        return self.points[mask], self.rgb[mask]

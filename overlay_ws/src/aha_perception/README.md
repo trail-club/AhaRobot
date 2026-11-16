@@ -171,7 +171,9 @@ RVizでは Camera グループの Merged points を有効にする（既定は�
 5. `min_range`〜`max_range` のDepthをボクセルにし、`base_footprint` の `crop_min`〜`crop_max` の外と、ロボットの点を除いて加える。
    ロボットの点は `/robot_description` の各リンクのcollisionを囲む箱（`self_padding` だけ広げる）の中の点。
 
-出力は `min_hits` フレーム以上で見えたボクセルの中心で、色は最後に見えたときの色画像（時刻が `color_tolerance` 以内で最も近いもの、なければ灰色）。
+出力は `min_hits` フレーム以上で見えたボクセルごとの点の平均の位置で（PCLのVoxelGridと同じく格子の中心に丸めない。
+フレームごとの平均を、最初は単純平均、10フレーム目からは重み0.1の移動平均で更新する）。色は最後に見えたフレームでボクセルに入った画素の色の平均
+（色画像は時刻が `color_tolerance` 以内で最も近いもの、なければ灰色）。
 
 | パラメータ | 既定 | 内容 |
 | --- | --- | --- |

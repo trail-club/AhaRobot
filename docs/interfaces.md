@@ -337,7 +337,7 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 | 貯めた点群を空にする | `/aha/perception/merged_points/clear` | `std_srvs/srv/Trigger` |
 
 frameは `odom`（パラメータ `fixed_frame`、TFがなければ `base_footprint`）、時刻は最後に加えたDepthの時刻、2 Hz以下（RELIABLE、depth 1）。
-点は1 cmのボクセルの中心で、ロボット自身の点を除き、`base_footprint` の前方 −0.5〜2.0 m・左右 ±1.5 m・高さ −0.05〜2.2 mに限る。
+点は1 cmのボクセルごとの点の平均の位置で、ロボット自身の点を除き、`base_footprint` の前方 −0.5〜2.0 m・左右 ±1.5 m・高さ −0.05〜2.2 mに限る。
 台車が5 cmか3°より動くと空になる。
 
 ## 物体検出（シミュレーションのみ）
