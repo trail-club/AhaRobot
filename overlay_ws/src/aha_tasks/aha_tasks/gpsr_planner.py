@@ -521,6 +521,7 @@ class CommandPlan:
     planner: str = ""  # "grammar" | "llm" | "" (failed)
     error: str = ""
     attempts: list = field(default_factory=list)  # (seconds, errors) per LLM try
+    dropped: bool = False  # planned, but left out: the plan did not fit the slots
 
     def info(self, vocabulary):
         return {
@@ -529,6 +530,7 @@ class CommandPlan:
             "planner": self.planner,
             "summary": command_summary(self.steps, vocabulary) if self.steps else "",
             "error": self.error,
+            "dropped": self.dropped,
         }
 
 
@@ -646,7 +648,7 @@ class Planner:
             longest = max(commands, key=lambda n: (len(commands[n]), n))
             dropped = next(r for r in results if r.number == longest)
             dropped.error = f"the plan does not fit {capacity} steps"
-            dropped.steps, dropped.planner = [], ""
+            dropped.steps, dropped.planner, dropped.dropped = [], "", True
             del commands[longest]
             plan = interleave(
                 commands, self.spec, start or self.vocabulary.operator, self.vocabulary
@@ -988,6 +990,11 @@ def report_sentences(plan, commands, outcomes, memory):
     sentences = []
     for info in commands:
         number = info["command"]
+        if info.get("dropped"):
+            sentences.append(
+                f"Command {number}: I understood it, but it did not fit my plan."
+            )
+            continue
         if not info.get("summary"):
             sentences.append(f"Command {number}: I did not understand it.")
             continue

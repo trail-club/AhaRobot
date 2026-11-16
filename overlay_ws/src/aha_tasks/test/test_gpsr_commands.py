@@ -617,6 +617,11 @@ class WordsTests(unittest.TestCase):
             gp.report_sentences(plan, missing, {}, {}),
             ["Command 2: I did not understand it."],
         )
+        dropped = [{"command": 3, "summary": "", "dropped": True}]
+        self.assertEqual(
+            gp.report_sentences(plan, dropped, {}, {}),
+            ["Command 3: I understood it, but it did not fit my plan."],
+        )
 
 
 class ConfirmationTests(unittest.TestCase):
@@ -646,6 +651,8 @@ class ConfirmationTests(unittest.TestCase):
         )
 
     def test_restated(self):
+        verdict, rest = yes_no("No, no, sorry, bring me a cola from the desk")
+        self.assertEqual((verdict, rest), ("no", "bring me a cola from the desk"))
         verdict, rest = yes_no("No, I said bring me a cola from the desk")
         self.assertEqual(verdict, "no")
         self.assertEqual(restated(rest, VOCABULARY), "bring me a cola from the desk")

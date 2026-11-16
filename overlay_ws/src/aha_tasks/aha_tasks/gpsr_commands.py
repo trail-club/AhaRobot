@@ -73,6 +73,10 @@ def words_of(text):
     return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", str(text).lower().replace("’", "'"))
 
 
+# Words before a restated command: "No, no, sorry, I said ...".
+LEADING = YES | NO | {"sorry", "well", "um", "uh", "oh", "wait", "actually"}
+
+
 def yes_no(text):
     """("yes" | "no" | None, the rest) of an answer to "Is that correct?".
 
@@ -90,7 +94,13 @@ def yes_no(text):
     if words[0] in YES:
         return "yes", " ".join(words[1:])
     if words[0] in NO or NO_PHRASE.search(joined):
-        return "no", " ".join(words[1:]) if words[0] in NO else ""
+        if words[0] not in NO:
+            return "no", ""
+        # "No, no, sorry, bring me ...": the command after the leading words.
+        rest = words[1:]
+        while rest and rest[0] in LEADING:
+            rest = rest[1:]
+        return "no", " ".join(rest)
     if len(words) <= 3 and any(w in NO for w in words):
         return "no", ""
     if len(words) <= 3 and any(
@@ -385,7 +395,8 @@ class PlanCommands(Skill):
             )
         interaction = Interaction.of(self.runtime)
         understood = [r.number for r in results if r.steps]
-        missing = [r.number for r in results if not r.steps]
+        dropped = [r.number for r in results if r.dropped]
+        missing = [r.number for r in results if not r.steps and not r.dropped]
         missing += [n for n in range(1, len(params["commands"]) + 1) if n not in texts]
         if not plan:
             interaction.say("I am sorry, I could not plan the commands.", ctx.cancelled)
@@ -401,6 +412,10 @@ class PlanCommands(Skill):
         speech = [f"I understood {_numbers(understood)}."]
         if missing:
             speech.append(f"I could not understand {_numbers(sorted(set(missing)))}.")
+        if dropped:
+            speech.append(
+                f"I understood {_numbers(dropped)}, but it does not fit my plan."
+            )
         if interleaved(plan):
             speech.append("I interleave the commands to save travel.")
         speech.append(plan_speech(plan, vocabulary))
