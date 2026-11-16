@@ -101,8 +101,8 @@ def main(argv=None):
     for obj in [] if args.check else scene.objects:  # --check builds nothing
         try:
             sdfs[obj.name] = catalog.sdf(obj, args.cache)
-        except (OSError, ValueError) as error:  # e.g. offline: place the others
-            log(f"cannot build {obj.name}: {error}")
+        except Exception as error:  # e.g. offline, a bad archive: place the others
+            log(f"cannot build {obj.name}: {type(error).__name__}: {error}")
 
     from gz.msgs10.boolean_pb2 import Boolean
     from gz.msgs10.entity_factory_pb2 import EntityFactory

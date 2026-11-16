@@ -26,7 +26,7 @@ objects:
   - {label: tomato soup, category: food, shape: cylinder, size: [0.067, 0.067, 0.10]}
   - {label: cup noodle, category: food, shape: cylinder, size: [0.145, 0.145, 0.074]}  # a Donbei bowl, grasped by the rim
   - {label: mustard, category: food, shape: box, size: [0.096, 0.058, 0.192]}
-  - {label: cereal, category: food, shape: box, size: [0.282, 0.056, 0.203]}
+  - {label: cereal, category: food, shape: box, size: [0.282, 0.056, 0.203], models: [cereal, "cereal_[0-9]*"]}  # not cereal_box of home.sdf
   # drink
   - {label: green tea, category: drink, shape: cylinder, size: [0.073, 0.073, 0.27]}
   - {label: lemonade, category: drink, shape: cylinder, size: [0.067, 0.067, 0.22]}

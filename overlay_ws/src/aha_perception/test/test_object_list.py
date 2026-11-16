@@ -37,6 +37,21 @@ def test_package_labels_not_shadowed():
             assert objects.for_model(name).label == entry.label, name
 
 
+def test_world_models_are_not_objects():
+    # The furniture and props of the worlds are not reported as objects
+    # (e.g. cereal_* would take the cereal_box of home.sdf).
+    import re
+
+    worlds = Path(__file__).resolve().parents[2] / "aha_gazebo" / "worlds"
+    files = sorted(worlds.glob("*.sdf"))
+    if not files:
+        pytest.skip(f"no worlds at {worlds}")
+    objects = load_object_list(CONFIG)
+    for path in files:
+        for name in re.findall(r'<model name="([^"]+)"', path.read_text()):
+            assert objects.for_model(name) is None, f"{path.name}: {name}"
+
+
 def test_model_patterns():
     objects = parse_object_list(
         {
