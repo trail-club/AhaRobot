@@ -52,3 +52,75 @@ objects:
   - {label: bowl, category: tableware, shape: cylinder, size: [0.16, 0.16, 0.055]}
   # toy
   - {label: rubiks cube, category: toy, shape: box, size: [0.058, 0.059, 0.058]}
+
+# Weights (kg) for questions about the objects (aha_tasks GPSR: heaviest,
+# lightest). YCB: the mass of the YCB Object and Model Set (Calli et al.
+# 2015), as in the tmc_wrs_gz_worlds models. Products of the RoboCup Japan
+# Open 2026 DSPL object list: package contents plus container; the list marks
+# the green tea and milk heavy (filled) and the red bull can empty.
+weights:
+  apple: 0.068  # YCB 013
+  orange: 0.047  # YCB 017
+  lemon: 0.029  # YCB 014
+  peach: 0.033  # YCB 015
+  banana: 0.066  # YCB 011
+  pear: 0.049  # YCB 016
+  plum: 0.025  # YCB 018
+  strawberry: 0.018  # YCB 012
+  tuna can: 0.171  # YCB 007 tuna fish can
+  spam: 0.37  # YCB 010 potted meat can
+  tomato soup: 0.349  # YCB 005 tomato soup can
+  cup noodle: 0.11  # Nissin Donbei kitsune udon, 95 g
+  mustard: 0.603  # YCB 006 mustard bottle
+  cereal: 0.34  # Nature's Path corn flakes 300 g (10.6 oz) box
+  green tea: 1.04  # Ito En Oi Ocha koicha 1 L PET, filled
+  lemonade: 0.62  # Minute Maid lemonade 600 ml PET, filled
+  cola: 0.37  # 350 ml can, filled
+  milk: 1.0  # Meiji Oishii Gyunyu 900 ml carton, filled
+  red bull: 0.015  # 250 ml can, empty
+  pringles: 0.205  # YCB 001 chips can
+  cookies: 0.35  # HOPE cookies box
+  chocolate jello: 0.187  # YCB 008 pudding box
+  strawberry jello: 0.097  # YCB 009 gelatin box
+  cleanser: 1.131  # YCB 021 bleach cleanser
+  sponge: 0.0062  # YCB 026
+  dishwasher tab: 0.005  # Finish power cube tablet, 5 g
+  toothpaste: 0.13  # Lion Clinica PRO 95 g in its box
+  fork: 0.034  # YCB 030
+  knife: 0.031  # YCB 032
+  spoon: 0.03  # YCB 031
+  mug: 0.118  # YCB 025
+  plate: 0.279  # YCB 029
+  bowl: 0.147  # YCB 024
+  rubiks cube: 0.094  # YCB 077 (tmc_wrs_gz_worlds model)
+
+# Other names of the labels in commands: the RoboCup Japan Open 2026 DSPL
+# object list and its GPSR command generator data, and the YCB names. Case,
+# plurals, punctuation, word order and a container word ("can", "box",
+# "bottle", ...) are matched without aliases (aha_tasks.object_queries).
+aliases:
+  tuna can: [tuna, tuna fish can]
+  spam: [potted meat can]
+  tomato soup: [tomato soup can]
+  cup noodle: [instant noodles]
+  mustard: [mustard bottle]
+  cereal: [corn flakes]
+  cola: [coke, coca cola]
+  red bull: [red bull can]
+  pringles: [chips can, potato chips]
+  chocolate jello: [jell-o pudding box, pudding box, chocolate pudding]
+  strawberry jello: [jell-o strawberry, gelatin box, strawberry gelatin]
+  cleanser: [bleach cleanser]
+  dishwasher tab: [dishwasher tablet]
+  toothpaste: [toothpaste box]
+  rubiks cube: [rubik's cube]
+
+# Names of sets of categories and labels: the classes of the RoboCup Japan
+# Open 2026 DSPL object list and the "dishes" of the RoboCup@Home command
+# generator, in the categories of this list.
+groups:
+  kitchen item: [cutlery, tableware, cleanser, sponge, dishwasher tab]
+  task item: [toothpaste, rubiks cube]
+  common object: [pringles, red bull, rubiks cube, toothpaste]
+  dish: [cutlery, tableware]
+  beverage: [drink]

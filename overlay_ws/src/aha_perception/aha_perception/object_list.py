@@ -7,11 +7,21 @@ The YAML (config/objects/robocup_objects.yaml) has one entry per label::
 
 ``models`` (optional) lists fnmatch patterns of Gazebo model names detected
 as the label; the default is the label with "_" for spaces and the same
-followed by "_*". ROS free (PyYAML).
+followed by "_*".
+
+Optional mappings next to ``objects`` describe the labels for tasks that
+answer about objects (aha_tasks GPSR)::
+
+  weights: {tuna can: 0.171}            # kg
+  aliases: {tuna can: [tuna fish can]}  # other names of a label in commands
+  groups: {kitchen item: [cutlery, tableware]}  # names of sets of categories / labels
+
+ROS free (PyYAML).
 """
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -20,6 +30,7 @@ import yaml
 
 SHAPES = ("box", "cylinder")
 _KEYS = {"label", "category", "shape", "size", "models"}
+_TOP_KEYS = {"objects", "weights", "aliases", "groups"}
 
 
 class ObjectListError(ValueError):
@@ -33,6 +44,8 @@ class ObjectType:
     shape: str
     size: tuple[float, float, float]  # x, y footprint and z height (m)
     models: tuple[str, ...]  # fnmatch patterns of Gazebo model names
+    weight: float | None = None  # kg, None if unknown
+    aliases: tuple[str, ...] = ()  # other names in commands
 
     def matches(self, model: str) -> bool:
         return any(fnmatchcase(model, pattern) for pattern in self.models)
@@ -41,6 +54,8 @@ class ObjectType:
 @dataclass(frozen=True)
 class ObjectList:
     objects: tuple[ObjectType, ...]
+    # Name of a set -> the categories and labels in it (e.g. "kitchen item").
+    groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def labels(self) -> list[str]:
@@ -112,7 +127,63 @@ def parse_object_list(data, source: str = "object list") -> ObjectList:
     duplicates = sorted({x for x in labels if labels.count(x) > 1})
     if duplicates:
         raise ObjectListError(f"{source}: duplicate labels {duplicates}")
-    return ObjectList(tuple(entries))
+    unknown = set(data) - _TOP_KEYS
+    if unknown:
+        raise ObjectListError(f"{source}: unknown keys {sorted(unknown)}")
+    weights = _label_mapping(data, "weights", labels, source)
+    aliases = _label_mapping(data, "aliases", labels, source)
+    for label, weight in weights.items():
+        if (
+            isinstance(weight, bool)
+            or not isinstance(weight, (int, float))
+            or not 0 < weight < float("inf")
+        ):
+            raise ObjectListError(f"{source}: weights.{label} must be positive (kg)")
+    for label, names in aliases.items():
+        if not _names(names):
+            raise ObjectListError(f"{source}: aliases.{label} must be a list of names")
+    entries = [
+        dataclasses.replace(
+            e,
+            weight=float(weights[e.label]) if e.label in weights else None,
+            aliases=tuple(str(n).strip() for n in aliases.get(e.label, ())),
+        )
+        for e in entries
+    ]
+    groups = data.get("groups") or {}
+    if not isinstance(groups, dict):
+        raise ObjectListError(f"{source}: groups must be a mapping")
+    known = set(labels) | {e.category for e in entries}
+    for name, members in groups.items():
+        if not str(name).strip() or not _names(members):
+            raise ObjectListError(f"{source}: groups.{name} must be a list of names")
+        missing = [m for m in members if m not in known]
+        if missing:
+            raise ObjectListError(
+                f"{source}: groups.{name}: {missing} are not categories or labels"
+            )
+    return ObjectList(
+        tuple(entries),
+        tuple((str(n).strip(), tuple(m)) for n, m in groups.items()),
+    )
+
+
+def _label_mapping(data, key, labels, source):
+    mapping = data.get(key) or {}
+    if not isinstance(mapping, dict):
+        raise ObjectListError(f"{source}: {key} must be a mapping of labels")
+    unknown = sorted(set(mapping) - set(labels))
+    if unknown:
+        raise ObjectListError(f"{source}: {key} of unknown labels {unknown}")
+    return mapping
+
+
+def _names(value):
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(v, str) and v.strip() for v in value)
+    )
 
 
 def load_object_list(path) -> ObjectList:

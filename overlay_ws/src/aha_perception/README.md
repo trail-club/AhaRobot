@@ -139,6 +139,7 @@ ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true objects:
 GZ_PARTITIONはシミュレーションと同じにする（launchから起動すれば同じ）。
 タスクのsimでは、[aha_tasks](../aha_tasks/README.md#シミュレーションの物体)の `object_scene:=` がリストのラベルに合う名前で物体を置く。
 リストのPPCの食器（cutlery、tableware）・Common Objects・YCBの物体の大きさは、そのsimのモデルの外接箱に合わせてある。
+リストの `weights`（kg）・`aliases`（命令での別名）・`groups`（`kitchen item` などのカテゴリ・ラベルの組）は、aha_tasksのGPSRの[物体を探す・数える・答えるスキル](../aha_tasks/README.md#物体を探す数える答えるスキル)が使う。
 
 | パラメータ | 既定 | 内容 |
 | --- | --- | --- |
