@@ -1,6 +1,7 @@
 """Object skills: clustering, surfaces, roles and the shelf, and the skills on
 fake detection messages (no ROS graph)."""
 
+from dataclasses import replace
 import math
 import os
 from pathlib import Path
@@ -114,6 +115,19 @@ class ClusterTests(unittest.TestCase):
         ]
         (percept,) = cluster(messages, CATEGORY)
         self.assertEqual((percept.count, percept.track), (2, 9))
+
+    def test_objects_side_by_side_stay_apart(self):
+        # Two cans (0.066 m) touching, seen together with their own tracks.
+        can = (0.066, 0.066, 0.12)
+        messages = [
+            [
+                Observation("cola", 1, (1.0, 0.0, 0.86), can, 1.0),
+                Observation("cola", 2, (1.066, 0.0, 0.86), can, 1.0),
+            ]
+        ] * 2
+        self.assertEqual(len(cluster(messages, CATEGORY)), 2)
+        untracked = [[replace(o, track=-1) for o in messages[0]]] * 2
+        self.assertEqual([p.count for p in cluster(untracked, CATEGORY)], [2, 2])
 
     def test_close_objects_of_other_labels_stay_apart(self):
         # A fork lying on a plate.

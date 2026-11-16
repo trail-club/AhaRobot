@@ -15,7 +15,8 @@ detections (map in task.launch.py); the furniture is transformed there by TF.
 
 An object is a cluster of detections: by track ID, untracked ones by distance,
 then tracks of the same label closer than SAME_OBJECT_M are merged (a detector
-may give one object a new track). The label is the most frequent one. An
+may give one object a new track), unless one message saw both (two objects side
+by side). The label is the most frequent one. An
 object is on a level at height h when its centre is not below h - BELOW_M and
 its bottom (centre - half the box height) is at most STACK_M above h, so that
 objects on a plate or lying with an upright box size still count.
@@ -123,6 +124,9 @@ class _Cluster:
         votes = Counter(o.label for _, o in self.observations)
         return max(votes, key=lambda label: (votes[label], label))
 
+    def messages(self):
+        return {index for index, _ in self.observations}
+
 
 def median(values):
     values = sorted(values)
@@ -144,7 +148,11 @@ def cluster(messages, category_of, same_object=SAME_OBJECT_M):
                     (index, observation)
                 )
                 continue
-            near = [(math.dist(c.centre(), observation.position), c) for c in untracked]
+            near = [
+                (math.dist(c.centre(), observation.position), c)
+                for c in untracked
+                if index not in c.messages()  # another object of this message
+            ]
             near = [(d, c) for d, c in near if d < same_object]
             if near:
                 min(near, key=lambda item: item[0])[1].observations.append(
@@ -160,6 +168,7 @@ def cluster(messages, category_of, same_object=SAME_OBJECT_M):
             for b in clusters[i + 1 :]:
                 if (
                     a.label() == b.label()
+                    and not a.messages() & b.messages()
                     and math.dist(a.centre(), b.centre()) < same_object
                 ):
                     a.observations += b.observations
@@ -181,7 +190,7 @@ def cluster(messages, category_of, same_object=SAME_OBJECT_M):
                 size=tuple(median([o.size[k] for o in same]) for k in range(3)),
                 track=latest.track,
                 confidence=sum(o.confidence for o in same) / len(same),
-                count=len({index for index, _ in c.observations}),
+                count=len(c.messages()),
                 yaw=mean_angle([o.yaw for o in same if o.yaw is not None]),
             )
         )
