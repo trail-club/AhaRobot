@@ -564,6 +564,16 @@ class FollowPersonTests(unittest.TestCase):
         self.assertIn("Lost", result.message)
         self.assertTrue(any(isinstance(look, float) for look in world.looked))
 
+    def test_a_person_remembered_far_away_is_not_looked_for(self):
+        # An earlier command found someone at the kitchen; this one starts here.
+        far = {**FOUND, "person.track": 2, "person.position": [0.0, 6.0, 1.0]}
+        walker = Route(1, [(0.0, 1.0), (0.0, 5.5)])
+        world = World([0.0, 0.0, math.pi / 2], [walker, Standing(2, (5.0, 5.0))])
+        result = run(FollowPerson, world, {"person": "them", "stop_time": 3.0}, far)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 1)
+        self.assertEqual(world.followed[0], 1)
+
     def test_nobody_in_view_fails_at_the_start(self):
         world = World([0.0, 0.0, math.pi / 2], [Standing(1, (0.0, -2.0))])
         result = run(FollowPerson, world, {"person": "them"})
@@ -609,6 +619,23 @@ class Pausing(Route):
         return self.second.position(t, robot)
 
 
+class Unreachable(World):
+    """Nav2 accepts each goal, tries for 2 s and aborts it without moving."""
+
+    def send(self, pose, now):
+        super().send(pose, now)
+        self.abort_at, self.aborted = self.t + 2.0, False
+
+    def drive(self):
+        if self.goal is not None and self.t >= self.abort_at:
+            self.goal, self.aborted = None, True
+
+    def state(self):
+        if self.goal is None and getattr(self, "aborted", False):
+            return FAILED
+        return super().state()
+
+
 class GuidePersonTests(unittest.TestCase):
     def test_guides_a_follower_and_checks_on_the_way(self):
         world = World([0.0, 0.0, math.pi / 2], [Trailing(1, (0.0, 1.0))])
@@ -643,6 +670,16 @@ class GuidePersonTests(unittest.TestCase):
         )
         self.assertTrue(result.success, result.message)
         self.assertIn("I am here. Please follow me.", world.said)
+
+    def test_gives_up_when_nav2_keeps_aborting(self):
+        world = Unreachable([0.0, 0.0, math.pi / 2], [Trailing(1, (0.0, 1.0))])
+        result = run(
+            GuidePerson, world, {"person": "them", "location": "office"}, FOUND
+        )
+        self.assertFalse(result.success)
+        self.assertIn("could not reach", result.message)
+        self.assertEqual(len(world.goals), 3)
+        self.assertLess(world.t, 30.0)
 
     def test_fails_when_nobody_follows(self):
         world = World([0.0, 0.0, math.pi / 2], [Standing(1, (0.0, 1.0))])

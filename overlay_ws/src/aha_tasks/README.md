@@ -399,13 +399,13 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 
 ### 人について行く・案内する
 
-`follow_person` と `guide_person` はNav2と人の認識を使う。対象は前の `find_described_person` の `<role>.track` / `.position`（`role` の既定は `person`）の人で、なければ見えている人のうちロボットに最も近い人（3 m以内）。開始から10 s見えなければ失敗する。
+`follow_person` と `guide_person` はNav2と人の認識を使う。対象は前の `find_described_person` の `<role>.track` / `.position`（`role` の既定は `person`）の人で、なければ見えている人のうちロボットに最も近い人（3 m以内）。記憶の人がロボットから3 mより遠ければ、前の手順（前の命令など）の人として使わない。開始から10 s見えなければ失敗する。
 頭は対象の人を追い続け（[注視](#注視)）、終了後も向け続ける。`person` は発話に使い、大文字で始まる1語なら名前として呼びかける。
 
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
 | `follow_person` | 「I will follow you」と伝え、人の `distance`（既定1.0 m）手前でその人を向く姿勢をNav2のgoalにして、人が動くたびに送り直す（Nav2は走行中のgoalを置き換えて経路を引き直す）。ロボットが人から `distance`+0.8 m以内にいる間に、人が `stop_time`（既定5 s）止まると、走行中のgoalに着くまで（最大15 s）待って終わる。ただし人が最初の位置から1 m以上歩いた後に限り、`location` があれば人がその地点から `radius`（既定2.0 m）以内のときだけ | `robot.location`（`[x, y, yaw]`）、人の最後の `<role>.track` / `.position` / `.frame` |
-| `guide_person` | 「Please follow me」と伝えて `location` へNav2で移動する。`check_every`（既定4 m）進むごとと到着時に、ついて来ている人を確かめる。いなければ「I am here. Please follow me.」と呼んで `wait`（既定10 s）待つことを `calls`（既定2）回まで繰り返し、来なければ失敗する。着くと「we have arrived at the …」と伝える | 同上（ついて来た人） |
+| `guide_person` | 「Please follow me」と伝えて `location` へNav2で移動する。`check_every`（既定4 m）進むごとと到着時に、ついて来ている人を確かめる。いなければ「I am here. Please follow me.」と呼んで `wait`（既定10 s）待つことを `calls`（既定2）回まで繰り返し、来なければ失敗する。Nav2が移動を中止するとgoalを送り直し、1 m進まないまま3回中止すると失敗する。着くと「we have arrived at the …」と伝える | 同上（ついて来た人） |
 
 - **goal**: ロボット側から人を見た向きを先に、30°ずつ左右に回した7つの候補のうち、大域コストマップ（`/global_costmap/costmap`）で障害物から約0.6 m離れた（値50未満）最初の姿勢、なければ内接・致死・未知でない最初の姿勢。goalの送り直しは1 sに1回までで、走行中は0.3 m・0.5 rad以上変わったときだけ。近くの人が正面から0.8 rad以上外れると、その場で人へ向く（横を通り過ぎて頭の届かない後ろへ行く人を見失わないため）。人が `distance` より0.3 m以上近づくとgoalを取り消して止まる。
 - **見失い**: trackが消えると、名前、次に最後に見た位置から 0.5 m＋0.8 m/s×見失った時間（最大4 m）以内の人へ引き継ぐ。対象と同時に見えていた人と、別の名前の人には引き継がない。2 s見失うと、最後に見た位置から歩いていた向きへ1 m先の点の1 m手前へ移動し（通れなければその場でその点へ向き）、頭を左右（±0.9、±1.5 rad）へ1.5 sずつ向け、台車を180°回してもう一度向ける。`lost_timeout`（既定30 s）見えなければ失敗する。

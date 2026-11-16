@@ -86,6 +86,7 @@ TRAIL_NEAR = 1.2  # m from the robot's path for a follower
 GLANCE = 3.0  # s for a glance back with the head (it turns at 1 rad/s)
 LOOK = 5.0  # s for a look back after turning
 MAX_NAV_FAILURES = 3  # aborted goals to the destination in a row
+NAV_PROGRESS = 1.0  # m driven after an abort before aborts are counted afresh
 SUCCEEDED, ACTIVE, FAILED, IDLE = "succeeded", "active", "failed", "idle"
 FOLLOW_KEYS = (
     "location",
@@ -544,6 +545,14 @@ class _PersonSkill(Skill):
         except TimeoutError as error:
             return SkillResult(False, str(error))
         target = remembered(ctx.memory, ctx.params.get("role", "person"))
+        if target.position is not None and (
+            math.dist(robot[:2], target.position) > ACQUIRE_RANGE
+        ):
+            # find_described_person leaves the robot next to the person: one
+            # remembered far away is from an earlier step (e.g. an earlier
+            # command) and is not looked for.
+            ctx.log("The remembered person is far away: looking around the robot")
+            target = Target()
         pans = itertools.cycle(ACQUIRE_PANS)
         next_look = -math.inf
         if target.position is not None:
@@ -793,6 +802,7 @@ class GuidePerson(_PersonSkill):
         deadline = people.now() + positive(params, "timeout", 300.0)
         gaze = self.runtime.gaze
         travelled, failures, checks = 0.0, 0, 0
+        failed_at = None  # `travelled` at the last abort
         pursuit.send(destination, people.now())
         gaze.follow_path(destination)
         while not ctx.cancelled.is_set():
@@ -808,11 +818,14 @@ class GuidePerson(_PersonSkill):
                 break
             if state == FAILED:
                 failures += 1
+                failed_at = travelled
                 if failures >= MAX_NAV_FAILURES:
                     return False, "Nav2 could not reach the destination", None
                 pursuit.send(destination, people.now())
-            elif state == ACTIVE:
-                failures = 0
+            elif failed_at is not None and travelled - failed_at >= NAV_PROGRESS:
+                # A goal stays ACTIVE until Nav2 aborts it: only driving on
+                # shows that the way is clear again.
+                failures, failed_at = 0, None
             far = math.dist(robot[:2], destination[:2]) > 1.0
             if travelled >= every * (checks + 1) and far:
                 checks += 1
