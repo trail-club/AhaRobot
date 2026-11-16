@@ -43,5 +43,8 @@
   <exec_depend>python3-scipy</exec_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <!-- test_sim_objects: the models of the expanded RCJO2026 arena -->
+  <test_depend>sobits_gazebo_worlds</test_depend>
+  <test_depend>xacro</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

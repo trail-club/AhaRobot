@@ -160,6 +160,27 @@ class SceneTests(SceneFixture):
         for role in ("table.other1", "table.other2"):
             self.assertIn(roles[role].category, categories)
 
+    def test_no_model_of_the_world_is_stale(self):
+        # sim_objects removes stale models; none of the scene's world may be one.
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            import xacro
+
+            sobits = Path(get_package_share_directory("sobits_gazebo_worlds"))
+        except (ImportError, LookupError):
+            self.skipTest("no xacro or sobits_gazebo_worlds")
+        for name in ("pick_and_place", "gpsr"):
+            scene = self.scene(name)
+            source = sobits / "worlds" / f"{scene.world}.world.xacro"
+            root = ET.fromstring(xacro.process_file(str(source)).toxml())
+            names = [m.get("name") for m in root.iter("model")]
+            for include in root.iter("include"):
+                uri = (include.findtext("uri") or "").rstrip("/")
+                names.append((include.findtext("name") or uri.split("/")[-1]).strip())
+            with self.subTest(scene=name):
+                self.assertGreater(len(names), 10)  # the furniture
+                self.assertEqual(stale_models(names, scene, self.objects), [])
+
     def test_only_objects_of_another_scene_are_stale(self):
         scene = self.scene("pick_and_place")
         present = [
