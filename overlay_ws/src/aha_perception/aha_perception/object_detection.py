@@ -445,17 +445,28 @@ NESTED_SHARE = 0.6
 SAME_BOX_IOU = 0.5
 
 
-def same_object(a: ObjectDetection, b: ObjectDetection, distance_m: float) -> bool:
-    """Whether two detections of one image are one object: same label with
-    centres closer than `distance_m` or nested boxes, or overlapping boxes."""
+def _box_overlap(a, b) -> tuple[float, float, float]:
+    """Intersection and volumes of two axis-aligned boxes (centre, size)."""
     low = np.maximum(a.centre - a.size / 2, b.centre - b.size / 2)
     high = np.minimum(a.centre + a.size / 2, b.centre + b.size / 2)
     overlap = float(np.prod(np.clip(high - low, 0.0, None)))
-    volumes = float(np.prod(a.size)), float(np.prod(b.size))
+    return overlap, float(np.prod(a.size)), float(np.prod(b.size))
+
+
+def same_box(a, b) -> bool:
+    """Whether two boxes (detections or tracks) overlap as one object's do."""
+    overlap, volume_a, volume_b = _box_overlap(a, b)
+    return overlap >= SAME_BOX_IOU * (volume_a + volume_b - overlap)
+
+
+def same_object(a: ObjectDetection, b: ObjectDetection, distance_m: float) -> bool:
+    """Whether two detections of one image are one object: same label with
+    centres closer than `distance_m` or nested boxes, or the same box."""
     if a.label != b.label:
-        return overlap >= SAME_BOX_IOU * (sum(volumes) - overlap)
+        return same_box(a, b)
+    overlap, volume_a, volume_b = _box_overlap(a, b)
     distance = float(np.linalg.norm(a.centre - b.centre))
-    return distance < distance_m or overlap >= NESTED_SHARE * min(volumes)
+    return distance < distance_m or overlap >= NESTED_SHARE * min(volume_a, volume_b)
 
 
 def merge_detections(detections, distance_m=0.05):
@@ -513,9 +524,10 @@ class ObjectTracker:
 
     Objects stand still, so a track averages its sightings. A detection joins
     the nearest track within `gate_m` with the same label, or with another
-    label within half the gate (the VLM named the same object differently);
-    the label is the vote of the sightings, weighted by score. The frame
-    should be fixed in the world (map / odom).
+    label within half the gate and with the same box (same_box: the VLM named
+    the same object differently; an object on or in another has a much
+    smaller box); the label is the vote of the sightings, weighted by score.
+    The frame should be fixed in the world (map / odom).
     """
 
     def __init__(self, gate_m=0.08, forget_after=120.0):
@@ -537,7 +549,11 @@ class ObjectTracker:
             for index, detection in enumerate(detections):
                 distance = float(np.linalg.norm(track.centre - detection.centre))
                 same = detection.label == track.label
-                if distance <= (self.gate_m if same else self.gate_m / 2):
+                if same:
+                    near = distance <= self.gate_m
+                else:
+                    near = distance <= self.gate_m / 2 and same_box(track, detection)
+                if near:
                     pairs.append((0 if same else 1, distance, track.id, index))
         pairs.sort()
         used_tracks, used_detections, seen = set(), set(), []

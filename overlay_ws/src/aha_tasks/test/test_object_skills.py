@@ -1,6 +1,7 @@
 """Object skills: clustering, surfaces, roles and the shelf, and the skills on
 fake detection messages (no ROS graph)."""
 
+from dataclasses import replace
 import math
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.objects import (  # noqa: E402
+    PLACE_GAP,
+    PLACE_WIDTH,
     Objects,
     Observation,
     Percept,
@@ -23,6 +26,7 @@ from aha_tasks.objects import (  # noqa: E402
     cluster,
     floor_region,
     furniture_region,
+    half_width,
     norm_category,
     placement,
     same_category,
@@ -52,6 +56,8 @@ OBJECT_LIST = parse_object_list(
                 ("pringles", "snack"),
                 ("apple", "fruit"),
                 ("orange", "fruit"),
+                ("lemon", "fruit"),
+                ("peach", "fruit"),
                 ("cola", "drink"),
                 ("milk", "drink"),
                 ("cereal", "food"),
@@ -114,6 +120,19 @@ class ClusterTests(unittest.TestCase):
         ]
         (percept,) = cluster(messages, CATEGORY)
         self.assertEqual((percept.count, percept.track), (2, 9))
+
+    def test_objects_side_by_side_stay_apart(self):
+        # Two cans (0.066 m) touching, seen together with their own tracks.
+        can = (0.066, 0.066, 0.12)
+        messages = [
+            [
+                Observation("cola", 1, (1.0, 0.0, 0.86), can, 1.0),
+                Observation("cola", 2, (1.066, 0.0, 0.86), can, 1.0),
+            ]
+        ] * 2
+        self.assertEqual(len(cluster(messages, CATEGORY)), 2)
+        untracked = [[replace(o, track=-1) for o in messages[0]]] * 2
+        self.assertEqual([p.count for p in cluster(untracked, CATEGORY)], [2, 2])
 
     def test_close_objects_of_other_labels_stay_apart(self):
         # A fork lying on a plate.
@@ -276,21 +295,42 @@ class ShelfTests(unittest.TestCase):
         self.shelf = furniture_region(FURNITURE.get("shelf"), (0, 0, 0, 0), 0.1)
         self.heights = FURNITURE.get("shelf").heights
         # Seen from the open side (world -y), the robot's left is world -x.
-        left, right = 3.05, 3.35
+        left, right = 3.0, 3.35
         self.placed = [
-            (seen("apple", on_top(left, 3.5, self.heights[1], (0.075,) * 3)), 2),
-            (seen("orange", on_top(left + 0.08, 3.5, self.heights[1], (0.07,) * 3)), 2),
-            (
-                seen(
-                    "pringles",
-                    on_top(right, 3.5, self.heights[1], (0.075, 0.075, 0.23)),
-                ),
-                2,
-            ),
-            (seen("cereal", on_top(left, 3.5, self.heights[2], (0.06, 0.16, 0.26))), 3),
-            (seen("tuna can", on_top(right, 3.5, self.heights[2], (0.085,) * 3)), 3),
-            (seen("milk", on_top(left, 3.5, self.heights[3], (0.07, 0.07, 0.19))), 4),
+            self.item("apple", left, 2, (0.075,) * 3),
+            self.item("orange", left + 0.08, 2, (0.07,) * 3),
+            self.item("pringles", right, 2, (0.075, 0.075, 0.23)),
+            self.item("cereal", left, 3, (0.06, 0.16, 0.26)),
+            self.item("tuna can", right, 3, (0.085,) * 3),
+            self.item("milk", left, 4, (0.07, 0.07, 0.19)),
         ]
+
+    def item(self, label, x, level, size, yaw=None):
+        """(percept, level) of an object at world x on the shelf level."""
+        xyz = on_top(x, 3.5, self.heights[level - 1], size)
+        return (replace(seen(label, xyz, size), yaw=yaw), level)
+
+    def taken(self, placed, level):
+        """Local y (low, high) of the objects on a level."""
+        out = []
+        for percept, number in placed:
+            if number == level:
+                y = self.shelf.local(*percept.position[:2])[1]
+                half = half_width(self.shelf, percept)
+                out.append((y - half, y + half))
+        return out
+
+    def assertClear(self, spot, width, taken):
+        """The spot keeps PLACE_GAP from the side panels and the `taken` spans;
+        returns its span."""
+        y = self.shelf.local(*spot["position"][:2])[1]
+        low, high = y - width / 2, y + width / 2
+        edge = self.shelf.width / 2 - PLACE_GAP + 1e-3  # positions are rounded
+        self.assertTrue(-edge <= low and high <= edge, spot)
+        for a, b in taken:
+            clear = high <= a - PLACE_GAP + 1e-3 or low >= b + PLACE_GAP - 1e-3
+            self.assertTrue(clear, (spot, (a, b)))
+        return (low, high)
 
     def test_groups_by_level_and_side(self):
         groups = shelf_groups(self.placed, self.shelf)
@@ -315,41 +355,71 @@ class ShelfTests(unittest.TestCase):
         groups = shelf_groups(self.placed, self.shelf)
         where = placement(
             [
-                ("table.other1", "orange", "fruit"),
-                ("table.other2", "rubiks cube", "toy"),
-                ("extra.obj1", "dice", "toy"),
+                ("table.other1", "orange", "fruit", 0.07),
+                ("table.other2", "rubiks cube", "toy", 0.058),
+                ("extra.obj1", "dice", "toy", 0.05),
             ],
             groups,
             self.shelf,
         )
+        fruit = where["table.other1"]
         self.assertEqual(
-            (where["table.other1"]["level"], where["table.other1"]["side"]), (2, "left")
+            (fruit["level"], fruit["side"], fruit["reason"]), (2, "left", "category")
         )
-        self.assertEqual(where["table.other1"]["reason"], "category")
+        # Beside the fruit (no room at the panel), clear of the pringles.
+        self.assertClear(fruit, 0.07, self.taken(self.placed, 2))
         toy = where["table.other2"]
         self.assertEqual(
             (toy["level"], toy["side"], toy["reason"]), (4, "right", "empty")
         )
         self.assertAlmostEqual(toy["position"][2], self.heights[3])
-        # The second toy joins the first one.
+        span = self.assertClear(toy, 0.058, self.taken(self.placed, 4))
+        # The second toy joins the first one, beside it.
+        dice = where["extra.obj1"]
         self.assertEqual(
-            (where["extra.obj1"]["level"], where["extra.obj1"]["side"]), (4, "right")
+            (dice["level"], dice["side"], dice["reason"]), (4, "right", "category")
         )
-        self.assertEqual(where["extra.obj1"]["reason"], "category")
+        self.assertClear(dice, 0.05, self.taken(self.placed, 4) + [span])
+
+    def test_the_spot_is_beside_the_group_not_on_it(self):
+        # Level 5 of the simulated shelf: orange and lemon leave no room on the
+        # left, a peach stands right of the middle.
+        placed = [
+            self.item(label, x, 5, size, yaw=0.0)
+            for label, x, size in (
+                ("orange", 3.0, (0.07, 0.07, 0.07)),
+                ("lemon", 3.11, (0.055, 0.055, 0.06)),
+                ("peach", 3.22, (0.07, 0.07, 0.065)),
+            )
+        ]
+        groups = shelf_groups(placed, self.shelf)
+        items = [("a", "apple", "fruit", 0.075), ("b", "orange", "fruit", 0.07)]
+        where = placement(items, groups, self.shelf)
+        taken = self.taken(placed, 5)
+        for key, _, _, width in items:
+            spot = where[key]
+            self.assertEqual(
+                (spot["level"], spot["side"], spot["reason"]), (5, "right", "category")
+            )
+            taken.append(self.assertClear(spot, width, taken))
+        # Next to the peach (x 3.22 + 0.035), then next to the apple (rounded).
+        x = 3.255 + PLACE_GAP + 0.0375
+        self.assertAlmostEqual(where["a"]["position"][0], x, delta=1e-3)
+        x += 0.0375 + PLACE_GAP + 0.035
+        self.assertAlmostEqual(where["b"]["position"][0], x, delta=1e-3)
 
     def test_a_full_shelf_takes_the_least_occupied_part(self):
         placed = [
-            (
-                seen("apple", on_top(x, 3.5, self.heights[level - 1], (0.075,) * 3)),
-                level,
-            )
+            self.item("apple", x, level, (0.075,) * 3)
             for level in range(1, 6)
             for x in (3.05, 3.35)
         ]
         groups = shelf_groups(placed, self.shelf)
-        where = placement([("k", "cola", "drink")], groups, self.shelf)
+        where = placement([("k", "cola", "drink", 0.066)], groups, self.shelf)
         self.assertEqual(where["k"]["reason"], "least occupied")
         self.assertIn(where["k"]["level"], (2, 3, 4))
+        # Between the apples, not on one.
+        self.assertClear(where["k"], 0.066, self.taken(placed, where["k"]["level"]))
 
 
 def detection(label, xyz, track, size=(0.1, 0.1, 0.1), yaw=None):
@@ -698,6 +768,9 @@ class SkillTests(unittest.TestCase):
         placement_ = out["cabinet.placement"]
         self.assertEqual(set(placement_), {"table.other1", "table.other2"})
         self.assertEqual(placement_["table.other1"]["level"], 2)
+        # Beside the apple (x 3.05, 0.075 m), not on it; no size in the record.
+        x = 3.05 + 0.0375 + PLACE_GAP + PLACE_WIDTH / 2
+        self.assertAlmostEqual(placement_["table.other1"]["position"][0], x, delta=1e-3)
         self.assertEqual(
             (placement_["table.other2"]["level"], placement_["table.other2"]["side"]),
             (4, "right"),

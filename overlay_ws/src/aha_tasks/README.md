@@ -431,7 +431,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
   画像からの検出器は1枚に数秒かかり、頭を向ける前の画像の検出が後から届くため、検出の時刻（画像の時刻）で待つ。
 - 物体は、頭が向きごとに止まってから次の向きへ動き出すまで（最後の向きは集め終わるまで）に撮られた画像の検出だけから求める。
   最初の向きへ動く前（移動の終わり、前のサブゴールの視野）と頭が動く間の画像の検出は使わない。
-- 検出はtrack IDごと（trackのないものは距離）にまとめ、同じラベルで0.08 m未満の塊は1つにする。ラベルは最も多いもの。
+- 検出はtrack IDごと（trackのないものは距離）にまとめ、同じラベルで0.08 m未満の塊は1つにする（検出器がtrackを付け直した物体）。同じメッセージで一緒に検出された塊は、並んだ別の物体としてまとめない。ラベルは最も多いもの。
   2回以上検出された物体だけを使う（使う検出が向きごとに平均2回未満の遅い検出器では1回）。
 - 家具の設定のframe（シミュレーションの設定は `world`）から検出のframeへはTFで変換する。`task.launch.py` の `objects:=true` は、固定地図がGazeboのworld座標で描かれているため、`world` → `map` の恒等の静的TFを出す。
 - 家具の設定とカテゴリの物体リストは、runnerのパラメータ `furniture_config`・`objects_config`（空はaha_perceptionの[シミュレーションの家具](../aha_perception/config/furniture/rcjo2026_arena.yaml)と物体リスト）。
@@ -458,9 +458,14 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | `<output>.groups` | 群の `level`・`side`（`left` / `right`）・`category`・`labels`・`position`（物体の中心の平均、zは段の高さ）・`frame` |
 | `<output>.placement` | `objects` のキーごとの置き場所。`level`・`side`・`height`・`position`・`frame`・`category`・`reason` |
 
-置き場所は、同じカテゴリの群があれば最も大きい群（`reason` が `category`、`position` は群の中心）。
-なければ物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`、`position` は片側の中央）。
-後の物体は先に決めた物体の群に加わる。空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。
+置き場所の `position` は、置く物体の中心を置く点（zは段の高さ）で、段の物体と側板から棚の左右方向に0.03 m離す。
+置く物体の幅は記憶の `size` の水平の長い辺（`size` がなければ0.1 m）、段の物体の幅は向きと `size` から求める。
+
+- 同じカテゴリの群があれば、大きい群から順に、群の物体の外側（側板の側、入らなければ内側）の隣で幅が入る所（`reason` が `category`、`side` は群の側）。
+- 入る群がなければ、物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`）。
+  空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。`position` はその片側で最も広い空きの中央。
+- 後の物体は先に決めた物体の群に加わり、その隣に置く。
+
 カテゴリの意味の近さ（似た物体）は判断しない。
 
 ### 認識した物体を示す

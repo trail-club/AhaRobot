@@ -53,7 +53,11 @@ def expected_centre(label, u, v):
     )
 
 
-class ObjectPerceptionTest(unittest.TestCase):
+class NodeHarness(unittest.TestCase):
+    """Runs the node with the fake worker; TARGET is its target_frame."""
+
+    TARGET = "map"
+
     @classmethod
     def setUpClass(cls):
         cls.tmpdir = tempfile.TemporaryDirectory()
@@ -65,7 +69,7 @@ class ObjectPerceptionTest(unittest.TestCase):
                         "ros__parameters": {
                             "worker_command": f"{sys.executable} {FAKE}",
                             "objects_config": OBJECTS,
-                            "target_frame": "map",
+                            "target_frame": cls.TARGET,
                             "prompts": ["can", "fruit"],
                             "max_rate": 20.0,
                             "startup_timeout": 30.0,
@@ -128,8 +132,10 @@ class ObjectPerceptionTest(unittest.TestCase):
 
     def publish(self, blobs):
         rgb = np.full((H, W, 3), 128, np.uint8)
-        for colour, (u, v) in blobs.items():
-            rgb[v - HALF : v + HALF, u - HALF : u + HALF] = COLOURS[colour]
+        for colour, place in blobs.items():
+            # (u, v), or (u, v, half width, half height) in pixels
+            u, v, hu, hv = (*place, HALF, HALF)[:4]
+            rgb[v - hv : v + hv, u - hu : u + hu] = COLOURS[colour]
         depth = np.full((H, W), DEPTH, np.float32)
         stamp = self.node.get_clock().now().to_msg()
         color = Image(
@@ -158,6 +164,8 @@ class ObjectPerceptionTest(unittest.TestCase):
                     return self.objects[-1]
         return None
 
+
+class ObjectPerceptionTest(NodeHarness):
     def test_labels_positions_and_track_ids(self):
         # Straight ahead, so that the wall's extent along the viewing direction
         # is zero and the hidden depth is the label's footprint.
@@ -207,6 +215,32 @@ class ObjectPerceptionTest(unittest.TestCase):
             blobs, 10.0, lambda m: [o.class_name for o in m.objects] == ["cola"]
         )
         self.assertIsNotNone(excluded, "an object at a gripper link was published")
+
+
+class CameraFrameTest(NodeHarness):
+    TARGET = CAMERA
+
+    def test_camera_frame_gives_the_visible_box(self):
+        # In the optical frame (z forward, y down) the box is that of the
+        # visible points, as with an empty target_frame: no hidden depth. The
+        # strip is short along y, so taking y as horizontal would add the
+        # apple's footprint (0.075 m) along it.
+        u, v, hv = 160, 60, 6
+        message = self.stream(
+            {"red": (u, v, HALF, hv)}, 30.0, lambda m: len(m.objects) == 1
+        )
+        self.assertIsNotNone(message, "the object was never published")
+        self.assertEqual(message.header.frame_id, CAMERA)
+        found = message.objects[0]
+        position = found.pose.pose.position
+        np.testing.assert_allclose(
+            [position.x, position.y, position.z],
+            [(u - CX) * DEPTH / FX, (v - CY) * DEPTH / FX, DEPTH],
+            atol=0.01,
+        )
+        self.assertAlmostEqual(found.size.x, 2 * HALF * DEPTH / FX, delta=0.01)
+        self.assertAlmostEqual(found.size.y, 2 * hv * DEPTH / FX, delta=0.01)
+        self.assertLessEqual(found.size.z, 0.011)  # the flat wall; 0.01 m at least
 
 
 if __name__ == "__main__":
