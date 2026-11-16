@@ -13,10 +13,10 @@
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
-| `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
-| `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
 | `aha_tasks/gpsr_commands.py` ほか | GPSRの命令の聞き取り・計画・報告のスキル（[命令の聞き取りと計画](#命令の聞き取りと計画)） |
 | `aha_tasks/sim_speech.py`、`sim_speech` | シミュレーションで聞き取りのactionに答える声（[シミュレーションの声](#シミュレーションの声)） |
+| `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
+| `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
