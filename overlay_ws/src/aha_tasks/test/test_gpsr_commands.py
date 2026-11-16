@@ -591,22 +591,41 @@ class WordsTests(unittest.TestCase):
 
 class ConfirmationTests(unittest.TestCase):
     def test_yes_no(self):
-        self.assertEqual(yes_no("Yes, that's it.")[0], "yes")
-        self.assertEqual(yes_no("That's right")[0], "yes")
-        self.assertEqual(yes_no("correct")[0], "yes")
-        self.assertEqual(yes_no("No.")[0], "no")
-        self.assertEqual(yes_no("uh, no")[0], "no")
-        self.assertEqual(yes_no("")[0], None)
+        for answer, verdict in (
+            ("Yes, that's it.", "yes"),
+            ("That's right", "yes"),
+            ("correct", "yes"),
+            ("Sure, why not", "yes"),
+            ("No.", "no"),
+            ("uh, no", "no"),
+            ("That's not right", "no"),
+            ("Not quite", "no"),
+            ("", None),
+            ("What?", None),
+            ("I didn't hear you", None),
+        ):
+            with self.subTest(answer):
+                self.assertEqual(yes_no(answer)[0], verdict)
         self.assertEqual(
-            yes_no("bring me a cola from the desk"),
+            yes_no("Bring me a cola from the desk"),
             (None, "bring me a cola from the desk"),
         )
 
     def test_restated(self):
         verdict, rest = yes_no("No, I said bring me a cola from the desk")
         self.assertEqual(verdict, "no")
-        self.assertEqual(restated(rest), "bring me a cola from the desk")
-        self.assertIsNone(restated("not that"))
+        self.assertEqual(restated(rest, VOCABULARY), "bring me a cola from the desk")
+        for rest in (
+            "not that",
+            "i didn't hear you at all",
+            "pardon could you say that again",
+        ):
+            with self.subTest(rest):
+                self.assertIsNone(restated(rest, VOCABULARY))
+        self.assertEqual(
+            restated("go to the kitchen table and count the snacks", VOCABULARY),
+            "go to the kitchen table and count the snacks",
+        )
 
 
 class FakeInteraction:
@@ -680,7 +699,7 @@ class ListenCommandTests(unittest.TestCase):
         self.assertEqual(result.outputs, {"cmd3.text": TIME.lower()})
 
     def test_no_clear_confirmation_takes_the_command(self):
-        rt = runtime(DRINKS, None, "hmm")
+        rt = runtime(DRINKS, None, "I didn't hear you")
         result = run_skill(ListenCommand(rt), {"command": 1})
         self.assertEqual(result.outputs, {"cmd1.text": DRINKS})
 

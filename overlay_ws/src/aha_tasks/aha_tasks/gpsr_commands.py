@@ -36,50 +36,81 @@ from aha_tasks.runner import STATUS_TOPIC
 from aha_tasks.skills import LOCATION
 
 ORDINALS = {1: "first", 2: "second", 3: "third"}
+# Confirmations, as aha_tasks.conversation of the name questions: a bare "not"
+# or "n't" is no answer ("I didn't hear you", "Sure, why not"), and asking
+# back ("What?", "Pardon?") is neither an answer nor a command.
 YES = {
     "yes",
     "yeah",
     "yep",
     "yup",
+    "yea",
     "correct",
     "right",
     "sure",
-    "affirmative",
+    "indeed",
     "exactly",
+    "affirmative",
+    "certainly",
+    "absolutely",
+    "ok",
+    "okay",
 }
-NO = {"no", "nope", "wrong", "incorrect", "negative", "nah", "not"}
-FILLERS = re.compile(r"^(?:i said|i say|it is|its|it was|the command is|i mean)\s+")
+NO = {"no", "nope", "nah", "wrong", "incorrect", "negative", "never"}
+NO_PHRASE = re.compile(
+    r"^not\b|\b(?:that's|that is|it's|it is) not\b|\b(?:isn't|wasn't)\b"
+)
+FILLERS = re.compile(
+    r"^(?:i said|i say|it is|it's|its|it was|the command is|i mean)\s+"
+)
+# Words of a command besides the vocabulary: "bring me", "the waving person".
+COMMAND_WORDS = {"me", "person", "persons", "people", "them", "it"}
 MIN_WORDS = 3  # a command has at least this many words
 PLANNERS = ("auto", "llm", "grammar")
 STATUS_WAIT = 2.0  # s for the latched task status
 
 
 def words_of(text):
-    return re.sub(r"[^a-z0-9' ]+", " ", str(text).lower()).split()
+    return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", str(text).lower().replace("’", "'"))
 
 
 def yes_no(text):
-    """("yes" | "no" | None, the rest of the answer) of a confirmation answer."""
+    """("yes" | "no" | None, the rest) of an answer to "Is that correct?".
+
+    The rest is what follows a leading yes / no word, or the whole answer
+    without one, e.g. a correction "No, I said bring me ...".
+    """
     words = words_of(text)
     if not words:
         return None, ""
-    head = words[:3]
-    rest = " ".join(words[1:])
-    if words[0] in YES or "that's right" in " ".join(head):
-        return "yes", rest
-    if words[0] in NO:
-        return "no", rest
-    if len(words) <= 3 and any(w in YES for w in words):
-        return "yes", ""
+    joined = " ".join(words)
+    if words[0] in YES:
+        return "yes", " ".join(words[1:])
+    if words[0] in NO or NO_PHRASE.search(joined):
+        return "no", " ".join(words[1:]) if words[0] in NO else ""
     if len(words) <= 3 and any(w in NO for w in words):
         return "no", ""
-    return None, " ".join(words)
+    if len(words) <= 3 and any(w in YES for w in words):
+        return "yes", ""
+    return None, joined
 
 
-def restated(rest):
-    """The command in a confirmation answer such as 'no, I said bring me ...'."""
+def restated(rest, vocabulary):
+    """The command in an answer such as 'no, I said bring me ...', or None.
+
+    It needs more than MIN_WORDS words and a word of a command: a name, a
+    place, an object, or me / person / people / them / it.
+    """
     rest = FILLERS.sub("", rest.strip())
-    return rest if len(rest.split()) > MIN_WORDS else None
+    words = set(words_of(rest))
+    if len(rest.split()) <= MIN_WORDS:
+        return None
+    if words & COMMAND_WORDS:
+        return rest
+    for word in vocabulary.hotwords():
+        if re.search(rf"\b{re.escape(word.lower())}\b", rest):
+            return rest
+    return None
 
 
 def clean(text):
@@ -226,6 +257,7 @@ class ListenCommand(Skill):
     def _confirm(self, interaction, text, ctx):
         """(True, text) once the operator says yes, (False, text) on a no."""
         timeout = float(ctx.params.get("confirm_timeout", 8.0))
+        vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
         unclear = 0
         for _ in range(4):
             self._say(
@@ -238,7 +270,7 @@ class ListenCommand(Skill):
             ctx.log(f"Confirmation of {text!r}: {answer!r} -> {verdict}")
             if verdict == "yes":
                 return True, text
-            correction = restated(rest)
+            correction = restated(rest, vocabulary)
             if correction:  # "no, I said ..." or the command once more
                 text = clean(correction)
                 continue

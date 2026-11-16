@@ -24,9 +24,10 @@ RESPONSE_TIMEOUT = 5.0  # s for a server to accept or reject a goal
 SPEAK_TIMEOUT = 60.0  # s for one utterance, including other queued utterances
 LISTEN_ACTION = "/aha/perception/audio/listen"
 LISTEN_TIMEOUT = 10.0  # s for the person to speak (the ASR's Listen timeout)
-# s more than the Listen timeout for the ASR to end the goal (the last
-# utterance is still being recognized then).
-LISTEN_MARGIN = 10.0
+# s more than the Listen timeout for the ASR to end the goal: it extends the
+# wait while a person speaks (up to max_segment_s 15 s + 5 s) and then
+# recognizes the utterance (request_timeout 30 s, config/audio/params.yaml).
+LISTEN_MARGIN = 50.0
 NO_ASR = "No ASR"  # start of the message when the ASR is not served
 # s (wall clock) to discover a running TTS, waited once per runner (at ready()).
 TTS_DISCOVERY = 2.0
