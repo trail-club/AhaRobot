@@ -13,7 +13,7 @@ import threading
 from aha_tasks.guest_node import MAX_DT, MOVED, PERIOD, REQUEST_TIMEOUT, set_pose
 from aha_tasks.guests import guest_sdf
 from aha_tasks.runner import STATUS_TOPIC
-from aha_tasks.walkers import SimWalker, load_config, step_status
+from aha_tasks.walkers import SimWalker, load_config, step_attempts, step_status
 
 
 def main(argv=None):
@@ -106,9 +106,13 @@ def main(argv=None):
             robot, status = state["robot"], state["status"]
         for walker in walkers:
             stage = walker.stage
-            walker.set_status(
-                None if status is None else step_status(status, walker.action)
-            )
+            if status is None:
+                walker.set_status(None)
+            else:
+                walker.set_status(
+                    step_status(status, walker.action),
+                    step_attempts(status, walker.action),
+                )
             if walker.stage != stage:
                 log.info(f"{walker.name}: {stage} -> {walker.stage}")
             walker.step(dt, robot)

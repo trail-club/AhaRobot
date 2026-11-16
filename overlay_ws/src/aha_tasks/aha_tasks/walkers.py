@@ -59,8 +59,8 @@ def load_config(path):
     return scene
 
 
-def step_status(status, action):
-    """Status of the plan slot that runs the first step with `action`, or None.
+def step_slot(status, action):
+    """The plan slot that runs the first step with `action`, or None.
 
     Slots are the run_plan_step subgoals in order: the i-th runs plan[i].
     """
@@ -70,8 +70,20 @@ def step_status(status, action):
     slots = [s for s in status["subgoals"] if s.get("skill") == RUN_PLAN_STEP]
     for slot, step in zip(slots, plan):
         if isinstance(step, dict) and step.get("action") == action:
-            return slot["status"]
+            return slot
     return None
+
+
+def step_status(status, action):
+    """Status of the plan slot that runs the first step with `action`, or None."""
+    slot = step_slot(status, action)
+    return None if slot is None else slot["status"]
+
+
+def step_attempts(status, action):
+    """Attempts of that slot (counts retries), or None."""
+    slot = step_slot(status, action)
+    return None if slot is None else slot.get("attempts")
 
 
 def stage_of(status, previous):
@@ -100,17 +112,29 @@ class SimWalker(Walker):
         self.stage = WAIT
         self.running = False  # the slot of the step is running now
         self.status = None  # the slot's last status
+        self.attempts = None  # the slot's attempts so far
 
-    def set_status(self, status):
-        """Status of the walker's plan slot (step_status)."""
+    def set_status(self, status, attempts=None):
+        """Status and attempts of the walker's plan slot (step_status,
+        step_attempts)."""
         # Running again after it ended (a retry, which restores the robot):
-        # start over, as after a rewind.
+        # start over, as after a rewind. The engine retries within
+        # milliseconds, so a new attempt also counts when "failed" was missed.
         retried = (
             status == RUNNING
             and self.stage == RUN
-            and self.status not in (None, PENDING, RUNNING)
+            and (
+                self.status not in (None, PENDING, RUNNING)
+                or (
+                    attempts is not None
+                    and self.attempts is not None
+                    and attempts > self.attempts
+                )
+            )
         )
         self.status = status
+        if attempts is not None:
+            self.attempts = attempts
         self.running = status == RUNNING
         stage = stage_of(status, self.stage)
         if retried:

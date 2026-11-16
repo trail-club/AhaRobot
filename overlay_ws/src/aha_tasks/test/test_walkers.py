@@ -103,6 +103,15 @@ class LeaderTests(unittest.TestCase):
             math.dist(start, (leader.x, leader.y)), SCENE["walk_speed"], places=6
         )
 
+    def test_a_retry_is_seen_by_its_attempts_when_failed_is_missed(self):
+        leader = walker("follow_person")
+        start = tuple(leader.config["start"])
+        robot = (start[0], start[1] - 1.2)
+        leader.set_status("running", 1)
+        run(leader, 2.0, robot)
+        leader.set_status("running", 2)  # failed and retried between two ticks
+        self.assertEqual((leader.x, leader.y), start)
+
     def test_waits_for_a_robot_left_behind(self):
         leader = walker("follow_person")
         leader.set_status("running")
