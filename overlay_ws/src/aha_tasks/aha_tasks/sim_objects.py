@@ -478,6 +478,17 @@ def check_placement(scene: Scene, furniture: dict) -> None:
                 raise SceneError(f"{a.name} and {b.name} overlap")
 
 
+def furniture_config(directory, scene_path) -> Path:
+    """The furniture config of the scene's world: ``<directory>/<world>.yaml``
+    (aha_perception config/furniture); SceneError if the world has none."""
+    data = json.loads(Path(scene_path).read_text(encoding="utf-8"))
+    world = data.get("world") if isinstance(data, dict) else None
+    path = Path(directory) / f"{world}.yaml"
+    if not isinstance(world, str) or not world or not path.is_file():
+        raise SceneError(f"{scene_path}: no furniture config for the world {world!r}")
+    return path
+
+
 def load_scene(path, catalog: Catalog, furniture: dict) -> Scene:
     """The resolved objects of a scene file; SceneError if it is invalid.
 

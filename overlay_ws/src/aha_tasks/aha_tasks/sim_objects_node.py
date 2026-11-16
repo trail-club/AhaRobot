@@ -25,6 +25,7 @@ from aha_tasks.sim_objects import (
     Catalog,
     SceneError,
     displacement,
+    furniture_config,
     load_scene,
     stale_models,
 )
@@ -35,7 +36,7 @@ DEFAULT_CACHE = (
     Path(os.environ.get("AHA_CACHE_DIR") or Path.home() / ".cache" / "aharobot")
     / "sim_objects"
 )
-FURNITURE = "config/furniture/rcjo2026_arena.yaml"  # aha_perception share
+FURNITURE = "config/furniture"  # aha_perception share, <world>.yaml
 OBJECT_LIST = "config/objects/robocup_objects.yaml"  # aha_perception share
 MOVED = 0.02  # m, warn when an object rests this far from its scene pose
 TIPPED = math.radians(10.0)
@@ -65,7 +66,7 @@ def load(config: Path):
         load_object_list(perception / OBJECT_LIST),
         tmc / "models",
     )
-    furniture = load_config(perception / FURNITURE)
+    furniture = load_config(furniture_config(perception / FURNITURE, config))
     places = {f.name: f for f in furniture.furniture}
     return catalog, load_scene(config, catalog, places)
 

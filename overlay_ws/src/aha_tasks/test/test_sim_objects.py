@@ -20,6 +20,7 @@ from aha_tasks.sim_objects import (  # noqa: E402
     displacement,
     footprint,
     footprints_overlap,
+    furniture_config,
     load_scene,
     stale_models,
 )
@@ -159,6 +160,15 @@ class SceneTests(SceneFixture):
             self.assertEqual(levels[roles[role].level], {roles[role].category})
         for role in ("table.other1", "table.other2"):
             self.assertIn(roles[role].category, categories)
+
+    def test_furniture_of_the_scene_world(self):
+        directory = PERCEPTION / "furniture"
+        path = furniture_config(directory, SCENES / "pick_and_place.json")
+        self.assertEqual(path.name, "rcjo2026_arena.yaml")
+        other = self.write_scene([])
+        other.write_text(json.dumps({"world": "rcjo2026", "objects": []}))
+        with self.assertRaises(SceneError):  # not placed on the arena's furniture
+            furniture_config(directory, other)
 
     def test_no_model_of_the_world_is_stale(self):
         # sim_objects removes stale models; none of the scene's world may be one.
