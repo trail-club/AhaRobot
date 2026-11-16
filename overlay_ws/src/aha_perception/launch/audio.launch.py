@@ -1,9 +1,9 @@
 """Audio stack: ASR + TTS (+ debug UI, doorbell). Run inside the aha_audio container.
 
 target chooses where the ASR / TTS models run: dgx / trailpc over SSH (WARP), or
-local in these processes. The doorbell detector always runs in its own process
-(use_doorbell:=true; doorbell_input:=topic reads the simulated audio). See
-docs/audio.md.
+local in these processes. The doorbell detector, which HIC needs, always runs in
+its own process on the local GPU (use_doorbell:=false leaves it out;
+doorbell_input:=topic reads the simulated audio). See docs/audio.md.
 """
 
 from launch import LaunchDescription
@@ -54,7 +54,7 @@ def generate_launch_description():
             DeclareLaunchArgument("use_asr", default_value="true"),
             DeclareLaunchArgument("use_tts", default_value="true"),
             DeclareLaunchArgument("use_debug_ui", default_value="true"),
-            DeclareLaunchArgument("use_doorbell", default_value="false"),
+            DeclareLaunchArgument("use_doorbell", default_value="true"),
             DeclareLaunchArgument(
                 "doorbell_input",
                 default_value="mic",

@@ -98,6 +98,7 @@ make audio-run PULSE_SOURCE=alsa_output.pci-0000_80_1f.3.analog-stereo.monitor
 - 推論先を指定する：`ros2 launch aha_perception audio.launch.py target:=trailpc ssh_user:=<Unixユーザー名>`
 - 日本語で起動する：`ros2 launch aha_perception audio.launch.py language:=ja`
 - デバッグ UI を使わない：`use_debug_ui:=false`
+- ドアベル検出を使わない（HIC 以外）：`use_doorbell:=false`
 
 ## インターフェース
 
@@ -161,12 +162,13 @@ HIC で開始位置に待つ間のドアベル・ノック（[ルールブック
 - 台帳の `rules` の `avg` 回の移動平均が `n` 回続けて `threshold` 以上になった立ち上がりで検出とし、5 s 以内の立ち上がりは同じ検出とみなす。しきい値は比較の dev で環境音（話し声・音楽・生活音）の誤報が1時間あたり5回以下になる最も低い値で、eval の検出率はチャイム 69 %・ノック 73 %、環境音の誤報は 2.7 / 4.0 回/h（[比較の結果](../../../../tools/perception/doorbell_bench/README.md#結果)）。
 - TTS の再生中と終了後 `mute_tail_ms` は判定せず、窓を空にする。
 - `/aha/perception/audio/doorbell` の publisher は、モデルを読み込み音声入力を始めてから作る。`doorbell_input:=topic` では音声が届いている間だけ作り、2 s 届かなければ消す（シミュレーションの再起動では止まらない）。マイクの音が2 s 届かないときはノードが終わる。
-- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重みは `$HF_HOME/aharobot-doorbell/` に置き、起動のたびに SHA-256 を確かめる。ないか合わなければ取得し直し、取得したものも合わなければ置かずに止まる。
+- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重み（364 MB）は `$HF_HOME/aharobot-doorbell/` に置き、起動のたびに SHA-256 を確かめる。ないか合わなければ取得し直し、取得したものも合わなければ置かずに止まる。
+
+`make audio-run` は ASR・TTS と一緒に検出器も起動する。検出器だけを起動するときは次のようにする。
 
 ```bash
-# 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）。
-# ASR・TTS と一緒に起動する場合は use_asr / use_tts を省く
-ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false use_doorbell:=true
+# 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）
+ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false
 ```
 
 | パラメータ（`aha_audio_doorbell`） | 既定 | 内容 |

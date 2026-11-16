@@ -251,7 +251,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 ```bash
 # 音声コンテナ（同じ ROS_DOMAIN_ID）
 ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false use_debug_ui:=false \
-  use_doorbell:=true doorbell_input:=topic
+  doorbell_input:=topic
 ```
 
 ### シミュレーションの客
