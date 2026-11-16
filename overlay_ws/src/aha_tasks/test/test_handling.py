@@ -1,0 +1,670 @@
+"""pick_object, place_object and deliver_object on fake detections, servers,
+navigation and screen (no ROS graph), and their geometry."""
+
+import math
+import os
+from pathlib import Path
+import sys
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+
+TEST = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(TEST))
+sys.path.insert(0, TEST)
+from aha_tasks.core.skill import SkillContext  # noqa: E402
+from aha_tasks.handling import (  # noqa: E402
+    HELD,
+    HOLDING,
+    DeliverObject,
+    PickObject,
+    PlaceObject,
+    choose_object,
+    free_spot,
+    furniture_ahead,
+    in_reach,
+    matches_text,
+    object_target,
+    reach_pose,
+    spot_from,
+)
+from aha_tasks.objects import Percept, furniture_region  # noqa: E402
+from aha_tasks.runner import load_task  # noqa: E402
+from aha_tasks.skills import LOCATION  # noqa: E402
+from aha_perception.object_list import load_object_list  # noqa: E402
+from test_object_skills import FURNITURE, FakeObjects, detection  # noqa: E402
+
+PACKAGE = Path(TEST).parent
+OBJECT_LIST = load_object_list(
+    PACKAGE.parent / "aha_perception" / "config" / "objects" / "robocup_objects.yaml"
+)
+SPEC, _ = load_task(PACKAGE / "config" / "gpsr.json")
+COLA = (0.066, 0.066, 0.12)
+
+
+def pose_of(name):
+    return tuple(SPEC.locations[name])
+
+
+def region(name, margin=0.0):
+    return furniture_region(FURNITURE.get(name), (0.0, 0.0, 0.0, 0.0), margin)
+
+
+def percept(label, xyz, size=(0.1, 0.1, 0.1), count=3, confidence=1.0):
+    return Percept(
+        label=label,
+        category=OBJECT_LIST.category(label),
+        position=xyz,
+        size=size,
+        track=1,
+        confidence=confidence,
+        count=count,
+    )
+
+
+def kitchen_scene():
+    return [
+        detection("cola", (-1.8, -1.55, 0.86), 1, COLA),
+        detection("apple", (-2.02, -1.55, 0.8375), 2, (0.075,) * 3),
+        detection("bowl", (-1.98, -1.8, 0.8275), 3, (0.16, 0.16, 0.055)),
+    ]
+
+
+def desk_scene():
+    return [
+        detection("green tea", (1.72, -0.5, 0.5), 1, (0.065, 0.065, 0.2)),
+        detection("lemonade", (1.88, -0.5, 0.46), 2, (0.066, 0.066, 0.12)),
+        detection("red bull", (2.03, -0.5, 0.4675), 3, (0.053, 0.053, 0.135)),
+        detection("rubiks cube", (2.22, -0.48, 0.429), 4, (0.058, 0.059, 0.058)),
+    ]
+
+
+class Result(SimpleNamespace):
+    STATUS_RELEASED, STATUS_TIMEOUT, STATUS_UNREACHABLE = 0, 1, 2
+    STATUS_ERROR, STATUS_CANCELED = 3, 4
+
+
+def ok(**kw):
+    return Result(success=True, status=0, message="done", **kw)
+
+
+def failed(status=4, message="no grasp"):
+    return Result(success=False, status=status, message=message)
+
+
+def goal(**kw):
+    return SimpleNamespace(object_size=SimpleNamespace(), **kw)
+
+
+class FakeHands:
+    """The pick, place and handover servers: results in order, by action name.
+    A None result never finishes (until the caller gives up)."""
+
+    PickObject = PlaceObject = HandOver = SimpleNamespace(Goal=goal)
+
+    def __init__(self, **results):
+        self.results = {name: list(r) for name, r in results.items()}
+        self.goals = []  # (action, goal)
+        self.cancelled = 0
+
+    def point(self, frame, xyz):
+        return (frame, tuple(round(v, 3) for v in xyz))
+
+    def target(self, entry):
+        return entry
+
+    def start(self, name, request, cancelled):
+        kind = name.rsplit("/", 1)[-1]
+        self.goals.append((kind, SimpleNamespace(**vars(request))))
+        return SimpleNamespace(result=self.results[kind].pop(0))
+
+    def finish(self, handle, timeout, cancelled, until=None):
+        deadline = time.monotonic() + 2.0
+        while handle.result is None:
+            if until is not None and until():
+                return None
+            assert time.monotonic() < deadline, "the goal never finished"
+            time.sleep(0.01)
+        return handle.result
+
+    def cancel(self, handle):
+        self.cancelled += 1
+
+    def run(self, name, request, timeout, cancelled):
+        return self.finish(self.start(name, request, cancelled), timeout, cancelled), ""
+
+
+class FakeNavigation:
+    def __init__(self, objects, fail=False):
+        self.objects, self.fail, self.goals = objects, fail, []
+
+    def navigate(self, pose, cancelled=None):
+        self.goals.append([round(v, 3) for v in pose])
+        if self.fail:
+            return False, "blocked"
+        self.objects.robot = tuple(pose)
+        return True, ""
+
+
+class FakeInteraction:
+    def __init__(self, touch=False):
+        self.said, self.asked, self.touch = [], [], touch
+
+    def say(self, text, cancelled):
+        self.said.append(text)
+        return True, "said"
+
+    def ask(self, prompt, choices, cancelled, timeout=0.0):
+        self.asked.append(prompt)
+        if self.touch:
+            return 0, choices[0]
+        cancelled.wait(5.0)
+        return None, "Cancelled"
+
+
+class FakePeople:
+    def __init__(self, people=()):
+        self.people = people
+
+    def wait_for(self, choose, timeout, cancelled):
+        message = SimpleNamespace(
+            header=SimpleNamespace(frame_id="map"),
+            people=[
+                SimpleNamespace(visible=True, position=SimpleNamespace(x=x, y=y, z=z))
+                for x, y, z in self.people
+            ],
+        )
+        found = choose(message)
+        return (found, "") if found is not None else (None, "nobody")
+
+
+class FakeGaze:
+    def __init__(self):
+        self.looked = []
+
+    def look_at(self, frame, point):
+        self.looked.append((frame, (point.x, point.y, point.z)))
+
+    def follow_path(self, pose):
+        pass
+
+    def hold(self):
+        pass
+
+
+def make_runtime(scene=None, robot="kitchen_table", hands=None, **kw):
+    objects = FakeObjects(scene, robot=pose_of(robot))
+    objects.object_list = OBJECT_LIST
+    runtime = SimpleNamespace(
+        node=None,
+        spec=SPEC,
+        objects=objects,
+        hands=hands or FakeHands(),
+        interaction=kw.get("interaction") or FakeInteraction(),
+        people=kw.get("people") or FakePeople(),
+        gaze=FakeGaze(),
+        skills={},
+    )
+    runtime.navigation = FakeNavigation(objects, kw.get("blocked", False))
+    return runtime
+
+
+def run(skill_class, runtime, params, memory=None):
+    skill_class.validate(params, SPEC)
+    logs = []
+    ctx = SkillContext(
+        "test", params, dict(memory or {}), threading.Event(), logs.append
+    )
+    return skill_class(runtime).execute(ctx), logs
+
+
+class ObjectWordsTests(unittest.TestCase):
+    def test_labels_plurals_categories_and_generic_words(self):
+        self.assertTrue(matches_text("the Cola", "cola", "drink"))
+        self.assertTrue(matches_text("colas", "cola", "drink"))
+        self.assertTrue(matches_text("peaches", "peach", "fruit"))
+        self.assertTrue(matches_text("a drink", "cola", "drink"))
+        self.assertTrue(matches_text("drinks", "cola", "drink"))
+        self.assertTrue(matches_text("object", "cola", "drink"))
+        self.assertTrue(matches_text("red_bull", "red bull", "drink"))
+        self.assertFalse(matches_text("apple", "cola", "drink"))
+        self.assertFalse(matches_text("fruit", "cola", "drink"))
+
+    def test_a_memory_key_gives_its_record(self):
+        record = {"label": "cola", "position": [0.0, 0.0, 0.8]}
+        self.assertEqual(object_target("object", {"object": record}), (record, "cola"))
+        self.assertEqual(object_target("The Apple", {}), (None, "apple"))
+        self.assertEqual(object_target("object", {"object": "cola"}), (None, "object"))
+
+    def test_the_remembered_object_wins_then_the_best_seen(self):
+        far = percept("cola", (1.0, 0.0, 0.8), count=9)
+        near = percept("cola", (2.0, 0.0, 0.8), count=2)
+        apple = percept("apple", (2.0, 0.1, 0.8), count=9)
+        remembered = {"label": "cola", "position": [2.1, 0.0, 0.8]}
+        self.assertIs(
+            choose_object([far, near, apple], "cola", remembered, (0, 0)), near
+        )
+        self.assertIs(choose_object([far, near, apple], "cola", None, (2, 0)), far)
+        moved = {"label": "cola", "position": [5.0, 0.0, 0.8]}
+        self.assertIs(choose_object([far, near], "cola", moved, (0, 0)), far)
+        self.assertIsNone(choose_object([apple], "milk", None, (0, 0)))
+        self.assertIs(choose_object([apple, near], "fruit", None, (0, 0)), apple)
+
+
+class GeometryTests(unittest.TestCase):
+    def test_gpsr_locations_stand_for_the_furniture_ahead(self):
+        regions = [region(name) for name in FURNITURE.names]
+        expected = {
+            "kitchen_table": "dining_table",
+            "desk": "long_table",
+            "side_tables": "tall_table",
+            "trashbin": "trash_box",
+            "shelf": "shelf",
+            "bedroom": None,
+            "instruction_point": None,
+        }
+        for location, furniture in expected.items():
+            with self.subTest(location):
+                found = furniture_ahead(pose_of(location), regions)
+                self.assertEqual(found and found.name, furniture)
+
+    def test_the_base_faces_the_table_with_the_object_at_the_right_arm(self):
+        robot = pose_of("kitchen_table")
+        pose = reach_pose(robot, (-1.8, -1.55), region("dining_table"))
+        self.assertEqual([round(v, 3) for v in pose], [-1.6, -0.9, -1.571])
+        # The base keeps STANDOFF from the edge at y -1.35.
+        self.assertAlmostEqual(-1.35 - pose[1], -0.45)
+        self.assertTrue(in_reach(pose, (-1.8, -1.55)))
+        self.assertFalse(in_reach(robot, (-1.8, -1.55)))
+        left = reach_pose(robot, (-1.8, -1.55), region("dining_table"), arm="left")
+        self.assertAlmostEqual(left[0], -2.0)
+        floor = reach_pose((0.0, 0.0, 0.0), (2.0, 0.0))
+        self.assertEqual([round(v, 3) for v in floor], [1.55, 0.2, 0.0])
+
+    def test_objects_behind_are_out_of_reach(self):
+        self.assertFalse(in_reach((0.0, 0.0, 0.0), (-0.3, 0.0)))
+        self.assertTrue(in_reach((0.0, 0.0, 0.0), (0.5, -0.2)))
+
+    def test_free_spot_keeps_clear_of_objects_and_edges(self):
+        table = region("long_table")
+        objects = [
+            percept("rubiks cube", (2.22, -0.48, 0.429), (0.058, 0.059, 0.058)),
+            percept("red bull", (2.03, -0.5, 0.4675), (0.053, 0.053, 0.135)),
+        ]
+        spot = free_spot(table, 1, objects, COLA, (2.2, -0.92))
+        self.assertEqual(spot[2], 0.40)
+        radius = math.hypot(*COLA[:2]) / 2
+        for other in objects:
+            gap = math.dist(spot[:2], other.position[:2])
+            self.assertGreaterEqual(
+                gap, radius + math.hypot(*other.size[:2]) / 2 + 0.05
+            )
+        self.assertLessEqual(abs(spot[1] + 0.5), 0.2 - radius - 0.03 + 1e-9)
+        self.assertAlmostEqual(spot[0], 2.2)
+        # A table too small for the object has no spot.
+        self.assertIsNone(free_spot(table, 1, [], (0.5, 0.5, 0.1), (2.0, -0.9)))
+
+    def test_spots_from_memory(self):
+        placement = {"table.other2": {"level": 4, "position": [3.3, 3.4, 0.91]}}
+        self.assertEqual(
+            spot_from(placement, "table.other2"), (3.3, 3.4, 0.91, 4, "map")
+        )
+        self.assertEqual(spot_from([1, 2, 0.4], "x"), (1.0, 2.0, 0.4, 0, "map"))
+        self.assertIsNone(spot_from(placement, "table.other1"))
+        self.assertIsNone(spot_from("shelf", "x"))
+
+
+class PickTests(unittest.TestCase):
+    def test_pick_the_cola_from_a_gpsr_location(self):
+        runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
+        result, logs = run(
+            PickObject, runtime, {"object": "cola", "surface": "kitchen_table"}
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.navigation.goals, [[-1.6, -0.9, -1.571]])
+        ((kind, sent),) = runtime.hands.goals
+        self.assertEqual(kind, "pick")
+        self.assertEqual(sent.arm, "right")
+        self.assertEqual(sent.target["label"], "cola")
+        self.assertEqual(sent.target["position"], [-1.8, -1.55, 0.86])
+        self.assertEqual(result.outputs[HOLDING], "cola")
+        self.assertEqual(result.outputs[HELD]["surface"], "kitchen_table")
+        self.assertEqual(result.outputs[HELD]["size"], list(COLA))
+        self.assertEqual(result.outputs[LOCATION], [-1.6, -0.9, -1.571])
+        self.assertEqual(
+            PickObject(None).expected({"object": "cola"}), {HOLDING: "cola"}
+        )
+
+    def test_a_category_names_an_object_of_it(self):
+        runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
+        result, _ = run(
+            PickObject,
+            runtime,
+            {"object": "a drink", "surface": "dining_table", "approach": False},
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.hands.goals[0][1].target["label"], "cola")
+        self.assertEqual(runtime.navigation.goals, [])
+        self.assertEqual(result.outputs[HOLDING], "a drink")
+
+    def test_a_record_of_find_object_names_the_object_and_its_surface(self):
+        scene = [
+            detection("cola", (3.02, 3.42, 0.97), 1, COLA),
+            detection("cola", (3.27, 3.42, 0.97), 2, COLA),
+        ]
+        runtime = make_runtime(scene, robot="shelf", hands=FakeHands(pick=[ok()]))
+        found = {
+            "label": "cola",
+            "position": [3.26, 3.40, 0.97],
+            "frame": "map",
+            "surface": "shelf",
+        }
+        result, _ = run(PickObject, runtime, {"object": "object"}, {"object": found})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.hands.goals[0][1].target["position"][0], 3.27)
+        self.assertEqual(result.outputs[HOLDING], "object")
+
+    def test_a_failed_pick_is_tried_again(self):
+        hands = FakeHands(pick=[failed(), ok()])
+        runtime = make_runtime(kitchen_scene(), hands=hands)
+        result, logs = run(
+            PickObject, runtime, {"object": "cola", "surface": "kitchen_table"}
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(len(hands.goals), 2)
+        self.assertTrue(any("Pick failed: no grasp" in line for line in logs))
+
+    def test_failures(self):
+        cases = [
+            ({"object": "milk", "surface": "kitchen_table"}, {}, "No milk on"),
+            ({"object": "cola", "surface": "garage"}, {}, "No furniture for surface"),
+            ({"object": "cola"}, {}, "No surface"),
+            (
+                {"object": "cola", "surface": "kitchen_table"},
+                {HOLDING: "apple"},
+                "Already holding apple",
+            ),
+        ]
+        for params, memory, message in cases:
+            with self.subTest(message):
+                hands = FakeHands(pick=[failed(), failed()])
+                runtime = make_runtime(kitchen_scene(), hands=hands)
+                result, _ = run(PickObject, runtime, params, memory)
+                self.assertFalse(result.success)
+                self.assertIn(message, result.message)
+                self.assertEqual(hands.goals, [])
+
+    def test_the_last_failure_keeps_where_the_base_went(self):
+        runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[failed()]))
+        result, _ = run(
+            PickObject,
+            runtime,
+            {"object": "cola", "surface": "kitchen_table", "retries": 0},
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.outputs, {LOCATION: [-1.6, -0.9, -1.571]})
+
+
+class PlaceTests(unittest.TestCase):
+    HELD_COLA = {
+        HOLDING: "cola",
+        HELD: {"label": "cola", "size": list(COLA), "surface": "kitchen_table"},
+    }
+
+    def test_place_on_a_free_spot_of_the_desk(self):
+        runtime = make_runtime(
+            desk_scene(), robot="desk", hands=FakeHands(place=[ok()])
+        )
+        result, _ = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA
+        )
+        self.assertTrue(result.success, result.message)
+        ((kind, sent),) = runtime.hands.goals
+        self.assertEqual(kind, "place")
+        self.assertEqual(sent.near, ("map", (2.2, -0.62, 0.4)))
+        self.assertEqual((sent.furniture, sent.furniture_level), ("long_table", 1))
+        self.assertFalse(sent.drop)
+        self.assertEqual(
+            (sent.object_size.x, sent.object_size.y, sent.object_size.z), COLA
+        )
+        self.assertEqual(runtime.navigation.goals, [[2.0, -1.15, 1.571]])
+        self.assertEqual(result.outputs[HOLDING], None)
+        self.assertEqual(result.outputs[HELD], None)
+
+    def test_throw_it_in_the_trash(self):
+        runtime = make_runtime(None, robot="trashbin", hands=FakeHands(place=[ok()]))
+        result, _ = run(
+            PlaceObject,
+            runtime,
+            {"object": "cola", "surface": "trashbin"},
+            self.HELD_COLA,
+        )
+        self.assertTrue(result.success, result.message)
+        sent = runtime.hands.goals[0][1]
+        self.assertTrue(sent.drop)
+        self.assertEqual(sent.furniture, "trash_box")
+        self.assertEqual(sent.near, ("map", (4.5, -3.5, 0.375)))
+        self.assertIn("into trashbin", result.message)
+
+    def test_on_the_floor_ahead(self):
+        runtime = make_runtime(None, robot="office", hands=FakeHands(place=[ok()]))
+        result, _ = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "floor"}, self.HELD_COLA
+        )
+        self.assertTrue(result.success, result.message)
+        sent = runtime.hands.goals[0][1]
+        self.assertEqual(sent.near, ("map", (2.0, 2.0, 0.0)))
+        self.assertEqual((sent.furniture, sent.furniture_level), ("", 0))
+        self.assertEqual(runtime.navigation.goals, [])
+
+    def test_on_the_shelf_next_to_its_category(self):
+        scene = [
+            detection("milk", (3.02, 3.42, 1.005), 1, (0.07, 0.07, 0.19)),
+            detection("lemonade", (3.14, 3.42, 0.97), 2, (0.066, 0.066, 0.12)),
+            detection("apple", (3.1, 3.43, 1.2375), 3, (0.075,) * 3),
+        ]
+        runtime = make_runtime(scene, robot="shelf", hands=FakeHands(place=[ok()]))
+        result, logs = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "shelf"}, self.HELD_COLA
+        )
+        self.assertTrue(result.success, result.message)
+        sent = runtime.hands.goals[0][1]
+        self.assertEqual(sent.furniture_level, 4)
+        self.assertEqual(sent.near[1][2], 0.91)
+        self.assertTrue(any("(category)" in line for line in logs))
+
+    def test_a_spot_from_memory(self):
+        memory = {
+            HOLDING: "table.other2",
+            "table.other2": {"label": "cola", "size": list(COLA)},
+            "cabinet.placement": {
+                "table.other2": {"level": 4, "position": [3.3, 3.42, 0.91]}
+            },
+        }
+        runtime = make_runtime(None, robot="shelf", hands=FakeHands(place=[ok()]))
+        result, _ = run(
+            PlaceObject,
+            runtime,
+            {"object": "table.other2", "surface": "shelf", "spot": "cabinet.placement"},
+            memory,
+        )
+        self.assertTrue(result.success, result.message)
+        sent = runtime.hands.goals[0][1]
+        self.assertEqual(
+            (sent.near, sent.furniture_level), (("map", (3.3, 3.42, 0.91)), 4)
+        )
+
+    def test_a_failed_place_is_tried_again_and_nothing_held_fails(self):
+        hands = FakeHands(place=[failed(3, "unreachable"), ok()])
+        runtime = make_runtime(desk_scene(), robot="desk", hands=hands)
+        result, _ = run(
+            PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(len(hands.goals), 2)
+        result, _ = run(PlaceObject, runtime, {"object": "cola", "surface": "desk"})
+        self.assertFalse(result.success)
+        self.assertIn("Not holding", result.message)
+
+
+class DeliverTests(unittest.TestCase):
+    HELD_COLA = PlaceTests.HELD_COLA
+
+    def test_hand_over_to_the_found_person(self):
+        runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[ok()]))
+        runtime.objects.robot = (2.0, 0.0, math.pi / 2)
+        memory = {
+            **self.HELD_COLA,
+            "person.position": [2.0, 2.0, 1.3],
+            "person.frame": "map",
+        }
+        result, _ = run(
+            DeliverObject,
+            runtime,
+            {"object": "cola", "person": "waving person"},
+            memory,
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.navigation.goals, [[2.0, 1.0, 1.571]])
+        ((kind, sent),) = runtime.hands.goals
+        self.assertEqual(kind, "handover")
+        self.assertEqual(sent.target, ("map", (2.0, 2.0, 1.1)))  # held out at 1.1 m
+        self.assertEqual((sent.release, sent.timeout), ("take", 20.0))
+        self.assertEqual(
+            runtime.interaction.said, ["Here is the cola. Please take it from my hand."]
+        )
+        self.assertEqual(result.outputs[HOLDING], None)
+        self.assertEqual(result.outputs[LOCATION], [2.0, 1.0, 1.571])
+
+    def test_the_operator_at_the_instruction_point(self):
+        runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[ok()]))
+        result, logs = run(
+            DeliverObject,
+            runtime,
+            {"object": "cola", "person": "operator"},
+            {**self.HELD_COLA, LOCATION: "office"},
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.navigation.goals, [[-1.0, 1.5, 3.142]])
+        self.assertEqual(runtime.hands.goals[0][1].target, ("map", (-2.0, 1.5, 1.1)))
+        self.assertEqual(result.outputs[LOCATION], "instruction_point")
+        self.assertTrue(any("No operator seen" in line for line in logs))
+
+    def test_the_robot_turns_to_the_operator_it_sees(self):
+        runtime = make_runtime(
+            None,
+            robot="instruction_point",
+            hands=FakeHands(handover=[ok()]),
+            people=FakePeople([(-1.5, 2.5, 0.9), (5.0, 5.0, 0.9)]),
+        )
+        result, _ = run(
+            DeliverObject,
+            runtime,
+            {"object": "cola", "person": "me"},
+            {**self.HELD_COLA, LOCATION: "instruction_point"},
+        )
+        self.assertTrue(result.success, result.message)
+        # Already there; it only turns to the person on its right.
+        turn = math.atan2(1.0, -0.5)
+        self.assertEqual(runtime.navigation.goals, [[-1.0, 1.5, round(turn, 3)]])
+        self.assertEqual(runtime.hands.goals[0][1].target, ("map", (-1.5, 2.5, 0.9)))
+
+    def test_a_touch_on_the_screen_releases(self):
+        hands = FakeHands(handover=[None, ok()])
+        runtime = make_runtime(
+            None,
+            robot="office",
+            hands=hands,
+            interaction=FakeInteraction(touch=True),
+        )
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        result, _ = run(
+            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertIn("released by touch", result.message)
+        self.assertEqual([g.release for _, g in hands.goals], ["take", "now"])
+        self.assertEqual(hands.cancelled, 1)
+        self.assertEqual(
+            runtime.interaction.asked, ["Touch Release when you hold the cola"]
+        )
+
+    def test_asked_again_when_nobody_takes_it(self):
+        hands = FakeHands(handover=[failed(1, "nobody"), ok()])
+        runtime = make_runtime(None, robot="office", hands=hands)
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        result, _ = run(
+            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            runtime.interaction.said,
+            [
+                "Here is the cola. Please take it from my hand.",
+                "Please take the cola from my hand.",
+            ],
+        )
+        hands = FakeHands(handover=[failed(1, "nobody"), failed(1, "nobody")])
+        runtime = make_runtime(None, robot="office", hands=hands)
+        result, _ = run(
+            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory
+        )
+        self.assertFalse(result.success)
+        self.assertIn("nobody", result.message)
+
+    def test_failures(self):
+        runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[]))
+        result, _ = run(
+            DeliverObject, runtime, {"object": "cola", "person": "Jane"}, self.HELD_COLA
+        )
+        self.assertFalse(result.success)
+        self.assertIn("No person.position", result.message)
+        result, _ = run(DeliverObject, runtime, {"object": "cola", "person": "Jane"})
+        self.assertIn("Not holding", result.message)
+        hands = FakeHands(handover=[failed(2, "too far")])
+        runtime = make_runtime(None, robot="office", hands=hands)
+        memory = {**self.HELD_COLA, "guest.position": [2.0, 2.4, 0.9]}
+        result, _ = run(
+            DeliverObject,
+            runtime,
+            {"object": "cola", "person": "Jane", "role": "guest"},
+            memory,
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(len(hands.goals), 1, "no second try unless timed out")
+
+
+class ValidationTests(unittest.TestCase):
+    def test_bad_params_are_refused(self):
+        bad = [
+            (PickObject, {}),
+            (PickObject, {"object": ""}),
+            (PickObject, {"object": "cola", "surface": 3}),
+            (PickObject, {"object": "cola", "arm": "middle"}),
+            (PickObject, {"object": "cola", "retries": 9}),
+            (PickObject, {"object": "cola", "margin": -1}),
+            (PickObject, {"object": "cola", "colour": "red"}),
+            (PlaceObject, {"object": "cola"}),
+            (PlaceObject, {"object": "cola", "surface": "desk", "spot": ""}),
+            (PlaceObject, {"object": "cola", "surface": "desk", "clearance": -0.1}),
+            (DeliverObject, {"object": "cola"}),
+            (DeliverObject, {"object": "cola", "person": "me", "distance": 0}),
+            (DeliverObject, {"object": "cola", "person": "me", "role": ""}),
+        ]
+        for cls, params in bad:
+            with self.subTest(cls=cls.__name__, params=params):
+                with self.assertRaises(ValueError):
+                    cls.validate(params, SPEC)
+
+    def test_the_mock_plan_validates(self):
+        plan = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
+        skills = {"pick_object": PickObject, "deliver_object": DeliverObject}
+        steps = [s for s in plan if s["action"] in skills]
+        self.assertEqual(len(steps), 2)
+        for step in steps:
+            skills[step["action"]].validate(step["params"], SPEC)
+
+
+if __name__ == "__main__":
+    unittest.main()

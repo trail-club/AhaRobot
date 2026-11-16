@@ -176,6 +176,21 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 
+`pick_object` / `place_object` / `deliver_object` は、腕の動作をmanipulation担当の次のaction serverに任せる（[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 物体を取る | `/aha/manipulation/pick` | `aha_msgs/action/PickObject` |
+| 持っている物体を置く・入れる | `/aha/manipulation/place` | `aha_msgs/action/PlaceObject` |
+| 持っている物体を人へ渡す | `/aha/manipulation/handover` | `aha_msgs/action/HandOver` |
+
+- `PickObject` の `target` は `/aha/perception/objects` の物体（frame `map`、`class_name` はラベル、`pose` は中心、`size` は物体の軸の大きさ）。`approach_offset` は0。
+- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。
+- `HandOver` の `target` は人の中心（frame `map`）。`release` は `take`（serverが受け取りを感じ取ったら離す）か `now`（手を出したらすぐ離す）。取り消すと腕はその場で止まり、物体を持ち続ける。`deliver_object` は画面のタッチで `take` のgoalを取り消し、`now` で送り直す。
+- 試験用の `aha_test_msgs/action/PlaceObject`（[tests](../tests/README.md)、同じ `/aha/manipulation/place`）とは型が異なるため、同時に起動しない。
+
+`e2e:=debug` の `sim_manipulation`（[シミュレーションの把持](../overlay_ws/src/aha_tasks/README.md#シミュレーションの把持)）は同じ3つのaction serverを提供する。gz-transportで `/world/<world>/pose/info` を読み、`/world/<world>/remove`・`create`・`set_pose` で物体のモデルを作り直して動かす。TF（`map` → `base_footprint` → `link_ree`）、`/joint_states`、`/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory` を使う。
+
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
 `object_scene:=<名前>` の `sim_objects` は、gz-transportで配置の `world` の `/world/<world>/pose/info` を読み、`/world/<world>/create` と `set_pose` で配置の物体を同じ名前のモデルとして置く（残っていれば置き直す）。物体リストのパターンに合う名前で配置にないモデルは、先に `/world/<world>/remove` で消す。置き終えて静止を確かめると終了する。ROSのtopicは配信しない。
@@ -424,8 +439,8 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
+`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`PlaceObject`、`HandOver`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識)、`PickObject`・`PlaceObject`・`HandOver` は [サブゴールタスクの実行](#サブゴールタスクの実行) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。
