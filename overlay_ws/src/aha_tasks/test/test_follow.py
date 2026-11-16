@@ -36,6 +36,10 @@ from aha_tasks.follow import (  # noqa: E402
     turn_to_see,
 )
 from aha_tasks.people import People  # noqa: E402
+from aha_tasks.plan import validate_plan  # noqa: E402
+from aha_tasks.runner import load_task  # noqa: E402
+
+GPSR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "gpsr.json")
 
 DT = 0.1  # s of simulated time per people message
 LOCATIONS = {
@@ -667,6 +671,43 @@ class GuidePersonTests(unittest.TestCase):
             GuidePerson(None).expected({"person": "a", "location": "office"}),
             {"robot.location": "office"},
         )
+
+
+class GpsrPlanTests(unittest.TestCase):
+    """Plan steps of the generator's follow and guide commands."""
+
+    def setUp(self):
+        self.spec, _ = load_task(GPSR)
+
+    def plan(self, *steps):
+        return [{"command": 1, "action": a, "params": p} for a, p in steps]
+
+    def test_follow_and_guide_commands(self):
+        find = ("find_described_person", {"gesture": "waving person"})
+        validate_plan(
+            self.plan(
+                # followNameFromBeacToRoom: follow Charlie from the bed to the kitchen
+                ("navigate", {"location": "bed"}),
+                ("follow_person", {"person": "Charlie", "location": "kitchen"}),
+                # findPrsInRoom + followPrs: ... and follow them
+                find,
+                ("follow_person", {"person": "them"}),
+                # guidePrsFromBeacToBeac / guidePrsToBeacon: guide them to the desk
+                find,
+                ("guide_person", {"person": "waving person", "location": "desk"}),
+            ),
+            self.spec,
+        )
+
+    def test_bad_steps_are_rejected(self):
+        for action, params in (
+            ("guide_person", {"person": "them"}),
+            ("guide_person", {"person": "them", "location": "attic"}),
+            ("follow_person", {"location": "kitchen"}),
+            ("follow_person", {"person": "them", "speed": 2.0}),
+        ):
+            with self.subTest(action, params=params), self.assertRaises(ValueError):
+                validate_plan(self.plan((action, params)), self.spec)
 
 
 if __name__ == "__main__":
