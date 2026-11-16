@@ -453,12 +453,14 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 `people_scene:=<名前>` は [config/sim/people/](config/sim/people/) の配置で、姿勢やジェスチャを付けた人をGazeboに置く（`sim_people`）。人はタスクの間、同じ場所で同じ姿勢を保つ。スキルには配置を渡さない。
 
 ```bash
-ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr ssh_user:=<Unixユーザー名>
+ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr speech:=gpsr ssh_user:=<Unixユーザー名>
 ```
+
+GPSRの `cmd*.listen` はASRを待つため、シミュレーションでは `speech:=gpsr`（[シミュレーションの声](#シミュレーションの声)）を付ける。その言い換えた命令の計画にはLLMが要る。命令の聞き取りと計画を省くには `subgoals:='exec.*'` などで選ばず、mockの命令3件とその計画を使う。
 
 | 配置 | 内容 |
 | --- | --- |
-| `gpsr` | GPSRのmockの計画用。寝室に左腕を挙げた人（Jane）と立つ人（Charlie）、オフィスに手を振る人（Robin）・椅子に座る人（Morgan）・左を指す人（Axel） |
+| `gpsr` | GPSRのmockの計画と `sim_speech` の名前の答え用。寝室に左腕を挙げた人（Jane）と立つ人（Charlie）、オフィスに手を振る人（Robin）・椅子に座る人（Morgan）・左を指す人（Axel） |
 | `attributes` | 人の認識の確認用。寝室・オフィス・リビングに、9種類の姿勢・ジェスチャとシャツの色が異なる10人（[person_attributes_report.py](../aha_perception/README.md#姿勢ジェスチャ服) の `--truth` に使う） |
 
 人ごとに `label`（`standing` / `sitting` / `lying` / `waving` / `raising_left_arm` / `raising_right_arm` / `raising_both_arms` / `pointing_left` / `pointing_right`）、`shirt`（`purple` / `red` / `blue` / `yellow` / `orange` / `green` / `white` / `gray` / `black`）、`position`（m。立つ・座る人は足元、寝る人は体の中央。`z` は足の裏または寝た背中の高さ）、`yaw`（体の正面の向き）を書く。`name`（任意）は[シミュレーションの声](#シミュレーションの声)で答える名前。

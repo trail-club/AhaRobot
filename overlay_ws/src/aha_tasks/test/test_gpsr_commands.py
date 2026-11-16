@@ -520,6 +520,24 @@ class InterleaveTests(unittest.TestCase):
             elif step["action"] in ("place_object", "deliver_object"):
                 holding = None
 
+    def test_no_pick_while_another_command_holds_within_a_block(self):
+        # Command 1 picks and gives away within one block (one room); command 2
+        # holds the cola between its blocks.
+        plans = self.plans(
+            "Find a sponge in the kitchen then take it and give it to the waving "
+            "person in the kitchen",
+            "Get a cola from the kitchen table and deliver it to the waving person "
+            "in the office",
+        )
+        plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
+        holding = None
+        for step in plan:
+            if step["action"] == "pick_object":
+                self.assertIsNone(holding, plan)
+                holding = step["command"]
+            elif step["action"] in ("place_object", "deliver_object"):
+                holding = None
+
     def test_equal_travel_keeps_the_command_order(self):
         plans = self.plans(TIME, TIME)
         plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)

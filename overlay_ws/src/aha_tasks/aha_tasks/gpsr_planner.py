@@ -654,6 +654,7 @@ class Block:
     start: str | None  # navigation target at the beginning
     end: str | None  # where the robot is after the block
     holds: bool  # the command holds an object after the block
+    picks: bool = False  # the block picks an object (even if it then gives it away)
 
 
 def blocks_of(steps):
@@ -667,6 +668,7 @@ def blocks_of(steps):
         block.steps.append(step)
         if step["action"] == "pick_object":
             holding = True
+            block.picks = True
         elif step["action"] in ("place_object", "deliver_object"):
             holding = False
         elif step["action"] in ("follow_person", "guide_person"):
@@ -717,6 +719,8 @@ def order_blocks(commands, spec, start, finish):
             after = position[:c] + (i + 1,) + position[c + 1 :]
             if holders(after) > 1:
                 continue
+            if block.picks and holders(position[:c] + (0,) + position[c + 1 :]):
+                continue  # another command holds an object now
             cost = _distance(spec, here, block.start)
             if last is not None and last != c:
                 cost += SWITCH_COST
