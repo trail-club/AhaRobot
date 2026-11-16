@@ -85,6 +85,8 @@ def yes_no(text):
     joined = " ".join(words)
     # A yes word right after "not" ("I'm not sure") is no yes.
     negated = {i + 1 for i, w in enumerate(words) if w == "not" or w.endswith("n't")}
+    if words[0] in YES and words[1:2] == ["not"]:
+        return "no", ""  # "Absolutely not", "Certainly not"
     if words[0] in YES:
         return "yes", " ".join(words[1:])
     if words[0] in NO or NO_PHRASE.search(joined):
