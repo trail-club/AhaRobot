@@ -272,10 +272,10 @@ class GeometryTests(unittest.TestCase):
     def test_the_base_faces_the_table_with_the_object_at_the_right_arm(self):
         robot = pose_of("kitchen_table")
         pose = reach_pose(robot, (-1.8, -1.55), region("dining_table"))
-        self.assertEqual([round(v, 3) for v in pose], [-1.6, -0.9, -1.571])
+        self.assertEqual([round(v, 3) for v in pose], [-1.6, -0.7, -1.571])
         # The base keeps STANDOFF from the edge at y -1.35.
-        self.assertAlmostEqual(-1.35 - pose[1], -0.45)
-        self.assertTrue(in_reach(pose, (-1.8, -1.55)))
+        self.assertAlmostEqual(pose[1] + 1.35, 0.65)
+        self.assertTrue(in_reach(pose, (-1.8, -1.55), reach=0.9))
         self.assertFalse(in_reach(robot, (-1.8, -1.55)))
         left = reach_pose(robot, (-1.8, -1.55), region("dining_table"), arm="left")
         self.assertAlmostEqual(left[0], -2.0)
@@ -322,7 +322,7 @@ class PickTests(unittest.TestCase):
             PickObject, runtime, {"object": "cola", "surface": "kitchen_table"}
         )
         self.assertTrue(result.success, result.message)
-        self.assertEqual(runtime.navigation.goals, [[-1.6, -0.9, -1.571]])
+        self.assertEqual(runtime.navigation.goals, [[-1.6, -0.7, -1.571]])
         ((kind, sent),) = runtime.hands.goals
         self.assertEqual(kind, "pick")
         self.assertEqual(sent.arm, "right")
@@ -331,7 +331,7 @@ class PickTests(unittest.TestCase):
         self.assertEqual(result.outputs[HOLDING], "cola")
         self.assertEqual(result.outputs[HELD]["surface"], "kitchen_table")
         self.assertEqual(result.outputs[HELD]["size"], list(COLA))
-        self.assertEqual(result.outputs[LOCATION], [-1.6, -0.9, -1.571])
+        self.assertEqual(result.outputs[LOCATION], [-1.6, -0.7, -1.571])
         self.assertEqual(
             PickObject(None).expected({"object": "cola"}), {HOLDING: "cola"}
         )
@@ -403,7 +403,7 @@ class PickTests(unittest.TestCase):
             {"object": "cola", "surface": "kitchen_table", "retries": 0},
         )
         self.assertFalse(result.success)
-        self.assertEqual(result.outputs, {LOCATION: [-1.6, -0.9, -1.571]})
+        self.assertEqual(result.outputs, {LOCATION: [-1.6, -0.7, -1.571]})
 
 
 class PlaceTests(unittest.TestCase):
@@ -428,7 +428,8 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(
             (sent.object_size.x, sent.object_size.y, sent.object_size.z), COLA
         )
-        self.assertEqual(runtime.navigation.goals, [[2.0, -1.15, 1.571]])
+        # Out of REACH, but the desk location is where the base would go.
+        self.assertEqual(runtime.navigation.goals, [])
         self.assertEqual(result.outputs[HOLDING], None)
         self.assertEqual(result.outputs[HELD], None)
 

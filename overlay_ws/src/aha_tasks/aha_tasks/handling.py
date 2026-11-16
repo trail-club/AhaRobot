@@ -69,8 +69,10 @@ TRASH = {"trash", "trash bin", "trashbin", "trash can", "bin", "garbage", "waste
 TRASH_CATEGORY = "trash bin"  # furniture category of a bin in the furniture config
 RECORD_MATCH = 0.3  # m; an object seen this near a remembered record is that object
 SURFACE_DISTANCE = 1.2  # m at most from a location to the furniture it stands for
-ROBOT_RADIUS = 0.40  # m, nav2.yaml robot_radius
-STANDOFF = 0.45  # m from a furniture edge to the base centre when reaching over it
+# m from a furniture edge to the base centre when reaching over it: as the
+# task locations, 0.6 m clear of the map's obstacles (Nav2 plans no path
+# from a pose in their inflation, e.g. 0.45 m from the dining table).
+STANDOFF = 0.65
 # m in base_footprint where the right arm takes and puts objects (the left
 # arm: y mirrored); about the place test bed's preferred point.
 ARM_POINT = (0.45, -0.2)

@@ -546,7 +546,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 
 - **物体**: `object` は命令の語（`cola`、`a drink`、`drinks`。ラベル、その複数形、カテゴリ。`object` などの総称は何にでも合う）か、物体の辞書を持つ記憶のキー（`perceive_objects`・`find_object` の出力）。合う物体のうち、キーなら記憶の位置から0.3 m以内の同じラベルの物体、なければ検出回数・確信度・ロボットとの近さの順で選ぶ。
 - **surface**: 家具の設定の家具の名前、`floor`、またはタスクの地点。地点は、その向きの前方90°以内で1.2 m以内にある最も近い家具とする（GPSRの `kitchen_table` は `dining_table`、`desk` は `long_table`、`side_tables` は `tall_table`、`trashbin` は `trash_box`、`shelf` は `shelf`）。`trash` などの語はカテゴリ `trash bin` の家具。
-- **台車を寄せる**: 物体（置き場所）が台車の中心から0.75 mより遠いか後ろにあれば寄せる。家具ではロボットのいる側の縁に向き、台車の中心を縁から0.45 m（`robot_radius` 0.40 m + 0.05 m）、物体を右腕の側（`base_footprint` の y −0.2 m、`arm: left` は +0.2 m）に置く。床では物体へ向き、物体が (0.45, −0.2) m に来る位置。移動に失敗しても、その場からserverへ送る。
+- **台車を寄せる**: 物体（置き場所）が台車の中心から0.75 mより遠いか後ろにあれば寄せる。家具ではロボットのいる側の縁に向き、台車の中心を縁から0.65 m（タスクの地点と同じく障害物から0.6 m以上。それより近いとNav2はその姿勢から経路を作れない）、物体を右腕の側（`base_footprint` の y −0.2 m、`arm: left` は +0.2 m）に置く。台の縁から約0.15 mより奥の物体は、実機の腕（肩から約0.75 m）では届かないことがある。床では物体へ向き、物体が (0.45, −0.2) m に来る位置。移動に失敗しても、その場からserverへ送る。
 - **置き場所**: ゴミ箱（カテゴリ `trash bin` の家具）は外形の中心で高さの半分の点に `drop` で入れる。棚（段が複数の家具）は `perceive_shelf` と同じ規則（同じカテゴリの群の隣など）。台は、見えた物体と互いの外接円が `clearance` 以上離れ、縁から0.03 m内側で、右腕の前の点（台車の (0.45, −0.2) m）に最も近い点（2 cm格子）。床は台車の0.5 m前。`spot`（記憶のキー）があれば、その `perceive_shelf` の `placement`（物体のキーで引く）、`position` を持つ辞書、`map` の `[x, y, z]` に置く。
 - **人**: `person` が `operator` か `me` なら、`instruction_point` へ移動し、地点から2.5 m以内で人の認識が3 s以内に見た最も近い人へ向く。見えなければ地点の向きの1.0 m先へ差し出す。それ以外は `<role>.position` / `.frame`（`find_described_person`）の人へ `distance` まで近づく（1.3 m以内なら向きだけ合わせる）。記憶になければ失敗する。
 - **受け渡し**: 手を出す点は人の中心で、高さを0.7–1.1 mに収める。serverが受け取りを感じ取る（`release: take`）か、画面の `Release` がタッチされると離す。タッチでは `take` のgoalを取り消して（腕は出したまま）`release: now` で送り直す。`timeout` 秒で受け取られなければ、言い直して `retries` 回まで送る。
@@ -557,7 +557,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 
 `e2e:=debug`（`manipulation:=sim`）では `sim_manipulation` が取る・置く・渡すserverの代わりに、把持を計画せずGazeboで物体のモデルを動かす。
 
-- **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に0.9 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕を `carry` の姿勢へ動かす。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
+- **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に1.0 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕を `carry` の姿勢へ動かす。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
 - **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をpickの前の姿勢へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
 - **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕を戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
 - 腕は関節空間の直線で動き、衝突を確かめない。上げるときは昇降、下げるときは腕を先に動かし、手は物体の上0.08 mを通る。右腕だけを扱う。終了時、持っている物体はその場で動く物体に戻す。

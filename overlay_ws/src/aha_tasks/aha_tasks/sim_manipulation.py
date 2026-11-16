@@ -22,7 +22,9 @@ import numpy as np
 # joint_r2..joint_r6. The hand is at about (0.22, -0.30, 0.92) in base_footprint.
 CARRY = (0.5, (-0.6, 1.2, 0.6, 0.0, 0.0))
 MATCH_DISTANCE = 0.2  # m from the goal's target to the object model
-REACH = 0.9  # m (horizontal) from the base centre the stand-in reaches
+# m (horizontal) from the base centre the stand-in reaches: objects up to
+# about 0.3 m into a table from STANDOFF (aha_tasks.handling) at its edge.
+REACH = 1.0
 PLACE_LIFT = 0.005  # m above the support where a placed object is created
 # m from the shoulder: a nearer target is pointed at through a point this far
 # along the same direction (the stretched arm's hand ends about 0.75 m out,
