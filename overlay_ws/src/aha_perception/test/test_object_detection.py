@@ -1,17 +1,24 @@
 """Object detection core and DGX worker protocol, without ROS, CUDA or the DGX."""
 
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
 import sys
+import threading
+import time
 
 import numpy as np
 import pytest
 
 from aha_perception import object_worker
+from aha_perception.dgx import WorkerOptions, object_spec
 from aha_perception.object_detection import (
+    SAM_SECONDS,
     SHEET_COLUMNS,
+    SHEET_TILES,
     TILE_PX,
+    VLM_PARALLEL,
     ObjectDetection,
     ObjectTracker,
     annotate,
@@ -24,6 +31,7 @@ from aha_perception.object_detection import (
     pool_candidates,
     size_fits,
     touches_border,
+    vlm_timeout,
 )
 from aha_perception.people import decode_mask, encode_image
 
@@ -449,3 +457,51 @@ def test_worker_without_vlm_fails_each_request():
     )
     assert responses[0] == {"type": "ready", "vlm": False}
     assert responses[1]["type"] == "error" and "VLM" in responses[1]["message"]
+
+
+# --- VLM timeout ---------------------------------------------------------------
+
+
+def test_vlm_timeout_leaves_the_sheets_within_the_request_timeout():
+    # 24 candidates: two sheets asked together.
+    assert vlm_timeout(120.0, 24) == pytest.approx(120.0 - SAM_SECONDS)
+    # 36 candidates: three sheets, the third after the first two.
+    assert vlm_timeout(120.0, 36) == pytest.approx((120.0 - SAM_SECONDS) / 2)
+    with pytest.raises(ValueError, match="request_timeout"):
+        vlm_timeout(SAM_SECONDS + 5.0, 24)
+
+
+def test_object_spec_passes_the_vlm_timeout_to_the_worker():
+    command = object_spec(WorkerOptions(), 45.0).command
+    assert command[:2] == ("-m", "aha_perception.object_worker")
+    assert object_worker.parse_args(list(command[2:])).vlm_timeout == 45.0
+
+
+class FirstSheetFails:
+    """The first sheet's request fails at once; the second answers later."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.answered = 0
+
+    def ask(self, prompt, photo, sheet):
+        count = int(prompt.split("with every number from 1 to ")[1].split(".")[0])
+        if count == SHEET_TILES:
+            raise RuntimeError("VLM is not reachable: timed out")
+        time.sleep(0.3)
+        with self.lock:
+            self.answered += 1
+        return json.dumps({"labels": {}})
+
+
+def test_failed_sheet_waits_for_the_other_sheets():
+    # The error goes back only after every VLM request of the image ended,
+    # so none of them runs on into the next image.
+    masks = np.array(
+        [rect(10, 40, 10 + 40 * i, 40 + 40 * i) for i in range(SHEET_TILES + 1)]
+    )
+    vlm = FirstSheetFails()
+    with ThreadPoolExecutor(VLM_PARALLEL) as pool:
+        with pytest.raises(RuntimeError, match="timed out"):
+            object_worker.name_candidates(vlm, scene(), masks, LABELS, pool)
+        assert vlm.answered == 1
