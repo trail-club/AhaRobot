@@ -258,6 +258,34 @@ def parse_labels(text: str, count: int, labels) -> list[str | None]:
     return result
 
 
+# Concurrent VLM requests per image; the Qwen3.8 server takes 4 in all.
+VLM_PARALLEL = 2
+# Of the robot's request timeout, seconds left for decoding and SAM 3.1
+# (about 5 s); the rest bounds the VLM requests (vlm_timeout).
+SAM_SECONDS = 30.0
+MIN_VLM_TIMEOUT = 10.0
+
+
+def vlm_timeout(request_timeout: float, max_candidates: int) -> float:
+    """Seconds the worker waits for one VLM request.
+
+    An image whose VLM requests time out then fails on the worker (an error
+    reply) before the robot stops waiting after request_timeout, so no image
+    is answered late while the next ones queue. The sheets go VLM_PARALLEL at
+    a time: up to ceil(sheets / VLM_PARALLEL) requests run one after another.
+    """
+    sheets = math.ceil(max_candidates / SHEET_TILES)
+    rounds = max(1, math.ceil(sheets / VLM_PARALLEL))
+    timeout = (request_timeout - SAM_SECONDS) / rounds
+    if timeout < MIN_VLM_TIMEOUT:
+        raise ValueError(
+            f"request_timeout {request_timeout:g} s leaves {timeout:.0f} s per VLM "
+            f"request for {max_candidates} candidates; at least "
+            f"{MIN_VLM_TIMEOUT:.0f} s is needed"
+        )
+    return timeout
+
+
 # --- Geometry (robot side) ------------------------------------------------
 
 MIN_DEPTH_POINTS = 30
