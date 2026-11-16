@@ -140,7 +140,7 @@ class SimWalker(Walker):
         waiting = (
             robot is not None and math.dist((self.x, self.y), robot) > self.wait_gap
         )
-        if self.route and not waiting:
+        if self.running and self.route and not waiting:
             self._walk(self.speed * dt)
         else:
             self._face(robot)

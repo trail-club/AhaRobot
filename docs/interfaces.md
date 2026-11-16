@@ -173,7 +173,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
-`follow_person` / `guide_person` は TF（`map` → `base_footprint`）、Nav2の大域コストマップ `/global_costmap/costmap`（`nav_msgs/msg/OccupancyGrid`、RELIABLE / TRANSIENT_LOCAL）を読み、`/navigate_to_pose` のgoalを結果を待たずに送り直す（Nav2が走行中のgoalを置き換える）。
+`follow_person` / `guide_person` は TF（`map` → `base_footprint`）、Nav2の大域コストマップ `/global_costmap/costmap`（`nav_msgs/msg/OccupancyGrid`、RELIABLE / TRANSIENT_LOCAL）とその差分 `/global_costmap/costmap_updates`（`map_msgs/msg/OccupancyGridUpdate`）を読み、`/navigate_to_pose` のgoalを結果を待たずに送り直す（Nav2が走行中のgoalを置き換える）。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 `walkers:=<名前>` の `sim_walkers` は `/aha/tasks/status` を購読し、gz-transportでロボットの真の位置を読み、配置の `world` の `create` と `set_pose` で配置の人を同じ名前のモデルとして動かす。ROSのtopicは配信しない。

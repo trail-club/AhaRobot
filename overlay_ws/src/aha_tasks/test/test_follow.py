@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.follow import (  # noqa: E402
+    apply_update,
     ACTIVE,
     FAILED,
     HEAD_REACH,
@@ -112,6 +113,16 @@ class GeometryTests(unittest.TestCase):
         # Clear of obstacles first, then anything outside collision.
         self.assertEqual(free_pose([poses[3], [7.5, 7.5, 2.0]], costs), [7.5, 7.5, 2.0])
         self.assertEqual(free_pose(poses, None), poses[0])  # no costmap yet
+
+    def test_costmap_updates_are_written_into_the_grid(self):
+        costmap = grid({}, width=4, height=3)
+        costmap.data = list(costmap.data)
+        update = SimpleNamespace(x=1, y=1, width=2, height=2, data=[100, 50, 7, 8])
+        self.assertTrue(apply_update(costmap, update))
+        self.assertEqual(costmap.data[4:12], [0, 100, 50, 0, 0, 7, 8, 0])
+        outside = SimpleNamespace(x=3, y=0, width=2, height=1, data=[1, 1])
+        self.assertFalse(apply_update(costmap, outside))
+        self.assertFalse(apply_update(None, update))
 
     def test_goals_are_replaced_at_most_once_a_period_and_only_when_moved(self):
         active = [0.0, 0.0, 0.0]

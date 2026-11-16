@@ -46,6 +46,8 @@ from aha_tasks.people import (
 from aha_tasks.skills import LOCATION, resolve_pose
 
 COSTMAP_TOPIC = "/global_costmap/costmap"
+# Nav2 sends the full costmap once (and on resize); changes come as updates.
+COSTMAP_UPDATES_TOPIC = "/global_costmap/costmap_updates"
 TF_TIMEOUT = 5.0  # s (wall clock) for the robot pose
 POLL = 0.05  # s (wall clock) between checks
 GOAL_PERIOD = 1.0  # s (wait clock) at least between replacing goals
@@ -150,6 +152,26 @@ def grid_cost(grid, x, y):
     if not (0 <= col < info.width and 0 <= row < info.height):
         return None
     return grid.data[row * info.width + col]
+
+
+def apply_update(grid, update):
+    """Write an OccupancyGridUpdate patch into `grid`; False if it does not fit."""
+    if grid is None:
+        return False
+    width, height = grid.info.width, grid.info.height
+    if (
+        update.x < 0
+        or update.y < 0
+        or update.x + update.width > width
+        or update.y + update.height > height
+        or len(update.data) != update.width * update.height
+    ):
+        return False
+    for row in range(update.height):
+        start = (update.y + row) * width + update.x
+        patch = update.data[row * update.width : (row + 1) * update.width]
+        grid.data[start : start + update.width] = patch
+    return True
 
 
 def free_pose(poses, grid):
@@ -378,6 +400,7 @@ class Base:
     """Robot pose in map from TF, and Nav2's global costmap, for one runner."""
 
     def __init__(self, node):
+        from map_msgs.msg import OccupancyGridUpdate
         from nav_msgs.msg import OccupancyGrid
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
         from tf2_ros import Buffer, TransformListener
@@ -396,6 +419,9 @@ class Base:
                 reliability=ReliabilityPolicy.RELIABLE,
             ),
         )
+        node.create_subscription(
+            OccupancyGridUpdate, COSTMAP_UPDATES_TOPIC, self._on_update, 10
+        )
 
     @classmethod
     def of(cls, runtime):
@@ -404,7 +430,10 @@ class Base:
         return runtime.base
 
     def _on_costmap(self, message):
-        self.grid = message
+        self.grid = message  # its data is patched in place by the updates
+
+    def _on_update(self, message):
+        apply_update(self.grid, message)
 
     def pose(self):
         """[x, y, yaw] of base_footprint in map with the latest TF."""
