@@ -905,10 +905,10 @@ class GuidePerson(_PersonSkill):
             if travelled >= every * (checks + 1) and far:
                 checks += 1
                 found = self._check(ctx, people, base, target, pursuit, trail)
-                if found is None:
-                    return False, f"{params['person']} did not follow", None
                 if ctx.cancelled.is_set():
                     break
+                if found is None:
+                    return False, f"{params['person']} did not follow", None
                 pursuit.send(destination, people.now())
                 gaze.follow_path(destination)
             time.sleep(POLL)
@@ -916,6 +916,8 @@ class GuidePerson(_PersonSkill):
             return False, "Cancelled", None
         gaze.hold()
         found = self._check(ctx, people, base, target, pursuit, trail)
+        if ctx.cancelled.is_set():
+            return False, "Cancelled", None
         if found is None:
             return False, f"Arrived without {params['person']}", None
         people.follow(track=found[1].id, name=found[1].name)
