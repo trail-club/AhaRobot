@@ -651,8 +651,18 @@ class ConfirmationTests(unittest.TestCase):
         )
 
     def test_restated(self):
-        verdict, rest = yes_no("No, no, sorry, bring me a cola from the desk")
-        self.assertEqual((verdict, rest), ("no", "bring me a cola from the desk"))
+        for answer in (
+            "No, no, sorry, bring me a cola from the desk",
+            "Sorry, no, I said bring me a cola from the desk",
+            "Um, no, I said bring me a cola from the desk",
+            "Oh no, I said bring me a cola from the desk",
+        ):
+            with self.subTest(answer):
+                verdict, rest = yes_no(answer)
+                self.assertEqual(verdict, "no")
+                self.assertEqual(
+                    restated(rest, VOCABULARY), "bring me a cola from the desk"
+                )
         verdict, rest = yes_no("No, I said bring me a cola from the desk")
         self.assertEqual(verdict, "no")
         self.assertEqual(restated(rest, VOCABULARY), "bring me a cola from the desk")

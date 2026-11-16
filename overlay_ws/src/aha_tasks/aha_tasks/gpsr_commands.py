@@ -74,7 +74,8 @@ def words_of(text):
 
 
 # Words before a restated command: "No, no, sorry, I said ...".
-LEADING = YES | NO | {"sorry", "well", "um", "uh", "oh", "wait", "actually"}
+OPENERS = {"sorry", "well", "um", "uh", "oh", "wait", "actually"}
+LEADING = YES | NO | OPENERS
 
 
 def yes_no(text):
@@ -84,6 +85,9 @@ def yes_no(text):
     without one, e.g. a correction "No, I said bring me ...".
     """
     words = words_of(text)
+    # "Sorry, no, I said ...", "Oh no, ...", "Um, yes": judge from the answer.
+    while words and words[0] in OPENERS:
+        words = words[1:]
     if not words:
         return None, ""
     joined = " ".join(words)
