@@ -104,8 +104,10 @@ class NameTests(unittest.TestCase):
 
     def test_a_name_outside_the_list(self):
         self.assertEqual(extract_name("My name is Jewels", NAMES), "Jules")
-        self.assertEqual(extract_name("Hi, I'm Kenji.", NAMES), "Kenji")
-        self.assertIsNone(extract_name("Kenji", NAMES))  # no cue, not a name
+        # Only the task's names: other words after a cue are no name.
+        for heard in ("Hi, I'm Kenji.", "Kenji", "I'm fine", "Call me later"):
+            with self.subTest(heard):
+                self.assertIsNone(extract_name(heard, NAMES))
         for heard in ("Sorry, what did you say?", "What?", "Pardon?", "Huh?"):
             with self.subTest(heard):
                 self.assertIsNone(extract_name(heard, NAMES))

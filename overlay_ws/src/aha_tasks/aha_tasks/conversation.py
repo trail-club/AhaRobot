@@ -200,16 +200,12 @@ def find_name(text, names):
 
 
 def extract_name(text, names):
-    """The name a person gave in `text`: from `names` if it sounds like one.
+    """The name of `names` a person gave in `text`, or None.
 
-    A name not in `names` is taken only after a cue ("My name is Kenji"); a
-    lone word that is no name ("What?", "Pardon?") is not a name.
+    GPSR names come from the task's list (`gpsr.names`): a word outside it is
+    no name ("I'm fine", "Call me later", "What?").
     """
-    name = find_name(text, names)
-    if name is not None:
-        return name
-    cued = [words[0] for words in _cued(text) if words and words[0] not in FILLER]
-    return cued[0].capitalize() if cued else None
+    return find_name(text, names)
 
 
 # "That's me", "It's me", a lone "Me", "I am".
