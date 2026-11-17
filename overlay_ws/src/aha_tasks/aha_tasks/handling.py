@@ -487,43 +487,59 @@ class Hands:
     def start(self, name, goal, cancelled):
         """The accepted goal handle; RuntimeError if not served or rejected.
 
-        A goal still unanswered at a cancel or timeout is cancelled once the
-        server accepts it (cancel_late)."""
+        A goal still unanswered at a cancel or timeout may be accepted (or
+        its answer lost) and move the arm: arm_out is set at once, and the
+        goal is cancelled once the server accepts it (cancel_late). Unstopped
+        on the timeout, as no other goal may follow."""
         _, client = self.clients[name]
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
             raise RuntimeError(f"{name} is not served")
         sent = client.send_goal_async(goal)
         try:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
-        except (Cancelled, TimeoutError):
-            sent.add_done_callback(self.cancel_late)
+        except (Cancelled, TimeoutError) as error:
+            earlier = self.arm_state()
+            self.arm_after(None)
+            late = self.arm_state()
+            sent.add_done_callback(lambda done: self.cancel_late(done, earlier, late))
+            if isinstance(error, TimeoutError):
+                raise Unstopped(
+                    f"{name} did not answer the goal in time; it may still run"
+                ) from None
             raise
         if not handle.accepted:
             raise RuntimeError(f"{name} rejected the goal")
         return handle
 
-    def cancel_late(self, sent):
-        """Cancel a goal accepted after start gave up on it. It may have moved
-        the arm before the cancel (which stops it where it is): arm_out is set
-        until its result says how it ended; a result from before any motion
-        gives back the earlier arm_out."""
+    def arm_state(self):
+        return None if self.runtime is None else getattr(self.runtime, ARM_OUT, None)
+
+    def cancel_late(self, sent, earlier=None, late=None):
+        """Cancel a goal answered after start gave up on it. Start set arm_out
+        (`late`, from `earlier`); a rejection, or a result from before any
+        motion, gives back `earlier`, another result sets it by how the goal
+        ended (a cancel stops the arm where it is). Only while arm_out is
+        still `late`: a later goal knows better."""
+
+        def settle(result):
+            if self.runtime is None or self.arm_state() != late:
+                return
+            if result is not None and before_motion(result):
+                setattr(self.runtime, ARM_OUT, earlier)
+            else:
+                self.arm_after(result, stopped=True)
+
         handle = sent.result()
         if handle is None or not handle.accepted:
+            if self.runtime is not None and self.arm_state() == late:
+                setattr(self.runtime, ARM_OUT, earlier)
             return
+
+        def ended(future):
+            response = future.result()
+            settle(None if response is None else response.result)
+
         if self.runtime is not None:
-            earlier = getattr(self.runtime, ARM_OUT, None)
-            self.arm_after(None)
-            late = getattr(self.runtime, ARM_OUT)
-
-            def ended(future):
-                response = future.result()
-                result = None if response is None else response.result
-                if result is not None and before_motion(result):
-                    if getattr(self.runtime, ARM_OUT, None) == late:
-                        setattr(self.runtime, ARM_OUT, earlier)
-                else:
-                    self.arm_after(result, stopped=True)
-
             handle.get_result_async().add_done_callback(ended)
         handle.cancel_goal_async()
 

@@ -9,6 +9,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 TEST = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TEST))
@@ -993,6 +994,19 @@ class HandsTests(unittest.TestCase):
         client.sent[0].set_result(handle)  # the late acceptance
         self.assertEqual(handle.cancels, 1)
 
+    def test_a_goal_without_an_answer_is_not_followed(self):
+        # The acceptance may come late or be lost: the arm may move.
+        client = FakeClient()
+        hands = Hands.__new__(Hands)
+        hands.runtime = SimpleNamespace(arm_out=None)
+        hands.clients = {PICK_ACTION: (None, client)}
+        with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
+            with self.assertRaises(Unstopped):
+                hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+        self.assertIn("did not confirm", hands.runtime.arm_out)
+        client.sent[0].set_result(SimpleNamespace(accepted=False))
+        self.assertIsNone(hands.runtime.arm_out)
+
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = Hands.__new__(Hands)
         hands.runtime = SimpleNamespace(arm_out=None)
@@ -1012,6 +1026,7 @@ class HandsTests(unittest.TestCase):
                 handle.accepted = True
                 calls = []
                 handle.cancel_goal_async = lambda h=handle: calls.append(h)
+                self.assertIn("did not confirm", hands.runtime.arm_out)
                 client.sent[0].set_result(handle)  # the late acceptance
                 self.assertEqual(len(calls), 1)
                 self.assertIn("did not confirm", hands.runtime.arm_out)
