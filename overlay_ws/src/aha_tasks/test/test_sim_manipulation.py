@@ -27,7 +27,12 @@ from aha_tasks.sim_manipulation import (  # noqa: E402
     yaw_of,
 )
 from aha_tasks import sim_manipulation_node  # noqa: E402
-from aha_tasks.sim_manipulation_node import Failed, Held, Stand  # noqa: E402
+from aha_tasks.sim_manipulation_node import (  # noqa: E402
+    Failed,
+    Held,
+    Stand,
+    failed_status,
+)
 from aha_tasks.sim_objects import PrintedModel, printed_sdf  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 
@@ -234,6 +239,44 @@ class GazeboModelTests(unittest.TestCase):
         self.assertFalse(self.stand([]).present("cola", False, 0.0))
         self.assertTrue(self.stand(["cola"]).present("cola", True, 0.0))
         self.assertTrue(self.stand(["cola"]).present("cola", False, 0.0))
+
+
+class StatusTests(unittest.TestCase):
+    def test_a_failure_after_the_arm_moved_is_not_a_before_motion_status(self):
+        self.assertEqual(failed_status(Failed("only right")), "STATUS_ERROR")
+        self.assertEqual(
+            failed_status(Failed("Arm: stuck", returned=False)),
+            "STATUS_EXECUTION_FAILED",
+        )
+        self.assertEqual(
+            failed_status(Failed("Arm: stuck", returned=True)),
+            "STATUS_EXECUTION_FAILED",
+        )
+        self.assertEqual(
+            failed_status(Failed("Cancelled", "STATUS_CANCELED", False)),
+            "STATUS_CANCELED",
+        )
+
+    def test_a_handover_motion_that_fails_after_moving(self):
+        stand = FakeStand()
+        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
+
+        def point(base_xyz, height, cancelled, what):
+            raise Failed("Arm (person): stuck", returned=False)
+
+        stand.point = point
+        stand.back = lambda cancelled: False  # and not back either
+        goal = SimpleNamespace(
+            arm="",
+            target=StandReleaseTests.point(None, 1.0, 0.0, 0.9),
+            release="take",
+            timeout=1.0,
+        )
+        handle = SimpleNamespace(is_cancel_requested=False)
+        with self.assertRaises(Failed) as caught:
+            stand.hand_over(goal, handle, lambda *a: None)
+        self.assertEqual(caught.exception.returned, False)
+        self.assertEqual(failed_status(caught.exception), "STATUS_EXECUTION_FAILED")
 
 
 class StandAttachTests(unittest.TestCase):

@@ -24,6 +24,11 @@ class Cancelled(Exception):
 
 
 class Navigation:
+    # Callable giving why the base must not move now (e.g. the arm may be out
+    # over furniture, aha_tasks.skills.ARM_OUT), or None; the runner sets it.
+    # Every NavigateToPose goal of the runner's skills goes through navigate.
+    blocked = None
+
     def __init__(self, node, locations, startup_timeout=300.0, goal_timeout=600.0):
         self.node = node
         self.markers = publish_locations(node, locations)
@@ -64,7 +69,12 @@ class Navigation:
             self.node.destroy_client(state)
 
     def navigate(self, pose, cancelled=None):
-        """Return (succeeded, message); the goal is cancelled on timeout or request."""
+        """Return (succeeded, message); the goal is cancelled on timeout or request.
+
+        Refused at once while `blocked()` gives a reason."""
+        why = self.blocked() if self.blocked is not None else None
+        if why:
+            return False, f"Not moving the base: {why}"
         target = PoseStamped()
         target.header.frame_id = "map"
         target.header.stamp = self.node.get_clock().now().to_msg()

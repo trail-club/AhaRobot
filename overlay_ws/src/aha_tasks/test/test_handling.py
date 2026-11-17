@@ -33,7 +33,7 @@ from aha_tasks.handling import (  # noqa: E402
     spot_from,
 )
 from aha_tasks.objects import Cancelled, Percept, furniture_region  # noqa: E402
-from aha_tasks.runner import load_task  # noqa: E402
+from aha_tasks.runner import guard_navigation, load_task  # noqa: E402
 from aha_tasks.skills import ARM_OUT, LOCATION, go_to  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from test_object_skills import FURNITURE, FakeObjects, detection  # noqa: E402
@@ -916,12 +916,31 @@ class HandsTests(unittest.TestCase):
                 hands.arm_after(result, stopped=True)
                 self.assertIn("not back", runtime.arm_out)
 
+    def test_every_base_motion_waits_for_the_arm(self):
+        try:
+            from aha_tasks.navigation import Navigation
+        except ImportError as error:  # host without ROS
+            self.skipTest(f"no ROS: {error}")
+        navigation = Navigation.__new__(Navigation)  # no client: nothing is sent
+        runtime = SimpleNamespace(navigation=navigation, spec=SPEC)
+        guard_navigation(navigation, runtime)
+        runtime.arm_out = "the arm may be out (test)"
+        refused = (False, "Not moving the base: the arm may be out (test)")
+        self.assertEqual(navigation.navigate([0.0, 0.0, 0.0]), refused)
+        # navigate, the restore of robot.location and plan mocks use go_to.
+        moved = go_to(runtime, "desk", threading.Event())
+        self.assertEqual((moved.success, moved.message), refused)
+
+    def test_the_guard_reads_the_runtime(self):
+        navigation, runtime = SimpleNamespace(), SimpleNamespace()
+        guard_navigation(navigation, runtime)
+        self.assertIsNone(navigation.blocked())
+        runtime.arm_out = "out"
+        self.assertEqual(navigation.blocked(), "out")
+
     def test_the_base_stays_while_the_arm_may_be_out(self):
         runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
         runtime.arm_out = "the arm may be out (test)"
-        moved = go_to(runtime, "desk", threading.Event())
-        self.assertFalse(moved.success)
-        self.assertIn("Not moving the base to desk: the arm may be out", moved.message)
         result, logs = run(
             PickObject, runtime, {"object": "cola", "surface": "kitchen_table"}
         )

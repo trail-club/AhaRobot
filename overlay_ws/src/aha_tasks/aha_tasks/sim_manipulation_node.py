@@ -75,6 +75,15 @@ class Failed(Exception):
         self.status, self.returned = status, returned
 
 
+def failed_status(error):
+    """The PlaceObject / HandOver status name of a failed goal: its own, else
+    STATUS_ERROR before the arm moved (`returned` None), else
+    STATUS_EXECUTION_FAILED (the runner then reads `returned`)."""
+    if error.status:
+        return error.status
+    return "STATUS_ERROR" if error.returned is None else "STATUS_EXECUTION_FAILED"
+
+
 class Flag:
     """`is_set` of a goal's cancel request, for aha_tasks.gestures.Arm."""
 
@@ -694,7 +703,7 @@ def main(argv=None):
             result.returned = back
             return finish(handle, result, True)
         except Failed as error:
-            result.status = getattr(R, error.status or "STATUS_EXECUTION_FAILED")
+            result.status = getattr(R, failed_status(error))
             result.returned = error.returned is not False
             result.message = str(error)
             log.warning(f"Place: {error}")
@@ -714,7 +723,7 @@ def main(argv=None):
             result.returned = back
             return finish(handle, result, True)
         except Failed as error:
-            result.status = getattr(R, error.status or "STATUS_ERROR")
+            result.status = getattr(R, failed_status(error))
             result.returned = error.returned is not False
             result.message = str(error)
             log.warning(f"Handover: {error}")

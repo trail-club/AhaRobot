@@ -20,6 +20,7 @@ uint8 STATUS_TIMEOUT=1      # no take within timeout: still held, the arm went b
 uint8 STATUS_UNREACHABLE=2  # the target cannot be reached towards: still held, the arm did not move
 uint8 STATUS_ERROR=3        # bad goal, nothing held, controllers unavailable
 uint8 STATUS_CANCELED=4     # the arm stops where it is and keeps the object
+uint8 STATUS_EXECUTION_FAILED=5  # a motion failed after the arm moved: still held, `returned` tells where the arm is
 
 bool                       success  # STATUS_RELEASED
 uint8                      status

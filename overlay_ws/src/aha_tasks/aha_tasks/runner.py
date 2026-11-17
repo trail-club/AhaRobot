@@ -9,7 +9,7 @@ import time
 from types import SimpleNamespace
 
 from aha_tasks.core import POLICIES, TaskEngine, load_spec, resolve, select
-from aha_tasks.skills import LOCATION, check_locations, go_to
+from aha_tasks.skills import ARM_OUT, LOCATION, check_locations, go_to
 
 STATUS_TOPIC = "/aha/tasks/status"
 COMMAND_SERVICE = "/aha/tasks/command"
@@ -36,6 +36,11 @@ def load_task(path):
     if spec.locations:
         check_locations(spec)
     return spec, classes
+
+
+def guard_navigation(navigation, runtime):
+    """No base motion while the runtime's ARM_OUT is set (see Navigation.blocked)."""
+    navigation.blocked = lambda: getattr(runtime, ARM_OUT, None)
 
 
 def describe(spec, selection):
@@ -116,6 +121,8 @@ def main(argv=None):
         else None
     )
     runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation, gaze=gaze)
+    if navigation is not None:
+        guard_navigation(navigation, runtime)
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
     runtime.skills = skills
     restorers = {}
