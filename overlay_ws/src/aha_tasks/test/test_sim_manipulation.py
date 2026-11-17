@@ -295,6 +295,22 @@ class StatusTests(unittest.TestCase):
 
 
 class StandAttachTests(unittest.TestCase):
+    def test_a_failed_static_copy_puts_the_object_back(self):
+        class NoCopy(FakeStand):
+            def sdf(self, name, label, x, y, z, yaw):
+                return f'<sdf version="1.9"><model name="{name}"><link name="l"/></model></sdf>'
+
+            def create(self, sdf, name):
+                if "<static>" in sdf:
+                    raise Failed(f"No reply to the creation of {name}")
+                self.created.append(name)
+
+        stand = NoCopy()
+        with self.assertRaises(Failed):
+            Stand.attach(stand, "cola", "cola", pose_matrix(0.6, -0.2, 0.86))
+        self.assertEqual(stand.created, ["cola"])  # the object as it was
+        self.assertIsNone(stand.held)
+
     def test_a_failed_attach_brings_the_arm_back(self):
         stand = FakeStand()
 

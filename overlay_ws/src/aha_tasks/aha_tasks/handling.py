@@ -78,7 +78,8 @@ STANDOFF = 0.65
 # m in base_footprint where the right arm takes and puts objects (the left
 # arm: y mirrored); about the place test bed's preferred point.
 ARM_POINT = (0.45, -0.2)
-REACH = 0.75  # m from the base centre; a farther object makes the base move first
+REACH = 0.75  # m from the arm's shoulder; a farther object makes the base move first
+SHOULDER = (-0.04, -0.13)  # m, right arm (aha_manipulation.pointing.SHOULDER_XY)
 MOVE_TOLERANCE = (0.05, 0.1)  # m, rad; a base pose this close is not driven to
 PICK_MARGIN = 0.1  # m beyond the furniture outline where objects count
 # m around the robot where objects on the floor count (the floor "margin" of
@@ -242,11 +243,14 @@ def reach_pose(robot, target, region=None, arm="right", standoff=STANDOFF):
     ]
 
 
-def in_reach(robot, target, reach=REACH):
-    """Whether (x, y) `target` is within `reach` of the base and in front of it."""
+def in_reach(robot, target, reach=REACH, arm="right"):
+    """Whether (x, y) `target` is within `reach` of the arm's shoulder (the
+    right one is right of the base centre) and in front of the base."""
     dx, dy = target[0] - robot[0], target[1] - robot[1]
-    ahead = dx * math.cos(robot[2]) + dy * math.sin(robot[2])
-    return math.hypot(dx, dy) <= reach and ahead > 0.0
+    c, s = math.cos(robot[2]), math.sin(robot[2])
+    ahead, left = dx * c + dy * s, dy * c - dx * s
+    side = SHOULDER[1] if arm == "right" else -SHOULDER[1]
+    return math.hypot(ahead - SHOULDER[0], left - side) <= reach and ahead > 0.0
 
 
 def needs_move(robot, pose, tolerance=MOVE_TOLERANCE):
@@ -703,7 +707,7 @@ class _HandSkill(Skill):
         if (
             not ctx.params.get("approach", True)
             or navigation is None
-            or (in_reach(robot, target) and not force)
+            or (in_reach(robot, target, arm=arm) and not force)
         ):
             return robot
         pose = reach_pose(robot, target, region, arm)
@@ -1170,6 +1174,8 @@ class DeliverObject(_HandSkill):
             handle = hands.start(HANDOVER_ACTION, goal, ctx.cancelled)
         except Cancelled:
             return None, "Cancelled"
+        except Unstopped as error:  # no answer: no second goal (no retry)
+            return None, f"{HANDOVER_ACTION}: {error}"
         except (RuntimeError, TimeoutError) as error:
             return None, str(error) or f"{HANDOVER_ACTION} did not answer"
         interaction.say(text, ctx.cancelled)

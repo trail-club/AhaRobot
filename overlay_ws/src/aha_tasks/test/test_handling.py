@@ -315,6 +315,16 @@ class GeometryTests(unittest.TestCase):
         self.assertFalse(in_reach((0.0, 0.0, 0.0), (-0.3, 0.0)))
         self.assertTrue(in_reach((0.0, 0.0, 0.0), (0.5, -0.2)))
 
+    def test_the_reach_is_from_the_arm_shoulder(self):
+        # Ahead left, 0.72 m from the base centre: 0.85 m from the right
+        # shoulder, 0.62 m from the left one.
+        self.assertFalse(in_reach((0.0, 0.0, 0.0), (0.3, 0.65)))
+        self.assertTrue(in_reach((0.0, 0.0, 0.0), (0.3, 0.65), arm="left"))
+        # Turned: the same in the base frame.
+        robot = (1.0, 1.0, math.pi / 2)
+        self.assertFalse(in_reach(robot, (1.0 - 0.65, 1.3)))
+        self.assertTrue(in_reach(robot, (1.0 - 0.65, 1.3), arm="left"))
+
     def test_free_spot_keeps_clear_of_objects_and_edges(self):
         table = region("long_table")
         objects = [
@@ -691,6 +701,26 @@ class DeliverTests(unittest.TestCase):
         )
         self.assertEqual(result.outputs[HOLDING], None)
         self.assertEqual(result.outputs[LOCATION], [2.0, 1.0, 1.571])
+
+    def test_a_handover_goal_without_an_answer_is_not_repeated(self):
+        class NoAnswer(FakeHands):
+            def start(self, name, request, cancelled):
+                self.goals.append(("handover", request))
+                raise Unstopped("/aha/manipulation/handover did not answer the goal")
+
+        runtime = make_runtime(None, robot="office", hands=NoAnswer())
+        runtime.objects.robot = (2.0, 0.0, math.pi / 2)
+        memory = {
+            **self.HELD_COLA,
+            "person.position": [2.0, 2.0, 1.3],
+            "person.frame": "map",
+        }
+        params = {"object": "cola", "person": "waving person"}
+        result, _ = run(DeliverObject, runtime, params, memory)
+        self.assertFalse(result.success)
+        self.assertIn("did not answer the goal", result.message)
+        self.assertEqual(len(runtime.hands.goals), 1)
+        self.assertEqual(result.outputs[LOCATION], [2.0, 1.0, 1.571])  # it moved
 
     def test_no_handover_from_afar_while_the_arm_may_be_out(self):
         memory = {

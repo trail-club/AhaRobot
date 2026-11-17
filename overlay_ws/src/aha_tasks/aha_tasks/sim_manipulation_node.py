@@ -318,7 +318,15 @@ class Stand:
         sdf = static_copy(self.sdf(name, entry.label, x, y, z, yaw))
         with self.lock:
             self.remove(name)
-            self.create(sdf, name)
+            try:
+                self.create(sdf, name)
+            except Failed:
+                # Put the object back as it was, to be picked again.
+                try:
+                    self.create(self.sdf(name, entry.label, x, y, z, yaw), name)
+                except Failed as error:
+                    self.log.warning(f"{name} is gone from Gazebo: {error}")
+                raise
             offset = yaw - yaw_of(self.world_tcp())
             self.held = Held(name, entry.label, offset, entry.size)
 
