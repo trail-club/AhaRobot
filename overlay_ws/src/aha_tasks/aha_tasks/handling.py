@@ -381,6 +381,26 @@ def arm_still(status):
     )
 
 
+# Statuses a server returns before the arm moves (the actions' contract): the
+# arm is where it was, whatever `returned` says (its message default is false).
+BEFORE_MOTION = (
+    "STATUS_NO_SURFACE",
+    "STATUS_NO_SPACE",
+    "STATUS_UNREACHABLE",
+    "STATUS_ERROR",
+)
+
+
+def before_motion(result):
+    """Whether a failed PlaceObject / HandOver result came before any arm motion."""
+    kind = type(result)
+    return not result.success and any(
+        getattr(kind, name) == result.status
+        for name in BEFORE_MOTION
+        if hasattr(kind, name)
+    )
+
+
 def retry_place(status):
     """PlaceObject statuses that another spot or base pose may change."""
     return (
@@ -519,16 +539,17 @@ class Hands:
     def arm_after(self, result, stopped=False):
         """Keep the runtime's arm_out (aha_tasks.skills.ARM_OUT) in line with
         how a goal ended. A server ends a goal with the arm at a safe pose
-        (the actions' contract) unless its `returned` says otherwise; a
+        (the actions' contract) unless its `returned` says otherwise, which a
+        status from before any arm motion (before_motion) does not need; a
         cancel (`stopped`) stops a pick's arm where it is; a goal that did
         not answer the cancel (`result` None) may still move it."""
         if self.runtime is None:
             return
         if result is None:
             why = "a goal did not confirm that it stopped"
-        elif hasattr(result, "returned"):
+        elif hasattr(result, "returned") and not before_motion(result):
             why = None if result.returned else f"not back: {result.message}"
-        elif stopped and not result.success:
+        elif stopped and not result.success and not hasattr(result, "returned"):
             why = "a pick was stopped where the arm was"
         else:
             why = None

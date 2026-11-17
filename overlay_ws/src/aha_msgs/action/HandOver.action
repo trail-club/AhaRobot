@@ -13,6 +13,8 @@ geometry_msgs/PointStamped target
 string                     release
 float32                    timeout  # s to wait for the take once the hand is out; <= 0 = server default
 ---
+# UNREACHABLE and ERROR are returned before the arm moves; a goal that did
+# not move the arm has `returned` true.
 uint8 STATUS_RELEASED=0     # handed over: released, then the arm went back (failures in message)
 uint8 STATUS_TIMEOUT=1      # no take within timeout: still held, the arm went back
 uint8 STATUS_UNREACHABLE=2  # the target cannot be reached towards: still held, the arm did not move

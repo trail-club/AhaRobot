@@ -236,6 +236,21 @@ class GazeboModelTests(unittest.TestCase):
         self.assertTrue(self.stand(["cola"]).present("cola", False, 0.0))
 
 
+class StandAttachTests(unittest.TestCase):
+    def test_a_failed_attach_brings_the_arm_back(self):
+        stand = FakeStand()
+
+        def attach(name, label, world_object):
+            raise Failed("Could not create cola")
+
+        stand.attach = attach
+        handle = SimpleNamespace(is_cancel_requested=False)
+        with self.assertRaises(Failed) as caught:
+            stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
+        self.assertEqual((stand.backs, caught.exception.returned), (1, True))
+        self.assertIsNone(stand.held)
+
+
 class StandPoseTests(unittest.TestCase):
     def test_no_grasp_pose_still_picks(self):
         stand = FakeStand(tf_fails=True)

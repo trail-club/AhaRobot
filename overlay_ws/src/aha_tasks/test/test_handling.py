@@ -884,6 +884,38 @@ class HandsTests(unittest.TestCase):
             hands.finish(FakeHandle(None), 0.0, threading.Event())
         self.assertIn("did not confirm that it stopped", getattr(runtime, ARM_OUT))
 
+    def test_failures_before_any_motion_leave_the_arm_safe(self):
+        # `returned` is false by the message default; the status says more.
+        runtime = SimpleNamespace(arm_out="earlier")
+        hands = Hands.__new__(Hands)
+        hands.runtime = runtime
+        for status in (1, 2, 3, 5):  # no surface, no space, unreachable, error
+            with self.subTest(place=status):
+                runtime.arm_out = "earlier"
+                hands.arm_after(
+                    PlaceResult(
+                        success=False, status=status, message="", returned=False
+                    )
+                )
+                self.assertIsNone(runtime.arm_out)
+        for status in (2, 3):  # unreachable, error
+            with self.subTest(handover=status):
+                runtime.arm_out = "earlier"
+                hands.arm_after(
+                    Result(success=False, status=status, message="", returned=False),
+                    stopped=True,
+                )
+                self.assertIsNone(runtime.arm_out)
+        # After a motion, `returned` decides: execution failed, cancelled.
+        for result in (
+            PlaceResult(success=False, status=4, message="stuck", returned=False),
+            Result(success=False, status=4, message="cancelled", returned=False),
+        ):
+            with self.subTest(after_motion=result.status):
+                runtime.arm_out = None
+                hands.arm_after(result, stopped=True)
+                self.assertIn("not back", runtime.arm_out)
+
     def test_the_base_stays_while_the_arm_may_be_out(self):
         runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
         runtime.arm_out = "the arm may be out (test)"

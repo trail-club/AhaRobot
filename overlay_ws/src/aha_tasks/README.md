@@ -552,7 +552,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 - **受け渡し**: 手を出す点は人の中心で、高さを0.7–1.1 mに収める。serverが受け取りを感じ取る（`release: take`）と離す。`touch: true` なら画面の `Release` のタッチでも離す（HIC以外ではタッチを使わない方針のため既定はfalse）。タッチでは `take` のgoalを取り消して（腕は出したまま）`release: now` で送り直す。取り消す間に `take` のgoalが終わっていれば（受け取られた後のタッチなど）、送り直さずにその結果を使う。5 s以内に止まったと確かめられなければ、送り直さずに失敗とする。`timeout` 秒で受け取られなければ、言い直して `retries` 回まで送る。
 - 失敗しても人に助けを求めない（§3.7の補助は最後の手段で、まず手順を飛ばす）。失敗はサブゴールの失敗としてポリシーに従う。
 - 時間切れのgoalを取り消しても止まったとserverが確かめられなければ（5 s以内に結果がない）、腕がまだ動くかもしれないため、次のgoalを送らずに失敗とする（渡すも同じ）。
-- 腕が安全な姿勢にないかもしれない間（goalの取り消し、止まったと確かめられないgoal、`PlaceObject` / `HandOver` の `returned` がfalse）は、runnerは台車を動かさない（`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動）。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。腕が安全な姿勢にあると分かるgoalの終了（`PickObject` の取り消し以外の終了、`returned` がtrue）で解除する。腕を手で戻した後は、runnerを再起動して解除する（runnerの記憶ではなくプロセスの状態のため）。
+- 腕が安全な姿勢にないかもしれない間（goalの取り消し、止まったと確かめられないgoal、腕を動かした後の `PlaceObject` / `HandOver` の `returned` がfalse。腕を動かす前に返る `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` は除く）は、runnerは台車を動かさない（`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動）。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。腕が安全な姿勢にあると分かるgoalの終了（`PickObject` の取り消し以外の終了、`returned` がtrue）で解除する。腕を手で戻した後は、runnerを再起動して解除する（runnerの記憶ではなくプロセスの状態のため）。
 - serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。
 - 持てる物体は1つで、持っている間の `pick_object` は失敗する。
 

@@ -185,9 +185,9 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 | 持っている物体を人へ渡す | `/aha/manipulation/handover` | `aha_msgs/action/HandOver` |
 
 - `PickObject` の `target` は `/aha/perception/objects` の物体（frame `map`、`class_name` はラベル、`pose` は中心、`size` は物体の軸の大きさ）。`approach_offset` は0。
-- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` は腕を動かす前に返す（呼び出し側は台車を動かしてよい）。
+- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` は腕を動かす前に返す（呼び出し側は台車を動かしてよい）。
 - `HandOver` の `target` は人の中心（frame `map`）。`release` は `take`（serverが受け取りを感じ取ったら離す）か `now`（手を出したらすぐ離す）。取り消すと腕はその場で止まり、物体を持ち続ける。`deliver_object` は `touch: true` のとき、画面のタッチで `take` のgoalを取り消し、取り消された（`STATUS_CANCELED`）ときだけ `now` で送り直す。
-- 腕を動かしたgoalは、成功でも失敗でも腕を安全な姿勢（`carry` かgoalの前の姿勢）へ戻してから終える。戻せなければ `PlaceObject` / `HandOver` の `returned` をfalseにする。取り消しは腕をその場で止める。runnerはそれまで台車を動かさない（[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
+- 腕を動かしたgoalは、成功でも失敗でも腕を安全な姿勢（`carry` かgoalの前の姿勢）へ戻してから終える。戻せなければ `PlaceObject` / `HandOver` の `returned` をfalseにし、腕を動かさなかったgoalはtrueにする。`HandOver` の `STATUS_UNREACHABLE` / `ERROR` も腕を動かす前に返し、runnerは腕を動かす前のstatusでは `returned`（msgの既定はfalse）によらず腕を安全とみなす。取り消しは腕をその場で止める。runnerはそれまで台車を動かさない（[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
 - 試験用の `aha_test_msgs/action/PlaceObject`（[tests](../tests/README.md)、同じ `/aha/manipulation/place`）とは型が異なるため、同時に起動しない。
 
 `e2e:=debug` の `sim_manipulation`（[シミュレーションの把持](../overlay_ws/src/aha_tasks/README.md#シミュレーションの把持)）は同じ3つのaction serverを提供する。gz-transportで `/world/<world>/pose/info` を読み、`/world/<world>/remove`・`create`・`set_pose` で物体のモデルを作り直して動かす。TF（`map` → `base_footprint` → `link_ree`）、`/joint_states`、`/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory` を使う。

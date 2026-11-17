@@ -502,7 +502,11 @@ class Stand:
         if cancelled.is_set():
             raise Failed("Cancelled", returned=False)
         feedback("grasping", 0.5)
-        self.attach(name, entry.label, world_object)
+        try:
+            self.attach(name, entry.label, world_object)
+        except Failed as error:  # remove / create / TF: the arm comes back first
+            error.returned = self.back(cancelled)
+            raise
         feedback("retreating", 0.8)
         note = ""
         try:
