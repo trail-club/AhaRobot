@@ -326,16 +326,28 @@ class _TaskStatus(Skill):
     def _on_status(self, message):
         self.status = message.data
 
-    def latest_status(self):
-        """The last task status (waits STATUS_WAIT for the first), or None."""
-        if getattr(self.runtime, "node", None) is not None:
-            deadline = time.monotonic() + STATUS_WAIT
-            while getattr(self, "status", None) is None and time.monotonic() < deadline:
-                time.sleep(0.05)
+    def _parsed(self):
         try:
             return json.loads(self.status) if getattr(self, "status", None) else None
         except ValueError:
             return None
+
+    def latest_status(self, subgoal):
+        """The task status published once `subgoal` (this skill's) started, or
+        the last one after STATUS_WAIT (None without any).
+
+        The runner publishes and subscribes on one node through DDS: the cached
+        status may still be one from before the previous subgoal ended. The
+        one with this subgoal as current has every earlier record final.
+        """
+        if getattr(self.runtime, "node", None) is not None:
+            deadline = time.monotonic() + STATUS_WAIT
+            while time.monotonic() < deadline:
+                status = self._parsed()
+                if status and status.get("current") == subgoal:
+                    return status
+                time.sleep(0.05)
+        return self._parsed()
 
 
 def unheard(keys, spec, status):
@@ -357,6 +369,25 @@ def unheard(keys, spec, status):
         and outcome.get(subgoal.id) == "skipped"
         and f"cmd{subgoal.params.get('command')}.text" in keys
     }
+
+
+def command_infos(results, count, vocabulary):
+    """`plan.commands`: every command 1..count, a not heard one included, so
+    that report_results says something about each."""
+    infos = {r.number: r.info(vocabulary) for r in results}
+    for n in range(1, count + 1):
+        infos.setdefault(
+            n,
+            {
+                "command": n,
+                "text": "",
+                "planner": "",
+                "summary": "",
+                "error": "not heard",
+                "dropped": False,
+            },
+        )
+    return [infos[n] for n in sorted(infos)]
 
 
 class PlanCommands(_TaskStatus):
@@ -411,7 +442,7 @@ class PlanCommands(_TaskStatus):
     def execute(self, ctx):
         params, spec = ctx.params, self.runtime.spec
         vocabulary = vocabulary_of(params, spec)
-        skipped = unheard(params["commands"], spec, self.latest_status())
+        skipped = unheard(params["commands"], spec, self.latest_status(ctx.subgoal))
         for key in sorted(skipped):
             ctx.log(f"{key} was not heard (its listening was skipped): not planned")
         texts = {
@@ -494,7 +525,9 @@ class PlanCommands(_TaskStatus):
             f"({one_by_one:.1f} m one by one)",
             {
                 PLAN: plan,
-                f"{PLAN}.commands": [r.info(vocabulary) for r in results],
+                f"{PLAN}.commands": command_infos(
+                    results, len(params["commands"]), vocabulary
+                ),
             },
         )
 
@@ -542,7 +575,7 @@ class ReportResults(_TaskStatus):
                 }
                 for n in numbers
             ]
-        outcomes = step_outcomes(self.latest_status(), plan)
+        outcomes = step_outcomes(self.latest_status(ctx.subgoal), plan)
         sentences = report_sentences(plan, commands, outcomes, ctx.memory)
         interaction = Interaction.of(self.runtime)
         interaction.hide()

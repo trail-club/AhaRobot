@@ -850,6 +850,10 @@ class PlanCommandsTests(unittest.TestCase):
         self.assertTrue(result.success, result.message)
         self.assertEqual({s["command"] for s in result.outputs["plan"]}, {1})
         self.assertIn("I could not understand command 2.", rt.interaction.said[0])
+        # The report still has a word about command 2.
+        infos = result.outputs["plan.commands"]
+        self.assertEqual([i["command"] for i in infos], [1, 2])
+        self.assertEqual((infos[1]["summary"], infos[1]["error"]), ("", "not heard"))
         # Not selected (bypassed): the mock text is planned, e.g. for a test run.
         skill.status = json.dumps(
             {"subgoals": [{"id": "cmd2.listen", "status": "bypassed"}]}
