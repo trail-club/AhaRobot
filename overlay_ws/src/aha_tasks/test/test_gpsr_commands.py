@@ -239,6 +239,20 @@ class GrammarTests(unittest.TestCase):
 
 
 class CompleteCommandTests(unittest.TestCase):
+    def test_talking_needs_the_person_found_before(self):
+        for action, params in (
+            ("answer_question", {"question": "the time"}),
+            ("say", {"text": "Hello"}),
+        ):
+            with self.subTest(action):
+                _, errors = complete([act(action, **params)])
+                self.assertTrue(errors)
+                find = act(
+                    "find_described_person", gesture="waving person", location="office"
+                )
+                _, errors = complete([find, act(action, **params)])
+                self.assertEqual(errors, [])
+
     def test_tell_info_needs_someone_to_tell(self):
         count = act("count", target="drinks", location="desk")
         for person, extra, ok in (

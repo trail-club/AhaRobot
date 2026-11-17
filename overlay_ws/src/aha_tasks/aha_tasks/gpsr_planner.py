@@ -49,7 +49,9 @@ MAX_COMMAND_STEPS = 12
 REQUEST_TIMEOUT = 45.0
 SWITCH_COST = 0.01  # m; ties keep a command's blocks together
 LOCATED = ("find_object", "find_described_person", "count", "count_people", "describe")
-NEEDS_PERSON = ("follow_person", "guide_person")
+# Steps that act on the person found before (else they would run wherever the
+# robot happens to be, to whoever is there).
+NEEDS_PERSON = ("follow_person", "guide_person", "answer_question", "say")
 ANSWERS = {"count": "count", "count_people": "count", "describe": "info"}
 
 DESCRIPTIONS = {
