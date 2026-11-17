@@ -25,6 +25,7 @@ null when the object is put down or handed over.
 
 from __future__ import annotations
 
+import itertools
 import math
 import threading
 import time
@@ -54,6 +55,7 @@ from aha_tasks.people import (
 from aha_tasks.skills import ARM_OUT, LOCATION, go_to, resolve_pose
 
 PICK_ACTION = "/aha/manipulation/pick"
+UNANSWERED = itertools.count(1)  # numbers goals start gave up on (arm_out)
 PLACE_ACTION = "/aha/manipulation/place"
 HANDOVER_ACTION = "/aha/manipulation/handover"
 HOLDING = "robot.holding"
@@ -499,8 +501,11 @@ class Hands:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
         except (Cancelled, TimeoutError) as error:
             earlier = self.arm_state()
-            self.arm_after(None)
-            late = self.arm_state()
+            # Its own value: a later unanswered goal sets another one.
+            late = self.set_arm(
+                "a goal did not confirm that it stopped: "
+                f"{name} goal {next(UNANSWERED)} not answered"
+            )
             sent.add_done_callback(lambda done: self.cancel_late(done, earlier, late))
             if isinstance(error, TimeoutError):
                 raise Unstopped(
@@ -514,25 +519,47 @@ class Hands:
     def arm_state(self):
         return None if self.runtime is None else getattr(self.runtime, ARM_OUT, None)
 
+    @staticmethod
+    def arm_text(why):
+        """The arm_out value for `why` (None: the arm is safe)."""
+        return (
+            why and f"the arm may be out ({why}); move it back and restart the runner"
+        )
+
+    def set_arm(self, why):
+        """Set arm_out for `why`; the value set."""
+        if self.runtime is None:
+            return None
+        setattr(self.runtime, ARM_OUT, self.arm_text(why))
+        return getattr(self.runtime, ARM_OUT)
+
     def cancel_late(self, sent, earlier=None, late=None):
         """Cancel a goal answered after start gave up on it. Start set arm_out
         (`late`, from `earlier`); a rejection, or a result from before any
         motion, gives back `earlier`, another result sets it by how the goal
         ended (a cancel stops the arm where it is). Only while arm_out is
-        still `late`: a later goal knows better."""
+        still `late`: else a later goal set it, and this outcome stands in for
+        `late` once that one gives it back (two unanswered goals in turn)."""
 
-        def settle(result):
-            if self.runtime is None or self.arm_state() != late:
+        def settle(result, rejected=False):
+            if self.runtime is None:
                 return
-            if result is not None and before_motion(result):
-                setattr(self.runtime, ARM_OUT, earlier)
+            if rejected or (result is not None and before_motion(result)):
+                after = earlier
             else:
-                self.arm_after(result, stopped=True)
+                after = self.arm_text(self.arm_why(result, stopped=True))
+            settled = self.__dict__.setdefault("settled", {})
+            if self.arm_state() != late:
+                settled[late] = after
+                return
+            while after in settled:  # an unanswered goal that ended meanwhile
+                after = settled.pop(after)
+            setattr(self.runtime, ARM_OUT, after)
 
         handle = sent.result()
         if handle is None or not handle.accepted:
-            if self.runtime is not None and self.arm_state() == late:
-                setattr(self.runtime, ARM_OUT, earlier)
+            if self.runtime is not None:
+                settle(None, rejected=True)
             return
 
         def ended(future):
@@ -588,23 +615,20 @@ class Hands:
         `returned` (an older server) a cancel (`stopped`) or a failure may
         leave the arm out; a goal that did not answer the cancel (`result`
         None) may still move it."""
-        if self.runtime is None:
-            return
+        if self.runtime is not None and (result is None or not before_motion(result)):
+            self.set_arm(self.arm_why(result, stopped))
+
+    @staticmethod
+    def arm_why(result, stopped=False):
+        """Why the arm may be out after a goal ended with `result` (not one
+        from before any motion), or None."""
         if result is None:
-            why = "a goal did not confirm that it stopped"
-        elif before_motion(result):
-            return
-        elif hasattr(result, "returned"):
-            why = None if result.returned else f"not back: {result.message}"
-        elif stopped or not result.success:
-            why = f"ended without returned: {result.message}"
-        else:
-            why = None
-        setattr(
-            self.runtime,
-            ARM_OUT,
-            why and f"the arm may be out ({why}); move it back and restart the runner",
-        )
+            return "a goal did not confirm that it stopped"
+        if hasattr(result, "returned"):
+            return None if result.returned else f"not back: {result.message}"
+        if stopped or not result.success:
+            return f"ended without returned: {result.message}"
+        return None
 
     def run(self, name, goal, timeout, cancelled):
         """(result, "") of a goal, or (None, why). Unstopped is raised."""
@@ -740,6 +764,10 @@ class PickObject(_HandSkill):
             name = self.surface(objects, surface)
         except (RuntimeError, ValueError) as error:
             return self.fail(str(error))
+        # Objects put into a bin lie near the floor too: no floor objects.
+        bins = tuple(
+            f.name for f in objects.furniture.furniture if is_trash("", f.category)
+        )
         outputs, message, sent = {}, "", False
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
@@ -754,6 +782,7 @@ class PickObject(_HandSkill):
                     ),
                     ctx.cancelled,
                     ctx.log,
+                    bins if name == FLOOR else (),
                 )
             except Cancelled:
                 return self.fail("Cancelled")

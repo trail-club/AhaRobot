@@ -394,6 +394,18 @@ class PickTests(unittest.TestCase):
         self.assertEqual(runtime.hands.goals[0][1].target["position"][0], 3.27)
         self.assertEqual(result.outputs[HOLDING], "object")
 
+    def test_objects_in_the_bin_are_not_on_the_floor(self):
+        # Put into the bin (4.5, -3.5) before, it is nearer than the floor one.
+        scene = [
+            detection("pringles", (4.5, -3.45, 0.12), 1, (0.075, 0.075, 0.23)),
+            detection("cookies", (4.9, -3.0, 0.075), 2, (0.06, 0.1, 0.15)),
+        ]
+        runtime = make_runtime(scene, robot="trashbin", hands=FakeHands(pick=[ok()]))
+        runtime.objects.robot = (3.65, -3.1, -0.44)
+        result, _ = run(PickObject, runtime, {"object": "snack", "surface": "floor"})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(runtime.hands.goals[0][1].target["label"], "cookies")
+
     def test_pick_from_the_floor_around_the_robot(self):
         scene = [detection("cola", (2.0, 2.5, 0.06), 1, COLA)]
         runtime = make_runtime(scene, robot="office", hands=FakeHands(pick=[ok()]))
@@ -1019,6 +1031,17 @@ class HandsTests(unittest.TestCase):
                 hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
         self.assertIn("did not confirm", hands.runtime.arm_out)
         client.sent[0].set_result(SimpleNamespace(accepted=False))
+        self.assertIsNone(hands.runtime.arm_out)
+        # Two unanswered goals: the late answer of the first one does not
+        # give back the arm state while the second may still move the arm.
+        with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
+            for _ in range(2):
+                with self.assertRaises(Unstopped):
+                    hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+        second = hands.runtime.arm_out
+        client.sent[1].set_result(SimpleNamespace(accepted=False))
+        self.assertEqual(hands.runtime.arm_out, second)
+        client.sent[2].set_result(SimpleNamespace(accepted=False))
         self.assertIsNone(hands.runtime.arm_out)
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):

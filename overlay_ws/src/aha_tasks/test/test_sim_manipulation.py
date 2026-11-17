@@ -217,6 +217,21 @@ class StandPickTests(unittest.TestCase):
             self.pick(stand)  # already holding
 
 
+class StandUnreachableTests(unittest.TestCase):
+    def test_an_arm_that_cannot_point_fails_before_any_motion(self):
+        stand = FakeStand(carry_fails=False)
+        stand.point = lambda *args: False  # point_at: no pose for the point
+        with self.assertRaises(Failed) as caught:
+            StandPickTests().pick(stand)
+        self.assertIsNone(caught.exception.returned)  # the arm did not move
+        self.assertIsNone(stand.held)
+        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
+        with self.assertRaises(Failed) as caught:
+            StandReleaseTests().place(stand)
+        self.assertEqual(caught.exception.status, "STATUS_UNREACHABLE")
+        self.assertEqual(stand.held.name, "cola")
+
+
 class GazeboModelTests(unittest.TestCase):
     """remove / create judged by pose/info: a request whose reply is lost
     may still be carried out."""

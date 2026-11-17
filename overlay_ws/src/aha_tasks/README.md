@@ -540,7 +540,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 
 | スキル | params | 動作 | 出力 |
 | --- | --- | --- | --- |
-| `pick_object` | `object`、`surface`（省略可）、`arm`（`right`）、`margin`（家具の外形から0.1 m、`floor` はロボットからの半径1.5 m）、`retries`（1）、`approach`（`true`） | `surface` の上を走査して `object` に合う物体を選び、腕から届かなければ台車を寄せて `PickObject` を送る。失敗すると走査からやり直す | `robot.holding`（`object` の値）、`robot.held_object`（物体の辞書に `surface` を加えたもの）、寄せたときは `robot.location` |
+| `pick_object` | `object`、`surface`（省略可）、`arm`（`right`）、`margin`（家具の外形から0.1 m、`floor` はロボットからの半径1.5 m）、`retries`（1）、`approach`（`true`） | `surface` の上を走査して `object` に合う物体を選び、腕から届かなければ台車を寄せて `PickObject` を送る。`floor` ではゴミ箱（家具の設定のcategoryが `trash bin`）の中の物体を除く（捨てた物体も床の近くにあるため）。失敗すると走査からやり直す | `robot.holding`（`object` の値）、`robot.held_object`（物体の辞書に `surface` を加えたもの）、寄せたときは `robot.location` |
 | `place_object` | `object`、`surface`、`spot`（省略可）、`arm`、`clearance`（0.05）、`retries`、`approach` | 置き場所を決め、届かなければ台車を寄せて `PlaceObject` を送る。別の置き場所・台車の位置で変わりうる失敗（`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `EXECUTION_FAILED`）だけ、置き場所からやり直す。`STATUS_NOT_AT_SPOT`（離したが置いた所に見えない）は物体がもう手にないため成功とし、メッセージに書く（失敗では記憶が戻り、`robot.holding` が残る） | `robot.holding` と `robot.held_object` を `null` |
 | `deliver_object` | `object`、`person`、`role`（`person`）、`distance`（1.0）、`timeout`（20）、`retries`（1）、`arm`、`touch`（`false`） | 人の前へ行き、`Here is the cola. Please take it from my hand.` と言って `HandOver` を送る | 同上 |
 
@@ -561,6 +561,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 `e2e:=debug`（`manipulation:=sim`）では `sim_manipulation` が取る・置く・渡すserverの代わりに、把持を計画せずGazeboで物体のモデルを動かす。
 
 - **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に1.0 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕を `carry` の姿勢へ動かす。手先に置いた後は、`carry` へ動けなくても（取り消し・controllerの失敗）成功を返し、メッセージに書いて `returned` をfalseにする。placeとhandoverも、物体が手を離れた後のGazeboの失敗（モデルの作り直し・削除）は成功のメッセージに書く。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
+- pickとplaceは、腕を目標の上へ向けられなければ（届く姿勢がない）、腕を動かさずに失敗する（placeは `STATUS_UNREACHABLE`）。
 - **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をpickの前の姿勢へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
 - **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕を戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
 - 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕を戻してから失敗を返す（`returned` は戻れたか）。pickは物体を手先に置いた後なら、`grasp_pose_used` を求められなくても成功を返す。

@@ -508,7 +508,10 @@ class Stand:
         self.remember_rest()
         entry = self.object_list.for_model(name)
         above = world_object[2, 3] + entry.size[2] / 2 + HAND_ABOVE
-        self.reach_out(self.base_point(world_object[:3, 3]), above, cancelled, name)
+        if not self.reach_out(
+            self.base_point(world_object[:3, 3]), above, cancelled, name
+        ):
+            raise Failed(f"The arm cannot reach out over {name}")  # not moved
         if cancelled.is_set():
             raise Failed("Cancelled", returned=False)
         feedback("grasping", 0.5)
@@ -557,7 +560,8 @@ class Stand:
         container = self.furniture.get(goal.furniture) if goal.drop else None
         if container is not None:  # over its top, not into its side
             above = max(above, container.heights[-1] + size_z + HAND_ABOVE)
-        self.reach_out(self.base_point(centre), above, cancelled, "spot")
+        if not self.reach_out(self.base_point(centre), above, cancelled, "spot"):
+            raise Failed("The arm cannot reach out over the spot", "STATUS_UNREACHABLE")
         if cancelled.is_set():
             raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
         feedback("releasing")
