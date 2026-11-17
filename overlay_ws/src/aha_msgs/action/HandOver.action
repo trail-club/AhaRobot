@@ -1,6 +1,7 @@
 # Hand the object held in a gripper to a person: reach out towards them,
 # release it, and bring the arm back. Owner: manipulation squad.
-# Consumers: task.
+# Consumers: task. A goal that moved the arm ends with the arm at a safe pose
+# (carry, or its pose before the goal), else `returned` is false.
 
 string                     arm      # "right" (default when empty) | "left"
 # Where to hold the object out (any frame), e.g. the person's body centre;
@@ -21,6 +22,6 @@ uint8 STATUS_CANCELED=4     # the arm stops where it is and keeps the object
 bool                       success  # STATUS_RELEASED
 uint8                      status
 string                     message
-bool                       returned # the arm is back at its pose before reaching out
+bool                       returned # the arm is at a safe pose at the end (not out towards the person)
 ---
 string                     phase    # "reaching" | "waiting" | "releasing" | "returning"

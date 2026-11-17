@@ -51,7 +51,7 @@ from aha_tasks.people import (
     planar,
     positive,
 )
-from aha_tasks.skills import LOCATION, go_to, resolve_pose
+from aha_tasks.skills import ARM_OUT, LOCATION, go_to, resolve_pose
 
 PICK_ACTION = "/aha/manipulation/pick"
 PLACE_ACTION = "/aha/manipulation/place"
@@ -361,7 +361,8 @@ def check_params(params, required, optional):
 
 
 def location_of(outputs):
-    """The outputs a failure keeps: where the base went (for the rollback)."""
+    """Where the base went, reported with a failure. The engine keeps no
+    output of a failure: its rollback restores the checkpoint's location."""
     return {k: v for k, v in outputs.items() if k == LOCATION}
 
 
@@ -429,10 +430,13 @@ class Hands:
             )
         }
 
+    runtime = None  # of(): where arm_after keeps ARM_OUT
+
     @classmethod
     def of(cls, runtime):
         if getattr(runtime, "hands", None) is None:
             runtime.hands = cls(runtime.node)
+            runtime.hands.runtime = runtime
         return runtime.hands
 
     def point(self, frame, xyz):
@@ -494,7 +498,10 @@ class Hands:
                     "timed out, and the server did not confirm that the goal stopped"
                 ) from None
             raise
-        return None if response is None else response.result
+        if response is None:  # until(): the goal goes on
+            return None
+        self.arm_after(response.result)
+        return response.result
 
     def cancel(self, handle):
         """Cancel a goal and wait (a few seconds) until it stopped: its result
@@ -504,8 +511,32 @@ class Hands:
         try:
             response = wait(future, SERVER_TIMEOUT, threading.Event())
         except TimeoutError:
-            return None
-        return None if response is None else response.result
+            response = None
+        ended = None if response is None else response.result
+        self.arm_after(ended, stopped=True)
+        return ended
+
+    def arm_after(self, result, stopped=False):
+        """Keep the runtime's arm_out (aha_tasks.skills.ARM_OUT) in line with
+        how a goal ended. A server ends a goal with the arm at a safe pose
+        (the actions' contract) unless its `returned` says otherwise; a
+        cancel (`stopped`) stops a pick's arm where it is; a goal that did
+        not answer the cancel (`result` None) may still move it."""
+        if self.runtime is None:
+            return
+        if result is None:
+            why = "a goal did not confirm that it stopped"
+        elif hasattr(result, "returned"):
+            why = None if result.returned else f"not back: {result.message}"
+        elif stopped and not result.success:
+            why = "a pick was stopped where the arm was"
+        else:
+            why = None
+        setattr(
+            self.runtime,
+            ARM_OUT,
+            why and f"the arm may be out ({why}); move it back and restart the runner",
+        )
 
     def run(self, name, goal, timeout, cancelled):
         """(result, "") of a goal, or (None, why). Unstopped is raised."""
@@ -573,7 +604,7 @@ class _HandSkill(Skill):
         pose = reach_pose(robot, target, region, arm)
         if not needs_move(robot, pose):
             return robot
-        if not arm_known:
+        if not arm_known or getattr(self.runtime, ARM_OUT, None):
             ctx.log("Not moving the base: the arm may still be out")
             return robot
         ctx.log(f"Moving to [{pose[0]:.2f}, {pose[1]:.2f}] to reach the object")
@@ -937,6 +968,9 @@ class DeliverObject(_HandSkill):
         None (could not move)."""
         navigation = self.runtime.navigation
         if navigation is None or frame != "map":
+            return None
+        if getattr(self.runtime, ARM_OUT, None):
+            ctx.log("Not moving the base: the arm may still be out")
             return None
         robot = self.robot(ctx.memory)
         distance = positive(ctx.params, "distance", DELIVER_DISTANCE)

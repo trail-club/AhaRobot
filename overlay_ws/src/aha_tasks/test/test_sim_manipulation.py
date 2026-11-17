@@ -3,10 +3,12 @@
 import math
 import os
 from pathlib import Path
+import importlib.util
 import sys
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -24,6 +26,7 @@ from aha_tasks.sim_manipulation import (  # noqa: E402
     static_copy,
     yaw_of,
 )
+from aha_tasks import sim_manipulation_node  # noqa: E402
 from aha_tasks.sim_manipulation_node import Failed, Held, Stand  # noqa: E402
 from aha_tasks.sim_objects import PrintedModel, printed_sdf  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
@@ -121,8 +124,9 @@ class FakeStand(Stand):
     """Stand without Gazebo, TF or the arm; `carry` and the removal of a model
     in Gazebo may fail."""
 
-    def __init__(self, carry_fails=False, gazebo_fails=False):
+    def __init__(self, carry_fails=False, gazebo_fails=False, tf_fails=False):
         self.held, self.object_list, self.carry_fails = None, OBJECT_LIST, carry_fails
+        self.tf_fails, self.backs = tf_fails, 0
         self.gazebo_fails, self.created = gazebo_fails, []
         self.lock, self.placed, self.arm, self.rest = threading.Lock(), None, None, None
         self.furniture = SimpleNamespace(get=lambda name: None)
@@ -167,7 +171,13 @@ class FakeStand(Stand):
             raise Failed(f"Arm ({what}): Cancelled")
 
     def ros_pose(self, world_xyz, yaw=0.0):
+        if self.tf_fails:
+            raise Failed("No TF base_footprint <- map")
         return world_xyz
+
+    def back(self, cancelled):
+        self.backs += 1
+        return True
 
 
 class StandPickTests(unittest.TestCase):
@@ -200,6 +210,63 @@ class StandPickTests(unittest.TestCase):
         self.assertEqual(stand.held.name, "cola")
         with self.assertRaises(Failed):
             self.pick(stand)  # already holding
+
+
+class GazeboModelTests(unittest.TestCase):
+    """remove / create judged by pose/info: a request whose reply is lost
+    may still be carried out."""
+
+    def stand(self, models):
+        stand = Stand.__new__(Stand)
+        stand.gazebo = SimpleNamespace(latest=lambda: ({m: None for m in models}, 0.1))
+        stand.request = lambda service, message, reply: False  # no reply in time
+        return stand
+
+    def test_a_removal_without_a_reply_that_happened(self):
+        if importlib.util.find_spec("gz") is None:
+            self.skipTest("no gz-transport (outside the container)")
+        self.stand([]).remove("cola")  # gone: no Failed
+        with mock.patch.object(sim_manipulation_node, "REMOVE_TIMEOUT", 0.2):
+            with self.assertRaises(Failed):
+                self.stand(["cola"]).remove("cola")
+
+    def test_presence(self):
+        self.assertFalse(self.stand([]).present("cola", False, 0.0))
+        self.assertTrue(self.stand(["cola"]).present("cola", True, 0.0))
+        self.assertTrue(self.stand(["cola"]).present("cola", False, 0.0))
+
+
+class StandPoseTests(unittest.TestCase):
+    def test_no_grasp_pose_still_picks(self):
+        stand = FakeStand(tf_fails=True)
+        handle = SimpleNamespace(is_cancel_requested=False)
+        name, pose, note = stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
+        self.assertEqual((name, pose), ("cola", None))
+        self.assertIn("no grasp_pose (No TF", note)
+        self.assertEqual(stand.held.name, "cola")
+
+
+class StandReachTests(unittest.TestCase):
+    """A goal that moved the arm ends with it at a safe pose, but a cancel."""
+
+    def failing(self, status):
+        stand = FakeStand()
+
+        def point(base_xyz, height, cancelled, what):
+            raise Failed("Arm (spot): stuck", status, returned=False)
+
+        stand.point = point
+        with self.assertRaises(Failed) as caught:
+            stand.reach_out((0.6, 0.0, 0.8), 0.9, None, "spot")
+        return stand, caught.exception
+
+    def test_a_failed_motion_brings_the_arm_back(self):
+        stand, error = self.failing(None)
+        self.assertEqual((stand.backs, error.returned), (1, True))
+
+    def test_a_cancel_leaves_the_arm_where_it_is(self):
+        stand, error = self.failing("STATUS_CANCELED")
+        self.assertEqual((stand.backs, error.returned), (0, False))
 
 
 class StandMoveTests(unittest.TestCase):

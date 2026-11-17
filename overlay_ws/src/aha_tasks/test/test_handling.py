@@ -34,7 +34,7 @@ from aha_tasks.handling import (  # noqa: E402
 )
 from aha_tasks.objects import Cancelled, Percept, furniture_region  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
-from aha_tasks.skills import LOCATION  # noqa: E402
+from aha_tasks.skills import ARM_OUT, LOCATION, go_to  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from test_object_skills import FURNITURE, FakeObjects, detection  # noqa: E402
 
@@ -864,6 +864,38 @@ class HandsTests(unittest.TestCase):
             hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
         # A timeout likewise.
         self.assertIs(hands.finish(FakeHandle(done), 0.0, threading.Event()), done)
+
+    def test_the_arm_state_follows_the_ends_of_the_goals(self):
+        runtime = SimpleNamespace()
+        hands = Hands.__new__(Hands)
+        hands.runtime = runtime
+        place = PlaceResult(success=False, status=4, message="stuck", returned=False)
+        hands.arm_after(place)
+        self.assertIn("the arm may be out (not back: stuck)", getattr(runtime, ARM_OUT))
+        hands.arm_after(Result(success=False, status=0, message="no", returned=True))
+        self.assertIsNone(getattr(runtime, ARM_OUT))
+        # A pick (no returned) is back at its end, but where a cancel stopped it.
+        pick = SimpleNamespace(success=False, message="cancelled")
+        hands.arm_after(pick, stopped=True)
+        self.assertIn("stopped where the arm was", getattr(runtime, ARM_OUT))
+        hands.arm_after(pick)
+        self.assertIsNone(getattr(runtime, ARM_OUT))
+        with self.assertRaises(Unstopped):
+            hands.finish(FakeHandle(None), 0.0, threading.Event())
+        self.assertIn("did not confirm that it stopped", getattr(runtime, ARM_OUT))
+
+    def test_the_base_stays_while_the_arm_may_be_out(self):
+        runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
+        runtime.arm_out = "the arm may be out (test)"
+        moved = go_to(runtime, "desk", threading.Event())
+        self.assertFalse(moved.success)
+        self.assertIn("Not moving the base to desk: the arm may be out", moved.message)
+        result, logs = run(
+            PickObject, runtime, {"object": "cola", "surface": "kitchen_table"}
+        )
+        self.assertTrue(result.success, result.message)  # from where it is
+        self.assertEqual(runtime.navigation.goals, [])
+        self.assertTrue(any("the arm may still be out" in line for line in logs))
 
     def test_a_timed_out_goal_that_did_not_confirm_its_stop(self):
         hands = Hands.__new__(Hands)

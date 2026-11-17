@@ -4,6 +4,10 @@ from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.core.spec import is_pose
 
 LOCATION = "robot.location"  # memory key: location label or [x, y, yaw] in map
+# Runtime attribute (not task memory, which a failure rolls back): why the arm
+# may be out over furniture, so that the base must not move. Set and cleared
+# by aha_tasks.handling.Hands; a restarted runner starts without it.
+ARM_OUT = "arm_out"
 
 
 def resolve_pose(spec, value):
@@ -36,6 +40,9 @@ def go_to(runtime, value, cancelled):
     target, ahead in the goal heading, on arrival.
     """
     pose = resolve_pose(runtime.spec, value)
+    why = getattr(runtime, ARM_OUT, None)
+    if why:
+        return SkillResult(False, f"Not moving the base to {value}: {why}")
     gaze = getattr(runtime, "gaze", None)
     if gaze is not None:
         gaze.follow_path(pose)

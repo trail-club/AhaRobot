@@ -9,8 +9,8 @@ planned; the object is moved by gz-transport (aha_tasks.sim_manipulation):
   `reach` of the base. The right arm reaches out over it, the model becomes
   a static copy without collision that follows the TCP (`tcp_frame`), and
   the arm goes to the carry pose. Once the object is in the hand the pick
-  succeeds, also when the arm does not get to carry (cancel, controller):
-  the message says so. Likewise place and handover succeed once the object
+  succeeds, also when the arm does not get to carry (cancel, controller) or
+  grasp_pose_used is not known: the message says so. Likewise place and handover succeed once the object
   left the hand, also when Gazebo then fails to re-create or remove it.
 - place (aha_msgs/action/PlaceObject, /aha/manipulation/place): the arm
   reaches out over `near` (within `reach`; over the top of a container to
@@ -65,9 +65,12 @@ DEFAULT_CACHE = Path.home() / ".cache" / "aharobot" / "sim_objects"
 
 
 class Failed(Exception):
-    """A goal fails with this message (and the status in `status`)."""
+    """A goal fails with this message (and the status in `status`).
 
-    def __init__(self, message, status=None, returned=False):
+    `returned`: whether the arm is at a safe pose at the end (its pose
+    before the goal, or carry); None: the arm did not move."""
+
+    def __init__(self, message, status=None, returned=None):
         super().__init__(message)
         self.status, self.returned = status, returned
 
@@ -170,15 +173,13 @@ class Stand:
         from gz.msgs10.boolean_pb2 import Boolean
         from gz.msgs10.entity_pb2 import Entity
 
-        if not self.request("remove", Entity(name=name, type=Entity.MODEL), Boolean):
-            raise Failed(f"Could not remove {name}")
-        deadline = time.monotonic() + REMOVE_TIMEOUT
-        while time.monotonic() < deadline:
-            poses, age = self.gazebo.latest()
-            if name not in poses and age < 0.5:
-                return
-            time.sleep(0.1)
-        raise Failed(f"{name} stays in Gazebo after its removal")
+        # A request without a reply in time may still be carried out (seen in
+        # the simulation): pose/info decides.
+        asked = self.request("remove", Entity(name=name, type=Entity.MODEL), Boolean)
+        if not self.present(name, False, REMOVE_TIMEOUT):
+            return
+        what = "stays in Gazebo after its removal" if asked else "could not be removed"
+        raise Failed(f"{name} {what}")
 
     def create(self, sdf, name):
         from gz.msgs10.boolean_pb2 import Boolean
@@ -187,8 +188,22 @@ class Stand:
         for _ in range(3):
             if self.request("create", EntityFactory(sdf=sdf), Boolean):
                 return
-            time.sleep(0.3)
+            if self.present(name, True, 1.0):  # created, the reply was lost
+                return
         raise Failed(f"Could not create {name}")
+
+    def present(self, name, expected, timeout):
+        """Whether pose/info shows the model, waiting up to `timeout` s (wall)
+        for it to be `expected` (present or gone) in a fresh message."""
+        deadline = time.monotonic() + timeout
+        while True:
+            poses, age = self.gazebo.latest()
+            fresh = age < 0.5
+            if fresh and (name in poses) == expected:
+                return expected
+            if time.monotonic() > deadline:
+                return name in poses if fresh else not expected
+            time.sleep(0.1)
 
     def sdf(self, name, label, x, y, z, yaw):
         from aha_tasks.sim_objects import DROP, SceneObject
@@ -385,9 +400,20 @@ class Stand:
                     # place and handover), unlike a failed motion.
                     stopped = cancelled is not None and cancelled.is_set()
                     status = "STATUS_CANCELED" if stopped else None
-                    raise Failed(f"Arm ({what}): {text}", status)
+                    raise Failed(f"Arm ({what}): {text}", status, returned=False)
         except TimeoutError as error:
-            raise Failed(f"Arm ({what}): {error}") from None
+            raise Failed(f"Arm ({what}): {error}", returned=False) from None
+
+    def reach_out(self, base_xyz, height, cancelled, what):
+        """point(); a motion that fails other than by a cancel (which stops
+        the arm where it is) brings the arm back first: a server ends a goal
+        with the arm at a safe pose."""
+        try:
+            return self.point(base_xyz, height, cancelled, what)
+        except Failed as error:
+            if error.status != "STATUS_CANCELED":
+                error.returned = self.back(cancelled)
+            raise
 
     def point(self, base_xyz, height, cancelled, what):
         """Stretch the arm towards a point in base_footprint, the hand level
@@ -472,9 +498,9 @@ class Stand:
         self.remember_rest()
         entry = self.object_list.for_model(name)
         above = world_object[2, 3] + entry.size[2] / 2 + HAND_ABOVE
-        self.point(self.base_point(world_object[:3, 3]), above, cancelled, name)
+        self.reach_out(self.base_point(world_object[:3, 3]), above, cancelled, name)
         if cancelled.is_set():
-            raise Failed("Cancelled")
+            raise Failed("Cancelled", returned=False)
         feedback("grasping", 0.5)
         self.attach(name, entry.label, world_object)
         feedback("retreating", 0.8)
@@ -487,7 +513,11 @@ class Stand:
             note = f"; the arm is not at carry ({error})"
             self.log.warning(f"Picked {name}{note}")
         self.log.info(f"Picked {name}")
-        return name, self.ros_pose(world_object[:3, 3], yaw_of(world_object)), note
+        try:
+            pose = self.ros_pose(world_object[:3, 3], yaw_of(world_object))
+        except Failed as error:  # the object is in the hand all the same
+            pose, note = None, f"{note}; no grasp_pose ({error})"
+        return name, pose, note
 
     def place(self, goal, handle, feedback):
         self.check_arm(goal.arm)
@@ -512,9 +542,9 @@ class Stand:
         container = self.furniture.get(goal.furniture) if goal.drop else None
         if container is not None:  # over its top, not into its side
             above = max(above, container.heights[-1] + size_z + HAND_ABOVE)
-        self.point(self.base_point(centre), above, cancelled, "spot")
+        self.reach_out(self.base_point(centre), above, cancelled, "spot")
         if cancelled.is_set():
-            raise Failed("Cancelled", "STATUS_CANCELED")
+            raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
         feedback("releasing")
         name = self.held.name
         self.put(centre)
@@ -539,17 +569,17 @@ class Stand:
         )
         cancelled = Flag(handle)
         feedback("reaching")
-        if not self.point(target, target[2], cancelled, "person"):
+        if not self.reach_out(target, target[2], cancelled, "person"):
             raise Failed("The arm cannot reach out there", "STATUS_UNREACHABLE")
         if cancelled.is_set():
-            raise Failed("Cancelled", "STATUS_CANCELED")
+            raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
         name = self.held.name
         if goal.release != "now":
             feedback("waiting")
             timeout = goal.timeout if goal.timeout > 0 else self.param("take_timeout")
             delay = self.param("take_delay") if self.param("take") else math.inf
             if not self.wait(min(delay, timeout), cancelled):
-                raise Failed("Cancelled", "STATUS_CANCELED")
+                raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
             if delay > timeout:
                 feedback("returning")
                 back = self.back(cancelled)
@@ -636,7 +666,8 @@ def main(argv=None):
                 handle.request, handle, publish(handle, PickObject)
             )
             result.success, result.message = True, f"Picked {name}{note}"
-            result.grasp_pose_used = pose
+            if pose is not None:
+                result.grasp_pose_used = pose
             return finish(handle, result, True)
         except Failed as error:
             result.message = str(error)
@@ -656,9 +687,11 @@ def main(argv=None):
             )
             if pose is not None:
                 result.place_pose = pose
+            result.returned = back
             return finish(handle, result, True)
         except Failed as error:
             result.status = getattr(R, error.status or "STATUS_EXECUTION_FAILED")
+            result.returned = error.returned is not False
             result.message = str(error)
             log.warning(f"Place: {error}")
             return finish(handle, result, False, handle.is_cancel_requested)
@@ -678,7 +711,7 @@ def main(argv=None):
             return finish(handle, result, True)
         except Failed as error:
             result.status = getattr(R, error.status or "STATUS_ERROR")
-            result.returned = error.returned
+            result.returned = error.returned is not False
             result.message = str(error)
             log.warning(f"Handover: {error}")
             return finish(handle, result, False, handle.is_cancel_requested)
