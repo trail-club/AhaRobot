@@ -390,7 +390,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | --- | --- | --- |
 | `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめ、yesで確定する。no・無音・3語未満は頼み直す（言い直しの依頼）。「No, I said ...」のように言い直した文（名前・地点・物体などの語を含む）は、それを確かめ直す。`not` だけ（「Sure, why not」）や聞き返し（「What?」）は答えとしない。確認に2回無音なら聞き取った文で確定する。答えの途中のyes（「That's right, thank you」）も、否定の語がなく命令の言い直しでもなければyesとする。yesでもnoでもない答え（「I don't think so」）は確定せず、確かめ直す。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。runnerの準備のときに音声認識のclientを作り、最大2 s待って見つけておく（見つけた直後に送ったgoalは失われることがあるため） | `cmd<N>.text` |
 | `plan_commands` | 命令を計画し（下記）、計画を画像で画面に出し、理解した命令と実行の順を言う。聞き取りをskipした命令（`/aha/tasks/status` で `listen_command` の枠が `skipped`）は、記憶にmockの命令文があっても計画せず、聞き取れなかった命令とする | `plan`、`plan.commands`（命令ごとの文・計画の方法・要約・失敗の理由） |
-| `report_results` | 命令ごとに要約と結果を言う。全手順が成功なら `done`、失敗・未実装の手順があれば何手順できたか。結果は `/aha/tasks/status` の枠の状態から求め、`count` などの答え（`<output>.answer`、なければ値）を添える。`plan_commands` の枠がskipされていれば、記憶の計画はmockなので、命令を計画できなかったとだけ言う | |
+| `report_results` | 命令ごとに要約と結果を言う。全手順が成功なら `done`、失敗・未実装の手順があれば何手順できたか。結果は `/aha/tasks/status` の枠の状態から求め、成功した手順の `count` などの答え（`<output>.answer`、なければ値）を添える（mockで通過した手順や状態が分からない手順の値は、mockの値かもしれないので添えない）。`plan_commands` の枠がskipされていれば、記憶の計画はmockなので、命令を計画できなかったとだけ言う | |
 
 | params | 既定 | 内容 |
 | --- | --- | --- |

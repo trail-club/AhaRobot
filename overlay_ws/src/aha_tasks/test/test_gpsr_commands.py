@@ -628,6 +628,10 @@ class WordsTests(unittest.TestCase):
         sentences = gp.report_sentences(plan, commands, outcomes, memory)
         self.assertIn("not finished, 3 of 4 steps done", sentences[0])
         self.assertIn("The answer was 3.", sentences[0])
+        counted = next(i for i, s in enumerate(plan) if s["action"] == "count")
+        mocked = {**outcomes, counted: "mocked"}  # the count itself not run
+        sentences = gp.report_sentences(plan, commands, mocked, memory)
+        self.assertNotIn("The answer was", sentences[0])
         outcomes[3] = "done"
         memory["cmd1.count.answer"] = "There are 3 drinks."
         sentences = gp.report_sentences(plan, commands, outcomes, memory)
@@ -933,7 +937,8 @@ class ReportResultsTests(unittest.TestCase):
         self.assertTrue(
             said.startswith("Here is my report. Command 1, pick up the cola")
         )
-        self.assertIn("The answer was 3.", said)
+        # Not known to be done: cmd2.count may be the mock plan's value.
+        self.assertNotIn("The answer was", said)
         self.assertEqual(rt.interaction.hidden, 1)
 
     def test_a_skipped_planning_reports_no_mock_commands(self):

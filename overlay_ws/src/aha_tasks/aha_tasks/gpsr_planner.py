@@ -1011,8 +1011,9 @@ def report_sentences(plan, commands, outcomes, memory):
         else:  # no task status
             sentence += "."
         for i in indices:
+            # Only a step that ran: a mocked one leaves its mock value.
             key = answer_key(plan[i])
-            if key is not None and key in memory:
+            if outcomes.get(i) == "done" and key is not None and key in memory:
                 answer = memory.get(f"{key}.answer") or f"The answer was {memory[key]}."
                 sentence += f" {answer}"
         sentences.append(sentence)
