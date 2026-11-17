@@ -14,6 +14,8 @@ find_package(ament_cmake_python REQUIRED)
 # aha_perception.plane_detection_io: ROS message conversions for the depth nodes
 # aha_perception.depth_noise: D435i depth noise model for sim_depth_noise.py
 # aha_perception.tf_jump: TF listener that detects sim restarts
+# aha_perception.cloud_map: voxel map for cloud_accumulator.py
+# aha_perception.self_filter: robot link boxes for cloud_accumulator.py
 # aha_perception.object_list: object labels, categories, sizes and sim model names
 # aha_perception.sim_object_detection: visibility and corruption of simulated detections
 # aha_perception.people: person perception core for person_perception.py
@@ -34,6 +36,7 @@ install(
     scripts/audio_debug_ui
     scripts/audio_doorbell_node
     scripts/audio_tts_node
+    scripts/cloud_accumulator.py
     scripts/head_look_at.py
     scripts/imu_head.py
     scripts/manual_head.py
@@ -62,6 +65,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_furniture test/test_furniture.py TIMEOUT 60)
   ament_add_pytest_test(test_plane_detection_node test/test_plane_detection_node.py TIMEOUT 60)
   ament_add_pytest_test(test_plane_detection_service test/test_plane_detection_service.py TIMEOUT 120)
+  ament_add_pytest_test(test_cloud_map test/test_cloud_map.py TIMEOUT 60)
+  ament_add_pytest_test(test_self_filter test/test_self_filter.py TIMEOUT 60)
   ament_add_pytest_test(test_imu_tilt test/test_imu_tilt.py TIMEOUT 60)
   ament_add_pytest_test(test_object_list test/test_object_list.py TIMEOUT 60)
   ament_add_pytest_test(test_sim_object_detection test/test_sim_object_detection.py TIMEOUT 60)

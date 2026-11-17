@@ -326,6 +326,20 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
+## 頭部点群の蓄積（シミュレーションのみ）
+
+`perception.launch.py merged_points:=true`（`sim.launch.py use_perception:=true merged_points:=true`）で
+`cloud_accumulator.py` が頭部カメラの点群を貯める。方式・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#点群の蓄積)を参照。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 貯めた点群（x, y, z, rgb） | `/aha/perception/merged_points` | `sensor_msgs/msg/PointCloud2` |
+| 貯めた点群を空にする | `/aha/perception/merged_points/clear` | `std_srvs/srv/Trigger` |
+
+frameは `odom`（パラメータ `fixed_frame`、TFがなければ `base_footprint`）、時刻は最後に加えたDepthの時刻、2 Hz以下（RELIABLE、depth 1）。
+点は1 cmのボクセルごとの点の平均の位置で、ロボット自身の点を除き、`base_footprint` の前方 −0.5〜2.0 m・左右 ±1.5 m・高さ −0.05〜2.2 mに限る。
+台車が5 cmか3°より動くと空になる。
+
 ## 物体検出（シミュレーションのみ）
 
 `perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
