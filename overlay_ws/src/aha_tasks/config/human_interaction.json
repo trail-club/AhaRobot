@@ -23,7 +23,7 @@
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",
     "wait_start_signal": "aha_tasks.interaction:WaitStartSignal",
-    "detect_doorbell": null,
+    "detect_doorbell": "aha_tasks.doorbell:DetectDoorbell",
     "open_door": null,
     "find_person": "aha_tasks.people:FindPerson",
     "ask_name_and_drink": null,
