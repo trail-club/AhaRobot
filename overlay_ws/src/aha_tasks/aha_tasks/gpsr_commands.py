@@ -206,7 +206,9 @@ class ListenCommand(Skill):
         vocabulary_of(params, spec)
 
     def ready(self):
-        Interaction.of(self.runtime).find_tts()
+        interaction = Interaction.of(self.runtime)
+        interaction.find_tts()
+        interaction.find_asr()
 
     def execute(self, ctx):
         params = ctx.params

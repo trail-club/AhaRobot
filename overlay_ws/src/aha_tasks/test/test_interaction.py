@@ -307,6 +307,7 @@ class RosTests(unittest.TestCase):
         self.assertEqual(spoken, ["Welcome."])
 
     def test_listen_fails_without_an_asr(self):
+        self.assertFalse(self.interaction.find_asr(self.cancelled))
         text, message = self.interaction.listen(["Charlie"], self.cancelled)
         self.assertIsNone(text)
         self.assertTrue(message.startswith(NO_ASR), message)
@@ -330,6 +331,8 @@ class RosTests(unittest.TestCase):
         server = ActionServer(asr, Listen, LISTEN_ACTION, listen)
         self.executor.add_node(asr)
         try:
+            # Discovered before the first listen (ListenCommand.ready).
+            self.assertTrue(self.interaction.find_asr(self.cancelled))
             heard = self.interaction.listen(["Charlie"], self.cancelled, timeout=3.0)
             failed = self.interaction.listen([], self.cancelled)
         finally:

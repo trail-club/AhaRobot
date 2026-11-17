@@ -31,6 +31,8 @@ LISTEN_MARGIN = 50.0
 NO_ASR = "No ASR"  # start of the message when the ASR is not served
 # s (wall clock) to discover a running TTS, waited once per runner (at ready()).
 TTS_DISCOVERY = 2.0
+# s (wall clock) to discover a running ASR, waited once per runner (at ready()).
+ASR_DISCOVERY = 2.0
 
 
 class Cancelled(Exception):
@@ -118,6 +120,38 @@ class Interaction:
         """Remove the image from the screen."""
         self.images.publish(self.CompressedImage())
 
+    def _listener(self):
+        if getattr(self, "listener", None) is None:
+            from aha_msgs.action import Listen
+            from rclpy.action import ActionClient
+
+            self.Listen = Listen
+            self.listener = ActionClient(self.node, Listen, LISTEN_ACTION)
+        return self.listener
+
+    def find_asr(self, cancelled=None):
+        """True if an ASR runs. Creates the Listen client and, the first time,
+        waits up to ASR_DISCOVERY for the server.
+
+        As for the TTS: a goal sent right after discovery, or its answer, may
+        be lost, so the client is made and discovered before the first listen.
+        """
+        client = self._listener()
+        if client.server_is_ready():
+            return True
+        if not getattr(self, "asr_searched", False):
+            self.asr_searched = True
+            try:
+                self._poll(
+                    client.server_is_ready,
+                    ASR_DISCOVERY,
+                    cancelled or threading.Event(),
+                )
+            except (TimeoutError, Cancelled):
+                return False
+            return True
+        return False
+
     def listen(self, hotwords, cancelled, timeout=LISTEN_TIMEOUT, language="en"):
         """The next utterance from the ASR: (text, "") or (None, why).
 
@@ -125,12 +159,7 @@ class Interaction:
         supports it. Without a Listen server within SERVER_TIMEOUT, `why`
         starts with NO_ASR.
         """
-        if getattr(self, "listener", None) is None:
-            from aha_msgs.action import Listen
-            from rclpy.action import ActionClient
-
-            self.Listen = Listen
-            self.listener = ActionClient(self.node, Listen, LISTEN_ACTION)
+        self._listener()
         try:
             self._poll(self.listener.server_is_ready, SERVER_TIMEOUT, cancelled)
         except Cancelled:
