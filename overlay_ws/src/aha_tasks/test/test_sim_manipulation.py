@@ -202,15 +202,15 @@ class StandPickTests(unittest.TestCase):
         return stand.pick(self.GOAL, handle, lambda *args: None)
 
     def test_the_object_in_the_hand_is_a_picked_object(self):
-        name, _, note = self.pick(FakeStand(carry_fails=False))
-        self.assertEqual((name, note), ("cola", ""))
+        name, back, _, note = self.pick(FakeStand(carry_fails=False))
+        self.assertEqual((name, back, note), ("cola", True, ""))
 
     def test_a_failed_carry_still_picks(self):
         # Failing here would keep the object in the hand while the task
         # thinks the hand is empty, and every later pick is refused.
         stand = FakeStand(carry_fails=True)
-        name, _, note = self.pick(stand)
-        self.assertEqual(name, "cola")
+        name, back, _, note = self.pick(stand)
+        self.assertEqual((name, back), ("cola", False))  # `returned` false
         self.assertIn("not at carry", note)
         self.assertEqual(stand.held.name, "cola")
         with self.assertRaises(Failed):
@@ -292,14 +292,21 @@ class StandAttachTests(unittest.TestCase):
             stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
         self.assertEqual((stand.backs, caught.exception.returned), (1, True))
         self.assertIsNone(stand.held)
+        # And not back either: the result says so (`returned` false).
+        stand.back = lambda cancelled: False
+        with self.assertRaises(Failed) as caught:
+            stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
+        self.assertEqual(caught.exception.returned, False)
 
 
 class StandPoseTests(unittest.TestCase):
     def test_no_grasp_pose_still_picks(self):
         stand = FakeStand(tf_fails=True)
         handle = SimpleNamespace(is_cancel_requested=False)
-        name, pose, note = stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
-        self.assertEqual((name, pose), ("cola", None))
+        name, back, pose, note = stand.pick(
+            StandPickTests.GOAL, handle, lambda *a: None
+        )
+        self.assertEqual((name, back, pose), ("cola", True, None))
         self.assertIn("no grasp_pose (No TF", note)
         self.assertEqual(stand.held.name, "cola")
 

@@ -392,7 +392,11 @@ BEFORE_MOTION = (
 
 
 def before_motion(result):
-    """Whether a failed PlaceObject / HandOver result came before any arm motion."""
+    """Whether a failed result may have come before any arm motion: a
+    PlaceObject / HandOver status for that, or a failed PickObject that is
+    back (it has no status; back is its pose before the goal, or carry)."""
+    if not hasattr(result, "status"):  # PickObject
+        return not result.success and getattr(result, "returned", False)
     kind = type(result)
     return not result.success and any(
         getattr(kind, name) == result.status
@@ -539,18 +543,22 @@ class Hands:
     def arm_after(self, result, stopped=False):
         """Keep the runtime's arm_out (aha_tasks.skills.ARM_OUT) in line with
         how a goal ended. A server ends a goal with the arm at a safe pose
-        (the actions' contract) unless its `returned` says otherwise, which a
-        status from before any arm motion (before_motion) does not need; a
-        cancel (`stopped`) stops a pick's arm where it is; a goal that did
-        not answer the cancel (`result` None) may still move it."""
+        (the actions' contract) unless its `returned` says otherwise; a
+        result that may have come before any arm motion (before_motion)
+        leaves the arm, and arm_out, as earlier goals left them. Without
+        `returned` (an older server) a cancel (`stopped`) or a failure may
+        leave the arm out; a goal that did not answer the cancel (`result`
+        None) may still move it."""
         if self.runtime is None:
             return
         if result is None:
             why = "a goal did not confirm that it stopped"
-        elif hasattr(result, "returned") and not before_motion(result):
+        elif before_motion(result):
+            return
+        elif hasattr(result, "returned"):
             why = None if result.returned else f"not back: {result.message}"
-        elif stopped and not result.success and not hasattr(result, "returned"):
-            why = "a pick was stopped where the arm was"
+        elif stopped or not result.success:
+            why = f"ended without returned: {result.message}"
         else:
             why = None
         setattr(

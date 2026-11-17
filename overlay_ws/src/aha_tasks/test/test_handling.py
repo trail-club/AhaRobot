@@ -98,6 +98,10 @@ class PlaceResult(SimpleNamespace):
     STATUS_NOT_AT_SPOT = 9
 
 
+class PickResult(SimpleNamespace):
+    """PickObject.Result: no status."""
+
+
 def place_failed(status, message):
     return PlaceResult(success=False, status=status, message=message)
 
@@ -856,10 +860,13 @@ class FakeHandle:
 class HandsTests(unittest.TestCase):
     def test_a_goal_that_succeeded_before_the_cancel_counts(self):
         hands = Hands.__new__(Hands)
+        hands.runtime = SimpleNamespace()
         cancelled = threading.Event()
         cancelled.set()
-        done = Result(success=True, status=0, message="Picked; not at carry")
+        # The object in the hand, the arm stopped on its way to carry.
+        done = PickResult(success=True, message="Picked; not at carry", returned=False)
         self.assertIs(hands.finish(FakeHandle(done), 1.0, cancelled), done)
+        self.assertIn("not back: Picked; not at carry", getattr(hands.runtime, ARM_OUT))
         with self.assertRaises(Cancelled):
             hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
         # A timeout likewise.
@@ -874,38 +881,52 @@ class HandsTests(unittest.TestCase):
         self.assertIn("the arm may be out (not back: stuck)", getattr(runtime, ARM_OUT))
         hands.arm_after(Result(success=False, status=0, message="no", returned=True))
         self.assertIsNone(getattr(runtime, ARM_OUT))
-        # A pick (no returned) is back at its end, but where a cancel stopped it.
-        pick = SimpleNamespace(success=False, message="cancelled")
-        hands.arm_after(pick, stopped=True)
-        self.assertIn("stopped where the arm was", getattr(runtime, ARM_OUT))
-        hands.arm_after(pick)
+        # A pick: `returned` false where a cancel or failure left the arm.
+        hands.arm_after(PickResult(success=False, message="stuck", returned=False))
+        self.assertIn("not back: stuck", getattr(runtime, ARM_OUT))
+        hands.arm_after(PickResult(success=True, message="Picked", returned=True))
+        self.assertIsNone(getattr(runtime, ARM_OUT))
+        # Without `returned` (an older server), a cancel or failure may leave
+        # the arm out.
+        for pick in (
+            SimpleNamespace(success=True, message="Picked"),
+            SimpleNamespace(success=False, message="cancelled"),
+        ):
+            with self.subTest(stopped=pick.message):
+                hands.arm_after(pick, stopped=True)
+                self.assertIn("ended without returned", getattr(runtime, ARM_OUT))
+        hands.arm_after(SimpleNamespace(success=False, message="no grasp"))
+        self.assertIn("ended without returned", getattr(runtime, ARM_OUT))
+        hands.arm_after(SimpleNamespace(success=True, message="Picked"))
         self.assertIsNone(getattr(runtime, ARM_OUT))
         with self.assertRaises(Unstopped):
             hands.finish(FakeHandle(None), 0.0, threading.Event())
         self.assertIn("did not confirm that it stopped", getattr(runtime, ARM_OUT))
 
-    def test_failures_before_any_motion_leave_the_arm_safe(self):
+    def test_failures_before_any_motion_leave_the_arm_as_it_was(self):
         # `returned` is false by the message default; the status says more.
+        # The arm is where earlier goals left it, e.g. out after a cancel.
         runtime = SimpleNamespace(arm_out="earlier")
         hands = Hands.__new__(Hands)
         hands.runtime = runtime
-        for status in (1, 2, 3, 5):  # no surface, no space, unreachable, error
-            with self.subTest(place=status):
-                runtime.arm_out = "earlier"
-                hands.arm_after(
-                    PlaceResult(
-                        success=False, status=status, message="", returned=False
-                    )
-                )
-                self.assertIsNone(runtime.arm_out)
-        for status in (2, 3):  # unreachable, error
-            with self.subTest(handover=status):
-                runtime.arm_out = "earlier"
-                hands.arm_after(
-                    Result(success=False, status=status, message="", returned=False),
-                    stopped=True,
-                )
-                self.assertIsNone(runtime.arm_out)
+        before = [
+            *(
+                PlaceResult(success=False, status=status, message="", returned=False)
+                for status in (1, 2, 3, 5)  # no surface, no space, unreachable, error
+            ),
+            *(
+                Result(success=False, status=status, message="", returned=False)
+                for status in (2, 3)  # unreachable, error
+            ),
+            # No status: maybe before any motion, else back to its pose before.
+            PickResult(success=False, message="too far", returned=True),
+        ]
+        for result in before:
+            for earlier in ("earlier", None):
+                with self.subTest(result=result, earlier=earlier):
+                    runtime.arm_out = earlier
+                    hands.arm_after(result, stopped=True)
+                    self.assertEqual(runtime.arm_out, earlier)
         # After a motion, `returned` decides: execution failed, cancelled.
         for result in (
             PlaceResult(success=False, status=4, message="stuck", returned=False),

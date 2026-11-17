@@ -1,7 +1,9 @@
 # Long-running pick action. Owner: manipulation squad.
 # Goal frame must match DetectedObject.header.frame_id (usually camera_optical_frame or map).
 # A goal that moved the arm ends (success or failure) with the arm at a safe
-# pose (carry, or its pose before the goal); a cancel stops it where it is.
+# pose (carry, or its pose before the goal), else `returned` is false; a
+# cancel stops it where it is. A goal that did not move the arm has
+# `returned` true.
 
 DetectedObject          target
 string                  arm          # "left" | "right"
@@ -10,6 +12,7 @@ float32                 approach_offset  # meters above the object
 bool                    success
 string                  message
 geometry_msgs/PoseStamped grasp_pose_used
+bool                    returned     # the arm is at a safe pose at the end (a success: at carry)
 ---
 string                  phase        # "planning" | "approaching" | "grasping" | "retreating"
 float32                 progress     # [0.0, 1.0]
