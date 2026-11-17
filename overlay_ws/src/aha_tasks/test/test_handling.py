@@ -151,14 +151,16 @@ class FakeHands:
 
 
 class FakeNavigation:
-    def __init__(self, objects, fail=False):
-        self.objects, self.fail, self.goals = objects, fail, []
+    """Stops `off` m off the goal in y (Nav2 stops within its tolerance)."""
+
+    def __init__(self, objects, fail=False, off=0.0):
+        self.objects, self.fail, self.off, self.goals = objects, fail, off, []
 
     def navigate(self, pose, cancelled=None):
         self.goals.append([round(v, 3) for v in pose])
         if self.fail:
             return False, "blocked"
-        self.objects.robot = tuple(pose)
+        self.objects.robot = (pose[0], pose[1] + self.off, pose[2])
         return True, ""
 
 
@@ -221,7 +223,9 @@ def make_runtime(scene=None, robot="kitchen_table", hands=None, **kw):
         gaze=FakeGaze(),
         skills={},
     )
-    runtime.navigation = FakeNavigation(objects, kw.get("blocked", False))
+    runtime.navigation = FakeNavigation(
+        objects, kw.get("blocked", False), kw.get("off", 0.0)
+    )
     return runtime
 
 
@@ -388,6 +392,38 @@ class PickTests(unittest.TestCase):
         self.assertEqual(runtime.hands.goals[0][1].target["position"], [2.0, 2.5, 0.06])
         # Facing it, the cola at the right arm's point (0.45, -0.2).
         self.assertEqual(runtime.navigation.goals, [[1.8, 2.05, 1.571]])
+
+    def test_a_retry_does_not_move_the_base_with_the_arm_maybe_out(self):
+        for skill, scene, robot, params, memory, kind in (
+            (
+                PickObject,
+                kitchen_scene(),
+                "kitchen_table",
+                {"object": "cola", "surface": "kitchen_table"},
+                {},
+                "pick",
+            ),
+            (
+                PlaceObject,
+                [],
+                "kitchen_table",
+                {"object": "cola", "surface": "kitchen_table"},
+                PlaceTests.HELD_COLA,
+                "place",
+            ),
+        ):
+            with self.subTest(skill.__name__):
+                hands = FakeHands(**{kind: [place_failed(4, "stuck"), ok()]})
+                runtime = make_runtime(scene, robot=robot, hands=hands, off=0.15)
+                # Farther from the table than its location, so that both move.
+                runtime.objects.robot = (-2.0, -0.35, -math.pi / 2)
+                result, logs = run(skill, runtime, params, memory)
+                self.assertTrue(result.success, result.message)
+                self.assertEqual(len(hands.goals), 2)
+                self.assertEqual(len(runtime.navigation.goals), 1)
+                self.assertTrue(
+                    any("the arm may still be out" in line for line in logs)
+                )
 
     def test_a_failed_pick_is_tried_again(self):
         hands = FakeHands(pick=[failed(), ok()])

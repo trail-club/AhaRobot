@@ -10,7 +10,8 @@ planned; the object is moved by gz-transport (aha_tasks.sim_manipulation):
   a static copy without collision that follows the TCP (`tcp_frame`), and
   the arm goes to the carry pose. Once the object is in the hand the pick
   succeeds, also when the arm does not get to carry (cancel, controller):
-  the message says so.
+  the message says so. Likewise place and handover succeed once the object
+  left the hand, also when Gazebo then fails to re-create or remove it.
 - place (aha_msgs/action/PlaceObject, /aha/manipulation/place): the arm
   reaches out over `near` (within `reach`; over the top of a container to
   drop into), the static copy is set standing at `near` (`drop`: its centre
@@ -317,6 +318,17 @@ class Stand:
             self.remove(held.name)
             self.create(self.sdf(held.name, held.label, *centre, yaw), held.name)
 
+    def after_release(self, step, name):
+        """Run a Gazebo step once the object left the hand (settle, drop): a
+        failure only makes a note, as the goal's part is done and a failed
+        goal would leave the task believing the object still held."""
+        try:
+            step()
+        except Failed as error:
+            self.log.warning(f"{name} let go, but: {error}")
+            return f"; let go, but {error}"
+        return ""
+
     def drop(self):
         """Remove the held object from the world (a person took it)."""
         with self.lock:
@@ -504,10 +516,14 @@ class Stand:
         self.put(centre)
         feedback("returning")
         back = self.back(cancelled)
-        self.settle()
+        note = self.after_release(self.settle, name)
         self.log.info(f"Placed {name} at {[round(v, 3) for v in centre]}")
         bottom = (centre[0], centre[1], centre[2] - size_z / 2)
-        return name, back, self.ros_pose(bottom)
+        try:
+            pose = self.ros_pose(bottom)
+        except Failed as error:
+            pose, note = None, f"{note}; no place_pose ({error})"
+        return name, back, pose, note
 
     def hand_over(self, goal, handle, feedback):
         self.check_arm(goal.arm)
@@ -537,11 +553,11 @@ class Stand:
                     f"Nobody took {name} within {timeout:.0f} s", "STATUS_TIMEOUT", back
                 )
         feedback("releasing")
-        self.drop()
+        note = self.after_release(self.drop, name)
         feedback("returning")
         back = self.back(cancelled)
         self.log.info(f"Handed over {name}")
-        return name, back
+        return name, back, note
 
 
 def main(argv=None):
@@ -627,14 +643,15 @@ def main(argv=None):
         R = PlaceObject.Result
         result = R()
         try:
-            name, back, pose = stand.place(
+            name, back, pose, note = stand.place(
                 handle.request, handle, publish(handle, PlaceObject)
             )
             result.success, result.status = True, R.STATUS_OK
-            result.message = f"Placed {name}" + (
-                "" if back else "; the arm is not back"
+            result.message = (
+                f"Placed {name}" + ("" if back else "; the arm is not back") + note
             )
-            result.place_pose = pose
+            if pose is not None:
+                result.place_pose = pose
             return finish(handle, result, True)
         except Failed as error:
             result.status = getattr(R, error.status or "STATUS_EXECUTION_FAILED")
@@ -646,12 +663,12 @@ def main(argv=None):
         R = HandOver.Result
         result = R()
         try:
-            name, back = stand.hand_over(
+            name, back, note = stand.hand_over(
                 handle.request, handle, publish(handle, HandOver)
             )
             result.success, result.status = True, R.STATUS_RELEASED
-            result.message = f"Handed over {name}" + (
-                "" if back else "; the arm is not back"
+            result.message = (
+                f"Handed over {name}" + ("" if back else "; the arm is not back") + note
             )
             result.returned = back
             return finish(handle, result, True)

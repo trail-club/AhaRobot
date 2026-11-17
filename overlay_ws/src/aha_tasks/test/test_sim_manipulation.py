@@ -4,6 +4,7 @@ import math
 import os
 from pathlib import Path
 import sys
+import threading
 from types import SimpleNamespace
 import unittest
 import xml.etree.ElementTree as ET
@@ -117,11 +118,28 @@ class PoseTests(unittest.TestCase):
 
 
 class FakeStand(Stand):
-    """Stand.pick without Gazebo, TF or the arm; `carry` may fail."""
+    """Stand without Gazebo, TF or the arm; `carry` and the removal of a model
+    in Gazebo may fail."""
 
-    def __init__(self, carry_fails):
+    def __init__(self, carry_fails=False, gazebo_fails=False):
         self.held, self.object_list, self.carry_fails = None, OBJECT_LIST, carry_fails
+        self.gazebo_fails, self.created = gazebo_fails, []
+        self.lock, self.placed, self.arm, self.rest = threading.Lock(), None, None, None
+        self.furniture = SimpleNamespace(get=lambda name: None)
         self.log = SimpleNamespace(info=lambda text: None, warning=lambda text: None)
+
+    def set_pose(self, name, x, y, z, yaw):
+        return True
+
+    def remove(self, name):
+        if self.gazebo_fails:
+            raise Failed(f"{name} stays in Gazebo after its removal")
+
+    def create(self, sdf, name):
+        self.created.append(name)
+
+    def sdf(self, name, label, x, y, z, yaw):
+        return name
 
     def param(self, name):
         return {"reach": 1.0}[name]
@@ -196,6 +214,59 @@ class StandMoveTests(unittest.TestCase):
         stand.rest = None
         with self.assertRaises(Failed):
             Stand.remember_rest(stand)
+
+
+class StandReleaseTests(unittest.TestCase):
+    """Once the object left the hand, place and handover succeed (with a
+    note on a Gazebo failure), so that the task's memory matches."""
+
+    def holding(self, gazebo_fails):
+        stand = FakeStand(gazebo_fails=gazebo_fails)
+        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
+        return stand
+
+    def point(self, x, y, z):
+        return SimpleNamespace(
+            header=SimpleNamespace(frame_id="map"),
+            point=SimpleNamespace(x=x, y=y, z=z),
+        )
+
+    def place(self, stand):
+        goal = SimpleNamespace(
+            arm="", near=self.point(0.6, -0.2, 0.8), furniture="", drop=False
+        )
+        handle = SimpleNamespace(is_cancel_requested=False)
+        return stand.place(goal, handle, lambda *args: None)
+
+    def hand_over(self, stand):
+        goal = SimpleNamespace(
+            arm="", target=self.point(1.0, 0.0, 0.9), release="now", timeout=0.0
+        )
+        handle = SimpleNamespace(is_cancel_requested=False)
+        return stand.hand_over(goal, handle, lambda *args: None)
+
+    def test_place_and_handover(self):
+        stand = self.holding(gazebo_fails=False)
+        name, back, pose, note = self.place(stand)
+        self.assertEqual(
+            (name, back, note, stand.created), ("cola", True, "", ["cola"])
+        )
+        self.assertAlmostEqual(pose[2], 0.8 + PLACE_LIFT)  # the bottom on the spot
+        stand = self.holding(gazebo_fails=False)
+        self.assertEqual(self.hand_over(stand), ("cola", True, ""))
+        self.assertIsNone(stand.held)
+
+    def test_gazebo_failures_after_letting_go_are_notes(self):
+        stand = self.holding(gazebo_fails=True)
+        name, _, _, note = self.place(stand)
+        self.assertIn("let go, but cola stays in Gazebo", note)
+        self.assertIsNone(stand.held)
+        stand = self.holding(gazebo_fails=True)
+        name, _, note = self.hand_over(stand)
+        self.assertIn("let go, but cola stays in Gazebo", note)
+        self.assertIsNone(stand.held)
+        with self.assertRaises(Failed):  # nothing held any more
+            self.hand_over(stand)
 
 
 if __name__ == "__main__":

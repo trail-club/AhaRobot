@@ -527,9 +527,13 @@ class _HandSkill(Skill):
             f"No furniture for surface {name}; furniture: {objects.furniture.names}"
         )
 
-    def approach(self, ctx, robot, target, region, outputs):
+    def approach(self, ctx, robot, target, region, outputs, arm_known=True):
         """Move the base so that the arm reaches `target`, unless it does; the
-        new robot pose. A failed move is only logged (the server may reach)."""
+        new robot pose. A failed move is only logged (the server may reach).
+
+        Without `arm_known` (a goal was sent before: after a timeout, cancel or
+        failed execution the arm may still be out over the furniture) the
+        base stays: Nav2's footprint does not include the arm."""
         arm = ctx.params.get("arm", "right")
         navigation = self.runtime.navigation
         if (
@@ -540,6 +544,9 @@ class _HandSkill(Skill):
             return robot
         pose = reach_pose(robot, target, region, arm)
         if not needs_move(robot, pose):
+            return robot
+        if not arm_known:
+            ctx.log("Not moving the base: the arm may still be out")
             return robot
         ctx.log(f"Moving to [{pose[0]:.2f}, {pose[1]:.2f}] to reach the object")
         ok, text = navigation.navigate(pose, ctx.cancelled)
@@ -593,7 +600,7 @@ class PickObject(_HandSkill):
             name = self.surface(objects, surface)
         except (RuntimeError, ValueError) as error:
             return self.fail(str(error))
-        outputs, message = {}, ""
+        outputs, message, sent = {}, "", False
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
                 ctx.log(f"Trying again: {message}")
@@ -623,10 +630,11 @@ class PickObject(_HandSkill):
             ctx.log(f"Picking {percept.label} at {target['position']} from {name}")
             self.look(frame, target["position"])
             if frame == "map":
-                self.approach(ctx, robot, target["position"], region, outputs)
+                self.approach(ctx, robot, target["position"], region, outputs, not sent)
             goal = hands.PickObject.Goal(
                 target=hands.target(target), arm=params.get("arm", "right")
             )
+            sent = True
             result, why = hands.run(PICK_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled)
             if result is None:
                 if why == "Cancelled":
@@ -690,7 +698,7 @@ class PlaceObject(_HandSkill):
         trash = furniture is not None and is_trash(name, furniture.category)
         arm = params.get("arm", "right")
         clearance = float(params.get("clearance", PLACE_CLEARANCE))
-        outputs, message = {}, ""
+        outputs, message, sent = {}, "", False
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
                 ctx.log(f"Trying again: {message}")
@@ -709,7 +717,7 @@ class PlaceObject(_HandSkill):
             self.look(frame, (x, y, z))
             if frame == "map":
                 robot = objects.robot_pose(frame)
-                self.approach(ctx, robot, (x, y), region, outputs)
+                self.approach(ctx, robot, (x, y), region, outputs, not sent)
             goal = hands.PlaceObject.Goal(
                 arm=arm,
                 near=hands.point(frame, (x, y, z)),
@@ -719,6 +727,7 @@ class PlaceObject(_HandSkill):
                 drop=trash,
             )
             goal.object_size.x, goal.object_size.y, goal.object_size.z = size
+            sent = True
             result, why = hands.run(PLACE_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled)
             if result is None:
                 if why == "Cancelled":
