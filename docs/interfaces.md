@@ -176,7 +176,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
-GPSRの `listen_command` は `/aha/perception/audio/listen`（[音声](#音声)）で聞く。`plan_commands` は `/aha/tasks/status` を購読して聞き取りの枠がskipされたかを、`report_results` は計画の枠の結果を読む。
+GPSRの `listen_command` は `/aha/perception/audio/listen`（[音声](#音声)）で聞く。`plan_commands`、`run_plan_step`、`report_results` は `/aha/tasks/status` を購読する。`plan_commands` は聞き取りの枠が、`run_plan_step` と `report_results` は計画の枠がskipされたかを読み、`report_results` は計画の手順の枠の結果も読む。
 `plan_commands` はROSのparameter `llm_url` / `llm_model`（runnerのnode）のOpenAI互換のLLMにHTTPで聞く。
 `speech:=<名前>` の `sim_speech` は、シミュレーションで `/aha/perception/audio/listen` を提供し、答えを `/aha/perception/audio/transcript` にも配信する。`/aha/display/caption`、`/aha/tasks/status` とTF（`map` → `base_footprint`）を使う。
 
