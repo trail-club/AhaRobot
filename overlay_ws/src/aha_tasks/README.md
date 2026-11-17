@@ -278,7 +278,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 巻き戻しと、選択外で歩く間のない段階への移行は、歩かずに移動する。歩く速さ1.0 m/sはシミュレーション時刻。
 
 `seats` の席ごとに、客が立つ位置 `pose`（席の0.45 m前）、座った人の位置 `sit`（座面の中央）と途中の点 `via` を書く。`chair` のある席には、worldにない椅子（`model://chair`）を置く（審判が椅子を追加する場面）。
-`seated` の人（ホスト）は起動時から席に座る。モデルは `people_scene` と同じ座った人（`aha_tasks.sim_people`）で、`shirt` はその色の名前。ホストは `chair_left` にいるため、`find_free_seat` は1人目にホストの席を除いて `chair_right` を、2人目にさらに1人目の席を除いて `chair_extra` を選ぶ。各サブゴールの `mock` はこの席。
+`seated` の人（ホスト）は起動時から席に座る。モデルは `people_scene` と同じ座った人（`aha_tasks.sim_people`）で、`shirt` はその色の名前。メッシュを作れない（取得・キャッシュの失敗）ときはホストを置かずに客とドアを動かす。ホストは `chair_left` にいるため、`find_free_seat` は1人目にホストの席を除いて `chair_right` を、2人目にさらに1人目の席を除いて `chair_extra` を選ぶ。各サブゴールの `mock` はこの席。
 
 制限：
 
@@ -453,7 +453,7 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 
 人ごとに `label`（`standing` / `sitting` / `lying` / `waving` / `raising_left_arm` / `raising_right_arm` / `raising_both_arms` / `pointing_left` / `pointing_right`）、`shirt`（`purple` / `red` / `blue` / `yellow` / `orange` / `green` / `white` / `gray` / `black`）、`position`（m。立つ・座る人は足元、寝る人は体の中央。`z` は足の裏または寝た背中の高さ）、`yaw`（体の正面の向き）を書く。
 
-- モデルはGazebo Fuelの [Male visitor](https://app.gazebosim.org/OpenRobotics/fuel/models/Male%20visitor)（version 2、CC0）。初回に取得してハッシュを確かめ、骨格の重みで姿勢を付けたメッシュとシャツの色を変えたテクスチャを `~/.cache/aharobot/sim_people` に作る。
+- モデルはGazebo Fuelの [Male visitor](https://app.gazebosim.org/OpenRobotics/fuel/models/Male%20visitor)（version 2、CC0）。初回に取得してハッシュを確かめ、骨格の重みで姿勢を付けたメッシュとシャツの色を変えたテクスチャを `~/.cache/aharobot/sim_people` に作る。`sim_guests` の座ったホストと同じキャッシュで、ファイルは一時ファイルに書いてから置き換えるため、同時に起動しても書きかけを読まない。
 - 手を振る人は、前腕を左右に25°傾けた2つのメッシュを `wave_period`（模擬時間の秒）で交互に見せる。
 - 座る人は脚を椅子の座面の高さに合わせた形で、`z` 0の椅子の位置に置く。寝る人は仰向けで、頭が体の向きの後ろ（yaw 0なら−x）になる。`attributes` の寝る人は、頭が枕に埋もれないよう足をベッドの枕側へ向けている。
 - 体型は1種類（男性）で、服は半袖のTシャツと半ズボンだけ。シャツ以外の服の種類はsimでは確かめられない。

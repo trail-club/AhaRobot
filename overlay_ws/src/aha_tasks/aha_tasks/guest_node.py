@@ -27,15 +27,14 @@ from aha_tasks.guests import (
     guest_sdf,
     load_config,
     offered_seat,
+    seated_models,
     seated_pose,
     statuses_of,
 )
 from aha_tasks.people_scene_node import DEFAULT_CACHE
 from aha_tasks.runner import STATUS_TOPIC
-from aha_tasks.sim_people import HIDDEN_Z, build_meshes, person_sdf
+from aha_tasks.sim_people import build_meshes
 from aha_tasks.sim_sound_node import BELL_TOPIC
-
-SITTING = "sitting"  # the sim_people label of seated people
 
 PERIOD = 0.1  # s (simulation clock)
 REQUEST_TIMEOUT = 2000  # ms
@@ -149,19 +148,11 @@ def main(argv=None):
         (name, guest_sdf(name, person["away"], person["colors"]))
         for name, person in scene["guests"].items()
     ]
-    seated = scene["seated"]
-    if seated:
-        try:
-            meshes = build_meshes(
-                args.cache, [(SITTING, p["shirt"]) for p in seated.values()]
-            )
-            for name, person in seated.items():
-                x, y, _, yaw = seated_pose(scene, name)
-                mesh = meshes[(SITTING, person["shirt"])]
-                missing.append((name, person_sdf(name, mesh, x, y, HIDDEN_Z, yaw)))
-        except (OSError, RuntimeError) as error:
-            log.error(f"No seated people: {error}")
-            seated = {}
+    seated_people = seated_models(
+        scene, lambda needed: build_meshes(args.cache, needed), log.error
+    )
+    missing += seated_people
+    seated = [name for name, _ in seated_people]
     chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
     if chairs:
         try:

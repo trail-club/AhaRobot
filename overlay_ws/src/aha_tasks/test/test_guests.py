@@ -26,6 +26,7 @@ from aha_tasks.guests import (  # noqa: E402
     guest_sdf,
     load_config,
     offered_seat,
+    seated_models,
     seated_pose,
     statuses_of,
 )
@@ -391,6 +392,51 @@ class SceneTests(unittest.TestCase):
             path.write_text(json.dumps(scene))
             with self.assertRaises(ValueError):
                 load_config(path)
+
+
+class SeatedModelsTests(unittest.TestCase):
+    def test_the_host_sits_hidden_until_moved(self):
+        asked = []
+
+        def build(needed):
+            asked.append(needed)
+            return {("sitting", "blue"): Path("/cache/sitting__blue.dae")}
+
+        logged = []
+        models = seated_models(SCENE, build, logged.append)
+        self.assertEqual(asked, [[("sitting", "blue")]])
+        self.assertEqual([name for name, _ in models], ["host"])
+        model = ET.fromstring(models[0][1]).find("model")
+        self.assertEqual(model.get("name"), "host")
+        x, y, _, yaw = seated_pose(SCENE, "host")
+        self.assertEqual(model.findtext("pose"), f"{x} {y} -5.0 0 0 {yaw}")
+        self.assertIn("file:///cache/sitting__blue.dae", models[0][1])
+        self.assertEqual(logged, [])
+
+    def test_a_broken_cache_leaves_nobody_seated_but_the_guests_run(self):
+        import xml.etree.ElementTree
+        import zipfile
+
+        for error in (
+            zipfile.BadZipFile("truncated download"),
+            xml.etree.ElementTree.ParseError("half-written DAE"),
+            RuntimeError("hash mismatch"),
+            OSError("no network"),
+            KeyError("UpperLeg_L"),
+        ):
+            with self.subTest(type(error).__name__):
+
+                def build(needed, error=error):
+                    raise error
+
+                logged = []
+                self.assertEqual(seated_models(SCENE, build, logged.append), [])
+                self.assertEqual(len(logged), 1)
+                self.assertIn(type(error).__name__, logged[0])
+
+    def test_nobody_seated_builds_nothing(self):
+        scene = {**SCENE, "seated": {}}
+        self.assertEqual(seated_models(scene, None, None), [])
 
 
 if __name__ == "__main__":

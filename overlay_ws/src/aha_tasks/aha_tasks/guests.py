@@ -15,7 +15,7 @@ import math
 from pathlib import Path
 import re
 
-from aha_tasks.sim_people import SHIRT_COLOURS
+from aha_tasks.sim_people import SHIRT_COLOURS, person_sdf
 
 AWAY, ARRIVE, TALK, FOLLOW, SEAT = range(5)
 # The start of subgoal <guest>.<name> begins the phase.
@@ -57,6 +57,7 @@ SEATED_KEYS = {"seat", "shirt"}  # a shirt of sim_people.SHIRT_COLOURS
 # where a seated person is; "via": points on the way; optionally "chair":
 # [x, y, yaw] to add one.
 SEAT_KEYS = {"pose", "sit", "via"}
+SITTING = "sitting"  # the sim_people label of seated people
 CHAIR_MODEL = "chair"  # model://chair of sobits_gazebo_worlds, as in the world
 
 
@@ -161,6 +162,29 @@ def seated_pose(scene, name):
     seat = scene["seats"][scene["seated"][name]["seat"]]
     x, y = seat["sit"]
     return (x, y, 0.0, seat["pose"][2])  # the model faces +x
+
+
+def seated_models(scene, build, log):
+    """(name, SDF) of the seated people, hidden under the floor.
+
+    `build(needed)` gives {(label, shirt): mesh path} (sim_people.build_meshes).
+    If it fails for any reason (no network, a broken download or cache), there
+    is nobody seated and `log` gets why: the guests and the door still run.
+    """
+    seated = scene["seated"]
+    if not seated:
+        return []
+    try:
+        meshes = build([(SITTING, p["shirt"]) for p in seated.values()])
+    except Exception as error:
+        log(f"No seated people: {type(error).__name__}: {error}")
+        return []
+    models = []
+    for name, person in seated.items():
+        x, y, _, yaw = seated_pose(scene, name)
+        mesh = meshes[(SITTING, person["shirt"])]
+        models.append((name, person_sdf(name, mesh, x, y, HIDDEN_Z, yaw)))
+    return models
 
 
 def chair_sdf(model_sdf, name, pose):
