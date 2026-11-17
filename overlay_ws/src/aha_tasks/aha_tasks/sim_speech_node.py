@@ -18,7 +18,7 @@ from aha_tasks.core import load_spec
 from aha_tasks.display import CAPTION_TOPIC
 from aha_tasks.runner import STATUS_TOPIC
 from aha_tasks.sim_people import load_scene
-from aha_tasks.sim_speech import Voices, load_config, speaker_for
+from aha_tasks.sim_speech import Voices, asks_name, load_config, speaker_for
 
 LISTEN_ACTION = "/aha/perception/audio/listen"
 TRANSCRIPT_TOPIC = "/aha/perception/audio/transcript"
@@ -118,7 +118,13 @@ def main(argv=None):
         question = caption["text"]
         pose = robot_pose()
         speaker = (
-            speaker_for(pose, speakers, settings["radius"], settings["fov"])
+            speaker_for(
+                pose,
+                speakers,
+                settings["radius"],
+                settings["fov"],
+                person=asks_name(question),
+            )
             if pose is not None
             else None
         )

@@ -99,14 +99,29 @@ def load_config(path, locations, people=None):
     return settings, speakers
 
 
-def speaker_for(pose, speakers, radius, fov):
+NAME_QUESTION = re.compile(r"\b(your name|who are you|are you)\b")
+
+
+def asks_name(question):
+    """Whether the robot asks a person's name ("What is your name?", "Are you
+    Charlie?"): only people answer it; the operator answers the rest."""
+    text = " ".join(re.sub(r"[^a-z0-9' ]+", " ", question.lower()).split())
+    return bool(NAME_QUESTION.search(text))
+
+
+def speaker_for(pose, speakers, radius, fov, person=None):
     """The nearest speaker within `radius` of the robot pose (x, y, yaw), or None.
 
     People must be within `fov` of the robot's heading; the operator not.
+    `person`: True for people only, False for the operator only, None for
+    either (so that the operator behind the robot does not answer for the
+    person in front of it).
     """
     x, y, yaw = pose
     best = None
     for speaker in speakers:
+        if person is not None and speaker.operator == person:
+            continue
         dx, dy = speaker.position[0] - x, speaker.position[1] - y
         distance = math.hypot(dx, dy)
         if distance > radius:

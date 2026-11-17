@@ -27,7 +27,13 @@ from aha_tasks.llm import Reply  # noqa: E402
 from aha_tasks.plan import validate_plan  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
 from aha_tasks.sim_people import load_scene  # noqa: E402
-from aha_tasks.sim_speech import Speaker, Voices, load_config, speaker_for  # noqa: E402
+from aha_tasks.sim_speech import (  # noqa: E402
+    Speaker,
+    Voices,
+    asks_name,
+    load_config,
+    speaker_for,
+)
 
 GPSR = PACKAGE / "config" / "gpsr.json"
 SPEC, _ = load_task(GPSR)
@@ -954,6 +960,28 @@ class SimSpeechTests(unittest.TestCase):
         self.assertEqual(self.speaker(-2.6, 2.4, 0.8).name, "Jane")
         self.assertIsNone(self.speaker(-2.6, 2.4, -2.3))  # facing away
         self.assertIsNone(self.speaker(3.0, -2.0, 0.0))  # nobody near
+
+    def test_the_person_in_front_answers_the_name_not_the_operator(self):
+        # Close to Charlie (-0.9, 2.8) but closer to the instruction point.
+        pose = (-1.68, 2.17, 0.68)
+        self.assertTrue(asks_name("Excuse me, are you Charlie?"))
+        self.assertFalse(asks_name("Please tell me the first command."))
+        charlie = speaker_for(
+            pose,
+            self.speakers,
+            self.settings["radius"],
+            self.settings["fov"],
+            person=True,
+        )
+        self.assertEqual(charlie.name, "Charlie")
+        operator = speaker_for(
+            pose,
+            self.speakers,
+            self.settings["radius"],
+            self.settings["fov"],
+            person=False,
+        )
+        self.assertTrue(operator.operator)
 
     def test_commands_get_simpler_when_asked_again(self):
         operator = Speaker("", (0.0, 0.0), True)
