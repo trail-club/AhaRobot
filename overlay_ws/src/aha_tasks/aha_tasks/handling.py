@@ -1073,12 +1073,11 @@ class DeliverObject(_HandSkill):
 
     def face(self, ctx, frame, position, outputs):
         """Come `distance` from a person in map and face them; a failure or
-        None (could not move)."""
+        None (there, or could not move). While the arm may be out the base
+        stays, and a person not in reach fails the handover (as go_to does
+        for the operator)."""
         navigation = self.runtime.navigation
         if navigation is None or frame != "map":
-            return None
-        if getattr(self.runtime, ARM_OUT, None):
-            ctx.log("Not moving the base: the arm may still be out")
             return None
         robot = self.robot(ctx.memory)
         distance = positive(ctx.params, "distance", DELIVER_DISTANCE)
@@ -1090,6 +1089,13 @@ class DeliverObject(_HandSkill):
             pose = [robot[0], robot[1], heading]
         else:
             return None
+        arm_out = getattr(self.runtime, ARM_OUT, None)
+        if arm_out:
+            return self.fail(
+                f"Could not go to the person {gap:.1f} m away: "
+                f"not moving the base: {arm_out}",
+                outputs,
+            )
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
             return self.fail(f"Could not go to the person: {text}", outputs)

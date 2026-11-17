@@ -692,6 +692,28 @@ class DeliverTests(unittest.TestCase):
         self.assertEqual(result.outputs[HOLDING], None)
         self.assertEqual(result.outputs[LOCATION], [2.0, 1.0, 1.571])
 
+    def test_no_handover_from_afar_while_the_arm_may_be_out(self):
+        memory = {
+            **self.HELD_COLA,
+            "person.position": [2.0, 2.0, 1.3],
+            "person.frame": "map",
+        }
+        params = {"object": "cola", "person": "waving person"}
+        for robot, sent in (((2.0, 0.0, math.pi / 2), 0), ((2.0, 1.0, math.pi / 2), 1)):
+            with self.subTest(robot=robot):
+                runtime = make_runtime(
+                    None, robot="office", hands=FakeHands(handover=[ok()])
+                )
+                runtime.objects.robot = robot
+                runtime.arm_out = "the arm may be out (test)"
+                result, _ = run(DeliverObject, runtime, params, memory)
+                # 2 m away: no handover from there; 1 m, facing: as it is.
+                self.assertEqual(result.success, bool(sent), result.message)
+                self.assertEqual(len(runtime.hands.goals), sent)
+                self.assertEqual(runtime.navigation.goals, [])
+                if not sent:
+                    self.assertIn("2.0 m away: not moving the base", result.message)
+
     def test_the_operator_at_the_instruction_point(self):
         runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[ok()]))
         result, logs = run(
