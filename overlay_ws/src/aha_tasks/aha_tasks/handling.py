@@ -628,6 +628,19 @@ class _HandSkill(Skill):
     def fail(self, message, outputs=None):
         return SkillResult(False, message, outputs or {})
 
+    def done(self, ctx, message, outputs):
+        """A success. A goal may end well after the task was cancelled (the
+        object already in or out of the hand), but the engine then keeps no
+        outputs (a cancelled subgoal fails): say so, as the hand and the
+        memory's robot.holding differ."""
+        if ctx.cancelled.is_set():
+            message += (
+                f"; the task was cancelled, so its memory does not keep "
+                f"{HOLDING}={outputs.get(HOLDING)!r}: check the hand"
+            )
+            ctx.log(message)
+        return SkillResult(True, message, outputs)
+
     def surface(self, objects, name):
         """The furniture (or floor) a surface param means: a furniture name, a
         trash word, or a location of the task in front of furniture."""
@@ -777,7 +790,7 @@ class PickObject(_HandSkill):
                 message = f"Pick failed: {result.message}"
                 continue
             outputs.update({HOLDING: key, HELD: target})
-            return SkillResult(True, f"Picked {percept.label} from {surface}", outputs)
+            return self.done(ctx, f"Picked {percept.label} from {surface}", outputs)
         # The base may have moved: keep the location for the rollback.
         return self.fail(message, location_of(outputs))
 
@@ -880,8 +893,8 @@ class PlaceObject(_HandSkill):
                     # Released: nothing to place again, and only a success
                     # clears robot.holding (a failure rolls memory back).
                     outputs.update({HOLDING: None, HELD: None})
-                    return SkillResult(
-                        True,
+                    return self.done(
+                        ctx,
                         f"Let go of {label} {where} {params['surface']}, but it "
                         f"was not seen there: {result.message}",
                         outputs,
@@ -896,9 +909,7 @@ class PlaceObject(_HandSkill):
                     continue
                 break
             outputs.update({HOLDING: None, HELD: None})
-            return SkillResult(
-                True, f"Put {label} {where} {params['surface']}", outputs
-            )
+            return self.done(ctx, f"Put {label} {where} {params['surface']}", outputs)
         return self.fail(message, location_of(outputs))
 
     def spot(self, ctx, objects, name, trash, label, size, clearance):
@@ -1016,8 +1027,8 @@ class DeliverObject(_HandSkill):
                 break
             if result.success:
                 outputs.update({HOLDING: None, HELD: None})
-                return SkillResult(
-                    True, f"Handed {label} to {params['person']} ({message})", outputs
+                return self.done(
+                    ctx, f"Handed {label} to {params['person']} ({message})", outputs
                 )
             message = f"Handover: {result.message}"
             if result.status != type(result).STATUS_TIMEOUT:

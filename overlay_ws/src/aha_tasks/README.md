@@ -553,7 +553,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 - 失敗しても人に助けを求めない（§3.7の補助は最後の手段で、まず手順を飛ばす）。失敗はサブゴールの失敗としてポリシーに従う。
 - 時間切れのgoalを取り消しても止まったとserverが確かめられなければ（5 s以内に結果がない）、腕がまだ動くかもしれないため、次のgoalを送らずに失敗とする（渡すも同じ）。
 - 腕が安全な姿勢にないかもしれない間（止まったと確かめられないgoal、受け付けの返事を待ちきれなかったgoal（断られたと分かるか結果が届くまで。時間切れならスキルは次のgoalを送らずに失敗する）、`returned` がfalseのgoal。取り消したgoalや、`carry` へ動けなかった `PickObject` の成功を含む）は、runnerは台車を動かさない（runnerの `Navigation` を通るすべての移動。`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動、`find_described_person` などが人へ近づく移動）。`NavigateToPose` を直接送る他のクライアントは、runtimeの `arm_out`（`aha_tasks.skills.ARM_OUT`）を確かめる。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。`returned` がtrueのgoalの終了で解除する。ただし腕を動かす前に返る `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` と、`returned` がtrueの `PickObject` の失敗（statusがなく、腕を動かしたか分からない）は、前のgoalの後の状態を変えない。腕を手で戻した後は、runnerを再起動して解除する（runnerの記憶ではなくプロセスの状態のため）。
-- serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。
+- serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。そのときはスキルのメッセージとログに、記憶に入らない `robot.holding` の値と「check the hand」を書く（手の物体は人が確かめる）。
 - 持てる物体は1つで、持っている間の `pick_object` は失敗する。
 
 ### シミュレーションの把持

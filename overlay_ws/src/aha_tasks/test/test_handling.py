@@ -418,6 +418,20 @@ class PickTests(unittest.TestCase):
                 self.assertIn("did not confirm", result.message)
                 self.assertEqual(len(hands.goals), 1)
 
+    def test_a_success_after_the_cancel_says_the_memory_misses_it(self):
+        class CancelledMeanwhile(FakeHands):
+            def run(self, name, request, timeout, cancelled):
+                cancelled.set()  # the task is cancelled; the goal ends well
+                return super().run(name, request, timeout, cancelled)
+
+        hands = CancelledMeanwhile(pick=[ok()])
+        runtime = make_runtime(kitchen_scene(), hands=hands)
+        params = {"object": "cola", "surface": "kitchen_table"}
+        result, logs = run(PickObject, runtime, params)
+        self.assertTrue(result.success, result.message)
+        self.assertIn("its memory does not keep robot.holding='", result.message)
+        self.assertTrue(any("check the hand" in line for line in logs))
+
     def test_the_base_comes_closer_after_a_place_before_the_arm_moved(self):
         for status, moves in ((3, 2), (2, 2), (4, 1)):  # unreachable, no space, exec
             with self.subTest(status=status):
