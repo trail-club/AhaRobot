@@ -23,14 +23,16 @@
       "door": [-5.3, 1.5],
       "threshold": [-5.0, 1.5],
       "seat": "chair_right",
-      "colors": {"shirt": [0.75, 0.08, 0.08]}
+      "colors": {"shirt": [0.75, 0.08, 0.08]},
+      "bell": "chime"
     },
     "guest2": {
       "away": [-7.0, -2.0],
       "door": [-5.3, 1.5],
       "threshold": [-5.0, 1.5],
       "seat": "chair_extra",
-      "colors": {"shirt": [0.1, 0.45, 0.15], "trousers": [0.05, 0.05, 0.05], "hair": [0.75, 0.6, 0.25]}
+      "colors": {"shirt": [0.1, 0.45, 0.15], "trousers": [0.05, 0.05, 0.05], "hair": [0.75, 0.6, 0.25]},
+      "bell": "knock"
     }
   }
 }

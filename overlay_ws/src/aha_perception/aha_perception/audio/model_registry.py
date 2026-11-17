@@ -24,7 +24,7 @@ def default_registry_path() -> str:
 @dataclass
 class ModelEntry:
     key: str
-    kind: str  # "asr" | "vad" | "turn" | "tts"
+    kind: str  # "asr" | "vad" | "turn" | "tts" | "doorbell"
     spec: dict[str, Any]
 
     @property
@@ -37,9 +37,12 @@ class ModelEntry:
 
     @property
     def tag(self) -> str:
-        """ "<repo>@<revision[:7]>" or "<package>==<installed version>" for pip-bundled models."""
+        """ "<repo>@<revision[:7]>", "<checkpoint>@<sha256[:7]>" for a file pinned by its
+        hash, or "<package>==<installed version>" for pip-bundled models."""
         if self.repo:
             return f'{self.repo}@{(self.revision or "main")[:7]}'
+        if self.spec.get("sha256"):
+            return f'{self.spec.get("checkpoint", self.key)}@{self.spec["sha256"][:7]}'
         package = self.spec["package"]
         return f"{package}=={importlib.metadata.version(package)}"
 

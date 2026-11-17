@@ -15,10 +15,14 @@ from pathlib import Path
 import threading
 
 from aha_tasks.guests import (
+    ARRIVE,
     CHAIR_MODEL,
+    TRIGGERS,
     Guest,
+    attempts_of,
     chair_sdf,
     door_open,
+    executing,
     guest_phase,
     guest_sdf,
     load_config,
@@ -29,6 +33,7 @@ from aha_tasks.guests import (
 from aha_tasks.people_scene_node import DEFAULT_CACHE
 from aha_tasks.runner import STATUS_TOPIC
 from aha_tasks.sim_people import HIDDEN_Z, build_meshes, person_sdf
+from aha_tasks.sim_sound_node import BELL_TOPIC
 
 SITTING = "sitting"  # the sim_people label of seated people
 
@@ -91,7 +96,13 @@ def main(argv=None):
     world = f"/world/{scene['world']}"
     gz = GzNode()
     lock = threading.Lock()
-    state = {"robot": None, "statuses": {}, "memory": {}}
+    state = {
+        "robot": None,
+        "statuses": {},
+        "memory": {},
+        "attempts": {},
+        "executing": None,
+    }
 
     def on_poses(message):
         for pose in message.pose:
@@ -117,6 +128,8 @@ def main(argv=None):
         with lock:
             state["statuses"] = statuses_of(status)
             state["memory"] = status.get("memory", {})
+            state["attempts"] = attempts_of(status)
+            state["executing"] = executing(status)
 
     node.create_subscription(
         String,
@@ -128,6 +141,7 @@ def main(argv=None):
             reliability=ReliabilityPolicy.RELIABLE,
         ),
     )
+    bell_pub = node.create_publisher(String, BELL_TOPIC, 10)
     guests = [Guest(name, c, scene) for name, c in scene["guests"].items()]
     door = scene["door"]
     # People are created hidden under the floor and then moved.
@@ -183,6 +197,7 @@ def main(argv=None):
         with lock:
             robot, statuses = state["robot"], state["statuses"]
             memory = state["memory"]
+            attempts, running = state["attempts"], state["executing"]
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
@@ -196,7 +211,13 @@ def main(argv=None):
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase, seat)
+            bell = f"{guest.name}.{TRIGGERS[ARRIVE]}"
+            guest.set_bell(attempts.get(bell), running == bell)
             guest.step(dt, robot)
+            if guest.ring is not None:
+                bell_pub.publish(String(data=guest.ring))
+                log.info(f"{guest.name}: {guest.ring} at the door")
+                guest.ring = None
             poses[guest.name] = (guest.x, guest.y, guest.z, guest.model_yaw)
         for name, pose in poses.items():
             previous = sent.get(name)

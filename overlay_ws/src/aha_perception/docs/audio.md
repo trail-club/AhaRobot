@@ -10,7 +10,10 @@ AhaRobot の音声スタック。外部の API は使わず、推論は DGX Spar
 /aha/perception/audio/speak ──────────文──────────▶ Kokoro (英語のみ)
 スピーカー ◀───────────────────────音声──────────────┘
                  (再生中は /aha/perception/audio/tts_active=True でマイクを無視)
+マイク ─▶ ドアベル検出（手元、0.2 s ごと）─▶ /aha/perception/audio/doorbell
 ```
+
+[ドアベル検出](#ドアベル検出)は ASR・TTS と別のノードで、`target` によらず手元の GPU で動く。
 
 ## 推論先
 
@@ -54,6 +57,7 @@ Haas-ja-v1.0 は Linux + CUDA 専用である。Qwen3-ASR は比較用に残し�
 | VAD | [silero-vad](https://github.com/snakers4/silero-vad) 6.2.3（pip 同梱の重み） | — | MIT | CPU |
 | 話し終わり判定 | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) `smart-turn-v3.2-cpu.onnx` | `f766f81` | BSD-2-Clause | CPU（onnxruntime） |
 | TTS（英語のみ） | [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)（音声 `af_heart`） | `f3ff357` | Apache-2.0 | GPU |
+| ドアベル・ノック | [PretrainedSED](https://github.com/fschmid56/PretrainedSED) の BEATs（AudioSet strong）、`BEATs_strong_1.pt` | SHA-256 `db13a79` | MIT（コード） | 手元の GPU |
 
 実行中に読み込まれている構成は、次の 3 か所で確認できる。
 
@@ -94,6 +98,7 @@ make audio-run PULSE_SOURCE=alsa_output.pci-0000_80_1f.3.analog-stereo.monitor
 - 推論先を指定する：`ros2 launch aha_perception audio.launch.py target:=trailpc ssh_user:=<Unixユーザー名>`
 - 日本語で起動する：`ros2 launch aha_perception audio.launch.py language:=ja`
 - デバッグ UI を使わない：`use_debug_ui:=false`
+- ドアベル検出を使わない（HIC 以外）：`use_doorbell:=false`（`make audio-run USE_DOORBELL=false`）
 
 ## インターフェース
 
@@ -105,6 +110,7 @@ make audio-run PULSE_SOURCE=alsa_output.pci-0000_80_1f.3.analog-stereo.monitor
 | `/aha/perception/audio/tts_active` | `std_msgs/Bool` | TTS の再生中は `True` |
 | `/aha/perception/audio/debug` | `std_msgs/String`（JSON） | デバッグ UI 向けのイベント（フレームごとのレベル・VAD、認識、TTS） |
 | `/aha/perception/audio/models` | `std_msgs/String`（JSON） | 読み込んだモデルの記録 |
+| `/aha/perception/audio/doorbell` | `aha_msgs/SoundEvent` | ドアベル・ノックの検出（[ドアベル検出](#ドアベル検出)） |
 
 ```bash
 # 言語切り替え（ASR のみ。TTS は英語固定）
@@ -144,6 +150,34 @@ UI は既定で `127.0.0.1` にだけ bind する。認証がないので、別 
 - **話し終わる前に切られる**：`turn_threshold` を上げるか、`max_silence_ms` を延ばす
 - **反応が遅い**：`turn_check_ms` を短くする
 - **雑音で反応する**：`start_threshold` と `min_start_ms` を上げる
+
+## ドアベル検出
+
+HIC で開始位置に待つ間のドアベル・ノック（[ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)）を `aha_audio_doorbell` が検出し、
+検出の始まりごとに `aha_msgs/SoundEvent`（`label` は `doorbell` か `knock`）を出す。
+[aha_tasks の `detect_doorbell`](../../aha_tasks/README.md#ドアベルの検出) がこれを待つ。
+モデル・窓・クラス・しきい値は [ドアベル検出の比較](../../../../tools/perception/doorbell_bench/README.md) で決めた。
+
+- 0.2 s ごとに直近 10 s を、PretrainedSED の BEATs（submodule `upstream/PretrainedSED`）で判定する。スコアは AudioSet の `Doorbell`・`Ding-dong`（チャイム）と `Knock` の確率の、窓の終わりの 0.6〜0.4 s 前のフレームでの最大値。
+- 台帳の `rules` の `avg` 回の移動平均が `n` 回続けて `threshold` 以上になった立ち上がりで検出とし、5 s 以内の立ち上がりは同じ検出とみなす。しきい値は比較の dev で環境音（話し声・音楽・生活音）の誤報が1時間あたり5回以下になる最も低い値で、eval の検出率はチャイム 69 %・ノック 73 %、環境音の誤報は 2.7 / 4.0 回/h（[比較の結果](../../../../tools/perception/doorbell_bench/README.md#結果)）。
+- TTS の再生中と終了後 `mute_tail_ms` は判定せず、窓を空にする。
+- `/aha/perception/audio/doorbell` の publisher は、モデルを読み込み音声入力を始めてから作る。`doorbell_input:=topic` では音声が届いている間だけ作り、2 s 届かなければ消す（シミュレーションの再起動では止まらない）。マイクの音が2 s 届かないときはノードが終わる。
+- 推論はノードのプロセスの GPU で行い（1 窓約 5 ms）、`target` は使わない。重み（364 MB）は `$HF_HOME/aharobot-doorbell/` に置き、起動のたびに SHA-256 を確かめる。ないか合わなければ取得し直し、取得したものも合わなければ置かずに止まる。
+
+`make audio-run` は ASR・TTS と一緒に検出器も起動する（`upstream/PretrainedSED` の submodule が要る）。検出器だけを起動するときは次のようにする。
+
+```bash
+# 音声コンテナで（git submodule update --init upstream/PretrainedSED のあと）
+ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false
+```
+
+| パラメータ（`aha_audio_doorbell`） | 既定 | 内容 |
+| --- | --- | --- |
+| `device` | `cuda:0` | 推論する GPU |
+| `input_device` / `capture_rate` | `''` / `16000` | ASR と同じマイクの指定。PulseAudio 経由なら ASR と同時に使える |
+| `mute_tail_ms` | `300` | TTS 終了後に判定しない時間 |
+
+launch 引数 `doorbell_input:=topic`（`make audio-run DOORBELL_INPUT=topic`）で、マイクの代わりにシミュレーションの `/aha/sim/audio`（`aha_tasks` の `sim_sounds`）を読む。
 
 ## 既知の制約
 

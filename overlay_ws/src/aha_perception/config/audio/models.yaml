@@ -59,6 +59,26 @@ tts:
     voice: af_heart
     note: 82M 非自己回帰 TTS。英語専用で運用 (日本語 TTS は使わない)。
 
+# 待機中のドアベル / ノック検出 (aha_audio_doorbell)。tools/perception/doorbell_bench の
+# 比較で最良だったモデルで、窓・クラス・後処理も同じ比較で決めた。rules は dev の環境音
+# (話し声・音楽・生活音) の誤報が 1 時間あたり 5 回以下になる最も低いしきい値。
+doorbell:
+  beats_sed:
+    code: upstream/PretrainedSED          # PretrainedSED の BEATs (AudioSet strong、40 ms ごとのフレーム)。commit は submodule で固定
+    checkpoint: BEATs_strong_1
+    url: https://github.com/fschmid56/PretrainedSED/releases/download/v0.0.1/BEATs_strong_1.pt
+    sha256: db13a79ae90a0cfd0f9911a6a1d8cdb89324322bee642dcfe32de022123b8b54
+    license: MIT (コード。重みの条件の記載は未確認)
+    window: 10.0                          # s。0.2 s ごとに直近 10 s を判定する
+    frames: [0.6, 0.4]                    # 窓の終わりの何 s 前から何 s 前までのフレームの最大
+    classes:                              # AudioSet の表示名。最大の確率をスコアにする
+      chime: [Doorbell, Ding-dong]
+      knock: [Knock]
+    rules:                                # avg 回の移動平均が n 回続けて threshold 以上になった立ち上がりで検出
+      chime: {threshold: 0.0122, avg: 1, n: 3}   # eval: 検出率 69 %、環境音の誤報 2.7 回/h
+      knock: {threshold: 0.0488, avg: 2, n: 2}   # eval: 検出率 73 %、環境音の誤報 4.0 回/h
+    note: 約 91M。GPU (RTX 5090 Laptop) で 1 窓約 5 ms。
+
 # 言語ごとに使う ASR。aha_audio_asr の language パラメータで切り替える。
 # (TTS は英語のみなので言語切り替えの対象外)
 languages:

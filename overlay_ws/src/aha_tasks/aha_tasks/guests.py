@@ -50,7 +50,8 @@ SCENE_KEYS = {
     "seated",
     "guests",
 }
-GUEST_KEYS = {"away", "door", "threshold", "seat", "colors"}
+GUEST_KEYS = {"away", "door", "threshold", "seat", "colors", "bell"}
+BELLS = ("chime", "knock")  # what a guest does at the door (aha_tasks.sim_sounds)
 SEATED_KEYS = {"seat", "shirt"}  # a shirt of sim_people.SHIRT_COLOURS
 # "pose": [x, y, yaw] where a guest stands, facing the room; "sit": [x, y]
 # where a seated person is; "via": points on the way; optionally "chair":
@@ -81,6 +82,8 @@ def load_config(path):
         unknown = set(person["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
+        if person["bell"] not in BELLS:
+            raise ValueError(f"{path}: {name} bell must be one of {BELLS}")
     if set(config["seated"]) & set(config["guests"]):
         raise ValueError(f"{path}: a guest cannot also be seated")
     return config
@@ -95,6 +98,18 @@ def offered_seat(name, memory, seats):
     """The seat in memory for a guest (`<name>.seat`) if the scene has it."""
     seat = memory.get(f"{name}.seat")
     return seat if seat in seats else None
+
+
+def attempts_of(status):
+    """Subgoal id -> (run number, attempts): it changes on every new attempt, also
+    when a new run starts the attempts from 0 again."""
+    run = (status.get("run") or {}).get("number", 0)
+    return {s["id"]: (run, s["attempts"]) for s in status["subgoals"]}
+
+
+def executing(status):
+    """The subgoal whose skill runs now (after the runner restored the state)."""
+    return status["current"] if status["phase"] == "executing" else None
 
 
 def reached(statuses, subgoal):
@@ -179,6 +194,10 @@ class Guest:
         self.route = []
         self.clock = 0.0
         self.last_trail = None
+        self.rang = False  # rang the bell in this ARRIVE phase and attempt
+        self.ring = None  # a bell to sound now (config "bell"); the node clears it
+        self.bell_attempt = None  # (run, attempts) of <guest>.doorbell
+        self.listened = False  # the robot waits for the bell (<guest>.doorbell runs)
 
     @property
     def z(self):
@@ -199,6 +218,7 @@ class Guest:
         self.seat = seat
         previous, self.phase = self.phase, phase
         self.clock, self.last_trail = 0.0, None
+        self.rang, self.ring = False, None
         door, threshold = self.config["door"], self.config["threshold"]
         if phase < previous or phase == SEAT and previous < FOLLOW:
             # Rewound or skipped in the task, so there is nothing to walk through.
@@ -226,6 +246,15 @@ class Guest:
         seat = self.seats[self.seat]
         return [*seat["via"], seat["pose"][:2]]
 
+    def set_bell(self, attempt, listened):
+        """The attempt of <guest>.doorbell (attempts_of) and whether its skill waits now.
+
+        The guest rings only while the robot waits (rulebook 5.1), and again on a
+        retry of the subgoal or in a new run."""
+        if attempt != self.bell_attempt:
+            self.bell_attempt, self.rang = attempt, False
+        self.listened = listened
+
     def step(self, dt, robot=None):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
         self.clock += dt
@@ -238,6 +267,8 @@ class Guest:
                 self.yaw = self.seats[self.seat]["pose"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
+            if self.listened and not self.rang:
+                self.rang, self.ring = True, self.config["bell"]
         elif self.phase == TALK:
             self._pace()
             self._face(robot)
