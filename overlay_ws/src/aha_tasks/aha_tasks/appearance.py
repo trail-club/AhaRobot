@@ -65,8 +65,11 @@ COLOURS = set(
     "blond ginger silver gold maroon khaki teal turquoise cream tan olive".split()
 )
 SHADES = {"dark", "light", "pale", "bright"}
+# "possible beard", "may have a beard", "looks like a hat": a hedged phrase
+# would vote like a sure one and be said as the VLM put it.
 HEDGES = re.compile(
-    r"\b(possibly|maybe|perhaps|probably|likely|might|appears?|seems?|"
+    r"\b(possibl[ey]|maybe|perhaps|probabl[ey]|presumably|apparently|likely|"
+    r"might|may|could|appears?|seems?|seemingly|looks?|unsure|uncertain|"
     r"unclear|partially|partly|hidden|unknown|or)\b"
 )
 NEGATIONS = re.compile(r"^(no|not|without)\b|\bno\b")

@@ -252,7 +252,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 - `memorize_person` は、聞いた画像の過半数（3枚なら2枚）が一致した特徴だけを残す。失敗した画像は反対に数えるため、1枚しか答えなければ何も残さない（ログに出す）。VLMが1枚にだけ答えた句（ない眼鏡など）も残らない。
 - 体の部位が同じ句は部位ごとに、服の種類と色で数える（`red t-shirt`・`red shirt`・`red top` は同じ）。最も多い種類と色が過半数になければ部位ごと捨てる（`black pants` と `dark grey pants` に分かれた下衣など）。言う句は過半数が答えた言い方、なければ色と種類だけ（`red shirt`、`black hair`）にする。
 - 部位ごとに1つの句を、上衣、眼鏡、帽子、下衣、髪、ひげ、かばん、首回り、靴の順に `max_features`（既定4）まで選ぶ。部位は句の最後の名詞で決める。
-- 推量・否定を含む句（`possibly glasses`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。文が自分で付ける先頭の動詞・冠詞（`wearing glasses`、`has a beard` → `beard`）と、`with` などより後の細部（`red t-shirt with a logo` → `red t-shirt`）は省いてから語数を数える。
+- 推量・否定を含む句（`possibly glasses`、`may have a beard`、`looks like a hat`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。文が自分で付ける先頭の動詞・冠詞（`wearing glasses`、`has a beard` → `beard`）と、`with` などより後の細部（`red t-shirt with a logo` → `red t-shirt`）は省いてから語数を数える。
 - 持っている物（`carrying` / `holding` の付く句、手・腕・肩などにある物：`carrying a black jacket`、`cap in hand`）は、かばんでなければ言わない（`bag on shoulder` は言う）。
 - 名前 `<role>.name` を使い、なければ `the other guest` と言う。例：`Emma, Charlie is wearing a red t-shirt and blue jeans and has short black hair.`
 - 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。頭がすでにその人を追っていれば（`memorize_person` の直後）、位置で引き継いだ新しいtrackのまま追い続ける。まだ追っていなければ、頭が向くまで1.5 s待ってから話す。言える特徴がなければ何も言わずに成功する。

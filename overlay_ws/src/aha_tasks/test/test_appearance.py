@@ -92,6 +92,10 @@ class NormalizeTests(unittest.TestCase):
     def test_hedged_negated_unknown_and_long_phrases_are_not_told(self):
         for phrase in (
             "possibly glasses",
+            "possible beard",
+            "may have a beard",
+            "could be wearing glasses",
+            "looks like a hat",
             "no glasses",
             "not wearing a hat",
             "red or orange shirt",
@@ -105,6 +109,8 @@ class NormalizeTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIsNone(normalize(phrase))
+        # A hedged view does not vote for the sure one.
+        self.assertEqual(consensus([["beard"], ["may have a beard"], []]), [])
 
 
 class ConsensusTests(unittest.TestCase):
