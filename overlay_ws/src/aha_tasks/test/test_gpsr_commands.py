@@ -670,6 +670,8 @@ class ConfirmationTests(unittest.TestCase):
             "Sorry, no, I said bring me a cola from the desk",
             "Um, no, I said bring me a cola from the desk",
             "Oh no, I said bring me a cola from the desk",
+            "That's not right, I said bring me a cola from the desk",
+            "Not quite, I said bring me a cola from the desk",
         ):
             with self.subTest(answer):
                 verdict, rest = yes_no(answer)

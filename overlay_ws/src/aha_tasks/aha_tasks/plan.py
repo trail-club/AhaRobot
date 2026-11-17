@@ -11,6 +11,7 @@ import copy
 
 from aha_tasks.core.skill import Skill, SkillContext, SkillResult, normalize, resolve
 from aha_tasks.skills import LOCATION, go_to, resolve_pose
+from aha_tasks.task_status import TaskStatusSkill, planning_skipped
 
 PLAN = "plan"  # memory key
 RUN_PLAN_STEP = "run_plan_step"
@@ -71,8 +72,16 @@ def validate_plan(plan, spec):
             raise ValueError(f"step {number}: {error}") from None
 
 
-class RunPlanStep(Skill):
-    """Run a step of the plan. params: {"index": <0-based position in the plan>}."""
+class RunPlanStep(TaskStatusSkill):
+    """Run a step of the plan. params: {"index": <0-based position in the plan>}.
+
+    After a planning subgoal that failed and was skipped, the plan in memory is
+    the task definition's mock, not the operator's commands: no step is run.
+    """
+
+    def ready(self):
+        if getattr(self.runtime, "node", None) is not None:
+            self._subscribe_status()
 
     @classmethod
     def validate(cls, params, spec):
@@ -107,6 +116,8 @@ class RunPlanStep(Skill):
         return {**skill.assumed(step["params"], memory), **mock}
 
     def execute(self, ctx):
+        if planning_skipped(self.runtime.spec, self.latest_status(ctx.subgoal)):
+            return SkillResult(True, "Planning was skipped: the mock plan is not run")
         plan = ctx.memory.get(PLAN)
         try:
             # The whole plan, so that a bad step is rejected before any motion.

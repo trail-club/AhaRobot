@@ -28,12 +28,7 @@
   },
   "initial_state": {
     "robot.location": "spawn",
-    "gpsr.names": ["Adel", "Angel", "Axel", "Charlie", "Jane", "Jules", "Morgan", "Paris", "Robin", "Simone"],
-    "gpsr.robot_name": "AhaRobot",
-    "gpsr.team_name": "TRAIL",
-    "gpsr.team_country": "Japan",
-    "gpsr.team_affiliation": "the University of Tokyo",
-    "gpsr.utc_offset": 9
+    "gpsr.names": ["Adel", "Angel", "Axel", "Charlie", "Jane", "Jules", "Morgan", "Paris", "Robin", "Simone"]
   },
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",

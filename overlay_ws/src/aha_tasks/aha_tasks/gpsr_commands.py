@@ -32,7 +32,8 @@ from aha_tasks.gpsr_planner import (
 from aha_tasks.gpsr_vocabulary import load_vocabulary, names_of
 from aha_tasks.interaction import NO_ASR, Cancelled, Interaction
 from aha_tasks.plan import COMMANDS, PLAN, validate_plan
-from aha_tasks.runner import STATUS_TOPIC
+from aha_tasks.task_status import TaskStatusSkill as _TaskStatus
+from aha_tasks.task_status import planning_skipped, unheard
 from aha_tasks.skills import LOCATION
 
 ORDINALS = {1: "first", 2: "second", 3: "third"}
@@ -66,7 +67,6 @@ FILLERS = re.compile(
 )
 MIN_WORDS = 3  # a command has at least this many words
 PLANNERS = ("auto", "llm", "grammar")
-STATUS_WAIT = 2.0  # s for the latched task status
 
 
 def words_of(text):
@@ -75,7 +75,7 @@ def words_of(text):
 
 # Words before a restated command: "No, no, sorry, I said ...".
 OPENERS = {"sorry", "well", "um", "uh", "oh", "wait", "actually"}
-LEADING = YES | NO | OPENERS
+LEADING = YES | NO | OPENERS | {"quite", "really"}
 
 
 def yes_no(text):
@@ -97,11 +97,11 @@ def yes_no(text):
         return "no", ""  # "Absolutely not", "Certainly not"
     if words[0] in YES:
         return "yes", " ".join(words[1:])
-    if words[0] in NO or NO_PHRASE.search(joined):
-        if words[0] not in NO:
-            return "no", ""
-        # "No, no, sorry, bring me ...": the command after the leading words.
-        rest = words[1:]
+    denial = NO_PHRASE.search(joined)
+    if words[0] in NO or denial:
+        # "No, no, sorry, bring me ...", "That's not right, I said bring me ...":
+        # the command after the denial and the leading words.
+        rest = words[1:] if words[0] in NO else joined[denial.end() :].split()
         while rest and rest[0] in LEADING:
             rest = rest[1:]
         return "no", " ".join(rest)
@@ -303,87 +303,6 @@ class ListenCommand(Skill):
                 return True, text
         # The last answer restated the command: it was not confirmed.
         return False, text
-
-
-class _TaskStatus(Skill):
-    """The runner's own task status (/aha/tasks/status), for skills that look
-    at how other subgoals ended."""
-
-    def _subscribe_status(self):
-        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-        from std_msgs.msg import String
-
-        self.status = None
-        qos = QoSProfile(
-            depth=1,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=ReliabilityPolicy.RELIABLE,
-        )
-        self.runtime.node.create_subscription(
-            String, STATUS_TOPIC, self._on_status, qos
-        )
-
-    def _on_status(self, message):
-        self.status = message.data
-
-    def _parsed(self):
-        try:
-            return json.loads(self.status) if getattr(self, "status", None) else None
-        except ValueError:
-            return None
-
-    def latest_status(self, subgoal):
-        """The task status published once `subgoal` (this skill's) started, or
-        the last one after STATUS_WAIT (None without any).
-
-        The runner publishes and subscribes on one node through DDS: the cached
-        status may still be one from before the previous subgoal ended. The
-        one with this subgoal as current has every earlier record final.
-        """
-        if getattr(self.runtime, "node", None) is not None:
-            deadline = time.monotonic() + STATUS_WAIT
-            while time.monotonic() < deadline:
-                status = self._parsed()
-                if status and status.get("current") == subgoal:
-                    return status
-                time.sleep(0.05)
-        return self._parsed()
-
-
-def unheard(keys, spec, status):
-    """Memory keys among `keys` whose listen_command subgoal was skipped.
-
-    A skipped (failed, then continued) subgoal leaves its mock command text in
-    memory: that text was not heard and must not be planned. A bypassed one
-    (not selected) keeps it, so that a run can start from the mock commands.
-    """
-    if not status:
-        return set()
-    outcome = {
-        item.get("id"): item.get("status") for item in status.get("subgoals", [])
-    }
-    return {
-        f"cmd{subgoal.params.get('command')}.text"
-        for subgoal in spec.subgoals
-        if subgoal.skill == "listen_command"
-        and outcome.get(subgoal.id) == "skipped"
-        and f"cmd{subgoal.params.get('command')}.text" in keys
-    }
-
-
-def planning_skipped(spec, status):
-    """Whether the plan_commands subgoal failed and was skipped (its mock plan
-    is in memory then). Not when it was not selected (bypassed)."""
-    if not status:
-        return False
-    outcome = {
-        item.get("id"): item.get("status") for item in status.get("subgoals", [])
-    }
-    return any(
-        outcome.get(subgoal.id) == "skipped"
-        for subgoal in spec.subgoals
-        if subgoal.skill == "plan_commands"
-    )
 
 
 def command_infos(results, count, vocabulary):

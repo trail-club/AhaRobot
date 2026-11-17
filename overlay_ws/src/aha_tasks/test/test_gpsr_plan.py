@@ -266,6 +266,27 @@ class RunPlanStepTests(unittest.TestCase):
         self.assertEqual(fake.contexts, [])
         self.assertTrue(slot().execute(context([])).success)
 
+    def test_a_mock_plan_after_skipped_planning_is_not_run(self):
+        spec, _ = load_task(GPSR)
+        mock_plan = next(s for s in spec.subgoals if s.id == "plan.generate").mock[
+            "plan"
+        ]
+        navigation = FakeNavigation()
+        runner = slot(navigation=navigation, spec=spec)
+        runner.status = json.dumps(
+            {"subgoals": [{"id": "plan.generate", "status": "skipped"}]}
+        )
+        result = runner.execute(context(mock_plan))
+        self.assertTrue(result.success)
+        self.assertIn("Planning was skipped", result.message)
+        self.assertEqual(navigation.goals, [])
+        # Not selected (bypassed): the mock plan runs, e.g. for a test run.
+        runner.status = json.dumps(
+            {"subgoals": [{"id": "plan.generate", "status": "bypassed"}]}
+        )
+        result = runner.execute(context(mock_plan))
+        self.assertNotIn("Planning was skipped", result.message)
+
     def test_missing_or_invalid_plan_fails(self):
         skill = slot({"fake": FakeSkill()})
         ctx = context(None)
