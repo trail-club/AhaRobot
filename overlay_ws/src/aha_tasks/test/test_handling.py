@@ -16,6 +16,7 @@ sys.path.insert(0, TEST)
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.handling import (  # noqa: E402
     HANDOVER_ACTION,
+    PICK_ACTION,
     Unstopped,
     HELD,
     HOLDING,
@@ -991,6 +992,37 @@ class HandsTests(unittest.TestCase):
         handle.cancel_goal_async = lambda: setattr(handle, "cancels", 1)
         client.sent[0].set_result(handle)  # the late acceptance
         self.assertEqual(handle.cancels, 1)
+
+    def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
+        hands = Hands.__new__(Hands)
+        hands.runtime = SimpleNamespace(arm_out=None)
+        cancelled = threading.Event()
+        cancelled.set()
+        stuck = PickResult(success=False, message="cancelled", returned=False)
+        back = PickResult(success=True, message="Picked", returned=True)
+        before = PickResult(success=False, message="too far", returned=True)
+        for on_cancel, out in ((stuck, True), (back, False), (before, False)):
+            with self.subTest(result=on_cancel.message):
+                client = FakeClient()
+                hands.clients = {PICK_ACTION: (None, client)}
+                self.assertEqual(
+                    hands.run(PICK_ACTION, goal(), 1.0, cancelled), (None, "Cancelled")
+                )
+                handle = FakeHandle(on_cancel)
+                handle.accepted = True
+                calls = []
+                handle.cancel_goal_async = lambda h=handle: calls.append(h)
+                client.sent[0].set_result(handle)  # the late acceptance
+                self.assertEqual(len(calls), 1)
+                self.assertIn("did not confirm", hands.runtime.arm_out)
+                handle.future.set_result(SimpleNamespace(result=on_cancel))
+                self.assertEqual(hands.runtime.arm_out is not None, out)
+        # A late rejection changes nothing.
+        client = FakeClient()
+        hands.clients = {PICK_ACTION: (None, client)}
+        hands.run(PICK_ACTION, goal(), 1.0, cancelled)
+        client.sent[0].set_result(SimpleNamespace(accepted=False))
+        self.assertIsNone(hands.runtime.arm_out)
 
 
 class ValidationTests(unittest.TestCase):

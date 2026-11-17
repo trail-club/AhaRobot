@@ -488,9 +488,7 @@ class Hands:
         """The accepted goal handle; RuntimeError if not served or rejected.
 
         A goal still unanswered at a cancel or timeout is cancelled once the
-        server accepts it, so that the arm does not move after all."""
-        from aha_tasks.interaction import cancel_if_accepted
-
+        server accepts it (cancel_late)."""
         _, client = self.clients[name]
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
             raise RuntimeError(f"{name} is not served")
@@ -498,11 +496,36 @@ class Hands:
         try:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
         except (Cancelled, TimeoutError):
-            sent.add_done_callback(cancel_if_accepted)
+            sent.add_done_callback(self.cancel_late)
             raise
         if not handle.accepted:
             raise RuntimeError(f"{name} rejected the goal")
         return handle
+
+    def cancel_late(self, sent):
+        """Cancel a goal accepted after start gave up on it. It may have moved
+        the arm before the cancel (which stops it where it is): arm_out is set
+        until its result says how it ended; a result from before any motion
+        gives back the earlier arm_out."""
+        handle = sent.result()
+        if handle is None or not handle.accepted:
+            return
+        if self.runtime is not None:
+            earlier = getattr(self.runtime, ARM_OUT, None)
+            self.arm_after(None)
+            late = getattr(self.runtime, ARM_OUT)
+
+            def ended(future):
+                response = future.result()
+                result = None if response is None else response.result
+                if result is not None and before_motion(result):
+                    if getattr(self.runtime, ARM_OUT, None) == late:
+                        setattr(self.runtime, ARM_OUT, earlier)
+                else:
+                    self.arm_after(result, stopped=True)
+
+            handle.get_result_async().add_done_callback(ended)
+        handle.cancel_goal_async()
 
     def finish(self, handle, timeout, cancelled, until=None):
         """The result, or None once `until()` holds. On cancel or timeout the
