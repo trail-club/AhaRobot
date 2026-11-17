@@ -381,7 +381,11 @@ class Stand:
             for step_lift, step_joints in steps:
                 ok, text = self.arm.move(step_lift, step_joints, cancelled)
                 if not ok:
-                    raise Failed(f"Arm ({what}): {text}")
+                    # A cancel stops the arm where it is (STATUS_CANCELED of
+                    # place and handover), unlike a failed motion.
+                    stopped = cancelled is not None and cancelled.is_set()
+                    status = "STATUS_CANCELED" if stopped else None
+                    raise Failed(f"Arm ({what}): {text}", status)
         except TimeoutError as error:
             raise Failed(f"Arm ({what}): {error}") from None
 

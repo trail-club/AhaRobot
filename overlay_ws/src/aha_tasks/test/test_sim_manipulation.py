@@ -215,6 +215,19 @@ class StandMoveTests(unittest.TestCase):
         with self.assertRaises(Failed):
             Stand.remember_rest(stand)
 
+    def test_a_cancel_during_a_motion_is_a_cancel(self):
+        stand = FakeStand()
+        stand.arm = SimpleNamespace(
+            positions=lambda joints: [0.0] * 6,
+            move=lambda lift, joints, cancelled: (False, "Cancelled"),
+        )
+        for requested, status in ((True, "STATUS_CANCELED"), (False, None)):
+            with self.subTest(requested=requested):
+                cancelled = SimpleNamespace(is_set=lambda: requested)
+                with self.assertRaises(Failed) as caught:
+                    Stand.move(stand, 0.5, (0.0,) * 5, cancelled, "person")
+                self.assertEqual(caught.exception.status, status)
+
 
 class StandReleaseTests(unittest.TestCase):
     """Once the object left the hand, place and handover succeed (with a

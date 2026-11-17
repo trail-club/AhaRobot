@@ -185,7 +185,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 | 持っている物体を人へ渡す | `/aha/manipulation/handover` | `aha_msgs/action/HandOver` |
 
 - `PickObject` の `target` は `/aha/perception/objects` の物体（frame `map`、`class_name` はラベル、`pose` は中心、`size` は物体の軸の大きさ）。`approach_offset` は0。
-- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。
+- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` は腕を動かす前に返す（呼び出し側は台車を動かしてよい）。
 - `HandOver` の `target` は人の中心（frame `map`）。`release` は `take`（serverが受け取りを感じ取ったら離す）か `now`（手を出したらすぐ離す）。取り消すと腕はその場で止まり、物体を持ち続ける。`deliver_object` は `touch: true` のとき、画面のタッチで `take` のgoalを取り消し、取り消された（`STATUS_CANCELED`）ときだけ `now` で送り直す。
 - 試験用の `aha_test_msgs/action/PlaceObject`（[tests](../tests/README.md)、同じ `/aha/manipulation/place`）とは型が異なるため、同時に起動しない。
 

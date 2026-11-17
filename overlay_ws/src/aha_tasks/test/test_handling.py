@@ -16,6 +16,7 @@ sys.path.insert(0, TEST)
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.handling import (  # noqa: E402
     HANDOVER_ACTION,
+    Unstopped,
     HELD,
     HOLDING,
     DeliverObject,
@@ -147,7 +148,10 @@ class FakeHands:
         return handle.result or self.on_cancel
 
     def run(self, name, request, timeout, cancelled):
-        return self.finish(self.start(name, request, cancelled), timeout, cancelled), ""
+        handle = self.start(name, request, cancelled)
+        if isinstance(handle.result, Exception):  # e.g. Unstopped
+            raise handle.result
+        return self.finish(handle, timeout, cancelled), ""
 
 
 class FakeNavigation:
@@ -392,6 +396,42 @@ class PickTests(unittest.TestCase):
         self.assertEqual(runtime.hands.goals[0][1].target["position"], [2.0, 2.5, 0.06])
         # Facing it, the cola at the right arm's point (0.45, -0.2).
         self.assertEqual(runtime.navigation.goals, [[1.8, 2.05, 1.571]])
+
+    def test_no_goal_after_one_that_may_still_run(self):
+        unstopped = Unstopped("timed out, and the server did not confirm")
+        for skill, kind, memory in (
+            (PickObject, "pick", {}),
+            (PlaceObject, "place", PlaceTests.HELD_COLA),
+        ):
+            with self.subTest(skill.__name__):
+                hands = FakeHands(**{kind: [unstopped, ok()]})
+                runtime = make_runtime(kitchen_scene(), hands=hands)
+                params = {"object": "cola", "surface": "kitchen_table"}
+                result, _ = run(skill, runtime, params, memory)
+                self.assertFalse(result.success)
+                self.assertIn("did not confirm", result.message)
+                self.assertEqual(len(hands.goals), 1)
+
+    def test_the_base_comes_closer_after_a_place_before_the_arm_moved(self):
+        for status, moves in ((3, 2), (2, 2), (4, 1)):  # unreachable, no space, exec
+            with self.subTest(status=status):
+                hands = FakeHands(place=[place_failed(status, "no"), ok()])
+                runtime = make_runtime([], robot="kitchen_table", hands=hands, off=0.15)
+                runtime.objects.robot = (-2.0, -0.35, -math.pi / 2)
+                params = {"object": "cola", "surface": "kitchen_table"}
+                result, _ = run(PlaceObject, runtime, params, PlaceTests.HELD_COLA)
+                self.assertTrue(result.success, result.message)
+                self.assertEqual(len(runtime.navigation.goals), moves)
+
+    def test_unreachable_moves_the_base_also_within_reach(self):
+        hands = FakeHands(place=[place_failed(3, "unreachable"), ok()])
+        runtime = make_runtime([], robot="kitchen_table", hands=hands)
+        # In REACH of the spot, but not at the arm's point of it.
+        runtime.objects.robot = (-1.75, -0.8, -math.pi / 2)
+        params = {"object": "cola", "surface": "kitchen_table"}
+        result, _ = run(PlaceObject, runtime, params, PlaceTests.HELD_COLA)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(len(runtime.navigation.goals), 1)
 
     def test_a_retry_does_not_move_the_base_with_the_arm_maybe_out(self):
         for skill, scene, robot, params, memory, kind in (
@@ -824,6 +864,16 @@ class HandsTests(unittest.TestCase):
             hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
         # A timeout likewise.
         self.assertIs(hands.finish(FakeHandle(done), 0.0, threading.Event()), done)
+
+    def test_a_timed_out_goal_that_did_not_confirm_its_stop(self):
+        hands = Hands.__new__(Hands)
+        with self.assertRaises(Unstopped):
+            hands.finish(FakeHandle(None), 0.0, threading.Event())
+        # On a cancel of the task the skill ends anyway.
+        cancelled = threading.Event()
+        cancelled.set()
+        with self.assertRaises(Cancelled):
+            hands.finish(FakeHandle(None), 1.0, cancelled)
 
     def test_a_goal_accepted_after_a_cancel_is_cancelled(self):
         client = FakeClient()

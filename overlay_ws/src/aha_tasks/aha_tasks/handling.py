@@ -360,6 +360,26 @@ def check_params(params, required, optional):
 # -- ROS ---------------------------------------------------------------------
 
 
+def location_of(outputs):
+    """The outputs a failure keeps: where the base went (for the rollback)."""
+    return {k: v for k, v in outputs.items() if k == LOCATION}
+
+
+class Unstopped(Exception):
+    """A goal given up on (timed out) whose stop the server did not confirm:
+    it may still move the arm, so no other goal may follow."""
+
+
+def arm_still(status):
+    """PlaceObject statuses returned before the arm moved: the base may move
+    for the next try."""
+    return (
+        status.STATUS_NO_SURFACE,
+        status.STATUS_NO_SPACE,
+        status.STATUS_UNREACHABLE,
+    )
+
+
 def retry_place(status):
     """PlaceObject statuses that another spot or base pose may change."""
     return (
@@ -460,14 +480,19 @@ class Hands:
         """The result, or None once `until()` holds. On cancel or timeout the
         goal is cancelled; if it succeeded all the same (the motion was done,
         e.g. the object already in the hand), that result is returned, else
-        Cancelled / TimeoutError is raised."""
+        Cancelled / TimeoutError is raised; Unstopped for a timed-out goal
+        whose stop is not confirmed."""
         future = handle.get_result_async()
         try:
             response = wait(future, timeout, cancelled, until)
-        except (Cancelled, TimeoutError):
+        except (Cancelled, TimeoutError) as error:
             ended = self.cancel(handle)
             if ended is not None and ended.success:
                 return ended
+            if ended is None and isinstance(error, TimeoutError):
+                raise Unstopped(
+                    "timed out, and the server did not confirm that the goal stopped"
+                ) from None
             raise
         return None if response is None else response.result
 
@@ -483,7 +508,7 @@ class Hands:
         return None if response is None else response.result
 
     def run(self, name, goal, timeout, cancelled):
-        """(result, "") of a goal, or (None, why)."""
+        """(result, "") of a goal, or (None, why). Unstopped is raised."""
         try:
             handle = self.start(name, goal, cancelled)
             return self.finish(handle, timeout, cancelled), ""
@@ -527,9 +552,12 @@ class _HandSkill(Skill):
             f"No furniture for surface {name}; furniture: {objects.furniture.names}"
         )
 
-    def approach(self, ctx, robot, target, region, outputs, arm_known=True):
-        """Move the base so that the arm reaches `target`, unless it does; the
-        new robot pose. A failed move is only logged (the server may reach).
+    def approach(
+        self, ctx, robot, target, region, outputs, arm_known=True, force=False
+    ):
+        """Move the base so that the arm reaches `target`, unless it does (by
+        in_reach; `force`: unless the base is at reach_pose already); the new
+        robot pose. A failed move is only logged (the server may reach).
 
         Without `arm_known` (a goal was sent before: after a timeout, cancel or
         failed execution the arm may still be out over the furniture) the
@@ -539,7 +567,7 @@ class _HandSkill(Skill):
         if (
             not ctx.params.get("approach", True)
             or navigation is None
-            or in_reach(robot, target)
+            or (in_reach(robot, target) and not force)
         ):
             return robot
         pose = reach_pose(robot, target, region, arm)
@@ -634,8 +662,13 @@ class PickObject(_HandSkill):
             goal = hands.PickObject.Goal(
                 target=hands.target(target), arm=params.get("arm", "right")
             )
-            sent = True
-            result, why = hands.run(PICK_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled)
+            sent = True  # a pick result has no status: the arm may be out now
+            try:
+                result, why = hands.run(
+                    PICK_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled
+                )
+            except Unstopped as error:
+                return self.fail(f"{PICK_ACTION}: {error}", location_of(outputs))
             if result is None:
                 if why == "Cancelled":
                     return self.fail(why, outputs)
@@ -647,7 +680,7 @@ class PickObject(_HandSkill):
             outputs.update({HOLDING: key, HELD: target})
             return SkillResult(True, f"Picked {percept.label} from {surface}", outputs)
         # The base may have moved: keep the location for the rollback.
-        return self.fail(message, {k: v for k, v in outputs.items() if k == LOCATION})
+        return self.fail(message, location_of(outputs))
 
 
 class PlaceObject(_HandSkill):
@@ -656,8 +689,10 @@ class PlaceObject(_HandSkill):
     params: {"object": "cola" | "<memory key>", "surface": "desk", "spot":
     "<memory key>", "arm": "right", "clearance": 0.05, "retries": 1,
     "approach": true}. A failure is tried again only when another spot or
-    base pose may help (retry_place); STATUS_NOT_AT_SPOT (let go, but not
-    seen at the spot) counts as done with the object out of the hand. A trash bin (furniture of category "trash bin", or
+    base pose may help (retry_place); the base moves for the next try only
+    after a status returned before the arm moved (arm_still; for
+    STATUS_UNREACHABLE also within REACH). STATUS_NOT_AT_SPOT (let go, but
+    not seen at the spot) counts as done with the object out of the hand. A trash bin (furniture of category "trash bin", or
     "trashbin", "trash") gets the object dropped inside. On a shelf the spot
     is next to the objects of its category (aha_tasks.objects.placement), on
     a table the free spot nearest the arm `clearance` from the objects seen,
@@ -698,7 +733,7 @@ class PlaceObject(_HandSkill):
         trash = furniture is not None and is_trash(name, furniture.category)
         arm = params.get("arm", "right")
         clearance = float(params.get("clearance", PLACE_CLEARANCE))
-        outputs, message, sent = {}, "", False
+        outputs, message, sent, force = {}, "", False, False
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
                 ctx.log(f"Trying again: {message}")
@@ -717,7 +752,7 @@ class PlaceObject(_HandSkill):
             self.look(frame, (x, y, z))
             if frame == "map":
                 robot = objects.robot_pose(frame)
-                self.approach(ctx, robot, (x, y), region, outputs, not sent)
+                self.approach(ctx, robot, (x, y), region, outputs, not sent, force)
             goal = hands.PlaceObject.Goal(
                 arm=arm,
                 near=hands.point(frame, (x, y, z)),
@@ -727,8 +762,13 @@ class PlaceObject(_HandSkill):
                 drop=trash,
             )
             goal.object_size.x, goal.object_size.y, goal.object_size.z = size
-            sent = True
-            result, why = hands.run(PLACE_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled)
+            sent, force = True, False
+            try:
+                result, why = hands.run(
+                    PLACE_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled
+                )
+            except Unstopped as error:
+                return self.fail(f"{PLACE_ACTION}: {error}", location_of(outputs))
             if result is None:
                 if why == "Cancelled":
                     return self.fail(why, outputs)
@@ -749,13 +789,18 @@ class PlaceObject(_HandSkill):
                     )
                 message = f"Place failed: {result.message}"
                 if result.status in retry_place(status):
+                    # Before the arm moved: the base may come closer, also
+                    # when in_reach thought it close enough.
+                    if result.status in arm_still(status):
+                        sent = False
+                        force = result.status == status.STATUS_UNREACHABLE
                     continue
                 break
             outputs.update({HOLDING: None, HELD: None})
             return SkillResult(
                 True, f"Put {label} {where} {params['surface']}", outputs
             )
-        return self.fail(message, {k: v for k, v in outputs.items() if k == LOCATION})
+        return self.fail(message, location_of(outputs))
 
     def spot(self, ctx, objects, name, trash, label, size, clearance):
         """(x, y, z, level, frame, region) to put the object at; raises
@@ -1024,6 +1069,8 @@ class DeliverObject(_HandSkill):
             return None, "Cancelled"
         except TimeoutError:
             return None, f"{HANDOVER_ACTION} did not answer in time"
+        except Unstopped as error:
+            return None, f"{HANDOVER_ACTION}: {error}"
         finally:
             stop.set()
             if touch:

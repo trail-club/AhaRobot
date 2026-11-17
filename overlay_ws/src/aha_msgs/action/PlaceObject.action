@@ -19,6 +19,7 @@ float32                    clearance       # m of free space around the object b
 # trash bin) instead of standing it on a support
 bool                       drop
 ---
+# NO_SURFACE, NO_SPACE and UNREACHABLE are returned before the arm moves.
 uint8 STATUS_OK=0                # placed (retreat / return failures in message)
 uint8 STATUS_NO_SURFACE=1        # no support of the furniture level seen
 uint8 STATUS_NO_SPACE=2          # supports seen, but no free spot for the object
