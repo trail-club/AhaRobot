@@ -789,8 +789,16 @@ class ListenCommandTests(unittest.TestCase):
         )
         self.assertFalse(result.success)
 
-    def test_no_clear_confirmation_takes_the_command(self):
-        rt = runtime(DRINKS, None, "I didn't hear you")
+    def test_an_answer_that_is_neither_yes_nor_no_is_not_taken(self):
+        rt = runtime(DRINKS, "I don't think so", "Hmm, I don't think that's right")
+        rt.interaction.answers += ["I didn't hear you", None] + [None] * 8
+        result = run_skill(
+            ListenCommand(rt), {"command": 1, "attempts": 1, "custom_operator": 0}
+        )
+        self.assertFalse(result.success)
+
+    def test_two_silent_confirmations_take_the_command(self):
+        rt = runtime(DRINKS, None, None)
         result = run_skill(ListenCommand(rt), {"command": 1})
         self.assertEqual(result.outputs, {"cmd1.text": DRINKS})
 

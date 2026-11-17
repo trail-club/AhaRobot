@@ -12,7 +12,6 @@ memory.
 """
 
 import functools
-import json
 import re
 import threading
 import time
@@ -74,7 +73,7 @@ def words_of(text):
 
 
 # Words before a restated command: "No, no, sorry, I said ...".
-OPENERS = {"sorry", "well", "um", "uh", "oh", "wait", "actually"}
+OPENERS = {"sorry", "well", "um", "uh", "oh", "hmm", "wait", "actually"}
 LEADING = YES | NO | OPENERS | {"quite", "really"}
 
 
@@ -299,11 +298,15 @@ class ListenCommand(Skill):
             if corrected:
                 # A restated command (heard once) is taken only on a yes.
                 return False, text
+            if answer:
+                # Heard, but neither yes nor no ("I don't think so"): ask
+                # again rather than take a command the operator may deny.
+                continue
             unclear += 1
             if unclear >= 2:
-                ctx.log(f"No clear confirmation ({why or answer!r}); taking {text!r}")
+                ctx.log(f"No answer to the confirmation ({why}); taking {text!r}")
                 return True, text
-        # The last answer restated the command: it was not confirmed.
+        # No yes in the tries (or the last answer restated the command).
         return False, text
 
 
