@@ -908,6 +908,20 @@ class ReportResultsTests(unittest.TestCase):
         self.assertIn("The answer was 3.", said)
         self.assertEqual(rt.interaction.hidden, 1)
 
+    def test_a_skipped_planning_reports_no_mock_commands(self):
+        rt = runtime()
+        skill = ReportResults(rt)
+        plan = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
+        skill.status = json.dumps(
+            {"subgoals": [{"id": "plan.generate", "status": "skipped"}]}
+        )
+        result = run_skill(skill, {}, {"plan": plan})
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            rt.interaction.said[0],
+            "Here is my report. I could not plan the commands, so I did not do them.",
+        )
+
     def test_status_gives_the_outcomes(self):
         rt = runtime()
         skill = ReportResults(rt)

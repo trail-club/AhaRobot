@@ -371,6 +371,21 @@ def unheard(keys, spec, status):
     }
 
 
+def planning_skipped(spec, status):
+    """Whether the plan_commands subgoal failed and was skipped (its mock plan
+    is in memory then). Not when it was not selected (bypassed)."""
+    if not status:
+        return False
+    outcome = {
+        item.get("id"): item.get("status") for item in status.get("subgoals", [])
+    }
+    return any(
+        outcome.get(subgoal.id) == "skipped"
+        for subgoal in spec.subgoals
+        if subgoal.skill == "plan_commands"
+    )
+
+
 def command_infos(results, count, vocabulary):
     """`plan.commands`: every command 1..count, a not heard one included, so
     that report_results says something about each."""
@@ -560,6 +575,12 @@ class ReportResults(_TaskStatus):
 
     def execute(self, ctx):
         vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
+        status = self.latest_status(ctx.subgoal)
+        if planning_skipped(self.runtime.spec, status):
+            # The plan in memory is the task definition's mock, not the
+            # operator's commands: say none were planned.
+            sentence = "I could not plan the commands, so I did not do them."
+            return self._say(ctx, "Here is my report. " + sentence, sentence)
         plan = ctx.memory.get(PLAN)
         if not isinstance(plan, list) or not plan:
             return SkillResult(False, "No plan in memory")
@@ -575,15 +596,18 @@ class ReportResults(_TaskStatus):
                 }
                 for n in numbers
             ]
-        outcomes = step_outcomes(self.latest_status(ctx.subgoal), plan)
+        outcomes = step_outcomes(status, plan)
         sentences = report_sentences(plan, commands, outcomes, ctx.memory)
+        return self._say(
+            ctx, "Here is my report. " + " ".join(sentences), " ".join(sentences)
+        )
+
+    def _say(self, ctx, text, summary):
         interaction = Interaction.of(self.runtime)
         interaction.hide()
-        ok, message = interaction.say(
-            "Here is my report. " + " ".join(sentences), ctx.cancelled
-        )
+        ok, message = interaction.say(text, ctx.cancelled)
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")
         if not ok:
             ctx.log(f"Could not say the report: {message}")
-        return SkillResult(True, " ".join(sentences))
+        return SkillResult(True, summary)
