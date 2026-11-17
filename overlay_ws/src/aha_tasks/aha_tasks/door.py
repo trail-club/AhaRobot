@@ -428,6 +428,11 @@ def depth_array(message):
     return image[:, : message.width].astype(np.float64) * scale
 
 
+def missing_joints(current):
+    """The FOLDED joints without a position in `current`."""
+    return [n for target in FOLDED.values() for n in target if n not in current]
+
+
 class Arms:
     """Folds both arms (FOLDED) for one runner; no collision checking."""
 
@@ -496,6 +501,8 @@ class Arms:
     def folded(self):
         """Whether /joint_states shows both arms at FOLDED."""
         current = self.current()
+        if missing_joints(current):
+            return False
         return all(fold_duration(current, target) == 0.0 for target in FOLDED.values())
 
     def fold(self, cancelled):
@@ -518,6 +525,11 @@ class Arms:
         from aha_tasks.interaction import cancel_if_accepted
 
         current = self.current()
+        missing = missing_joints(current)
+        if missing:
+            # The duration comes from where the joints are: without them the
+            # arm could move far faster than ARM_SPEED.
+            return False, f"no /joint_states of {', '.join(missing)}: arms not moved"
         goals = []  # (action, handle, result future, duration)
         try:
             for action, target in FOLDED.items():

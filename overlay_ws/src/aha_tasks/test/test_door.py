@@ -449,7 +449,9 @@ class FakeArms(Arms):
     def __init__(self, joints=None, right=None, left=None):
         self.node = SimpleNamespace(get_clock=lambda: SimpleNamespace())  # wall
         self.lock = threading.Lock()
-        self.start_joints = dict(joints or {})
+        # All arm joints at 0 (the sim's start) unless given.
+        zero = {name: 0.0 for target in FOLDED.values() for name in target}
+        self.start_joints = dict(zero if joints is None else joints)
         self.joints = {}
         self.subscription = None
         right_action, left_action = FOLDED
@@ -481,6 +483,13 @@ class ArmTests(unittest.TestCase):
         self.assertEqual(len(arms.right.goals), 1)
         self.assertEqual(arms.left.goals[0], (FOLDED[next(reversed(FOLDED))], 1.06))
         self.assertIsNone(arms.subscription)  # /joint_states only while folding
+
+    def test_no_goal_without_all_joint_states(self):
+        arms = FakeArms({"joint_r2": 0.0})
+        ok, message = arms.fold(threading.Event())
+        self.assertFalse(ok)
+        self.assertIn("no /joint_states of", message)
+        self.assertEqual((arms.right.goals, arms.left.goals), ([], []))
 
     def test_folded_arms_do_not_move(self):
         arms = FakeArms(ALL_FOLDED, right=FakeClient(served=False))
