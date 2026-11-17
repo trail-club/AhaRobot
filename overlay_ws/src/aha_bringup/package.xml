@@ -10,6 +10,7 @@
 
   <exec_depend>aha_description</exec_depend>
   <exec_depend>aha_arm_teleop</exec_depend>
+  <exec_depend>aha_base</exec_depend>
   <exec_depend>astra_controller</exec_depend>
   <exec_depend>aha_gazebo</exec_depend>
   <exec_depend>aha_navigation</exec_depend>

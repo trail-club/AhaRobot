@@ -1,0 +1,27 @@
+# Parameters of scripts/base_node.py (ODrive v3.6 over USB).
+# The meaning of each value is in the node's PARAMS and README.md.
+/**:
+  ros__parameters:
+    serial_number: ""        # hex as odrivetool shows it; "" = first ODrive found
+    connect_timeout: 10.0
+    left_axis: 0             # M0 = left wheel (CAN node_id 0 in upstream)
+    right_axis: 1
+    left_sign: -1            # upstream LEFT_INSTALL_DIR
+    right_sign: 1            # upstream RIGHT_INSTALL_DIR
+    wheel_diameter: 0.139    # upstream WHEEL_D [m]
+    wheel_separation: 0.44   # upstream WHEEL_BASE [m]
+    rate_hz: 20.0
+    cmd_timeout: 0.5
+    max_lead_turns: 2.0      # upstream MAX_POS_DIFF_IN_TURNS
+    stamped: true
+    publish_tf: true
+    odom_frame: odom
+    base_frame: base_footprint
+    traj_vel_limit: 2.0      # [turn/s] = 0.87 m/s per wheel
+    traj_accel_limit: 1.0    # upstream set_traj_accel_limits(1, 1)
+    traj_decel_limit: 1.0
+    pos_gain: -1.0           # < 0: keep the value saved on the ODrive
+    vel_gain: -1.0
+    vel_integrator_gain: -1.0
+    current_lim: -1.0
+    watchdog_timeout: 0.5

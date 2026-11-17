@@ -19,6 +19,7 @@ AhaRobot独自のROSパッケージ。[開発コンテナ](../docs/docker.md)が
 | `aha_perception` | 頭部・手首カメラのbridge、頭部の点群・RViz表示・操作UI・平面検出と置き場所の候補。実行手順は[README](src/aha_perception/README.md)を参照 |
 | `aha_arm_teleop` | 実機両腕のキーボード教示。`arm_node` の `joint_command` へ出す。[手順](../docs/arm-keyboard-teleop.md) |
 | `aha_servo` | STSサーボのJointTrajectoryブリッジとキャリブレーション。[README](src/aha_servo/README.md)を参照 |
+| `aha_base` | 実機の台車（ODrive v3.6、USB）。シミュレーションと同じ速度指令・odomのtopic。[README](src/aha_base/README.md)を参照 |
 
 ## ビルド・起動
 
@@ -61,4 +62,4 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 - SLAM・Nav2・MoveItの動作確認はシミュレーションのみ。
 
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。
-  実機の頭部は `aha_servo` のブリッジで動かす。
+  実機の頭部は `aha_servo` のブリッジ、台車は `aha_base` で動かす。

@@ -31,10 +31,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-diff-drive-controller \
       ros-jazzy-forward-command-controller \
       python3-serial \
+      libusb-1.0-0 \
       python3-numpy \
       gz-harmonic \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+
+# ODrive v3.6 USB access for aha_base. Without its dependencies: IPython and
+# matplotlib are not used and pip would replace the system numpy.
+RUN pip3 install --no-cache-dir --break-system-packages --no-deps odrive==0.5.4
 
 # rosdep bootstrap for later "rosdep install" inside the mounted workspace
 RUN rosdep update

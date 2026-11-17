@@ -1,6 +1,6 @@
 # ROSインターフェース
 
-標準シミュレーション、頭部カメラ、人の認識、実機の頭部・アームの入出力。controller設定は
+標準シミュレーション、頭部カメラ、人の認識、実機の頭部・アーム・台車の入出力。controller設定は
 [controllers.yaml](../overlay_ws/src/aha_description/config/controllers.yaml)を参照。
 
 ## Controller
@@ -369,6 +369,20 @@ frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footp
 ブリッジは軌道の実行中だけ `/<side>/arm/joint_command` へ配信する。
 キーボード教示も同じtopicへ配信するため、軌道の実行中に教示しない。
 昇降とグリッパはブリッジの対象外。
+
+## 実機の台車
+
+`aha_bringup` の `base.launch.py` は [aha_base](../overlay_ws/src/aha_base/README.md) の `base_node.py` で、
+ODrive v3.6をUSBで動かす。シミュレーションと同じ名前・型の速度指令を受け、odomとTFを出す。
+シミュレーションと同じ名前を使うため、同じ `ROS_DOMAIN_ID` で同時に起動しない。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| ベース速度指令 | `/diff_drive_controller/cmd_vel` | `geometry_msgs/msg/TwistStamped` |
+| 車輪odom | `/diff_drive_controller/odom` | `nav_msgs/msg/Odometry` |
+| TF | `odom` → `base_footprint` | `tf2_msgs/msg/TFMessage`（`/tf`） |
+
+車輪の関節状態は配信しない。
 
 ## 独自型
 
