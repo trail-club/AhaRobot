@@ -113,6 +113,16 @@ def yes_no(text):
     return None, joined
 
 
+def affirms(text):
+    """A yes not at the start of a longer answer ("That's right, thank you"):
+    a yes word and no no word, "not" or "n't" anywhere ("I don't think that's
+    right" is no yes)."""
+    words = words_of(text)
+    if any(w in NO or w == "not" or w.endswith("n't") for w in words):
+        return False
+    return any(w in YES for w in words)
+
+
 def restated(rest, vocabulary):
     """The command in an answer such as 'no, I said bring me ...', or None.
 
@@ -120,8 +130,11 @@ def restated(rest, vocabulary):
     (a name, a place, an object or category), as every generator command
     has: "I didn't hear it" or "Could you say it again?" is no command.
     """
-    rest = FILLERS.sub("", rest.strip())
-    if len(rest.split()) <= MIN_WORDS:
+    words = FILLERS.sub("", rest.strip()).split()
+    while words and words[-1] in YES:  # "bring me ..., right?"
+        words.pop()
+    rest = " ".join(words)
+    if len(words) <= MIN_WORDS:
         return None
     for word in vocabulary.hotwords():
         if re.search(rf"\b{re.escape(word.lower())}\b", rest):
@@ -295,6 +308,8 @@ class ListenCommand(Skill):
                 continue
             if verdict == "no":
                 return False, text
+            if affirms(rest):  # "That's right, thank you"; no command restated
+                return True, text
             if corrected:
                 # A restated command (heard once) is taken only on a yes.
                 return False, text

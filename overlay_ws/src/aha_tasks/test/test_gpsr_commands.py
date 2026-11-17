@@ -797,6 +797,18 @@ class ListenCommandTests(unittest.TestCase):
         )
         self.assertFalse(result.success)
 
+    def test_a_yes_later_in_the_answer_confirms(self):
+        for answer in ("That's right, thank you", "That is exactly right"):
+            with self.subTest(answer=answer):
+                rt = runtime(DRINKS, answer)
+                result = run_skill(ListenCommand(rt), {"command": 1})
+                self.assertEqual(result.outputs, {"cmd1.text": DRINKS})
+
+    def test_a_restated_command_with_a_yes_word_is_confirmed_again(self):
+        rt = runtime(DRINKS, "Bring me a cola from the desk, right?", "Yes")
+        result = run_skill(ListenCommand(rt), {"command": 1})
+        self.assertEqual(result.outputs, {"cmd1.text": "bring me a cola from the desk"})
+
     def test_two_silent_confirmations_take_the_command(self):
         rt = runtime(DRINKS, None, None)
         result = run_skill(ListenCommand(rt), {"command": 1})
