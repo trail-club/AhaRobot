@@ -209,8 +209,8 @@ def sentence(subject, features, listener=""):
     """English sentence telling `listener` what `subject` looks like, or ""."""
     wearing, has, being = [], [], []
     for part, phrase in features:
-        if phrase == "bald":
-            being.append("bald")
+        if part == "hair" and phrase.split()[-1] == "bald":
+            being.append(phrase)  # "is mostly bald", not "has a mostly bald"
         elif part == "hair" and phrase.endswith("hair"):
             has.append(phrase)
         elif part in ("hair", "facial_hair", "bag"):

@@ -210,6 +210,24 @@ class SentenceTests(unittest.TestCase):
             "The other guest has a beard and a backpack and is bald.",
         )
 
+    def test_bald_with_a_degree_keeps_is(self):
+        for phrase in ("mostly bald", "nearly bald", "completely bald"):
+            with self.subTest(phrase=phrase):
+                self.assertEqual(normalize(phrase), ("hair", phrase))
+                self.assertEqual(
+                    sentence("Charlie", choose_features([phrase, "beard"])),
+                    f"Charlie has a beard and is {phrase}.",
+                )
+        # Views vote on "bald"; the wording a majority gave is kept.
+        self.assertEqual(consensus([["mostly bald"]] * 2 + [["bald"]]), ["mostly bald"])
+        self.assertEqual(
+            consensus([["mostly bald"], ["nearly bald"], ["bald"]]), ["bald"]
+        )
+        # Hair words that are no noun are not told, so never "has a balding".
+        for phrase in ("balding", "shaved", "shaved head", "buzz cut"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(normalize(phrase))
+
     def test_verbs_and_articles_of_the_vlm_are_not_repeated(self):
         features = choose_features(
             ["wearing glasses", "has a beard", "a red t-shirt", "carrying a backpack"]
