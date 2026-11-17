@@ -18,6 +18,7 @@ from aha_tasks.core import load_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks.door import (  # noqa: E402
     FOLDED,
+    HIDDEN,
     Arms,
     DoorWatch,
     WaitDoorOpen,
@@ -52,7 +53,7 @@ def pitched(rotation, down):
 def render(wall_x=None, gap=None, floor=True, far=10.0, black=False):
     """Depth image of a level CAMERA: a wall at base x `wall_x` with an
     opening |y| < gap / 2 (if given), the floor beyond, nothing above.
-    A black wall returns no depth."""
+    A black door closes the opening without returning depth."""
     rows, cols = np.mgrid[0:480, 0:640].astype(float)
     # Ray directions in the base frame for each pixel.
     rays = np.stack([(cols - CX) / FX, (rows - CY) / FY, np.ones_like(cols)], -1)
@@ -68,12 +69,10 @@ def render(wall_x=None, gap=None, floor=True, far=10.0, black=False):
         y = CAMERA[1] + t * rays[..., 1]
         z = CAMERA[2] + t * rays[..., 2]
         hit = (t > 0) & (z >= 0.0) & (z <= 2.0)
-        if gap is not None:
-            hit &= np.abs(y) >= gap / 2
+        opening = hit & (np.abs(y) < gap / 2) if gap is not None else np.zeros_like(hit)
+        depth = np.where(hit & ~opening, np.minimum(depth, t), depth)
         if black:
-            depth = np.where(hit, np.nan, depth)
-        else:
-            depth = np.where(hit, np.minimum(depth, t), depth)
+            depth = np.where(opening, np.nan, depth)
     depth[depth > far] = np.inf  # beyond the camera's range
     return depth
 
@@ -91,14 +90,16 @@ class CorridorTests(unittest.TestCase):
         # Seen through the doorway: the floor beyond `distance`.
         self.assertEqual(free_ahead(render(wall_x=1.0, gap=0.9)), math.inf)
 
-    def test_missing_depth_is_not_free(self):
-        # A black or glossy door returns no depth, but the frame and the floor
-        # around do: the frame is unusable, not an open door.
-        self.assertIsNone(free_ahead(render(wall_x=1.0, black=True)))
-        self.assertIsNone(free_ahead(np.full((480, 640), np.nan)))  # blind
+    def test_missing_depth_is_a_closed_door(self):
+        # A black or glossy door returns no depth, but the walls beside it do:
+        # the corridor does not show, which is not open.
+        self.assertEqual(free_ahead(render(wall_x=1.0, gap=0.9, black=True)), HIDDEN)
+        # Nothing within range beyond the doorway (no floor): not seen open.
+        self.assertEqual(free_ahead(render(wall_x=1.0, gap=0.9, floor=False)), HIDDEN)
+
+    def test_a_blind_camera_is_unusable(self):
+        self.assertIsNone(free_ahead(np.full((480, 640), np.nan)))
         self.assertIsNone(free_ahead(np.zeros((480, 640))))  # all too near
-        # Nothing at all within range beyond the doorway (no floor): unusable.
-        self.assertIsNone(free_ahead(render(wall_x=1.0, gap=0.9, floor=False)))
 
     def test_partly_open_door_still_blocks(self):
         self.assertAlmostEqual(free_ahead(render(wall_x=1.0, gap=0.3)), 1.0, places=2)
@@ -230,6 +231,10 @@ class DecisionTests(unittest.TestCase):
         self.assertTrue(door_open([depth, scan]))
         scan.update(None, 0.3)
         self.assertFalse(door_open([depth, scan]))
+        depth.update(HIDDEN, 0.4)  # the corridor without depth: closed
+        scan.update(math.inf, 0.4)
+        self.assertFalse(depth.open)
+        self.assertFalse(door_open([depth, scan]))
 
 
 class FakeSensors:
@@ -310,11 +315,31 @@ class SkillTests(unittest.TestCase):
 
     @patch.object(door, "NO_DATA_TIMEOUT", 0.2)
     def test_no_usable_frames_fail(self):
+        # No image or TF, the head turned away, a blind camera: a broken sensor.
         result = self.run_watch({"depth": [None]})
         self.assertFalse(result.success)
         self.assertIn("No usable", result.message)
         result = self.run_watch({})
         self.assertIn("No usable", result.message)
+
+    @patch.object(door, "NO_DATA_TIMEOUT", 0.1)
+    @patch.object(door, "POLL", 0.02)
+    def test_a_black_door_keeps_the_robot_waiting(self):
+        # Closed without depth for 15 frames (15 s of stamps, 0.3 s of wall
+        # time, longer than NO_DATA_TIMEOUT), then open.
+        logs = []
+        ctx = context()
+        ctx = SkillContext(ctx.subgoal, {}, {}, ctx.cancelled, logs.append)
+        result = skill().watch(
+            ctx,
+            FakeSensors({"depth": [HIDDEN] * 15 + [4.0] * 10}),
+            door.DISTANCE,
+            door.WIDTH,
+            0.0,
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertIn("depth: 4.00 m free ahead", result.message)
+        self.assertEqual(logs[0], "depth: no depth in the corridor (closed)")
 
     def test_cancel(self):
         ctx = context()

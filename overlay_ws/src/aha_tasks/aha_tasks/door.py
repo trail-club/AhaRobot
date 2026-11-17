@@ -10,8 +10,10 @@ that delivers data: the head depth camera (the real robot has no lidar) and,
 in simulation, /scan. Missing depth is never free space: a depth image shows
 the corridor free only with pixels that look through it and see something
 beyond `distance` (the floor or the room behind the open door). A frame that
-shows neither that nor an obstacle (a black or glossy door without depth), or
-while the head does not look ahead, is unusable and starts the count again.
+shows neither that nor an obstacle (a black or glossy door without depth)
+counts as a closed door: the robot keeps waiting. A sensor that delivers no
+usable frame (no image or TF, the head not looking ahead, a blind camera)
+for NO_DATA_TIMEOUT fails the skill.
 Before it waits, the robot folds its arms in front of the body to fit through
 the door, and fails if they cannot be folded. The sensors are subscribed only
 while the skill runs. The skill does not move the base: the next navigate
@@ -38,6 +40,8 @@ LOW, HIGH = 0.1, 1.8  # m above the floor
 DEPTH_MIN_POINTS = 20  # a few stray depth points do not block the corridor
 SCAN_MIN_POINTS = 2
 DEPTH_STRIDE = 4  # px; every 4th row and column (160 x 120 of 640 x 480)
+MIN_VALID = 0.05  # fraction of valid depth pixels; less is a blind camera
+HIDDEN = -math.inf  # free distance of a corridor without depth: not open
 MAX_PAN = 0.2  # rad of the camera axis from the base's front, left or right
 MAX_UP, MAX_DOWN = 0.35, 0.6  # rad of the camera axis above / below level
 FRAMES = 5  # consecutive frames with the corridor free
@@ -104,14 +108,15 @@ def depth_rays(depth, fx, fy, cx, cy, stride=DEPTH_STRIDE):
 
 
 def depth_free(rays, ranges, rotation, translation, distance, width=WIDTH):
-    """Free distance ahead (m) seen in depth rays, or None if they do not show it.
+    """Free distance ahead (m) seen in depth rays; HIDDEN or None if not seen.
 
     The camera pose (rotation, translation) is in the base frame. An obstacle
     in the corridor (DEPTH_MIN_POINTS points) gives its distance. Without one,
     the corridor is free only if as many rays pass through its cross-section at
-    `distance` and see something beyond it; otherwise the image shows nothing
-    of the corridor (no depth on a black or glossy door, a door too near) and
-    is unusable.
+    `distance` and see something beyond it. Otherwise the image shows nothing
+    of the corridor (no depth on a black or glossy door, a door too near):
+    HIDDEN, a closed door. None (unusable) if fewer than MIN_VALID of all rays
+    have depth: the camera is blind.
     """
     import numpy as np
 
@@ -119,6 +124,8 @@ def depth_free(rays, ranges, rotation, translation, distance, width=WIDTH):
     directions = np.asarray(rays, dtype=np.float64) @ rotation.T
     ranges = np.asarray(ranges, dtype=np.float64)
     valid = np.isfinite(ranges)
+    if valid.size == 0 or valid.mean() < MIN_VALID:
+        return None
     points = translation + directions[valid] * ranges[valid, None]
     free = free_distance(points, width=width, min_points=DEPTH_MIN_POINTS)
     if free < distance:
@@ -133,7 +140,7 @@ def depth_free(rays, ranges, rotation, translation, distance, width=WIDTH):
         & (cross[:, 2] <= HIGH)
     )
     beyond = through & valid & (np.nan_to_num(ranges, nan=-1.0) > reach)
-    return free if np.count_nonzero(beyond) >= DEPTH_MIN_POINTS else None
+    return free if np.count_nonzero(beyond) >= DEPTH_MIN_POINTS else HIDDEN
 
 
 def scan_points(ranges, angle_min, angle_increment, range_min, range_max):
@@ -239,6 +246,8 @@ def door_open(watches):
 def describe(free):
     if free is None:
         return "no usable frame"
+    if free == HIDDEN:
+        return "no depth in the corridor (closed)"
     if math.isinf(free):
         return "nothing ahead"
     return f"{free:.2f} m free ahead"
