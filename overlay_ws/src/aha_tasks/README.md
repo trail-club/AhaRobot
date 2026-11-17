@@ -255,7 +255,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 - 推量・否定を含む句（`possibly glasses`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。文が自分で付ける先頭の動詞・冠詞（`wearing glasses`、`has a beard` → `beard`）と、`with` などより後の細部（`red t-shirt with a logo` → `red t-shirt`）は省いてから語数を数える。
 - 持っている物（`carrying` / `holding` の付く句、手・腕・肩などにある物：`carrying a black jacket`、`cap in hand`）は、かばんでなければ言わない（`bag on shoulder` は言う）。
 - 名前 `<role>.name` を使い、なければ `the other guest` と言う。例：`Emma, Charlie is wearing a red t-shirt and blue jeans and has short black hair.`
-- 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。頭がまだその人を追っていなければ（`memorize_person` の直後でなければ）、頭が向くまで1.5 s待ってから話す。言える特徴がなければ何も言わずに成功する。
+- 頭は `<listener>.track`（なければ名前）の人を追い、[ロボットの画面](#ロボットの画面)の `say` で話す（シミュレーションは字幕だけ）。頭がすでにその人を追っていれば（`memorize_person` の直後）、位置で引き継いだ新しいtrackのまま追い続ける。まだ追っていなければ、頭が向くまで1.5 s待ってから話す。言える特徴がなければ何も言わずに成功する。
 - 出力は `<subject>.told`（伝えた句のリスト）。`<subject>.appearance` がなければ失敗する。
 
 `e2e:=debug` の真値の人の特徴は `ground truth <モデル名>` だけなので、何も言わない。言う内容は `perception:=model` か `final` で確かめる。

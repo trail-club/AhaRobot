@@ -64,8 +64,11 @@ class DescribePerson(Skill):
     def look_at(self, ctx, listener):
         """Turn the head to the listener before speaking.
 
-        After memorize_person the head already follows them; otherwise wait
-        LOOK_SETTLE for the head to turn, as before judging a person.
+        After memorize_person the head already follows them, perhaps on a new
+        track the gaze re-acquired by position: that follow is kept, since
+        following the stored track again would drop the new one. Otherwise
+        follow the stored track (else the name) and wait LOOK_SETTLE for the
+        head to turn, as before judging a person.
         """
         people = People.of(self.runtime)
         track = ctx.memory.get(f"{listener}.track")
@@ -73,7 +76,10 @@ class DescribePerson(Skill):
         facing = followed is not None and (
             followed[1] == listener or (track is not None and followed[0] == track)
         )
-        people.follow(track=track, name=listener)
+        if facing:
+            track = followed[0]
+        else:
+            people.follow(track=track, name=listener)
         message = people.latest()
         if message is None or not any(
             p.visible and (p.id == track or p.name == listener) for p in message.people

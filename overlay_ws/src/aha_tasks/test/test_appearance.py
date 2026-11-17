@@ -293,7 +293,7 @@ class FakeInteraction:
         return self.ok, "spoken" if self.ok else "TTS failed"
 
 
-def run(params, memory, people=None, speech=None):
+def run(params, memory, people=None, speech=None, logs=None):
     people = people or FakePeople()
     speech = speech or FakeInteraction()
     runtime = SimpleNamespace(node=None, people=people, interaction=speech)
@@ -302,7 +302,7 @@ def run(params, memory, people=None, speech=None):
         params=params,
         memory=memory,
         cancelled=threading.Event(),
-        log=lambda text: None,
+        log=(lambda text: None) if logs is None else logs.append,
     )
     return DescribePerson(runtime).execute(ctx), people, speech
 
@@ -349,6 +349,27 @@ class DescribePersonTests(unittest.TestCase):
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(people.paused, [])
+        self.assertEqual(len(speech.said), 1)
+
+    def test_a_track_the_gaze_reacquired_is_kept(self):
+        # The gaze lost track 3 and found guest 2 again by position as track 7,
+        # not yet named; following track 3 again would freeze the head.
+        reacquired = SimpleNamespace(id=7, name="", visible=True)
+        people = FakePeople(
+            SimpleNamespace(people=[reacquired]), following=(7, "guest2")
+        )
+        logs = []
+        result, people, speech = run(
+            PARAMS,
+            {"guest1.appearance": ["glasses"], "guest2.track": 3},
+            people,
+            logs=logs,
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(people.followed, [])
+        self.assertEqual(people.following(), (7, "guest2"))
+        self.assertEqual(people.paused, [])
+        self.assertFalse([line for line in logs if "not in view" in line], logs)
         self.assertEqual(len(speech.said), 1)
 
     def test_without_names_it_says_the_other_guest(self):
