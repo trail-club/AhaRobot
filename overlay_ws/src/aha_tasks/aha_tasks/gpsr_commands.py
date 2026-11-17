@@ -305,7 +305,61 @@ class ListenCommand(Skill):
         return False, text
 
 
-class PlanCommands(Skill):
+class _TaskStatus(Skill):
+    """The runner's own task status (/aha/tasks/status), for skills that look
+    at how other subgoals ended."""
+
+    def _subscribe_status(self):
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        from std_msgs.msg import String
+
+        self.status = None
+        qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
+        self.runtime.node.create_subscription(
+            String, STATUS_TOPIC, self._on_status, qos
+        )
+
+    def _on_status(self, message):
+        self.status = message.data
+
+    def latest_status(self):
+        """The last task status (waits STATUS_WAIT for the first), or None."""
+        if getattr(self.runtime, "node", None) is not None:
+            deadline = time.monotonic() + STATUS_WAIT
+            while getattr(self, "status", None) is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+        try:
+            return json.loads(self.status) if getattr(self, "status", None) else None
+        except ValueError:
+            return None
+
+
+def unheard(keys, spec, status):
+    """Memory keys among `keys` whose listen_command subgoal was skipped.
+
+    A skipped (failed, then continued) subgoal leaves its mock command text in
+    memory: that text was not heard and must not be planned. A bypassed one
+    (not selected) keeps it, so that a run can start from the mock commands.
+    """
+    if not status:
+        return set()
+    outcome = {
+        item.get("id"): item.get("status") for item in status.get("subgoals", [])
+    }
+    return {
+        f"cmd{subgoal.params.get('command')}.text"
+        for subgoal in spec.subgoals
+        if subgoal.skill == "listen_command"
+        and outcome.get(subgoal.id) == "skipped"
+        and f"cmd{subgoal.params.get('command')}.text" in keys
+    }
+
+
+class PlanCommands(_TaskStatus):
     """Plan the heard commands, show the plan on the screen and say it.
 
     params: {"commands": ["cmd1.text", ...] (memory keys, in command order),
@@ -338,6 +392,7 @@ class PlanCommands(Skill):
 
     def ready(self):
         Interaction.of(self.runtime).find_tts()
+        self._subscribe_status()
 
     def planner(self, params):
         from aha_tasks.llm import Chat, parameters
@@ -356,10 +411,13 @@ class PlanCommands(Skill):
     def execute(self, ctx):
         params, spec = ctx.params, self.runtime.spec
         vocabulary = vocabulary_of(params, spec)
+        skipped = unheard(params["commands"], spec, self.latest_status())
+        for key in sorted(skipped):
+            ctx.log(f"{key} was not heard (its listening was skipped): not planned")
         texts = {
             n: ctx.memory.get(key)
             for n, key in enumerate(params["commands"], 1)
-            if isinstance(ctx.memory.get(key), str)
+            if isinstance(ctx.memory.get(key), str) and key not in skipped
         }
         start = ctx.memory.get(LOCATION)
         if not isinstance(start, str) or start not in spec.locations:
@@ -448,7 +506,7 @@ def _numbers(numbers):
     return f"commands {words} and {numbers[-1]}"
 
 
-class ReportResults(Skill):
+class ReportResults(_TaskStatus):
     """Say per command what was done.
 
     Uses the plan and `plan.commands` in memory, the outcome of each plan slot
@@ -464,31 +522,8 @@ class ReportResults(Skill):
         vocabulary_of(params, spec)
 
     def ready(self):
-        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-        from std_msgs.msg import String
-
         Interaction.of(self.runtime).find_tts()
-        self.status = None
-        qos = QoSProfile(
-            depth=1,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=ReliabilityPolicy.RELIABLE,
-        )
-        self.runtime.node.create_subscription(
-            String, STATUS_TOPIC, self._on_status, qos
-        )
-
-    def _on_status(self, message):
-        self.status = message.data
-
-    def latest_status(self):
-        deadline = time.monotonic() + STATUS_WAIT
-        while getattr(self, "status", None) is None and time.monotonic() < deadline:
-            time.sleep(0.05)
-        try:
-            return json.loads(self.status) if getattr(self, "status", None) else None
-        except ValueError:
-            return None
+        self._subscribe_status()
 
     def execute(self, ctx):
         vocabulary = vocabulary_of(ctx.params, self.runtime.spec)

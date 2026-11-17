@@ -839,6 +839,24 @@ class PlanCommandsTests(unittest.TestCase):
             "I could not understand commands 2 and 3.", rt.interaction.said[0]
         )
 
+    def test_a_skipped_listening_is_not_planned_from_its_mock_text(self):
+        skill, rt = self.skill(FakeChat())
+        statuses = {"cmd1.listen": "succeeded", "cmd2.listen": "skipped"}
+        skill.status = json.dumps(
+            {"subgoals": [{"id": i, "status": s} for i, s in statuses.items()]}
+        )
+        memory = {"cmd1.text": COLA, "cmd2.text": DRINKS}
+        result = run_skill(skill, {"commands": ["cmd1.text", "cmd2.text"]}, memory)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual({s["command"] for s in result.outputs["plan"]}, {1})
+        self.assertIn("I could not understand command 2.", rt.interaction.said[0])
+        # Not selected (bypassed): the mock text is planned, e.g. for a test run.
+        skill.status = json.dumps(
+            {"subgoals": [{"id": "cmd2.listen", "status": "bypassed"}]}
+        )
+        result = run_skill(skill, {"commands": ["cmd1.text", "cmd2.text"]}, memory)
+        self.assertEqual({s["command"] for s in result.outputs["plan"]}, {1, 2})
+
     def test_nothing_planned_fails(self):
         skill, rt = self.skill(FakeChat(error=OSError("down")))
         result = run_skill(
