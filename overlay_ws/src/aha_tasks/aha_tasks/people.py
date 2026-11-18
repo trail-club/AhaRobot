@@ -117,6 +117,19 @@ class Cancelled(RuntimeError):
     """The skill was aborted while waiting for person_perception."""
 
 
+class Until:
+    """`cancelled` that is also set once `now()` reaches `deadline`.
+
+    Interaction and Navigation poll is_set(), so their waits end at the deadline.
+    """
+
+    def __init__(self, cancelled, now, deadline):
+        self.cancelled, self.now, self.deadline = cancelled, now, deadline
+
+    def is_set(self):
+        return self.cancelled.is_set() or self.now() >= self.deadline
+
+
 class People:
     """ROS access to person_perception, shared by the skills of one runner."""
 
@@ -668,6 +681,7 @@ class FindDescribedPerson(Skill):
         distance = positive(params, "distance", 1.0)
         timeout = positive(params, "timeout", ASK_TIMEOUT if asking else 60.0)
         deadline = people.now() + timeout
+        until = Until(ctx.cancelled, people.now, deadline)  # for talking
         # Someone remembered under the name may be anywhere around, and a new
         # track of them gets the name from the VLM within seconds: look all
         # around once before asking anyone, and give each track NAME_WAIT.
@@ -731,10 +745,10 @@ class FindDescribedPerson(Skill):
             ):
                 return
             pose = approach_pose(origin, planar(person.position), distance)
-            ok, text = navigation.navigate(pose, ctx.cancelled)
+            ok, text = navigation.navigate(pose, until)
             if ok:
                 origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
-            elif not ctx.cancelled.is_set():
+            elif not until.is_set():
                 # E.g. the pose is too close to furniture: ask from here
                 # rather than give up on everyone.
                 ctx.log(
@@ -743,13 +757,18 @@ class FindDescribedPerson(Skill):
                 unreached.add(person.id)
 
         def talk(message, person):
-            """(match, name heard); (STOP, why) if cancelled or nobody can be asked."""
+            """(match, name heard); (STOP, why) if cancelled or nobody can be asked.
+
+            The approach and the questions end at the deadline: (None, None).
+            """
             nonlocal dialogue
+            if until.is_set():
+                return None, None
             if dialogue is None:
                 dialogue = Dialogue(
                     Interaction.of(self.runtime),
                     names_of(ctx.memory),
-                    ctx.cancelled,
+                    until,
                     ctx.log,
                     # Touch input bypasses the ASR (GPSR −50): only when asked for.
                     touch=touch,
@@ -757,6 +776,8 @@ class FindDescribedPerson(Skill):
             come_closer(message, person)
             if ctx.cancelled.is_set():
                 return STOP, "Cancelled"
+            if until.is_set():
+                return None, None
             if name is not None:
                 match = dialogue.confirm(name)
                 heard = name if match else None
@@ -897,7 +918,7 @@ class FindDescribedPerson(Skill):
             people.follow(track=person.id, name=heard)
             if person.id not in unreached:
                 return SkillResult(True, f"Facing {who}", outputs)
-            # Asked from afar: approach them now, as when not asking.
+            # Asked from afar: try to approach them now, as when not asking.
         people.look_at(frame, person.head)
         navigation = self.runtime.navigation
         if navigation is None or frame != "map" or not params.get("approach", True):
@@ -905,7 +926,12 @@ class FindDescribedPerson(Skill):
         pose = approach_pose(origin, planar(person.position), distance)
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
-            return SkillResult(False, f"Could not approach {who}: {text}")
+            if talked_to != person.id or ctx.cancelled.is_set():
+                return SkillResult(False, f"Could not approach {who}: {text}")
+            # Confirmed (and remembered) from afar: keep the result rather than
+            # lose it to the same failed goal; later steps talk from here.
+            message = f"Looking at {who}; could not approach: {text}"
+            return SkillResult(True, message, outputs)
         people.look_at(frame, person.head)
         outputs[LOCATION] = [round(v, 3) for v in pose]
         return SkillResult(True, f"Facing {who}", outputs)

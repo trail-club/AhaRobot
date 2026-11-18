@@ -1059,15 +1059,48 @@ class AskNameTests(unittest.TestCase):
         self.assertEqual(len(navigation.goals), 3)
         self.assertEqual(result.outputs["robot.location"], navigation.goals[-1])
 
-    def test_a_person_found_but_never_reached_fails(self):
+    def test_a_person_confirmed_but_never_reached_is_still_found(self):
         people = FakePeople(people_message(person(2, 3.0, 0.0)))
         navigation = FakeNavigation(ok=False)
         result, interaction = self.find(
             people, {"name": "Charlie"}, ["Yes."], navigation
         )
-        self.assertFalse(result.success)
-        self.assertIn("Could not approach Charlie", result.message)
-        self.assertEqual(people.remembered, {"Charlie"})  # remembered all the same
+        # Asked from where the robot is, then the approach failed again.
+        self.assertTrue(result.success, result.message)
+        self.assertIn("could not approach", result.message)
+        self.assertEqual(len(navigation.goals), 2)
+        self.assertEqual(result.outputs["person.name"], "Charlie")
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertNotIn("robot.location", result.outputs)
+        self.assertEqual(people.remembered, {"Charlie"})
+
+    def test_asking_ends_at_the_timeout(self):
+        def slow(cancelled, reply):
+            # Like Nav2 or the ASR that take long: only a cancel ends them early.
+            end = time.monotonic() + 5.0
+            while time.monotonic() < end and not cancelled.is_set():
+                time.sleep(0.01)
+            return reply
+
+        for slow_part in ("navigation", "listen"):
+            with self.subTest(slow_part):
+                people = FakePeople(people_message(person(1, 2.0, 0.0)))
+                navigation = FakeNavigation()
+                interaction = FakeInteraction()
+                if slow_part == "navigation":
+                    navigation.navigate = lambda pose, cancelled=None: slow(
+                        cancelled, (False, "Cancelled")
+                    )
+                else:
+                    interaction.listen = lambda hotwords, cancelled, **_: slow(
+                        cancelled, (None, "Cancelled")
+                    )
+                skill = FindDescribedPerson(runtime(people, navigation, interaction))
+                started = time.monotonic()
+                result = skill.execute(context({"name": "Charlie", "timeout": 0.5}))
+                self.assertFalse(result.success)
+                self.assertIn("Not found within", result.message)
+                self.assertLess(time.monotonic() - started, 1.5)
 
     def test_people_with_other_names_are_not_asked(self):
         people = FakePeople(

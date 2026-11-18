@@ -389,7 +389,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 - **判定**: 1人につき、頭をその人の頭へ向けて0.75 s待ち、その時に見えた頭の位置へ向け直してさらに0.75 s待つ（頭が画像の端で切れると頭の位置が低く出るため。挙げた手も写るように）。次に `skip_vlm` で深度とキーポイントの確かな答えだけを聞く。条件の成否が決まらなければ（服、不確かな姿勢・ジェスチャ）VLMに聞く。VLMの答えは `describe_timeout`（既定180 s、person_perceptionの `vlm_timeout` に合わせる）より30 s長く待つ（サーバーは先に動きを待つため）。判定に失敗した人（見失った、VLMの失敗、時間切れ）はもう1回判定し、それでも失敗すれば「判定できず」として続ける。中断は `Cancelled` で返す。
 - **名前**: `name` はperson_perceptionが覚えた名前と照合し、その名前の人がいれば先に選ぶ。`ask`（既定 `true`）なら、名前のない人にも近づいて名前を尋ね（[名前を尋ねる](#名前を尋ねる情報を伝える)）、本人なら覚えさせる。この実行で覚えた名前を探すときは、名前のない人を尋ねる前に `pans` を1巡してその名前の人を探し、新しいtrackには3 s待つ（VLMが名前を付けるため）。`ask: false` は覚えた名前だけを待つ。
 - **伝える情報**: `info`（`name` / `pose` / `gesture`）は後で伝える人の情報で、他の条件がなければ範囲内の誰でもよい。`pose` / `gesture` は分かるまでVLMに聞き、`name` は覚えた名前がなければ尋ねる。
-- **制限時間**: `timeout` に達すると、1人の判定（注視と `ClassifyPerson` の待ち）の途中でも打ち切る。
+- **制限時間**: `timeout` に達すると、1人の判定（注視と `ClassifyPerson` の待ち）や、尋ねるための移動・会話の途中でも打ち切る。
 
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
@@ -410,7 +410,7 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 | `gpsr.utc_offset` | 時刻・日付の時差（時間）。省略時はシステムの時間帯 |
 
 - **名前の照合**: 返答の語を `gpsr.names` と照合し、綴りの類似度0.8以上か、Soundexが同じで0.54以上の語も名前とする（`"Jewels"` は Jules）。一覧にない語は名前としない（`"I'm fine"`、`"What?"`）。名前は「I'm Charlie」のようなcueの後か、名前だけの返答のときだけ答えとみなす（「Charlie is over there」は答えでない）。
-- **名前を尋ねる**（`find_described_person` の `name`）: 人に近づいて頭を向け、`"Excuse me, are you Charlie?"` と聞く。否定（no、`"not me"`、`"I'm not"`。`"I didn't hear you"` は否定としない）、名前（`"I'm Jane"` は別人）、肯定（yes、`"That's me"`）の順に判断する。本人なら `remember_person` でその名前を覚えさせる。近づけない人にはその場から尋ねる。聞き取れない・判断できない答えは1回聞き直し、それでも分からない人は尋ね直さずに次の人へ進む。`touch: true` なら、その前に画面の `Yes` / `No` のタッチを10 s待つ（音声認識の迂回として −50）。
+- **名前を尋ねる**（`find_described_person` の `name`）: 人に近づいて頭を向け、`"Excuse me, are you Charlie?"` と聞く。否定（no、`"not me"`、`"I'm not"`。`"I didn't hear you"` は否定としない）、名前（`"I'm Jane"` は別人）、肯定（yes、`"That's me"`）の順に判断する。本人なら `remember_person` でその名前を覚えさせる。近づけない人にはその場から尋ね、本人と分かった後に近づき直す。それでも近づけなければ、その人を見つけた結果としてその場から返す（失敗にしない）。聞き取れない・判断できない答えは1回聞き直し、それでも分からない人は尋ね直さずに次の人へ進む。`touch: true` なら、その前に画面の `Yes` / `No` のタッチを10 s待つ（音声認識の迂回として −50）。
 - **名前を聞く**（`info: "name"`）: `"Excuse me, what is your name?"` と聞く。2回聞いて分からなければその人を諦める。
 - **`answer_question`**: `question` は生成器の `{talk}`（`"the time"`、`"your teams name"` など9種）か言い換え。キーワードで話題を決め（明日、月、週、時刻、所属、国、チーム名、今日、自己紹介の順）、決まらない質問は未対応としてその手順だけをmockで通過する。答えは `"It is 3:05 PM."`、`"Today is Monday, November 16th, 2026."`、`"My team's affiliation is the University of Tokyo."` など。時刻は実時間。
 - **`tell_info`**: `<key>.answer` があればそれを、なければ `<key>` の値を文にして言う（`<role>.name` / `.pose` / `.gesture` は人の情報、他は `"The answer is 3."`）。値がなければ失敗する。言う前に相手を向く。`person` が `operator`（`me`）なら `instruction_point` へ戻り、`location` があればそこへ行き、その地点から2.0 m以内に見えた最も近い人を向く（頭を正面・左右0.6 radへ2 sずつ、6 sまで探す）。それ以外は `<role>.track` / `.name` / `.position`（`role` の既定は `person`）の人を向く。1.5 mより遠い人には `distance`（既定1.0 m）手前まで近づく。人が見えないときと、向く・近づく移動に失敗したときは、その場で言う。
