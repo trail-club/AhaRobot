@@ -11,19 +11,18 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from aha_perception.furniture import load_config  # noqa: E402
+from aha_perception.furniture import Furniture, load_config  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from aha_tasks.sim_objects import (  # noqa: E402
     SIZE_TOLERANCE,
     Catalog,
-    PrintedModel,
     SceneError,
-    build_printed,
+    SceneObject,
     displacement,
     footprint,
     footprints_overlap,
+    furniture_config,
     load_scene,
-    printed_layout,
     stale_models,
 )
 
@@ -64,24 +63,24 @@ class SceneFixture(unittest.TestCase):
     def scene(self, name):
         return load_scene(SCENES / f"{name}.json", self.catalog, self.places)
 
-    def write_scene(self, objects):
+    def write_scene(self, objects, world="rcjo2026_arena"):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "scene.json"
-        path.write_text(json.dumps({"world": "rcjo2026_arena", "objects": objects}))
+        path.write_text(json.dumps({"world": world, "objects": objects}))
         return path
 
 
 class CatalogTests(SceneFixture):
     def test_models_have_the_listed_size(self):
-        for label, error in self.catalog.size_errors().items():
+        for label in self.catalog.models:
             with self.subTest(label=label):
-                self.assertLessEqual(error, SIZE_TOLERANCE)
-
-    def test_printed_models_are_exactly_listed(self):
-        for label, model in self.catalog.models.items():
-            if isinstance(model, PrintedModel):
-                self.assertEqual(model.size, self.objects.get(label).size)
+                np.testing.assert_allclose(
+                    self.catalog.size(label),
+                    self.objects.get(label).size,
+                    rtol=0,
+                    atol=SIZE_TOLERANCE,
+                )
 
     def test_ycb_sdf_moves_the_origin_to_the_box_center(self):
         obj = self.scene("pick_and_place").get("mug")
@@ -95,72 +94,11 @@ class CatalogTests(SceneFixture):
         self.assertAlmostEqual(pose[5], obj.yaw)
         for collision in model.findall("link/collision"):
             self.assertEqual(collision.findtext("surface/friction/ode/mu"), "1.0")
-            self.assertTrue(
-                collision.findtext("geometry/mesh/uri").startswith(
-                    "model://ycb_025_mug/"
-                )
-            )
-
-
-class PrintedModelTests(SceneFixture):
-    def test_mesh_has_the_size_and_valid_texture_coordinates(self):
-        for label in ("milk", "red bull", "dishwasher tab"):
-            model = self.catalog.models[label]
-            with self.subTest(label=label), tempfile.TemporaryDirectory() as cache:
-                mesh = build_printed(model, Path(cache))
-                lines = mesh.read_text().splitlines()
-                v = np.array(
-                    [
-                        [float(x) for x in ln.split()[1:]]
-                        for ln in lines
-                        if ln[:2] == "v "
-                    ]
-                )
-                vt = np.array(
-                    [
-                        [float(x) for x in ln.split()[1:]]
-                        for ln in lines
-                        if ln[:3] == "vt "
-                    ]
-                )
-                np.testing.assert_allclose(v.max(0) - v.min(0), model.size, atol=1e-5)
-                np.testing.assert_allclose((v.max(0) + v.min(0)) / 2, 0, atol=1e-5)
-                self.assertTrue(np.all((vt >= 0) & (vt <= 1)))
-                from PIL import Image
-
-                layout = printed_layout(model.shape, model.size)
-                with Image.open(mesh.with_suffix(".png")) as image:
-                    self.assertEqual(image.size, (layout["width"], layout["height"]))
-                self.assertIn(
-                    f"map_Kd {mesh.stem}.png", mesh.with_suffix(".mtl").read_text()
-                )
-                # Built once per style and size.
-                self.assertEqual(build_printed(model, Path(cache)), mesh)
-
-    def test_every_printed_model_has_its_own_material(self):
-        # Gazebo reuses a mesh material of the same name for every model.
-        from aha_tasks.sim_objects import printed_name
-
-        names = [
-            printed_name(m)
-            for m in self.catalog.models.values()
-            if isinstance(m, PrintedModel)
-        ]
-        self.assertEqual(len(names), len(set(names)))
-        model = self.catalog.models["cola"]
-        with tempfile.TemporaryDirectory() as cache:
-            mesh = build_printed(model, Path(cache))
-            self.assertIn(f"usemtl {mesh.stem}", mesh.read_text())
-            self.assertIn(f"newmtl {mesh.stem}", mesh.with_suffix(".mtl").read_text())
-
-    def test_sdf_collides_with_the_shape(self):
-        obj = self.scene("pick_and_place").get("milk")
-        with tempfile.TemporaryDirectory() as cache:
-            root = ET.fromstring(self.catalog.sdf(obj, Path(cache)))
-        size = root.findtext("model/link/collision/geometry/box/size")
-        self.assertEqual([float(v) for v in size.split()], [0.07, 0.07, 0.19])
-        uri = root.findtext("model/link/visual/geometry/mesh/uri")
-        self.assertTrue(uri.startswith("file://") and uri.endswith(".obj"))
+            uri = collision.findtext("geometry/mesh/uri")
+            # Absolute files: the built scans are not on Gazebo's resource path.
+            self.assertTrue(uri.startswith("file://"), uri)
+            self.assertTrue(Path(uri[len("file://") :]).is_file(), uri)
+            self.assertIn("/ycb_025_mug/", uri)
 
 
 class SceneTests(SceneFixture):
@@ -229,6 +167,35 @@ class SceneTests(SceneFixture):
         for role in ("table.other1", "table.other2"):
             self.assertIn(roles[role].category, categories)
 
+    def test_furniture_of_the_scene_world(self):
+        directory = PERCEPTION / "furniture"
+        path = furniture_config(directory, SCENES / "pick_and_place.json")
+        self.assertEqual(path.name, "rcjo2026_arena.yaml")
+        other = self.write_scene([], world="rcjo2026")
+        with self.assertRaises(SceneError):  # not placed on the arena's furniture
+            furniture_config(directory, other)
+
+    def test_no_model_of_the_world_is_stale(self):
+        # sim_objects removes stale models; none of the scene's world may be one.
+        try:
+            from ament_index_python.packages import get_package_share_directory
+            import xacro
+
+            sobits = Path(get_package_share_directory("sobits_gazebo_worlds"))
+        except (ImportError, LookupError):
+            self.skipTest("no xacro or sobits_gazebo_worlds")
+        for name in ("pick_and_place", "gpsr"):
+            scene = self.scene(name)
+            source = sobits / "worlds" / f"{scene.world}.world.xacro"
+            root = ET.fromstring(xacro.process_file(str(source)).toxml())
+            names = [m.get("name") for m in root.iter("model")]
+            for include in root.iter("include"):
+                uri = (include.findtext("uri") or "").rstrip("/")
+                names.append((include.findtext("name") or uri.split("/")[-1]).strip())
+            with self.subTest(scene=name):
+                self.assertGreater(len(names), 10)  # the furniture
+                self.assertEqual(stale_models(names, scene, self.objects), [])
+
     def test_only_objects_of_another_scene_are_stale(self):
         scene = self.scene("pick_and_place")
         present = [
@@ -249,7 +216,7 @@ class SceneTests(SceneFixture):
         stale = stale_models(present, scene, self.objects)
         self.assertEqual(
             stale,
-            sorted(["banana", "cola_2", "cup_noodle", "plum", "strawberry_jello"]),
+            sorted(["banana", "cup_noodle", "green_tea", "plum", "strawberry_jello"]),
         )
         self.assertEqual(
             stale_models(present, self.scene("gpsr"), self.objects)[:3],
@@ -294,8 +261,6 @@ class SceneTests(SceneFixture):
         self.assertEqual(scene.objects[0].level, 1)
 
     def test_objects_fit_under_the_next_board(self):
-        from aha_perception.furniture import Furniture
-
         low = {"rack": Furniture("rack", "shelf", 0.0, 0.0, 0.0, 0.4, 0.6, (0.3, 0.45))}
         milk = {"name": "milk", "label": "milk", "on": "rack", "level": 1}
         milk.update(position=[0.0, 0.0], yaw=0.0)
@@ -317,8 +282,6 @@ class FootprintTests(unittest.TestCase):
         self.assertFalse(footprints_overlap(diamond, square + [0.123, 0.0]))
 
     def test_footprint_turns_with_the_yaw(self):
-        from aha_tasks.sim_objects import SceneObject
-
         obj = SceneObject(
             "fork",
             "fork",

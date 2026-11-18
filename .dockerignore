@@ -1,0 +1,6 @@
+# Not used by the images (the Dockerfiles copy docker/, tools/ and upstream/ files)
+.git/
+.cache/
+overlay_ws/build/
+overlay_ws/install/
+overlay_ws/log/

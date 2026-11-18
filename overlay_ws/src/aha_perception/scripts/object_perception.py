@@ -32,12 +32,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
-from aha_perception.dgx import (
-    DgxWorker,
-    RequestError,
-    WorkerOptions,
-    object_spec,
-)
+from aha_perception.dgx import DgxWorker, RequestError, WorkerOptions, object_spec
 from aha_perception.object_detection import (
     DEFAULT_CANDIDATE_THRESHOLD,
     DEFAULT_MAX_CANDIDATES,
@@ -160,14 +155,13 @@ class ObjectPerception(Node):
             else ReliabilityPolicy.BEST_EFFORT,
         )
         subscribers = [
-            message_filters.Subscriber(self, Image, topic, qos_profile=qos)
-            for topic in (self.color_topic, self.depth_topic)
-        ]
-        subscribers.append(
-            message_filters.Subscriber(
-                self, CameraInfo, self.info_topic, qos_profile=qos
+            message_filters.Subscriber(self, kind, topic, qos_profile=qos)
+            for kind, topic in (
+                (Image, self.color_topic),
+                (Image, self.depth_topic),
+                (CameraInfo, self.info_topic),
             )
-        )
+        ]
         # The camera publishes color, aligned depth and info with one stamp.
         self.sync = message_filters.TimeSynchronizer(subscribers, 10)
         self.sync.registerCallback(self.on_frame)
@@ -246,13 +240,15 @@ class ObjectPerception(Node):
         rgb, depth = image_array(color), image_array(depth_msg)
         if depth.shape != rgb.shape[:2]:
             raise ValueError("depth is not aligned to the color image")
+        frame = self.target_frame or color.header.frame_id
         # The camera and gripper poses at the image time, before the robot moves
-        # on and before the DGX round trip outlasts the TF buffer.
-        rotation, translation = self.camera_pose(color.header.frame_id, stamp)
-        # measure_object takes a rotation as one to a frame with z up; in the
-        # camera's own frame (empty or the camera frame) keep the visible box.
-        upright = self.target_frame not in ("", color.header.frame_id)
-        robot = self.robot_points(self.target_frame or color.header.frame_id, stamp)
+        # on and before the DGX round trip outlasts the TF buffer. measure_object
+        # takes a rotation to a frame with z up; in the camera's own frame (empty
+        # target_frame or the camera frame) it keeps the visible box.
+        rotation = translation = None
+        if frame != color.header.frame_id:
+            rotation, translation = self.camera_pose(color.header.frame_id, stamp)
+        robot = self.robot_points(frame, stamp)
         started = time.monotonic()
         response = self.worker.request(
             {
@@ -274,8 +270,8 @@ class ObjectPerception(Node):
         for found in response["objects"]:
             mask = decode_mask(found, rgb.shape[:2])
             label = found.get("label")
-            entry = self.objects.get(label) if label else None
-            measured = None
+            entry = self.objects.get(label)  # None for none
+            reason = ""
             if entry is not None:
                 measured = measure_object(
                     mask,
@@ -284,36 +280,28 @@ class ObjectPerception(Node):
                     fy,
                     cx,
                     cy,
-                    rotation=rotation if upright else None,
-                    translation=translation,
+                    rotation,
+                    translation,
                     footprint=min(entry.size[:2]),
                 )
-            reason = ""
-            if measured is None:
-                reason = "" if entry is None else ", no depth"
-            elif max(measured.size) > self.max_size:
-                reason = ", too large"  # e.g. a box mask over a shelf
-            elif not size_fits(measured.size, entry.size):
-                reason = f", too large for {label}"
-            elif near_any(measured.centre, robot, self.robot_margin):
-                reason = ", the robot"
-            if reason:
-                measured = None
-            if measured is not None:
-                detections.append(
-                    ObjectDetection(
-                        label,
-                        measured.centre,
-                        measured.size,
-                        float(found["score"]),
-                        [int(v) for v in found["bbox"]],
+                if measured is None:
+                    reason = ", no depth"
+                elif max(measured.size) > self.max_size:
+                    reason = ", too large"  # e.g. a box mask over a shelf
+                elif not size_fits(measured.size, entry.size):
+                    reason = f", too large for {label}"
+                elif near_any(measured.centre, robot, self.robot_margin):
+                    reason = ", the robot"
+                else:
+                    detections.append(
+                        ObjectDetection(
+                            label, measured.centre, measured.size, float(found["score"])
+                        )
                     )
-                )
             text = f"{label or 'none'} ({found['phrase']} {found['score']:.2f}{reason})"
-            debug.append((mask, text, measured is not None))
+            debug.append((mask, text, entry is not None and not reason))
         detections = merge_detections(detections, self.merge_distance)
         seen = self.tracker.update(detections, seconds)
-        frame = self.target_frame or color.header.frame_id
         self.publish(stamp, frame, seen)
         if self.image_pub.get_subscription_count() or self.debug_dir:
             annotated = annotate(rgb, debug)
@@ -354,8 +342,6 @@ class ObjectPerception(Node):
         return points
 
     def camera_pose(self, camera_frame, stamp):
-        if not self.target_frame or self.target_frame == camera_frame:
-            return np.eye(3), np.zeros(3)
         transform = self.tf_buffer.lookup_transform(
             self.target_frame,
             camera_frame,
@@ -403,10 +389,8 @@ class ObjectPerception(Node):
         box.scale.x, box.scale.y, box.scale.z = (float(v) for v in track.size)
         box.color.r, box.color.g, box.color.b, box.color.a = 0.1, 0.6, 1.0, 0.6
         label = Marker(ns="labels", id=track.id, type=Marker.TEXT_VIEW_FACING)
-        label.pose.position.x, label.pose.position.y = (
-            box.pose.position.x,
-            (box.pose.position.y),
-        )
+        label.pose.position.x = box.pose.position.x
+        label.pose.position.y = box.pose.position.y
         label.pose.position.z = float(track.centre[2] + track.size[2] / 2 + 0.05)
         label.pose.orientation.w = 1.0
         label.scale.z = 0.06
