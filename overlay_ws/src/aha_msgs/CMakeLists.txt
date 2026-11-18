@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/PlaceObstacle.msg
   msg/Plane.msg
   msg/PlaneArray.msg
+  msg/SoundEvent.msg
   msg/SpeechTranscript.msg
   msg/Surface.msg
   msg/SurfaceArray.msg
