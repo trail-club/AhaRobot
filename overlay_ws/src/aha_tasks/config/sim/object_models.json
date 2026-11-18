@@ -18,23 +18,417 @@
     "mug": {"model": "ycb_025_mug", "yaw": 39},
     "plate": {"model": "ycb_029_plate"},
     "bowl": {"model": "ycb_024_bowl"},
-    "rubiks cube": {"model": "ycb_077_rubiks_cube", "yaw": -27}
+    "rubiks cube": {"model": "ycb_077_rubiks_cube", "yaw": -27},
+    "chocolate jello": {"model": "ycb_008_pudding_box", "yaw": -27.5},
+    "strawberry jello": {"model": "ycb_009_gelatin_box", "yaw": -13},
+    "cleanser": {"model": "ycb_021_bleach_cleanser", "yaw": -1},
+    "sponge": {"model": "ycb_026_sponge", "yaw": 1}
   },
-  "printed": {
-    "milk": {"text": "MILK", "body": "#f4f4ee", "band": "#2457c5", "ink": "#2457c5", "cap": "#2457c5", "mass": 0.3},
-    "cereal": {"text": "CORN FLAKES", "body": "#f2c12e", "band": "#c8261d", "ink": "#c8261d", "cap": "#f2c12e", "mass": 0.25},
-    "cola": {"text": "COLA", "body": "#c51d23", "band": "#c51d23", "ink": "#ffffff", "cap": "#c0c0c0", "mass": 0.35},
-    "lemonade": {"text": "LEMONADE", "body": "#f7e64a", "band": "#f7e64a", "ink": "#2e7d32", "cap": "#c0c0c0", "mass": 0.35},
-    "green tea": {"text": "GREEN TEA", "body": "#3f8f3a", "band": "#e8f5e9", "ink": "#ffffff", "cap": "#e8f5e9", "mass": 0.5},
-    "red bull": {"text": "RED BULL", "body": "#c9ccd3", "band": "#1d3e8f", "ink": "#d0202f", "cap": "#c0c0c0", "mass": 0.27},
-    "pringles": {"text": "PRINGLES", "body": "#d2232a", "band": "#d2232a", "ink": "#ffffff", "cap": "#f2f2f2", "mass": 0.2},
-    "cookies": {"text": "COOKIES", "body": "#7b4a26", "band": "#f1dfbf", "ink": "#f1dfbf", "cap": "#7b4a26", "mass": 0.2},
-    "chocolate jello": {"text": "CHOCOLATE JELLO", "body": "#4a2a1a", "band": "#d63a2f", "ink": "#ffffff", "cap": "#4a2a1a", "mass": 0.1},
-    "strawberry jello": {"text": "STRAWBERRY JELLO", "body": "#e0435a", "band": "#d63a2f", "ink": "#ffffff", "cap": "#e0435a", "mass": 0.1},
-    "cup noodle": {"text": "CUP NOODLE", "body": "#fafafa", "band": "#d52b1e", "ink": "#d52b1e", "cap": "#fafafa", "mass": 0.08},
-    "cleanser": {"text": "CLEANSER", "body": "#f7f7f7", "band": "#1b75bc", "ink": "#1b75bc", "cap": "#1b75bc", "mass": 0.5},
-    "sponge": {"text": "", "body": "#f5d33b", "band": "#2f8f46", "ink": "#2f8f46", "cap": "#2f8f46", "mass": 0.01},
-    "dishwasher tab": {"text": "TAB", "body": "#ffffff", "band": "#1f6fd1", "ink": "#1f6fd1", "cap": "#ffffff", "mass": 0.02},
-    "toothpaste": {"text": "TOOTHPASTE", "body": "#ffffff", "band": "#d71920", "ink": "#d71920", "cap": "#ffffff", "mass": 0.12}
+  "scanned": {
+    "pringles": {
+      "model": "ycb_001_chips_can",
+      "url": "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/berkeley/001_chips_can/001_chips_can_berkeley_meshes.tgz",
+      "sha256": "eae869ea539d221e53fcd4d6111a30832fb76fd0f177f56e6d45b50a68cc50d6",
+      "mesh": "001_chips_can/poisson/textured.obj",
+      "rpy": [0, 0, 0],
+      "scale": 1.0,
+      "mass": 0.205,
+      "size": [0.0795, 0.0776, 0.2455],
+      "source": "YCB Object and Model Set 001_chips_can (Berkeley poisson mesh), CC BY 4.0"
+    },
+    "cereal": {
+      "model": "gso_vans_cereal_honey_nut_crunch",
+      "url": "https://fuel.gazebosim.org/1.0/GoogleResearch/models/Vans_Cereal_Honey_Nut_Crunch_11_oz_box/1/Vans_Cereal_Honey_Nut_Crunch_11_oz_box.zip",
+      "sha256": "31a5acdad9f8f05b186a8430d09982e5f156a02846eb9fa2b7f69ffb78d0ad1d",
+      "mesh": "meshes/model.obj",
+      "rpy": [0, 90, 0],
+      "scale": 1.0,
+      "mass": 0.36,
+      "size": [0.2815, 0.0556, 0.2025],
+      "source": "Google Scanned Objects Vans_Cereal_Honey_Nut_Crunch_11_oz_box, Copyright 2020 Google LLC, CC BY 4.0"
+    },
+    "milk": {
+      "model": "hope_milk",
+      "url": "https://huggingface.co/datasets/bop-benchmark/hope/resolve/ddd0a26ca3460085e93b648748160fb25e4b5566/hope_models.zip",
+      "sha256": "b92d47db20fc98c8f54ea42754ca1b5db123f7ed99aa9b9aca3ed0409160385d",
+      "mesh": "models/obj_000014.ply",
+      "rpy": [0, 0, 0],
+      "scale": 0.001,
+      "mass": 1.0,
+      "size": [0.0733, 0.0722, 0.1904],
+      "source": "HOPE (NVIDIA, BOP) obj_000014 Milk, CC BY-NC-SA 4.0"
+    },
+    "cookies": {
+      "model": "hope_cookies",
+      "url": "https://huggingface.co/datasets/bop-benchmark/hope/resolve/ddd0a26ca3460085e93b648748160fb25e4b5566/hope_models.zip",
+      "sha256": "b92d47db20fc98c8f54ea42754ca1b5db123f7ed99aa9b9aca3ed0409160385d",
+      "mesh": "models/obj_000006.ply",
+      "rpy": [0, 0, 0],
+      "scale": 0.001,
+      "mass": 0.35,
+      "size": [0.0402, 0.1227, 0.1672],
+      "source": "HOPE (NVIDIA, BOP) obj_000006 Cookies, CC BY-NC-SA 4.0"
+    },
+    "cola": {
+      "model": "fuel_coke_can",
+      "url": "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Coke%20Can/3/Coke%20Can.zip",
+      "sha256": "bea9fef288e7691640befd5be72687e586d44dc8aafb21d25bb289828f17fdc5",
+      "mesh": "meshes/coke_can.dae",
+      "rpy": [0, 0, 0],
+      "scale": 0.001,
+      "mass": 0.37,
+      "size": [0.067, 0.067, 0.1239],
+      "source": "Gazebo Fuel OpenRobotics/Coke Can v3, CC0 1.0"
+    }
+  },
+  "measured": {
+    "red bull": {
+      "model": "red_bull_250ml",
+      "shape": {
+        "profile": {
+          "url": "https://huggingface.co/datasets/ll4ma-lab/bigbird-meshes-fixed-normals/resolve/ca5c9290a5dafe6d17eba38b41414b2464adb375/bigbird_red_bull.obj",
+          "sha256": "f4b0a7d4dbd33497c308d1086964892cdf3a5127cfa74a1c1a67fe11a39c2706",
+          "step": 0.002
+        }
+      },
+      "paint": {
+        "color": "#c8c9cc",
+        "side": {
+          "z": [0.004, 0.121],
+          "radius": 0.0262,
+          "pieces": [
+            {
+              "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-139/2a29aa47ffd74b6395d07cd270db4735.glb",
+              "sha256": "0daa8ca68ac7a8d8c23a5df831358a813fa9b6a4e0b453926d17fa1a4691dfc1",
+              "member": "glb:0",
+              "deg": [200, 200]
+            }
+          ]
+        },
+        "top": {
+          "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/556637099bf4fa79ea7b239d0d9c328b8a2e9ac8/glbs/000-139/2a29aa47ffd74b6395d07cd270db4735.glb",
+          "sha256": "0daa8ca68ac7a8d8c23a5df831358a813fa9b6a4e0b453926d17fa1a4691dfc1",
+          "member": "glb:3",
+          "radius": 0.02
+        }
+      },
+      "mass": 0.015,
+      "size": [0.0531, 0.0531, 0.1347],
+      "source": "Empty can (RCJO 2026 DSPL: without liquid inside). Shape: BigBIRD red_bull (Singh et al. 2014, ll4ma-lab/bigbird-meshes-fixed-normals). Label and lid: RED BULL ENERGY DRINK CAN by martin_dalm (Sketchfab 2a29aa47ffd74b6395d07cd270db4735, Objaverse), CC BY 4.0"
+    },
+    "green tea": {
+      "model": "itoen_koicha_1l",
+      "shape": {
+        "revolve": [[0.0, 0.0], [0.0305, 0.0], [0.0306, 0.0024], [0.0338, 0.0071], [0.0345, 0.0119], [0.0345, 0.0167], [0.0345, 0.0215], [0.0345, 0.0263], [0.0345, 0.0311], [0.0338, 0.0358], [0.0345, 0.0406], [0.0345, 0.0454], [0.0345, 0.0501], [0.0341, 0.055], [0.0341, 0.0598], [0.0345, 0.0645], [0.035, 0.0693], [0.0345, 0.074], [0.0338, 0.0788], [0.0345, 0.0836], [0.035, 0.0884], [0.035, 0.0932], [0.0341, 0.098], [0.0334, 0.1027], [0.0334, 0.1075], [0.0334, 0.1123], [0.035, 0.117], [0.0357, 0.1219], [0.0357, 0.1267], [0.0357, 0.1314], [0.0362, 0.1362], [0.0362, 0.141], [0.0365, 0.1457], [0.0365, 0.1505], [0.0365, 0.1553], [0.0365, 0.1601], [0.0365, 0.1649], [0.0365, 0.1696], [0.0362, 0.1744], [0.0362, 0.1792], [0.0362, 0.1839], [0.0362, 0.1888], [0.0357, 0.1936], [0.0357, 0.1983], [0.0357, 0.2031], [0.0357, 0.2079], [0.035, 0.2126], [0.0334, 0.2174], [0.0314, 0.2223], [0.0278, 0.227], [0.0234, 0.2318], [0.0191, 0.2365], [0.0135, 0.2413], [0.0123, 0.2461], [0.0159, 0.2508], [0.0155, 0.2557], [0.0151, 0.2605], [0.0147, 0.2652], [0.0135, 0.27], [0.0135, 0.27], [0.0, 0.27]]
+      },
+      "paint": {
+        "color": "#7d8a2e",
+        "side": {
+          "z": [0.12, 0.208],
+          "radius": 0.0362,
+          "pieces": [
+            {
+              "deg": [90, 90],
+              "draw": {
+                "size": [1600, 620],
+                "fill": "#1f4d2b",
+                "items": [
+                  {"box": [0, 0, 1, 0.08], "color": "#c9a74a"},
+                  {"box": [0, 0.92, 1, 1], "color": "#c9a74a"},
+                  {"box": [0.36, 0.1, 0.64, 0.26], "color": "#b3262b", "shape": "round"},
+                  {"box": [0.37, 0.11, 0.63, 0.25], "text": "お～いお茶", "color": "#ffffff"},
+                  {"box": [0.4, 0.27, 0.6, 0.86], "text": "濃\n い\n 茶", "color": "#ffffff"},
+                  {"box": [0.62, 0.3, 0.72, 0.86], "text": "機能性\n表示食品", "color": "#e8d9a0"},
+                  {"box": [0.28, 0.3, 0.38, 0.86], "text": "カテキン\nの渋み", "color": "#e8d9a0"},
+                  {"box": [0.04, 0.15, 0.22, 0.85], "color": "#2d6239"},
+                  {"box": [0.05, 0.18, 0.21, 0.3], "text": "ITO EN", "color": "#ffffff"},
+                  {"box": [0.78, 0.15, 0.96, 0.85], "color": "#2d6239"},
+                  {"box": [0.79, 0.2, 0.95, 0.35], "text": "1L", "color": "#ffffff"}
+                ]
+              }
+            }
+          ]
+        },
+        "top": {"radius": 0.0159, "draw": {"size": [64, 64], "fill": "#1d5a26"}}
+      },
+      "mass": 1.04,
+      "source": "Shape: Ito En お～いお茶 濃い茶 1L slim PET, 270 x 73 x 72 mm (Amazon.co.jp B0972LWLY1), profile measured from Ito En's product image (about 2 mm). Label drawn from the product's colours and text",
+      "size": [0.073, 0.073, 0.27]
+    },
+    "lemonade": {
+      "model": "minute_maid_lemonade_600ml",
+      "shape": {
+        "revolve": [[0.0, 0.0], [0.0195, 0.0], [0.0302, 0.0055], [0.0327, 0.011], [0.0316, 0.0165], [0.0329, 0.021], [0.0331, 0.0265], [0.0329, 0.032], [0.033, 0.0376], [0.0325, 0.0431], [0.0319, 0.0476], [0.032, 0.0531], [0.0319, 0.0586], [0.0316, 0.0641], [0.0311, 0.0696], [0.0304, 0.0741], [0.0298, 0.0796], [0.029, 0.0851], [0.0274, 0.0906], [0.0298, 0.0961], [0.032, 0.1006], [0.033, 0.1061], [0.0329, 0.1117], [0.0331, 0.1172], [0.0331, 0.1227], [0.0329, 0.1272], [0.0331, 0.1327], [0.0331, 0.1382], [0.033, 0.1437], [0.0333, 0.1492], [0.0333, 0.1537], [0.0321, 0.1592], [0.033, 0.1647], [0.0329, 0.1702], [0.0302, 0.1757], [0.0258, 0.1802], [0.02, 0.1858], [0.0125, 0.192], [0.0125, 0.197], [0.0158, 0.1975], [0.0158, 0.1985], [0.0145, 0.2], [0.0145, 0.219], [0.0135, 0.22], [0.0, 0.22]]
+      },
+      "paint": {
+        "color": "#f1e88a",
+        "side": {
+          "z": [0.006, 0.178],
+          "radius": 0.0331,
+          "pieces": [
+            {
+              "deg": [90, 90],
+              "draw": {
+                "size": [1400, 1150],
+                "fill": "#f6e46a",
+                "items": [
+                  {"box": [0.06, 0.55, 0.3, 0.85], "color": "#f2c418", "shape": "ellipse"},
+                  {"box": [0.62, 0.5, 0.92, 0.88], "color": "#f2c418", "shape": "ellipse"},
+                  {"box": [0.3, 0.7, 0.56, 0.98], "color": "#efbd12", "shape": "ellipse"},
+                  {"box": [0.08, 0.05, 0.22, 0.25], "color": "#8dc63f", "shape": "ellipse"},
+                  {"box": [0.38, 0.06, 0.62, 0.36], "color": "#1c1c1c", "shape": "round"},
+                  {"box": [0.4, 0.08, 0.6, 0.25], "text": "Minute\nMaid", "color": "#ffffff"},
+                  {"box": [0.4, 0.25, 0.6, 0.34], "text": "ゼロシュガー", "color": "#f6d21e"},
+                  {"box": [0.4, 0.37, 0.6, 0.44], "color": "#5a3a12", "shape": "round"},
+                  {"box": [0.41, 0.375, 0.59, 0.435], "text": "レモネード", "color": "#ffffff"},
+                  {"box": [0.41, 0.46, 0.59, 0.53], "text": "甘さすっきり", "color": "#5a3a12"},
+                  {"box": [0.52, 0.9, 0.62, 0.97], "text": "600ml", "color": "#5a3a12"}
+                ]
+              }
+            }
+          ]
+        },
+        "top": {"radius": 0.0145, "draw": {"size": [64, 64], "fill": "#f4f4f4"}}
+      },
+      "mass": 0.62,
+      "source": "Shape: Coca-Cola Japan Minute Maid Zero Sugar Lemonade 600 ml PET, 220 x 68 x 68 mm (Amazon.co.jp B0DYK2XBTL), profile measured from the product image (about 2 mm). Label drawn from the product's colours and text",
+      "size": [0.0666, 0.0666, 0.22]
+    },
+    "cup noodle": {
+      "model": "nissin_donbei_kitsune",
+      "shape": {
+        "revolve": [[0, 0], [0.0415, 0], [0.0425, 0.004], [0.0705, 0.0705], [0.0723, 0.0725], [0.0723, 0.0744], [0, 0.0744]]
+      },
+      "paint": {
+        "color": "#f4efe2",
+        "side": {
+          "z": [0.006, 0.07],
+          "radius": 0.058,
+          "pieces": [
+            {
+              "deg": [0, 360],
+              "draw": {
+                "size": [2000, 430],
+                "fill": "#1f4a2c",
+                "items": [
+                  {"box": [0, 0, 1, 0.06], "color": "#f4efe2"},
+                  {"box": [0, 0.94, 1, 1], "color": "#f4efe2"},
+                  {"box": [0.01, 0.1, 0.2, 0.9], "text": "どん兵衛", "color": "#ffffff"},
+                  {"box": [0.22, 0.14, 0.31, 0.86], "color": "#c8261f", "shape": "round"},
+                  {"box": [0.225, 0.18, 0.305, 0.82], "text": "きつね\nうどん", "color": "#ffffff"},
+                  {"box": [0.3433333333333333, 0.1, 0.5333333333333333, 0.9], "text": "どん兵衛", "color": "#ffffff"},
+                  {"box": [0.5533333333333333, 0.14, 0.6433333333333333, 0.86], "color": "#c8261f", "shape": "round"},
+                  {
+                    "box": [0.5583333333333333, 0.18, 0.6383333333333333, 0.82],
+                    "text": "きつね\nうどん",
+                    "color": "#ffffff"
+                  },
+                  {"box": [0.6766666666666666, 0.1, 0.8666666666666667, 0.9], "text": "どん兵衛", "color": "#ffffff"},
+                  {"box": [0.8866666666666666, 0.14, 0.9766666666666666, 0.86], "color": "#c8261f", "shape": "round"},
+                  {
+                    "box": [0.8916666666666666, 0.18, 0.9716666666666667, 0.82],
+                    "text": "きつね\nうどん",
+                    "color": "#ffffff"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "top": {
+          "radius": 0.0723,
+          "draw": {
+            "size": [800, 800],
+            "fill": "#f1e7cf",
+            "items": [
+              {"box": [0.0, 0.0, 1.0, 0.5], "color": "#1f4a2c"},
+              {"box": [0.16, 0.08, 0.84, 0.44], "text": "どん兵衛", "color": "#ffffff"},
+              {"box": [0.62, 0.1, 0.8, 0.2], "color": "#c8261f"},
+              {"box": [0.63, 0.11, 0.79, 0.19], "text": "日清の", "color": "#ffffff"},
+              {"box": [0.0, 0.5, 1.0, 1.0], "color": "#e3a54d"},
+              {"box": [0.32, 0.56, 0.7, 0.86], "color": "#c98a3a", "shape": "round"},
+              {"box": [0.12, 0.52, 0.3, 0.74], "color": "#c8261f", "shape": "round"},
+              {"box": [0.13, 0.53, 0.29, 0.73], "text": "きつね", "color": "#ffffff"},
+              {"box": [0.12, 0.74, 0.3, 0.86], "color": "#1f4a2c", "shape": "round"},
+              {"box": [0.13, 0.75, 0.29, 0.85], "text": "うどん", "color": "#ffffff"},
+              {"box": [0.4, 0.88, 0.6, 0.95], "color": "#c8261f", "shape": "round"},
+              {"box": [0.41, 0.885, 0.59, 0.945], "text": "NISSIN", "color": "#ffffff"}
+            ]
+          }
+        }
+      },
+      "mass": 0.11,
+      "source": "Shape: Nissin どん兵衛 きつねうどん bowl, top 144.6 mm, bottom 82.9 mm, height 74.4 mm (caliper, j-instantdata.com; Monotaro 04556929 144 x 75 x 144 mm). Lid and band drawn from the product's colours and text",
+      "size": [0.1446, 0.1446, 0.0744]
+    },
+    "toothpaste": {
+      "model": "lion_clinica_pro_box",
+      "shape": {"box": [0.162, 0.045, 0.04]},
+      "paint": {
+        "color": "#1f4fb4",
+        "+z": {
+          "draw": {
+            "size": [450, 1620],
+            "fill": "#1f4fb4",
+            "items": [
+              {"box": [0, 0, 1, 0.6], "gradient": ["#2a63d0", "#163f9c"]},
+              {"box": [0.08, 0.12, 0.92, 0.42], "color": "#9fd4ff", "shape": "ellipse", "outline": 6},
+              {"box": [0.15, 0.06, 0.85, 0.1], "text": "予防歯科から生まれた", "color": "#ffffff"},
+              {"box": [0.12, 0.17, 0.88, 0.28], "text": "クリニカ", "color": "#ffffff"},
+              {"box": [0.25, 0.28, 0.75, 0.38], "text": "PRO", "color": "#ffffff"},
+              {"box": [0.1, 0.44, 0.9, 0.51], "text": "日本唯一", "color": "#ffffff"},
+              {"box": [0.1, 0.51, 0.9, 0.57], "text": "酵素を配合", "color": "#ffffff"},
+              {"box": [0, 0.6, 1, 1], "gradient": ["#ffe14a", "#e6a700"]},
+              {"box": [0.08, 0.62, 0.92, 0.68], "text": "7大リスクケア", "color": "#1f4fb4"},
+              {"box": [0.2, 0.68, 0.8, 0.72], "text": "オールインワン", "color": "#1f4fb4"},
+              {"box": [0.06, 0.75, 0.48, 0.84], "color": "#ffffff", "shape": "round"},
+              {"box": [0.08, 0.76, 0.46, 0.83], "text": "高濃度フッ素\n1450ppm配合", "color": "#1f4fb4"},
+              {"box": [0.52, 0.75, 0.94, 0.84], "color": "#3fa9f5", "shape": "round"},
+              {"box": [0.54, 0.76, 0.92, 0.83], "text": "フレッシュ\nクリーンミント", "color": "#ffffff"},
+              {"box": [0.3, 0.9, 0.7, 0.96], "text": "LION", "color": "#1f4fb4"}
+            ]
+          },
+          "rotate": 90
+        },
+        "-z": {
+          "draw": {
+            "size": [450, 1620],
+            "fill": "#ffffff",
+            "items": [
+              {"box": [0.05, 0.03, 0.95, 0.07], "color": "#9fd4ff"},
+              {"box": [0.08, 0.035, 0.92, 0.065], "text": "クリニカPRO オールインワンハミガキ", "color": "#1f4fb4"},
+              {"box": [0.08, 0.1, 0.7, 0.115], "color": "#8a8f99"},
+              {"box": [0.08, 0.135, 0.92, 0.15000000000000002], "color": "#8a8f99"},
+              {"box": [0.08, 0.17, 0.92, 0.185], "color": "#8a8f99"},
+              {"box": [0.08, 0.20500000000000002, 0.7, 0.22000000000000003], "color": "#8a8f99"},
+              {"box": [0.08, 0.24000000000000002, 0.92, 0.255], "color": "#8a8f99"},
+              {"box": [0.08, 0.275, 0.92, 0.29000000000000004], "color": "#8a8f99"},
+              {"box": [0.08, 0.31000000000000005, 0.7, 0.325], "color": "#8a8f99"},
+              {"box": [0.08, 0.34500000000000003, 0.92, 0.36000000000000004], "color": "#8a8f99"},
+              {"box": [0.08, 0.38, 0.92, 0.395], "color": "#8a8f99"},
+              {"box": [0.08, 0.41500000000000004, 0.7, 0.43000000000000005], "color": "#8a8f99"},
+              {"box": [0.08, 0.45000000000000007, 0.92, 0.465], "color": "#8a8f99"},
+              {"box": [0.08, 0.485, 0.92, 0.5], "color": "#8a8f99"},
+              {"box": [0.08, 0.52, 0.7, 0.535], "color": "#8a8f99"},
+              {"box": [0.08, 0.555, 0.92, 0.5700000000000001], "color": "#8a8f99"},
+              {"box": [0.08, 0.5900000000000001, 0.92, 0.6050000000000001], "color": "#8a8f99"},
+              {"box": [0.08, 0.625, 0.7, 0.64], "color": "#8a8f99"},
+              {"box": [0.08, 0.66, 0.92, 0.675], "color": "#8a8f99"},
+              {"box": [0.08, 0.6950000000000001, 0.92, 0.7100000000000001], "color": "#8a8f99"},
+              {"box": [0.08, 0.7300000000000001, 0.7, 0.7450000000000001], "color": "#8a8f99"},
+              {"box": [0.08, 0.765, 0.92, 0.78], "color": "#8a8f99"},
+              {"box": [0.15, 0.82, 0.85, 0.94], "color": "#ffffff"},
+              {"box": [0.17, 0.83, 0.186, 0.92], "color": "#111111"},
+              {"box": [0.2, 0.83, 0.222, 0.92], "color": "#111111"},
+              {"box": [0.23, 0.83, 0.246, 0.92], "color": "#111111"},
+              {"box": [0.26, 0.83, 0.28200000000000003, 0.92], "color": "#111111"},
+              {"box": [0.29000000000000004, 0.83, 0.306, 0.92], "color": "#111111"},
+              {"box": [0.32, 0.83, 0.34199999999999997, 0.92], "color": "#111111"},
+              {"box": [0.35, 0.83, 0.366, 0.92], "color": "#111111"},
+              {"box": [0.38, 0.83, 0.402, 0.92], "color": "#111111"},
+              {"box": [0.41000000000000003, 0.83, 0.426, 0.92], "color": "#111111"},
+              {"box": [0.44000000000000006, 0.83, 0.462, 0.92], "color": "#111111"},
+              {"box": [0.47, 0.83, 0.486, 0.92], "color": "#111111"},
+              {"box": [0.5, 0.83, 0.522, 0.92], "color": "#111111"},
+              {"box": [0.53, 0.83, 0.546, 0.92], "color": "#111111"},
+              {"box": [0.56, 0.83, 0.5820000000000001, 0.92], "color": "#111111"},
+              {"box": [0.59, 0.83, 0.606, 0.92], "color": "#111111"},
+              {"box": [0.62, 0.83, 0.6419999999999999, 0.92], "color": "#111111"},
+              {"box": [0.65, 0.83, 0.6659999999999999, 0.92], "color": "#111111"},
+              {"box": [0.68, 0.83, 0.702, 0.92], "color": "#111111"},
+              {"box": [0.7100000000000001, 0.83, 0.726, 0.92], "color": "#111111"},
+              {"box": [0.74, 0.83, 0.762, 0.92], "color": "#111111"},
+              {"box": [0.77, 0.83, 0.786, 0.92], "color": "#111111"},
+              {"box": [0.8, 0.83, 0.8220000000000001, 0.92], "color": "#111111"}
+            ]
+          },
+          "rotate": 270
+        },
+        "-y": {
+          "draw": {
+            "size": [1620, 400],
+            "fill": "#1f4fb4",
+            "items": [
+              {"box": [0.6, 0, 1, 1], "gradient": ["#ffe14a", "#e6a700"]},
+              {"box": [0.08, 0.2, 0.52, 0.8], "text": "クリニカPRO", "color": "#ffffff"}
+            ]
+          }
+        },
+        "+y": {
+          "draw": {
+            "size": [1620, 400],
+            "fill": "#1f4fb4",
+            "items": [
+              {"box": [0.6, 0, 1, 1], "gradient": ["#ffe14a", "#e6a700"]},
+              {"box": [0.08, 0.2, 0.52, 0.8], "text": "クリニカPRO", "color": "#ffffff"}
+            ]
+          },
+          "rotate": 180
+        },
+        "+x": {"draw": {"size": [400, 360], "fill": "#e6a700"}}
+      },
+      "mass": 0.13,
+      "source": "Shape: Lion クリニカPRO オールインワンハミガキ 95 g box, 162 x 45 x 40 mm (Amazon.co.jp B0B8NR2SDK). Faces drawn from the product's colours and text",
+      "size": [0.162, 0.045, 0.04]
+    },
+    "dishwasher tab": {
+      "model": "finish_power_cube_tab",
+      "shape": {"box": [0.029, 0.02, 0.0085]},
+      "paint": {
+        "color": "#f3f5f7",
+        "+z": {
+          "draw": {
+            "size": [580, 400],
+            "fill": "#f3f5f7",
+            "items": [
+              {"box": [0, 0, 1, 1], "dots": [260, 5, "#2f6fd0"]}
+            ]
+          }
+        },
+        "+x": {
+          "draw": {
+            "size": [580, 170],
+            "fill": "#f3f5f7",
+            "items": [
+              {"box": [0, 0, 1, 0.45], "color": "#8cbcf0"},
+              {"box": [0, 0, 1, 0.45], "dots": [90, 4, "#2f6fd0"]}
+            ]
+          }
+        },
+        "-x": {
+          "draw": {
+            "size": [580, 170],
+            "fill": "#f3f5f7",
+            "items": [
+              {"box": [0, 0, 1, 0.45], "color": "#8cbcf0"},
+              {"box": [0, 0, 1, 0.45], "dots": [90, 4, "#2f6fd0"]}
+            ]
+          }
+        },
+        "+y": {
+          "draw": {
+            "size": [580, 170],
+            "fill": "#f3f5f7",
+            "items": [
+              {"box": [0, 0, 1, 0.45], "color": "#8cbcf0"},
+              {"box": [0, 0, 1, 0.45], "dots": [90, 4, "#2f6fd0"]}
+            ]
+          }
+        },
+        "-y": {
+          "draw": {
+            "size": [580, 170],
+            "fill": "#f3f5f7",
+            "items": [
+              {"box": [0, 0, 1, 0.45], "color": "#8cbcf0"},
+              {"box": [0, 0, 1, 0.45], "dots": [90, 4, "#2f6fd0"]}
+            ]
+          }
+        }
+      },
+      "mass": 0.005,
+      "source": "Shape: Finish パワーキューブ tablet, 5 g (e-fujiyakuhin 4906156500776); 29 x 20 x 8.5 mm estimated from the 9 mm deep 5-tablet blister (Amazon.co.jp B06VSV96MJ). Blue-speckled white tablet with a blue layer, drawn",
+      "size": [0.029, 0.02, 0.0085]
+    }
   }
 }

@@ -19,6 +19,11 @@ from aha_perception.object_detection import SHEET_COLUMNS, TILE_PX  # noqa: E402
 COLOURS = {"apple": (255, 0, 0), "cola": (0, 255, 0), "none": (0, 0, 255)}
 
 
+def sheet_count(prompt):
+    """The number of candidates a label_prompt asks about."""
+    return int(prompt.split("with every number from 1 to ")[1].split(".")[0])
+
+
 class ColourSegmenter:
     prompt = ""
 
@@ -37,9 +42,8 @@ class ColourSegmenter:
 
 class ColourVlm:
     def ask(self, prompt, photo, sheet):
-        count = int(prompt.split("with every number from 1 to ")[1].split(".")[0])
         labels = {}
-        for index in range(count):
+        for index in range(sheet_count(prompt)):
             y = (index // SHEET_COLUMNS) * TILE_PX + TILE_PX // 2
             x = (index % SHEET_COLUMNS) * TILE_PX + TILE_PX // 2
             pixel = sheet[y, x].astype(int)

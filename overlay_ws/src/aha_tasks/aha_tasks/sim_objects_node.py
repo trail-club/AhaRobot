@@ -1,11 +1,12 @@
 """Simulation only: puts the objects of a scene file onto the furniture in Gazebo.
 
-Objects missing from the world are spawned; objects of the same name left
-from an earlier run (e.g. moved by the robot) are put back to their scene
-pose, so running it again resets the scene. Models that the object list
-would detect as an object but that are not in the scene (e.g. of another
-scene placed earlier in the same Gazebo) are removed first; other models
-(furniture, the robot, guests, people) are never touched. After ``--settle`` seconds the
+Objects are spawned at their scene pose; objects of the same name left from
+an earlier run (e.g. moved by the robot) are removed first and spawned again,
+so running it again resets the scene (moving them one by one could push one
+into another that is still in the way). Models that the object list would
+detect as an object but that are not in the scene (e.g. of another scene
+placed earlier in the same Gazebo) are removed too; other models (furniture,
+the robot, guests, people) are never touched. After ``--settle`` seconds the
 objects are checked against their resting poses, and the program exits:
 0 when every object is in the world, 1 otherwise. A moved or tipped object
 only gives a warning. ``--check`` only does the check (nothing is moved or
@@ -15,6 +16,7 @@ Skills never see the scene file.
 
 import argparse
 import math
+import os
 from pathlib import Path
 import sys
 import threading
@@ -24,13 +26,18 @@ from aha_tasks.sim_objects import (
     Catalog,
     SceneError,
     displacement,
+    furniture_config,
     load_scene,
     stale_models,
 )
 
 REQUEST_TIMEOUT = 2000  # ms
-DEFAULT_CACHE = Path.home() / ".cache" / "aharobot" / "sim_objects"
-FURNITURE = "config/furniture/rcjo2026_arena.yaml"  # aha_perception share
+# AHA_CACHE_DIR: a directory that outlives the container (docker-compose.yml)
+DEFAULT_CACHE = (
+    Path(os.environ.get("AHA_CACHE_DIR") or Path.home() / ".cache" / "aharobot")
+    / "sim_objects"
+)
+FURNITURE = "config/furniture"  # aha_perception share, <world>.yaml
 OBJECT_LIST = "config/objects/robocup_objects.yaml"  # aha_perception share
 MOVED = 0.02  # m, warn when an object rests this far from its scene pose
 TIPPED = math.radians(10.0)
@@ -60,7 +67,7 @@ def load(config: Path):
         load_object_list(perception / OBJECT_LIST),
         tmc / "models",
     )
-    furniture = load_config(perception / FURNITURE)
+    furniture = load_config(furniture_config(perception / FURNITURE, config))
     places = {f.name: f for f in furniture.furniture}
     return catalog, load_scene(config, catalog, places)
 
@@ -89,10 +96,15 @@ def main(argv=None):
     args, _ = parser.parse_known_args(argv)
     try:
         catalog, scene = load(scene_path(args.config))
-        sdfs = {o.name: catalog.sdf(o, args.cache) for o in scene.objects}
     except (SceneError, OSError, ValueError) as error:
         log(f"invalid scene: {error}")
         return 2
+    sdfs = {}
+    for obj in [] if args.check else scene.objects:  # --check builds nothing
+        try:
+            sdfs[obj.name] = catalog.sdf(obj, args.cache)
+        except Exception as error:  # e.g. offline, a bad archive: place the others
+            log(f"cannot build {obj.name}: {type(error).__name__}: {error}")
 
     from gz.msgs10.boolean_pb2 import Boolean
     from gz.msgs10.entity_factory_pb2 import EntityFactory
@@ -107,7 +119,7 @@ def main(argv=None):
     world = f"/world/{scene.world}"
     gz = GzNode()
     lock = threading.Lock()
-    latest = {}
+    latest = {"time": -1.0, "poses": {}}  # the last pose/info, monotonic time
 
     def on_poses(message):
         poses = {}
@@ -117,9 +129,7 @@ def main(argv=None):
                 (p.x, p.y, p.z), (q.x, q.y, q.z, q.w)
             )
         with lock:
-            latest.clear()
-            latest.update(poses)
-            latest[None] = time.monotonic()
+            latest.update(time=time.monotonic(), poses=poses)
 
     options = SubscribeOptions()
     options.msgs_per_sec = 5
@@ -127,18 +137,22 @@ def main(argv=None):
         log(f"cannot subscribe to {world}/pose/info")
         return 1
 
-    def poses(newer_than=0.0):
-        with lock:
-            if latest.get(None, -1.0) <= newer_than:
-                return None
-            return {k: v for k, v in latest.items() if k is not None}
+    def wait_poses(timeout, done=lambda poses: True):
+        """The first pose/info received from now on (within ``timeout`` s)
+        for which done(poses) holds, or None."""
+        since = time.monotonic()
+        while time.monotonic() < since + timeout:
+            with lock:
+                received, poses = latest["time"], latest["poses"]
+            if received > since and done(poses):
+                return poses
+            time.sleep(0.2)
+        return None
 
-    deadline = time.monotonic() + args.timeout
-    while poses() is None:
-        if time.monotonic() > deadline:
-            log(f"no Gazebo world {scene.world} within {args.timeout:.0f} s")
-            return 1
-        time.sleep(0.5)
+    present = wait_poses(args.timeout)
+    if present is None:
+        log(f"no Gazebo world {scene.world} within {args.timeout:.0f} s")
+        return 1
 
     def request(service, message, reply_type):
         ok, reply = gz.request(
@@ -146,26 +160,27 @@ def main(argv=None):
         )
         return ok and reply.data
 
-    present = poses()
     stale = stale_models(present, scene, catalog.object_list)
+    # Scene objects left in Gazebo are spawned again; one without a model
+    # (it could not be built) is only moved back.
+    again = [o.name for o in scene.objects if o.name in present and o.name in sdfs]
     if stale and args.check:
         log(f"warning: objects not in the scene: {', '.join(stale)}")
-    elif stale:
-        for name in stale:
+    elif stale or again:
+        gone = stale + again
+        for name in gone:
             removed = request("remove", Entity(name=name, type=Entity.MODEL), Boolean)
-            log(
-                f"removed {name} (not in the scene)"
-                if removed
-                else f"could not remove {name}"
-            )
-        asked = time.monotonic()
-        while time.monotonic() < asked + 10.0:
-            current = poses(newer_than=asked)
-            if current is not None and not set(stale) & set(current):
-                break
-            time.sleep(0.2)
-        else:
+            if name in stale:
+                log(
+                    f"removed {name} (not in the scene)"
+                    if removed
+                    else f"could not remove {name}"
+                )
+            elif not removed:
+                log(f"could not remove {name} to spawn it again")
+        if wait_poses(10.0, lambda poses: not set(gone) & set(poses)) is None:
             log("warning: removed objects are still in Gazebo")
+        present = {k: v for k, v in present.items() if k not in gone}
     for obj in [] if args.check else scene.objects:
         x, y, z, yaw = obj.spawn_pose()
         if obj.name in present:
@@ -175,9 +190,11 @@ def main(argv=None):
             pose.orientation.w = math.cos(yaw / 2.0)
             ok = request("set_pose", pose, Boolean)
             action = "reset"
-        else:
+        elif obj.name in sdfs:
             ok = request("create", EntityFactory(sdf=sdfs[obj.name]), Boolean)
             action = "spawned"
+        else:
+            continue  # no model: reported missing below
         where = obj.on if obj.on == "floor" else f"{obj.on} level {obj.level}"
         role = f", {obj.role}" if obj.role else ""
         if ok:
@@ -185,14 +202,8 @@ def main(argv=None):
         else:
             log(f"could not place {obj.name}")
 
-    start = time.monotonic()
     time.sleep(0.0 if args.check else max(args.settle, 0.0))
-    current = None
-    settle = 0.0 if args.check else args.settle
-    while current is None and time.monotonic() < start + settle + 10.0:
-        current = poses(newer_than=start + settle)
-        time.sleep(0.2)
-    current = current or {}
+    current = wait_poses(10.0) or {}
     missing = [o.name for o in scene.objects if o.name not in current]
     moved = 0
     for obj in scene.objects:

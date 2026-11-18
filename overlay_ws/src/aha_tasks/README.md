@@ -12,6 +12,7 @@
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/sim_objects.py`、`sim_objects` | シミュレーションの物体のモデルと配置の検証（ROS非依存）と、Gazeboの家具に物体を置くプログラム（[シミュレーションの物体](#シミュレーションの物体)） |
+| `aha_tasks/object_models.py` | データセットのスキャンと実測の形状から物体のモデルを作る（ROS非依存） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
@@ -53,7 +54,8 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
 | `objects` | `false` | 頭部カメラのbridgeと物体の検出（`/aha/perception/objects`、frame `map`）を起動し、`world` → `map` の恒等の静的TFを配信する（[物体の認識](#物体の認識)） |
 | `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true`・`objects:=true` のDGXの接続先 |
-| `worker_command` | 空 | `people:=true`・`objects:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `worker_command` | 空 | `people:=true` でDGXの代わりに起動する人のworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `object_worker_command` | 空 | `objects:=true`（`perception:=model`）でDGXの代わりに起動する物体のworkerのコマンド（[物体の認識](../aha_perception/README.md#物体の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
 | `object_scene` | 空 | [シミュレーションの物体](#シミュレーションの物体)を家具に置く `sim_objects` を起動。`config/sim/objects/` の名前、またはJSONのパス |
@@ -219,7 +221,7 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 | 配置 | 内容 |
 | --- | --- |
-| `pick_and_place` | [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf) の配置（24個）。食卓（`dining_table`）にcutlery・mug・plate・ゴミ（`ppc.trash_category` のカテゴリ）・その他2個、ゴミ箱の近くの床にゴミ、`tall_table` にボウル・スプーン・洗剤タブ、補助台（`long_table`）にCommon Objects 2個。棚（`shelf`）は段ごとに1カテゴリで、2段目がcleaning supplies、3段目がfood（シリアルを含む）、4段目がdrink（牛乳を含む）、5段目（天板）がfruit。1段目（床の高さ）は空き。食卓のその他2個（apple、cola）は棚の同じカテゴリの段の隣に置ける |
+| `pick_and_place` | [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf) の配置（24個）。食卓（`dining_table`）にcutlery・mug・plate・ゴミ（`ppc.trash_category` のカテゴリ）・その他2個、ゴミ箱の近くの床にゴミ、`tall_table` にボウル・スプーン・洗剤タブ、補助台（`long_table`）にCommon Objects 2個。棚（`shelf`）は段ごとに1カテゴリで、2段目がcleaning supplies、3段目がfood（シリアルを含む。箱の高さ28 cmが段の隙間に入らないため横倒し）、4段目がdrink（牛乳を含む）、5段目（天板）がfruit。1段目（床の高さ）は空き。食卓のその他2個（apple、cola）は棚の同じカテゴリの段の隣に置ける |
 | `gpsr` | GPSRのmockの計画用（18個）。`kitchen_table` にコーラ・果物・ボウル、`desk` に飲み物3個とルービックキューブ、`side_tables` にお菓子2個、`shelf` にfood・drink・fruit |
 
 配置のJSONは、物体ごとに次のキーを持つ。
@@ -236,19 +238,27 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 正解（物体の中心・大きさ・カテゴリ・段・役割）は `aha_tasks.sim_objects.load_scene` で読める。
 
 モデルは [config/sim/object_models.json](config/sim/object_models.json) でラベルに割り当てる。
+物体は [RoboCup Japan Open 2026 DSPLの物体リスト](https://github.com/RoboCupAtHomeJP/AtHome2026/blob/main/rules/DSPL/dspl_2026_object_list.pdf) の物体（YCBと指定の製品）に合わせる。YCBにない物体は公開データセットの実物のスキャンを使い、スキャンがない物体は実測の形状に画像を貼って作る（`aha_tasks/object_models.py`）。
 
-- `ycb`: `tmc_wrs_gz_worlds` のYCBのモデル（メッシュ・質量・慣性）。`yaw`（度）でメッシュをモデルの中で回して辺をx・yに揃え、原点を衝突メッシュの外接箱の中心へ移す。外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる）。
-- `printed`: YCBにない物体。物体リストの形・大きさの箱・円柱をcollisionとし、`text` と色を印刷したテクスチャのメッシュを付ける。メッシュとテクスチャは `~/.cache/aharobot/sim_objects` に作る。
+- `ycb`: `tmc_wrs_gz_worlds` のYCBのモデル（メッシュ・質量・慣性）。`yaw`（度）でメッシュをモデルの中で回して辺をx・yに揃え、原点を衝突メッシュの外接箱の中心へ移す。
+- `scanned`: データセットのテクスチャ付きメッシュ（アーカイブ内のOBJ・PLY・DAE、またはGLB）。`url` から取得して `sha256` で確かめ、`crop`（スキャンの座標）で台を切り落とし、`rpy`（度）・`scale` でz上・mにする。
+- `measured`: スキャンのない物体。形状（回転体の断面 `revolve`、`box`、実寸のスキャン `scan`、スキャンの点群から測った断面 `profile`）に、側面のラベル・上下の円・箱の面の画像（`paint`）を貼る。
+
+`scanned` と `measured` は初回に取得・変換して `$AHA_CACHE_DIR/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要。`--check` は取得しない）。開発コンテナの `AHA_CACHE_DIR` はリポジトリの `.cache/aharobot`（gitignore）で、コンテナを作り直しても残る。未設定なら `~/.cache/aharobot`。取得・変換できない物体は置かずに続け、最後に無い物体として報告する（終了コード1）。
+衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。ラベルの文字はDejaVu Sans BoldとDroid Sans Fallback（Dockerfileで入れる）で描き、なければ失敗する。
+各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる。最大はtuna canの高さの1.2 cm）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
 
 原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。
-`sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば位置を戻す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
-物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。`--check` は消さずに警告する。
+`sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば、1個ずつ動かすと別の物体に重なることがあるため、消してから作り直す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
+物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。
 
 制限：
 
 - 失敗で巻き戻しても物体の位置は戻らない。`sim_objects` を実行し直して戻す。
 - 頭部カメラのセンサは `people:=true` か `objects:=true` のときだけ有効になる。
-- 印刷した物体は箱・円柱で、ロゴや形の細部はない。YCBの物体と物体リストの大きさは最大1.2 cm違う（tuna canの高さ）。
+- 緑茶・レモネード・カップ麺（どん兵衛）・歯磨き粉の箱・食洗機タブは、再利用できる写真がないため、ラベルを製品の配色と文字から描いている。食洗機タブの大きさは推定（29×20×8.5 mm）、ボトルの断面は製品画像から測った値（約2 mm）。
+- milk・cookiesはHOPEのおもちゃの食品のスキャンで、RCJOの物体（明治おいしい牛乳など）と見た目が違う。colaとcookiesはRCJOの物体リストにない。
+- red bullはRCJOの物体リストの指定どおり中身のない空き缶（15 g）で、他の飲料（中身込み）より軽く、触れると倒れやすい。
 - 食洗機と、その中の物体はない。
 
 ## Human Robot Interaction Challenge
@@ -427,15 +437,14 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 - 物体はその中心が段の高さ − 0.02 m以上で、底（中心 − 箱の高さの半分）が段の高さ + 0.15 m以下なら、その段にある（皿の上の物体、横に倒れた物体も含む）。
   条件を満たす段が複数あれば、最も高い段とする。
 - 頭は、1段の台では上面の中心（長さ1.3 mを超える辺は両端から0.3 m内側の点も）をロボットに近い順に、棚では各段の0.1 m上を下の段から、床ではロボットの前方0.8 mを正面・左0.5 rad・右0.5 radの順に見る。
-  各向きで1.5 s待ってから2 s、頭が止まった後に撮られた画像の検出が届くまで（最大20 s）検出を集める（模擬時間）。
-  画像からの検出器は1枚に数秒かかり、頭を向ける前の画像の検出が後から届くため、検出の時刻（画像の時刻）で待つ。
+  各向きで1.5 s待ってから、2 s経ち、かつ頭が止まった後に撮られた画像の検出が届くまで（最大20 s）検出を集める（模擬時間）。
 - 物体は、頭が向きごとに止まってから次の向きへ動き出すまで（最後の向きは集め終わるまで）に撮られた画像の検出だけから求める。
-  最初の向きへ動く前（移動の終わり、前のサブゴールの視野）と頭が動く間の画像の検出は使わない。
+  画像からの検出器は1枚に数秒かかり、移動の終わり・前のサブゴールの視野・頭が動く間の画像の検出が後から届くため、待つのも選ぶのも検出の時刻（画像の時刻）による。
 - 検出はtrack IDごと（trackのないものは距離）にまとめ、同じラベルで0.08 m未満の塊は1つにする（検出器がtrackを付け直した物体）。同じメッセージで一緒に検出された塊は、並んだ別の物体としてまとめない。ラベルは最も多いもの。
   2回以上検出された物体だけを使う（使う検出が向きごとに平均2回未満の遅い検出器では1回）。
 - 家具の設定のframe（シミュレーションの設定は `world`）から検出のframeへはTFで変換する。`task.launch.py` の `objects:=true` は、固定地図がGazeboのworld座標で描かれているため、`world` → `map` の恒等の静的TFを出す。
 - 家具の設定とカテゴリの物体リストは、runnerのパラメータ `furniture_config`・`objects_config`（空はaha_perceptionの[シミュレーションの家具](../aha_perception/config/furniture/rcjo2026_arena.yaml)と物体リスト）。
-  起動時（runnerの準備）に、サブゴールの `surface` が家具の設定にあるかを確かめる。
+  起動時（runnerの準備）に、サブゴールの `surface`・`exclude` が家具の設定にあるかを確かめる。
 
 `roles` は役割の名前から割り当ての条件への辞書。
 
