@@ -13,6 +13,8 @@
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/seats.py` | 空いている席を探す `find_free_seat`（[空席の判定](#空席の判定)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
+| `aha_tasks/sim_objects.py`、`sim_objects` | シミュレーションの物体のモデルと配置の検証（ROS非依存）と、Gazeboの家具に物体を置くプログラム（[シミュレーションの物体](#シミュレーションの物体)） |
+| `aha_tasks/object_models.py` | データセットのスキャンと実測の形状から物体のモデルを作る（ROS非依存） |
 | `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
@@ -23,6 +25,7 @@
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
 | `config/sim/<task>.json` | シミュレーションの客とドアの配置 |
+| `config/sim/objects/<scene>.json`、`config/sim/object_models.json` | シミュレーションの物体の配置と、ラベルごとのモデル |
 | `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUI、`head_look_at.py` を起動 |
 
 ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)を参照。
@@ -55,6 +58,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
+| `object_scene` | 空 | [シミュレーションの物体](#シミュレーションの物体)を家具に置く `sim_objects` を起動。`config/sim/objects/` の名前、またはJSONのパス |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -201,6 +205,59 @@ TTSで読み上げられなかった場合も、`wait_start_signal` はボタン
 タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
 
 `test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
+
+## シミュレーションの物体
+
+`object_scene:=<名前>` は [config/sim/objects/](config/sim/objects/) の配置で、物体をGazeboの家具の上に置く（`sim_objects`）。
+物体は動く剛体で、ロボットが押したり取ったりできる。スキルには配置を渡さず、物体は頭部カメラと物体検出からだけ得る。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=pick_and_place object_scene:=pick_and_place
+ros2 run aha_tasks sim_objects --config pick_and_place          # 起動中のGazeboで、動いた物体を置き直す
+ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さずに、無い・動いた・倒れた・配置にない物体を出す
+```
+
+| 配置 | 内容 |
+| --- | --- |
+| `pick_and_place` | [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf) の配置（24個）。食卓（`dining_table`）にcutlery・mug・plate・ゴミ（`ppc.trash_category` のカテゴリ）・その他2個、ゴミ箱の近くの床にゴミ、`tall_table` にボウル・スプーン・洗剤タブ、補助台（`long_table`）にCommon Objects 2個。棚（`shelf`）は段ごとに1カテゴリで、2段目がcleaning supplies、3段目がfood（シリアルを含む。箱の高さ28 cmが段の隙間に入らないため横倒し）、4段目がdrink（牛乳を含む）、5段目（天板）がfruit。1段目（床の高さ）は空き。食卓のその他2個（apple、cola）は棚の同じカテゴリの段の隣に置ける |
+| `gpsr` | GPSRのmockの計画用（18個）。`kitchen_table` にコーラ・果物・ボウル、`desk` に飲み物3個とルービックキューブ、`side_tables` にお菓子2個、`shelf` にfood・drink・fruit |
+
+配置のJSONは、物体ごとに次のキーを持つ。
+
+| キー | 内容 |
+| --- | --- |
+| `name` | Gazeboのモデル名。[物体リスト](../aha_perception/config/objects/robocup_objects.yaml)のパターンに合わせ、`sim_object_detector.py` がそのラベルで出すようにする（例 `red_bull`、`cola_2`） |
+| `label` | 物体リストのラベル |
+| `on` / `level` | 置く家具（[家具の設定](../aha_perception/README.md#家具の設定) `rcjo2026_arena.yaml` の名前）か `floor`。段が複数ある家具は `level`（1が一番下）も書く |
+| `position` / `yaw` | 物体の中心の `[x, y]`（Gazeboのworld。`map` と同じ、m）と向き（rad）。高さは段の高さと物体の大きさから決まる |
+| `role` | 省略可。正解の役割。PPCでは記憶のキー（`table.cutlery`、`trash.floor`、`breakfast.milk` など） |
+
+読み込み時に、家具の縁から1 cm以内に掛かる物体、上の棚板との隙間が1 cm未満の物体、同じ面で1 cm以内に近づく物体（向きを付けた外接箱で判定）、家具の外形に掛かる床の物体を拒否する。
+正解（物体の中心・大きさ・カテゴリ・段・役割）は `aha_tasks.sim_objects.load_scene` で読める。
+
+モデルは [config/sim/object_models.json](config/sim/object_models.json) でラベルに割り当てる。
+物体は [RoboCup Japan Open 2026 DSPLの物体リスト](https://github.com/RoboCupAtHomeJP/AtHome2026/blob/main/rules/DSPL/dspl_2026_object_list.pdf) の物体（YCBと指定の製品）に合わせる。YCBにない物体は公開データセットの実物のスキャンを使い、スキャンがない物体は実測の形状に画像を貼って作る（`aha_tasks/object_models.py`）。
+
+- `ycb`: `tmc_wrs_gz_worlds` のYCBのモデル（メッシュ・質量・慣性）。`yaw`（度）でメッシュをモデルの中で回して辺をx・yに揃え、原点を衝突メッシュの外接箱の中心へ移す。
+- `scanned`: データセットのテクスチャ付きメッシュ（アーカイブ内のOBJ・PLY・DAE、またはGLB）。`url` から取得して `sha256` で確かめ、`crop`（スキャンの座標）で台を切り落とし、`rpy`（度）・`scale` でz上・mにする。
+- `measured`: スキャンのない物体。形状（回転体の断面 `revolve`、`box`、実寸のスキャン `scan`、スキャンの点群から測った断面 `profile`）に、側面のラベル・上下の円・箱の面の画像（`paint`）を貼る。
+
+`scanned` と `measured` は初回に取得・変換して `$AHA_CACHE_DIR/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要。`--check` は取得しない）。開発コンテナの `AHA_CACHE_DIR` はリポジトリの `.cache/aharobot`（gitignore）で、コンテナを作り直しても残る。未設定なら `~/.cache/aharobot`。取得・変換できない物体は置かずに続け、最後に無い物体として報告する（終了コード1）。
+衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。ラベルの文字はDejaVu Sans BoldとDroid Sans Fallback（Dockerfileで入れる）で描き、なければ失敗する。
+各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる。最大はtuna canの高さの1.2 cm）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
+
+原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。
+`sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば、1個ずつ動かすと別の物体に重なることがあるため、消してから作り直す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
+物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。
+
+制限：
+
+- 失敗で巻き戻しても物体の位置は戻らない。`sim_objects` を実行し直して戻す。
+- 頭部カメラのセンサは `people:=true` のときだけ有効になる。
+- 緑茶・レモネード・カップ麺（どん兵衛）・歯磨き粉の箱・食洗機タブは、再利用できる写真がないため、ラベルを製品の配色と文字から描いている。食洗機タブの大きさは推定（29×20×8.5 mm）、ボトルの断面は製品画像から測った値（約2 mm）。
+- milk・cookiesはHOPEのおもちゃの食品のスキャンで、RCJOの物体（明治おいしい牛乳など）と見た目が違う。colaとcookiesはRCJOの物体リストにない。
+- red bullはRCJOの物体リストの指定どおり中身のない空き缶（15 g）で、他の飲料（中身込み）より軽く、触れると倒れやすい。
+- 食洗機と、その中の物体はない。
 
 ## Human Robot Interaction Challenge
 
@@ -384,7 +441,8 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `tall_table` | ボウル・スプーン・洗剤タブの指定の台 | `tall_table` の−y側 |
 | `long_table` | 補助台 | `long_table` の−y側 |
 
-入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。物体のモデルは配置しない。
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+物体は `object_scene:=pick_and_place` で置く（[シミュレーションの物体](#シミュレーションの物体)）。
 
 ### 記憶の受け渡し
 
@@ -494,6 +552,7 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 | `living_room` | Living Room / Laundry Area | `desk`（`long_table`）、`side_tables`（`tall_table`）、`trashbin`（`trash_box`） |
 
 `instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+物体は `object_scene:=gpsr` で家具に置く（[シミュレーションの物体](#シミュレーションの物体)）。
 審判がタイマーを止める間も、GUIの経過時間は止まらない。
 
 ## Doing Laundry Challenge

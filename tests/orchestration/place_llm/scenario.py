@@ -39,7 +39,7 @@ class Prop:
 PROPS = (
     Prop("cleanser_1", "cleanser", 3.40, 3.36, 2),
     Prop("sponge_1", "sponge", 3.30, 3.36, 2),
-    Prop("green_tea_1", "green tea", 3.41, 3.40, 3),
+    Prop("green_tea_1", "green tea", 3.42, 3.40, 3),
     Prop("lemonade_1", "lemonade", 3.34, 3.40, 3),
     Prop("orange_1", "orange", 3.40, 3.48, 4),
     Prop("lemon_1", "lemon", 3.33, 3.48, 4),

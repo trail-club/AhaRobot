@@ -6,6 +6,8 @@ head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 sim_sounds, which makes the sounds they make at the door.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
+`object_scene:=<name>` adds sim_objects, which puts the objects of
+config/sim/objects/<name>.json (or a JSON path) onto the furniture.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -281,6 +283,24 @@ def launch_task(context):
                 output="screen",
             )
         )
+    object_scene = value("object_scene")
+    if object_scene:
+        path = (
+            Path(object_scene)
+            if object_scene.endswith(".json")
+            else task_config(f"sim/objects/{object_scene}")
+        )
+        if not path.is_file():
+            raise ValueError(f"object_scene:={object_scene}: no {path}")
+        # Spawns (or puts back) the objects once and exits.
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_objects",
+                arguments=[f"--config={path}"],
+                output="screen",
+            )
+        )
     return actions
 
 
@@ -322,6 +342,11 @@ def generate_launch_description():
                 "people_scene",
                 default_value="",
                 description="Posed people from config/sim/people/<name>.json",
+            ),
+            DeclareLaunchArgument(
+                "object_scene",
+                default_value="",
+                description="Objects from config/sim/objects/<name>.json",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)

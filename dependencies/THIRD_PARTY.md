@@ -51,6 +51,21 @@ TeamSOBITSのリポジトリを直接参照する。Japan Open worldの形状は
 | TMCの `trofast` / その他の `wrc_*` モデル | CC BY 4.0 | [モデル別README](../upstream/tmc_wrs_gz/tmc_wrs_gz_worlds/README.md) |
 | 床の木目テクスチャ | 出典 freestocktextures.com。添付文書にCreative Commons Zeroと記載 | about-photo.txt: [TMC](../upstream/tmc_wrs_gz/tmc_wrs_gz_worlds/models/wrc_ground_plane/materials/about-photo.txt)、[SOBITS](../upstream/sobits_gazebo_worlds/models/floor_plane/materials/about-photo.txt) |
 
+`aha_tasks` のシミュレーションの物体（`object_scene:=`）は、TMCの `ycb_*` モデルをそのまま参照し、Gazeboに置くときに向きと原点だけを変える（メッシュ・テクスチャは変更しない）。
+YCBにない物体は、次の資源を `aha_tasks.object_models` が初回の実行時に取得元から取得し（sha256を確認）、向き・大きさ・原点・衝突形状を変えたモデルを `$AHA_CACHE_DIR/sim_objects`（開発コンテナではgitignoreしたリポジトリの `.cache/aharobot`）に作る。リポジトリには含めない。
+
+| 物体 | 資源 | 確認した記載 |
+| --- | --- | --- |
+| pringles | [YCB](https://www.ycbbenchmarks.com/) `001_chips_can` のBerkeleyのメッシュ | CC BY 4.0 |
+| cereal | [Google Scanned Objects](https://app.gazebosim.org/GoogleResearch/fuel/models/Vans_Cereal_Honey_Nut_Crunch_11_oz_box) `Vans_Cereal_Honey_Nut_Crunch_11_oz_box` | CC BY 4.0。Copyright 2020 Google LLC |
+| milk / cookies | [HOPE](https://github.com/swtyree/hope-dataset)（[BOP](https://huggingface.co/datasets/bop-benchmark/hope)）`obj_000014` / `obj_000006` | CC BY-NC-SA 4.0（BOPのページはCC BY-SA 4.0と記載） |
+| cola | [Gazebo Fuel](https://app.gazebosim.org/OpenRobotics/fuel/models/Coke%20Can) `OpenRobotics/Coke Can` v3 | CC0 1.0 |
+| red bull の形 | [BigBIRD](https://rll.berkeley.edu/bigbird/) `red_bull` のメッシュ（[ll4ma-labの複製](https://huggingface.co/datasets/ll4ma-lab/bigbird-meshes-fixed-normals)）から断面を測る | ライセンスの記載なし（研究用途として使う） |
+| red bull のラベル・ふた | [RED BULL ENERGY DRINK CAN](https://sketchfab.com/3d-models/red-bull-energy-drink-can-2a29aa47ffd74b6395d07cd270db4735)（martin_dalm、[Objaverse](https://huggingface.co/datasets/allenai/objaverse)の複製）の画像 | CC BY 4.0 |
+
+green tea・lemonade・cup noodle・toothpaste・dishwasher tab は、販売店に記載の寸法と製品画像から測った断面で形を作り、ラベルを製品の配色と文字から描く（第三者の画像を含まない。文字はコンテナのDejaVu Sans Bold（`fonts-dejavu-core`）とDroid Sans Fallback（`fonts-droid-fallback`）で描く）。
+milk・cookiesのHOPEは非商用に限る。研究以外の用途では使わない。
+
 TMCのソフトウェア向けライセンスと、モデル・テクスチャ向けライセンスは分けて扱う。
 公開画像・動画などでCC BY素材を使う場合は、素材の作者・出典・ライセンスへのリンク・変更の有無を記載する。
 条件の原文: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)、[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)。
