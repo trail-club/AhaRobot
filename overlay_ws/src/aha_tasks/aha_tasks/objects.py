@@ -9,17 +9,9 @@ the shelf levels and where to put given objects: next to the group of their
 category, else in an empty part (rulebook 5.2, Pick and Place).
 
 Detections come from sim_object_detector.py (ground truth) or a camera
-detector; both publish aha_msgs/DetectedObjectArray with object-list labels,
-the object centre and its box size. Positions are kept in the frame of the
-detections (map in task.launch.py); the furniture is transformed there by TF.
-
-An object is a cluster of detections: by track ID, untracked ones by distance,
-then tracks of the same label closer than SAME_OBJECT_M are merged (a detector
-may give one object a new track), unless one message saw both (two objects side
-by side). The label is the most frequent one. An
-object is on a level at height h when its centre is not below h - BELOW_M and
-its bottom (centre - half the box height) is at most STACK_M above h, so that
-objects on a plate or lying with an upright box size still count.
+detector, both on aha_msgs/DetectedObjectArray. Positions are kept in the
+frame of the detections (map in task.launch.py); the furniture is transformed
+there by TF.
 
 The memory record of an object (the contract with pick / place / show):
 {"label", "category", "position": [x, y, z] (centre), "frame", "size": [x, y, z]
@@ -33,11 +25,13 @@ from collections import Counter, deque
 from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
+from statistics import median
+import string
 import threading
 import time
 
 from aha_tasks.core.skill import Skill, SkillResult
-from aha_tasks.people import check_keys
+from aha_tasks.people import check_keys, check_name
 
 OBJECTS_TOPIC = "/aha/perception/objects"
 FLOOR = "floor"  # surface name of the floor around the robot
@@ -65,7 +59,7 @@ PLACE_WIDTH = 0.1  # m, an object to place without a size in its record
 SHELF_MARGIN = 0.1  # m beyond the shelf's configured outline
 EXCLUDE_MARGIN = 0.05  # m beyond the outline of excluded furniture (exclude)
 SIDES = ("left", "right")  # seen from the open side of the shelf
-ROLE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+ROLE_CHARS = set(string.ascii_letters + string.digits + "_-")
 MATCHER_KEYS = ("labels", "category", "category_key")
 
 
@@ -130,55 +124,58 @@ class _Cluster:
         return {index for index, _ in self.observations}
 
 
-def median(values):
-    values = sorted(values)
-    n = len(values)
-    middle = n // 2
-    return values[middle] if n % 2 else 0.5 * (values[middle - 1] + values[middle])
-
-
 def cluster(messages, category_of, same_object=SAME_OBJECT_M):
     """Percepts from per-message lists of Observation.
 
-    `category_of(label)` gives the object-list category ("" if unknown).
+    Clusters by track ID, untracked detections by distance; then clusters of
+    the same label closer than `same_object` are merged (a detector may give
+    one object a new track), unless one message saw both (two objects side by
+    side). The label is the most frequent one. `category_of(label)` gives the
+    object-list category ("" if unknown).
     """
     tracked, untracked = {}, []
     for index, observations in enumerate(messages):
         for observation in observations:
+            item = (index, observation)
             if observation.track >= 0:
                 tracked.setdefault(observation.track, _Cluster()).observations.append(
-                    (index, observation)
+                    item
                 )
                 continue
-            near = [
-                (math.dist(c.centre(), observation.position), c)
-                for c in untracked
-                if index not in c.messages()  # another object of this message
-            ]
-            near = [(d, c) for d, c in near if d < same_object]
-            if near:
-                min(near, key=lambda item: item[0])[1].observations.append(
-                    (index, observation)
-                )
+            distance, nearest = min(
+                (
+                    (math.dist(c.centre(), observation.position), c)
+                    for c in untracked
+                    if index not in c.messages()  # another object of this message
+                ),
+                key=lambda pair: pair[0],
+                default=(math.inf, None),
+            )
+            if distance < same_object:
+                nearest.observations.append(item)
             else:
-                untracked.append(_Cluster([(index, observation)]))
+                untracked.append(_Cluster([item]))
+
+    def mergeable(a, b):
+        return (
+            a.label() == b.label()
+            and not a.messages() & b.messages()
+            and math.dist(a.centre(), b.centre()) < same_object
+        )
+
     clusters = list(tracked.values()) + untracked
-    merged = True
-    while merged:
-        merged = False
-        for i, a in enumerate(clusters):
-            for b in clusters[i + 1 :]:
-                if (
-                    a.label() == b.label()
-                    and not a.messages() & b.messages()
-                    and math.dist(a.centre(), b.centre()) < same_object
-                ):
-                    a.observations += b.observations
-                    clusters.remove(b)
-                    merged = True
-                    break
-            if merged:
-                break
+    while pair := next(
+        (
+            (a, b)
+            for i, a in enumerate(clusters)
+            for b in clusters[i + 1 :]
+            if mergeable(a, b)
+        ),
+        None,
+    ):
+        a, b = pair
+        a.observations += b.observations
+        clusters.remove(b)
     percepts = []
     for c in clusters:
         label = c.label()
@@ -242,8 +239,13 @@ class Region:
             and abs(ly) <= self.width / 2 + self.margin
         )
 
-    def level_of(self, percept, level=None):
-        """Level number (1 = lowest) the object is on, or None."""
+    def level_of(self, percept):
+        """Level number (1 = lowest) the object is on, or None.
+
+        On a level at height h, the centre is not below h - BELOW_M and the
+        bottom (centre - half the box height) at most STACK_M above h, so that
+        objects on a plate or lying with an upright box size still count.
+        """
         x, y, z = percept.position
         if not self.inside(x, y):
             return None
@@ -252,8 +254,6 @@ class Region:
         for number, height in enumerate(self.heights, start=1):
             if z >= height - BELOW_M and bottom <= height + STACK_M:
                 found = number  # the highest level that holds it
-        if level is not None and found != level:
-            return None
         return found
 
     def look_points(self, robot_xy=None):
@@ -297,7 +297,7 @@ def furniture_region(furniture, transform, margin):
     )
 
 
-def floor_region(robot_xy, radius, floor_z=0.0):
+def floor_region(robot_xy, radius):
     return Region(
         name=FLOOR,
         x=robot_xy[0],
@@ -305,19 +305,19 @@ def floor_region(robot_xy, radius, floor_z=0.0):
         yaw=0.0,
         depth=2 * radius,
         width=2 * radius,
-        heights=(floor_z,),
+        heights=(0.0,),
         margin=0.0,
         floor=True,
     )
 
 
-def floor_look_points(robot_pose, floor_z=0.0):
+def floor_look_points(robot_pose):
     x, y, yaw = robot_pose
     return [
         (
             x + FLOOR_LOOK_DISTANCE * math.cos(yaw + pan),
             y + FLOOR_LOOK_DISTANCE * math.sin(yaw + pan),
-            floor_z,
+            0.0,
         )
         for pan in FLOOR_PANS
     ]
@@ -335,14 +335,10 @@ def end_look_point(region, percept, robot_xy):
     return points[0]
 
 
-def on_region(percepts, region, level=None):
+def on_region(percepts, region):
     """(percept, level) of the percepts on the region."""
-    out = []
-    for percept in percepts:
-        number = region.level_of(percept, level)
-        if number is not None:
-            out.append((percept, number))
-    return out
+    levels = ((percept, region.level_of(percept)) for percept in percepts)
+    return [(percept, level) for percept, level in levels if level is not None]
 
 
 # -- roles -------------------------------------------------------------------
@@ -440,16 +436,20 @@ class Group:
     category: str
     labels: list
     position: tuple  # centre of the objects, z on the level
-    extent: tuple = (0.0, 0.0)  # local y (low, high) the objects cover
+    extent: tuple  # local y (low, high) the objects cover
 
 
-def half_width(region, percept):
-    """Half the extent of an object along the furniture's local y."""
+def span(region, percept):
+    """Local y (low, high) of the furniture that an object covers; without a
+    yaw, in any orientation."""
     sx, sy = percept.size[:2]
     if percept.yaw is None:
-        return math.hypot(sx, sy) / 2
-    turn = percept.yaw - region.yaw
-    return (abs(sx * math.sin(turn)) + abs(sy * math.cos(turn))) / 2
+        half = math.hypot(sx, sy) / 2
+    else:
+        turn = percept.yaw - region.yaw
+        half = (abs(sx * math.sin(turn)) + abs(sy * math.cos(turn))) / 2
+    middle = region.local(*percept.position[:2])[1]
+    return (middle - half, middle + half)
 
 
 def side_of(region, x, y):
@@ -475,14 +475,8 @@ def shelf_groups(placed, region):
             )
         else:
             category = ""
-        x, y, _ = (
-            sum(p.position[k] for p in percepts) / len(percepts) for k in range(3)
-        )
-        spans = [
-            (ly - half_width(region, p), ly + half_width(region, p))
-            for p in percepts
-            for ly in [region.local(*p.position[:2])[1]]
-        ]
+        x, y = (sum(p.position[k] for p in percepts) / len(percepts) for k in (0, 1))
+        spans = [span(region, p) for p in percepts]
         groups.append(
             Group(
                 level=level,
@@ -497,9 +491,10 @@ def shelf_groups(placed, region):
 
 
 def categories_by_level(groups, levels):
-    """Per level, lowest first: the categories of its groups, left first."""
+    """Per level, lowest first: the categories of its groups (in the order of
+    shelf_groups, left first)."""
     out = [[] for _ in range(levels)]
-    for group in sorted(groups, key=lambda g: (g.level, SIDES.index(g.side))):
+    for group in groups:
         if group.category:
             out[group.level - 1].append(group.category)
     return out
@@ -542,7 +537,7 @@ def part_spot(region, groups, level, side):
     spans = [(a, b) for a, b in spans if b > a]
     if not spans:
         return region.width / 4 * (1 if side == SIDES[0] else -1)
-    a, b = max(spans, key=lambda span: span[1] - span[0])
+    a, b = max(spans, key=lambda s: s[1] - s[0])
     return (a + b) / 2
 
 
@@ -578,11 +573,6 @@ def placement(items, groups, region):
             reason, level, side = "category", group.level, group.side
             inside = max(region.depth / 2 - width / 2, 0.0)
             depth = max(-inside, min(inside, region.local(*group.position[:2])[0]))
-            group.labels.append(label)
-            group.extent = (
-                min(group.extent[0], y - width / 2),
-                max(group.extent[1], y + width / 2),
-            )
         else:
             occupied = {(g.level, g.side) for g in groups}
             empty = [
@@ -606,17 +596,15 @@ def placement(items, groups, region):
                     key=lambda part: (counts[part], nearness(part[0])),
                 )
             depth, y = 0.0, part_spot(region, groups, level, side)
-            groups.append(
-                Group(
-                    level,
-                    side,
-                    category,
-                    [label],
-                    region.world(depth, y, region.heights[level - 1]),
-                    (y - width / 2, y + width / 2),
-                )
-            )
         position = region.world(depth, y, region.heights[level - 1])
+        if group is None:  # a new group; the item widens its extent below
+            group = Group(level, side, category, [], position, (y, y))
+            groups.append(group)
+        group.labels.append(label)
+        group.extent = (
+            min(group.extent[0], y - width / 2),
+            max(group.extent[1], y + width / 2),
+        )
         out[key] = {
             "level": level,
             "side": side,
@@ -705,7 +693,7 @@ class Objects:
         self.furniture = load_config(furniture)
         self.object_list = load_object_list(objects)
         self.lock = threading.Lock()
-        self.history = deque(maxlen=HISTORY)  # (sequence, wall time, message)
+        self.history = deque(maxlen=HISTORY)  # (sequence, message)
         self.sequence = 0
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, node)
@@ -728,22 +716,18 @@ class Objects:
     def _on_objects(self, message):
         with self.lock:
             self.sequence += 1
-            self.history.append((self.sequence, time.monotonic(), message))
+            self.history.append((self.sequence, message))
 
     # -- queries -------------------------------------------------------------
 
     def category(self, label):
-        entry = self.object_list.get(label)
-        if entry is None:  # a camera detector may use other spacing or case
-            entry = next(
-                (
-                    o
-                    for o in self.object_list.objects
-                    if norm_label(o.label) == norm_label(label)
-                ),
-                None,
-            )
-        return entry.category if entry else ""
+        """Object-list category, "" if unknown; a camera detector may use other
+        spacing or case."""
+        name = norm_label(label)
+        for entry in self.object_list.objects:
+            if norm_label(entry.label) == name:
+                return entry.category
+        return ""
 
     def mark(self):
         with self.lock:
@@ -751,7 +735,7 @@ class Objects:
 
     def since(self, mark):
         with self.lock:
-            return [m for s, _, m in self.history if s > mark]
+            return [m for s, m in self.history if s > mark]
 
     def image_time(self):
         """Seconds of the node clock, the time base of the detections' stamps."""
@@ -761,10 +745,7 @@ class Objects:
         """The messages after `mark` of images taken at or after `taken`: a slow
         detector (object_perception.py, seconds per image) answers for images
         from before the head turned."""
-        with self.lock:
-            return [
-                m for s, _, m in self.history if s > mark and stamp_seconds(m) >= taken
-            ]
+        return [m for m in self.since(mark) if stamp_seconds(m) >= taken]
 
     def now(self):
         """Simulation seconds when active; otherwise monotonic wall seconds."""
@@ -818,7 +799,7 @@ class Objects:
         x, y, _, yaw = self.transform(frame, ROBOT_FRAME)
         return (x, y, yaw)
 
-    def region(self, surface, frame, margin, level=None):
+    def region(self, surface, frame, margin):
         if surface == FLOOR:
             return floor_region(self.robot_pose(frame)[:2], margin)
         furniture = self.furniture.get(surface)
@@ -848,11 +829,10 @@ class Objects:
 
         Waits for the first detections to learn their frame, then looks at each
         look point for look_settle + dwell, and until a detection of an image
-        taken after the head settled arrives. Only detections of images taken
-        while the head stood at a look point count: from its settling to the
-        turn to the next point (the last point: to the end of the scan). Images
-        from before the first turn (the end of the move, the previous view) and
-        from the head's motion are left out.
+        taken after the head settled arrives. Only images taken while the head
+        stood still at a look point count (to the turn to the next point, the
+        last one to the end of the scan); not those of the end of the move,
+        the previous view or the head's motion.
         """
         start = self.mark()
         if not self.pause(0.0, cancelled, until=lambda: self.mark() > start):
@@ -867,11 +847,12 @@ class Objects:
                 "is the object detector running (objects:=true)?"
             )
         frame = first[-1].header.frame_id
+        robot = self.robot_pose(frame)
         region = self.region(surface, frame, margin)
         if region.floor:
-            points = floor_look_points(self.robot_pose(frame), region.heights[0])
+            points = floor_look_points(robot)
         else:
-            points = region.look_points(self.robot_pose(frame)[:2])
+            points = region.look_points(robot[:2])
         mark = self.mark()
         settled, left = [], []  # image times of each head pose (seconds)
         for point in points:
@@ -919,11 +900,6 @@ class Objects:
         return frame, region, on_region(candidates, region), percepts
 
 
-def check_name(params, key):
-    if not isinstance(params.get(key), str) or not params[key].strip():
-        raise ValueError(f"{key} must be a nonempty name: {params}")
-
-
 def check_margin(params):
     margin = params["margin"]
     if isinstance(margin, bool) or not isinstance(margin, (int, float)):
@@ -939,23 +915,19 @@ def describe(percept):
 
 class _SurfaceSkill(Skill):
     def ready(self):
-        """Load the configs and check the surfaces of this skill's subgoals."""
+        """Load the configs and check the furniture of this skill's subgoals."""
         objects = Objects.of(self.runtime)
-        skills = getattr(self.runtime, "skills", {}) or {}
         for subgoal in self.runtime.spec.subgoals:
-            if skills.get(subgoal.skill) is not self:
+            if self.runtime.skills.get(subgoal.skill) is not self:
                 continue
             surface = subgoal.params["surface"]
-            if surface != FLOOR and objects.furniture.get(surface) is None:
-                raise ValueError(
-                    f"{subgoal.id}: surface {surface} is not in the furniture config "
-                    f"({objects.furniture.names})"
-                )
-            for name in subgoal.params.get("exclude", []):
+            names = [] if surface == FLOOR else [("surface", surface)]
+            names += [("exclude", name) for name in subgoal.params.get("exclude", [])]
+            for key, name in names:
                 if objects.furniture.get(name) is None:
                     raise ValueError(
-                        f"{subgoal.id}: exclude {name} is not in the furniture "
-                        f"config ({objects.furniture.names})"
+                        f"{subgoal.id}: {key} {name} is not in the furniture config "
+                        f"({objects.furniture.names})"
                     )
 
     def scan(self, ctx, surface, margin, exclude=()):
@@ -974,18 +946,16 @@ class PerceiveObjects(_SurfaceSkill):
     """Give each role an object on a surface; outputs `<output>.<role>` records.
 
     params: {"surface": "dining_table", "output": "table", "margin": 0.5,
-    "roles": {"cutlery": {"category": "cutlery"}, "cup": {"labels": ["mug", "cup"]},
-    "trash": {"category_key": "ppc.trash_category"}, "other1": {}, ...}}.
-    `surface` is a furniture name or "floor" (within `margin` m of the robot);
-    for furniture, objects may be up to `margin` m outside its configured
-    outline (the referee may move the dining table by 0.5 m). Objects within
-    the footprints of the furniture in `exclude` (e.g. ["trash_box"] for the
-    floor trash, which would otherwise take what was put in the bin) are left
-    out. A matcher gives
-    labels, a category, or a memory key holding the category; {} takes any
-    other known object (assign_roles). Succeeds when at least one role was
-    found; missing roles get no key. The head then looks towards the object of
-    the first found role (end_look_point).
+    "exclude": [], "roles": {"cutlery": {"category": "cutlery"},
+    "cup": {"labels": ["mug", "cup"]}, "trash": {"category_key":
+    "ppc.trash_category"}, "other1": {}, ...}}. `surface` is a furniture name
+    or "floor" (within `margin` m of the robot); objects may lie up to `margin`
+    m outside a furniture's outline (the referee may move the dining table by
+    0.5 m). Objects in the furniture of `exclude` are left out (Objects.scan).
+    A matcher gives labels, a category, or a memory key holding the category;
+    {} takes any other known object (assign_roles). Succeeds when at least one
+    role was found; missing roles get no key. The head then looks towards the
+    object of the first found role (end_look_point).
     """
 
     @classmethod
@@ -1028,8 +998,9 @@ class PerceiveObjects(_SurfaceSkill):
         first = next(assigned[r] for r in params["roles"] if r in assigned)
         Objects.of(self.runtime).look_at(frame, end_look_point(region, first, origin))
         outputs = {f"{output}.{role}": record(p, frame) for role, p in assigned.items()}
-        found = ", ".join(f"{role} {p.label}" for role, p in assigned.items())
-        message = f"{found}" + (f"; missing {', '.join(missing)}" if missing else "")
+        message = ", ".join(f"{role} {p.label}" for role, p in assigned.items())
+        if missing:
+            message += f"; missing {', '.join(missing)}"
         return SkillResult(True, message, outputs)
 
 
