@@ -2,6 +2,7 @@
 fake detection messages (no ROS graph)."""
 
 from dataclasses import replace
+import json
 import math
 import os
 from pathlib import Path
@@ -28,20 +29,17 @@ from aha_tasks.objects import (  # noqa: E402
     furniture_region,
     norm_category,
     placement,
+    record,
     same_category,
     shelf_groups,
     span,
 )
 from aha_perception.furniture import load_config  # noqa: E402
-from aha_perception.object_list import parse_object_list  # noqa: E402
+from aha_perception.object_list import load_object_list, parse_object_list  # noqa: E402
 
-FURNITURE = load_config(
-    Path(__file__).resolve().parents[2]
-    / "aha_perception"
-    / "config"
-    / "furniture"
-    / "rcjo2026_arena.yaml"
-)
+TASKS = Path(__file__).resolve().parents[1]
+PERCEPTION = TASKS.parent / "aha_perception" / "config"
+FURNITURE = load_config(PERCEPTION / "furniture" / "rcjo2026_arena.yaml")
 OBJECT_LIST = parse_object_list(
     {
         "objects": [
@@ -778,6 +776,75 @@ class ValidationTests(unittest.TestCase):
             skill.ready()
         subgoal.params["exclude"] = ["trash_box"]
         skill.ready()
+
+
+ARENA_OBJECTS = load_object_list(PERCEPTION / "objects" / "robocup_objects.yaml")
+PPC = json.loads((TASKS / "config" / "pick_and_place.json").read_text())
+PPC_SCENE = json.loads(
+    (TASKS / "config" / "sim" / "objects" / "pick_and_place.json").read_text()
+)["objects"]
+
+
+def truth(item):
+    """Percept of a scene object as the truth detector reports it: the scene's
+    pose with the centre above its support, the object list's size."""
+    listed = ARENA_OBJECTS.get(item["label"])
+    support = 0.0
+    if item["on"] != "floor":
+        support = FURNITURE.get(item["on"]).heights[item.get("level", 1) - 1]
+    xyz = (*item["position"], support + listed.size[2] / 2)
+    return Percept(
+        listed.label, listed.category, xyz, listed.size, -1, 1.0, 1, item["yaw"]
+    )
+
+
+class PickAndPlaceMockTests(unittest.TestCase):
+    """The perceive mocks of pick_and_place.json match the pick_and_place
+    object scene and the object list."""
+
+    def assertSameRecord(self, mock, expected):
+        """Equal dicts; positions within 1 mm (they are rounded)."""
+        self.assertEqual({**mock, "position": None}, {**expected, "position": None})
+        for a, b in zip(mock["position"], expected["position"], strict=True):
+            self.assertAlmostEqual(a, b, delta=1e-3, msg=mock)
+
+    def test_perceive_objects_mocks_are_the_scene_objects(self):
+        roles = {o["role"]: o for o in PPC_SCENE if "role" in o}
+        for subgoal in PPC["subgoals"]:
+            if subgoal["skill"] != "perceive_objects":
+                continue
+            params, mock = subgoal["params"], subgoal["mock"]
+            with self.subTest(subgoal["id"]):
+                keys = {f"{params['output']}.{role}" for role in params["roles"]}
+                self.assertEqual(set(mock), keys)
+                for key, value in mock.items():
+                    self.assertSameRecord(value, record(truth(roles[key]), "map"))
+
+    def test_perceive_shelf_mock_is_its_output_on_the_scene(self):
+        subgoal = next(s for s in PPC["subgoals"] if s["skill"] == "perceive_shelf")
+        params, mock = subgoal["params"], subgoal["mock"]
+        shelf = [truth(o) for o in PPC_SCENE if o["on"] == params["surface"]]
+        objects = FakeObjects(
+            [
+                detection(p.label, p.position, k, p.size, p.yaw)
+                for k, p in enumerate(shelf)
+            ],
+            robot=PPC["locations"][params["surface"]],
+        )
+        objects.object_list = ARENA_OBJECTS
+        memory = {k: v for s in PPC["subgoals"] for k, v in s.get("mock", {}).items()}
+        result, _ = run(PerceiveShelf, objects, params, memory)
+        self.assertTrue(result.success, result.message)
+        out = {k.split(".", 1)[1]: v for k, v in result.outputs.items()}
+        mock = {k.split(".", 1)[1]: v for k, v in mock.items()}
+        self.assertEqual(set(mock), set(out))
+        self.assertEqual(mock["categories"], out["categories"])
+        self.assertEqual(len(mock["groups"]), len(out["groups"]))
+        for a, b in zip(mock["groups"], out["groups"]):
+            self.assertSameRecord(a, b)
+        self.assertEqual(set(mock["placement"]), set(out["placement"]))
+        for key, spot in mock["placement"].items():
+            self.assertSameRecord(spot, out["placement"][key])
 
 
 if __name__ == "__main__":
