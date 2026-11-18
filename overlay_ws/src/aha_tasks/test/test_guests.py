@@ -19,13 +19,18 @@ from aha_tasks.guests import (  # noqa: E402
     DOOR_TRIGGER,
     Guest,
     attempts_of,
+    chair_models,
+    chair_sdf,
     door_open,
     executing,
     guest_phase,
     guest_sdf,
     load_config,
+    seated_models,
+    seated_pose,
     statuses_of,
 )
+from aha_tasks.seats import RADIUS, nearest_seat  # noqa: E402
 
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 SCENE = load_config(CONFIG / "sim" / "human_interaction.json")
@@ -209,21 +214,37 @@ class MotionTests(unittest.TestCase):
             if x > WALL_X - 0.05 and x < -2.1:  # in through the 1 m gap, y from 1 to 2
                 self.assertAlmostEqual(y, 1.5, delta=0.3)
 
-    def test_goes_to_the_seat_and_faces_the_room(self):
+    def test_goes_to_the_offered_seat_and_faces_the_room(self):
         guest = guest1()
         guest.set_phase(ARRIVE)
         guest.set_phase(FOLLOW)
         guest.x, guest.y, guest.route = 0.6, 2.5, []
-        guest.set_phase(SEAT)
-        run(guest, 5.0, (1.75, 2.5))
-        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
+        guest.set_phase(SEAT, "chair_extra")
+        run(guest, 6.0, (1.25, 2.5))
+        self.assertEqual((guest.x, guest.y), (2.55, 3.05))
         self.assertAlmostEqual(guest.yaw, -math.pi / 2, places=3)
+
+    def test_without_an_offered_seat_it_takes_the_configured_one(self):
+        for seat in (None, "sofa_that_the_sim_does_not_have"):
+            guest = guest1()
+            guest.set_phase(SEAT, seat)
+            self.assertEqual(guest.seat, guest.config["seat"])
+
+    def test_another_seat_offered_meanwhile_turns_the_guest(self):
+        guest = guest1()
+        guest.set_phase(FOLLOW)
+        guest.x, guest.y, guest.route = 0.75, 2.6, []
+        guest.set_phase(SEAT, "chair_right")
+        run(guest, 0.2)
+        guest.set_phase(SEAT, "chair_left")
+        run(guest, 5.0)
+        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
 
     def test_seat_without_the_walk_is_a_jump(self):
         """guest2.* alone: guest1's subgoals are bypassed at once."""
         guest = guest1()
-        guest.set_phase(SEAT)
-        self.assertEqual((guest.x, guest.y), (1.75, 3.05))
+        guest.set_phase(SEAT, "chair_right")
+        self.assertEqual((guest.x, guest.y), (0.75, 3.05))
 
     def test_rewind_goes_back_without_walking(self):
         guest = guest1()
@@ -265,8 +286,59 @@ class SceneTests(unittest.TestCase):
         self.assertLess(guest.z, 0.0)
 
     def test_guests_look_different(self):
-        colors = [guest["colors"] for guest in SCENE["guests"].values()]
-        self.assertNotEqual(colors[0]["shirt"], colors[1]["shirt"])
+        people = SCENE["guests"].values()
+        shirts = {tuple(person["colors"]["shirt"]) for person in people}
+        self.assertEqual(len(shirts), len(people))
+
+    def test_seats_match_the_task_and_a_person_there_occupies_it(self):
+        """The sim seats the host and stands guests in front of a seat.
+
+        find_free_seat must count both. person_perception measures the front
+        of the body, nearer the robot.
+        """
+        spec = load_spec(CONFIG / "human_interaction.json")
+        keys = {s.params["seats"] for s in spec.subgoals if s.skill == "find_free_seat"}
+        self.assertEqual(len(keys), 1)  # both guests share the seats of the task
+        seats = spec.initial_state[keys.pop()]
+        self.assertEqual(set(SCENE["seats"]), set(seats))
+        for name, seat in SCENE["seats"].items():
+            with self.subTest(name):
+                self.assertEqual(seat["sit"], seats[name][:2])
+                x, y, yaw = seat["pose"]  # faces the room
+                for ahead in (0.0, 0.25):
+                    xy = (x + ahead * math.cos(yaw), y + ahead * math.sin(yaw))
+                    self.assertEqual(nearest_seat(seats, xy, RADIUS), name)
+                if "chair" in seat:  # the added chair is where the task expects
+                    self.assertEqual(seat["chair"][:2], seats[name][:2])
+        mocks = [s.mock for s in spec.subgoals if s.skill == "find_free_seat"]
+        for guest, mock in zip(("guest1", "guest2"), mocks):
+            seat = mock[f"{guest}.seat"]
+            self.assertEqual(mock[f"{guest}.seat_position"], seats[seat])
+            # The mock is what the sim's guest is offered with the host seated.
+            self.assertEqual(seat, SCENE["guests"][guest]["seat"])
+        taken = {
+            p["seat"] for p in [*SCENE["seated"].values(), *SCENE["guests"].values()]
+        }
+        self.assertEqual(len(taken), len(SCENE["seated"]) + len(SCENE["guests"]))
+
+    def test_the_host_sits_at_its_seat_facing_the_room(self):
+        x, y, z, yaw = seated_pose(SCENE, "host")
+        seat = SCENE["seats"][SCENE["seated"]["host"]["seat"]]
+        self.assertEqual((x, y, z), (*seat["sit"], 0.0))
+        self.assertAlmostEqual(yaw, -math.pi / 2, places=5)  # sim_people faces +x
+
+    def test_an_added_chair_is_static_and_renamed(self):
+        model = (
+            '<?xml version="1.0" ?><sdf version="1.8"><model name="chair">'
+            '<link name="link"/></model></sdf>'
+        )
+        sdf = ET.fromstring(chair_sdf(model, "chair_extra", [2.5, 3.5, -1.5]))
+        chair = sdf.find("model")
+        self.assertEqual(chair.get("name"), "chair_extra")
+        self.assertEqual(chair.findtext("static"), "true")
+        self.assertEqual(chair.findtext("pose"), "2.5 3.5 0 0 0 -1.5")
+        with self.assertRaises(ValueError):
+            chair_sdf("<sdf/>", "chair_extra", [0, 0, 0])
 
     def test_guest_model_has_no_collision_and_every_mesh_part(self):
         sdf = guest_sdf("g", (1.0, 2.0), {"shirt": [1.0, 0.0, 0.0]})
@@ -278,17 +350,29 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(len(names), 7)
         self.assertEqual(len(model.findall(".//material")), 1)
 
-    def test_unknown_color_is_rejected(self):
+    def test_a_broken_scene_is_rejected(self):
         import json
         import tempfile
 
-        scene = json.loads(json.dumps(SCENE))
-        scene["guests"]["guest1"]["colors"]["hat"] = [0, 0, 0]
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "scene.json"
-            path.write_text(json.dumps(scene))
-            with self.assertRaises(ValueError):
-                load_config(path)
+        def broken(change):
+            scene = json.loads(json.dumps(SCENE))
+            change(scene)
+            return scene
+
+        for scene in (
+            broken(lambda s: s["guests"]["guest1"]["colors"].update(hat=[0, 0, 0])),
+            broken(lambda s: s["guests"]["guest1"].update(seat="sofa")),
+            broken(lambda s: s["seated"]["host"].update(seat="sofa")),
+            broken(lambda s: s["seated"]["host"].update(shirt="pink")),
+            broken(lambda s: s["seats"]["chair_left"].pop("sit")),
+            broken(lambda s: s["seats"]["chair_left"].pop("via")),
+            broken(lambda s: s["seated"].update(guest1=s["seated"]["host"])),
+        ):
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / "scene.json"
+                path.write_text(json.dumps(scene))
+                with self.assertRaises(ValueError):
+                    load_config(path)
 
     def test_unknown_bell_is_rejected(self):
         import json
@@ -301,6 +385,78 @@ class SceneTests(unittest.TestCase):
             path.write_text(json.dumps(scene))
             with self.assertRaises(ValueError):
                 load_config(path)
+
+
+class SeatedModelsTests(unittest.TestCase):
+    def test_the_host_sits_hidden_until_moved(self):
+        asked = []
+
+        def build(needed):
+            asked.append(needed)
+            return {("sitting", "blue"): Path("/cache/sitting__blue.dae")}
+
+        logged = []
+        models = seated_models(SCENE, build, logged.append)
+        self.assertEqual(asked, [[("sitting", "blue")]])
+        self.assertEqual([name for name, _ in models], ["host"])
+        model = ET.fromstring(models[0][1]).find("model")
+        self.assertEqual(model.get("name"), "host")
+        x, y, _, yaw = seated_pose(SCENE, "host")
+        self.assertEqual(model.findtext("pose"), f"{x} {y} -5.0 0 0 {yaw}")
+        self.assertIn("file:///cache/sitting__blue.dae", models[0][1])
+        self.assertEqual(logged, [])
+
+    def test_a_broken_cache_leaves_nobody_seated_but_the_guests_run(self):
+        import xml.etree.ElementTree
+        import zipfile
+
+        for error in (
+            zipfile.BadZipFile("truncated download"),
+            xml.etree.ElementTree.ParseError("half-written DAE"),
+            RuntimeError("hash mismatch"),
+            OSError("no network"),
+            KeyError("UpperLeg_L"),
+        ):
+            with self.subTest(type(error).__name__):
+
+                def build(needed, error=error):
+                    raise error
+
+                logged = []
+                self.assertEqual(seated_models(SCENE, build, logged.append), [])
+                self.assertEqual(len(logged), 1)
+                self.assertIn(type(error).__name__, logged[0])
+
+    def test_nobody_seated_builds_nothing(self):
+        scene = {**SCENE, "seated": {}}
+        self.assertEqual(seated_models(scene, None, None), [])
+
+
+class ChairModelsTests(unittest.TestCase):
+    MODEL = '<sdf version="1.8"><model name="chair"><link name="link"/></model></sdf>'
+
+    def test_the_chairs_of_the_seats_are_added(self):
+        logged = []
+        models = chair_models(SCENE, lambda: self.MODEL, logged.append)
+        self.assertEqual([name for name, _ in models], ["chair_extra"])
+        self.assertEqual(logged, [])
+        no_chair = {**SCENE, "seats": {"chair_left": SCENE["seats"]["chair_left"]}}
+        self.assertEqual(chair_models(no_chair, None, None), [])
+
+    def test_a_chair_that_cannot_be_made_is_left_out_but_the_guests_run(self):
+        def missing():
+            raise FileNotFoundError("model://chair not found")
+
+        seat = {**SCENE["seats"]["chair_extra"], "chair": [2.55, 3.5]}
+        two_values = {**SCENE, "seats": {**SCENE["seats"], "chair_extra": seat}}
+        for scene, find in (
+            (SCENE, missing),
+            (SCENE, lambda: "<sdf/>"),
+            (two_values, lambda: self.MODEL),
+        ):
+            logged = []
+            self.assertEqual(chair_models(scene, find, logged.append), [])
+            self.assertEqual(len(logged), 1)
 
 
 if __name__ == "__main__":
