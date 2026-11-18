@@ -8,6 +8,7 @@
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
 | `aha_tasks/objects.py` | 物体の検出（`/aha/perception/objects`）から台の上の物体と棚の分類を求めるスキル（[物体の認識](#物体の認識)） |
+| `aha_tasks/object_queries.py` | GPSRの物体を探す・数える・答える計画の手順（[物体を探す・数える・答えるスキル](#物体を探す数える答えるスキル)） |
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
@@ -125,6 +126,7 @@ Pythonだけの変更は `--symlink-install` のビルドならそのまま反�
 | --- | --- |
 | `task` / `title` / `rulebook` / `time_limit` | 識別子、表示名、ルールの出典、制限時間（秒） |
 | `locations` | `map` frameの地点 `[x, y, yaw]`（m、rad）。障害物から0.6 m以上離す（壁や家具に寄せるとNav2が止まる） |
+| `rooms` | 省略可。部屋の地点ごとに、その部屋の家具の地点と、上面を見る家具（[家具の設定](../aha_perception/README.md#家具の設定)の名前、見ないなら `null`）。部屋を見回すスキルが使う |
 | `initial_state` | 開始時のタスクの記憶 |
 | `skills` | スキル名と実装 `"module:Class"`。`null` は未実装 |
 | `subgoals` | 実行順のサブゴール。`id`、`title`、`group`、`skill`、`params`、`mock`、`points`、`note` |
@@ -502,7 +504,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）、物体の検出を使う `find_object` / `count` / `describe`（`objects:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -522,14 +524,14 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | 手順 | params | 生成器の命令 |
 | --- | --- | --- |
 | `navigate` | `location` | goToLoc |
-| `find_object` | `object`、`location` | findObjInRoom、findObj |
+| `find_object` | `object`、`location`（部屋か家具）、`output`（省略可） | findObjInRoom、findObj |
 | `pick_object` / `place_object` | `object`、`surface` | takeObjFromPlcmt、takeObj、bringMeObjFromPlcmt / placeObjOnPlcmt、putObjInTrash（`surface: trashbin`） |
 | `deliver_object` | `object`、`person`（`operator` は命令した人） | bringMeObjFromPlcmt、deliverObjTo* |
 | `find_described_person` | `gesture` / `pose` / `clothing` / `description` / `name`、`location` | findPrsInRoom、meetPrsAtBeac、greet*、talkInfoToGestPrsInRoom、tellPrsInfo* |
 | `say` / `answer_question` | `text` / `question` | 挨拶 / talkInfo、talkInfoToGestPrsInRoom |
-| `count` | `target`、`location`、`output` | countObjOnPlcmt |
+| `count` | `target`（`drinks` など）、`location`、`output` | countObjOnPlcmt |
 | `count_people` | `output`、`gesture` / `pose` / `clothing` / `description`（省略で全員）、`location` | countPrsInRoom、countClothPrsInRoom |
-| `describe` | `target`、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt、tellPrsInfo* |
+| `describe` | `target`（`biggest object`、`heaviest drink` など）、`location`、`output` | tellObjPropOnPlcmt、tellCatPropOnPlcmt |
 | `tell_info` | `key`（記憶のキー）、`person` | `count` / `describe` の結果を伝える |
 | `follow_person` / `guide_person` | `person`、`location`（`follow_person` は省略可） | follow* / guide* |
 
@@ -576,6 +578,45 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 - visualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。
 - Gazeboを動かしたまま `sim_people` を起動し直すと、同じ名前で残っている人は作り直さず位置だけ合わせる。作れない人がいても他の人は続ける。
 
+### 物体を探す・数える・答えるスキル
+
+[object_queries.py](aha_tasks/object_queries.py) の3つのスキルは、[物体の認識](#物体の認識)と同じ見回し（頭で家具の上面を見て検出を集める）を使う（`objects:=true` が必要）。
+`location` は部屋か家具の地点で、タスク定義の `rooms`（[地点](#地点)）から見る家具を決める。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=gpsr objects:=true object_scene:=gpsr e2e:=debug headless:=true
+ros2 run aha_tasks run_task --subgoals 'exec.*' --on-failure skip  # 別のシェル。mockの計画の count（desk の drinks）を実行する
+```
+
+| スキル | 動作 | 出力 |
+| --- | --- | --- |
+| `find_object` | 家具を順に見て、`object` に合う物体のある家具で止まる。最も多く検出された物体を選び、発話し、頭で見る。どの家具にもなければ、そう発話して失敗する | `<output>`（既定 `object`。[物体の値](#記憶の受け渡し)に `surface`（家具の地点）と `level`（段）を加えた辞書）、`robot.location` |
+| `count` | 家具（部屋は全部）の上の `target` に合う物体を数え、答えを発話する。0個も答え | `<output>`（数）、`<output>.labels`、`<output>.answer`（`There are 3 drinks on the desk: green tea, lemonade and red bull.`） |
+| `describe` | `target` の最上級の物体を選び、答えを発話して頭で見る | `<output>`（ラベル）、`<output>.object`（`find_object` と同じ辞書）、`<output>.answer`（`The heaviest drink on the desk is the green tea.`） |
+
+- **移動**: 記憶の `robot.location` と異なる家具の地点へ移動する。部屋の家具は、ロボットの位置から全部を回る直線距離の和が最短の順に見る。`rooms` で `null` の家具は見ない。見る家具のない地点（simの `bedroom`・`bed`・`sofa`・`chairs`・`trashbin`）は未実装として扱い、計画の手順はmockで通過する。
+- **名前**: [物体リスト](../aha_perception/config/objects/robocup_objects.yaml)のラベル・カテゴリと、`aliases`（命令での別名）・`groups`（`kitchen item`、`dish` などの組）に照合する。大文字小文字、最後の語の複数形、`'` と `-`、語順、容器の語（`can`・`box`・`bottle` など。`tomato soup can`、`can of cola`）は区別しない。`object`・`item`・`thing` は全ての物体。リストにない名前は失敗する。
+- **人**: `target` / `object` が人（`person`・`people`・`name`・`pose` などの語を含む）なら未実装として扱い、`location` が `rooms` になくても計画の手順はmockで通過する。人の数・特徴は人のスキルで扱う。
+- `margin`（既定0.1 m）は、家具の外形から物体の中心がはみ出してよい距離。
+
+`describe` の `target` は最上級の語と物体（省略や `object` なら全ての物体）。最上級の語がなければ検証で拒否する。
+
+| 語 | 選ぶ物体 |
+| --- | --- |
+| `biggest` / `largest`（`bulkiest` など） | 箱の体積（x × y × z）が最大 |
+| `smallest`（`tiniest` など） | 体積が最小 |
+| `heaviest` / `lightest`（`weighs the most` など） | 物体リストの `weights` が最大 / 最小。重さのない物体は除く |
+| `thinnest`（`slimmest`・`narrowest` など） | 箱の最も短い辺が最小。同じなら次に短い辺 |
+
+箱は物体リストにあるラベルならリストの大きさ、ないラベルなら検出の箱とする。画像からの検出器の箱は見えている手前の部分だけで、ラベルが正しくても物体の大小が入れ替わるため。
+値が同じなら検出された回数、確信度の順に選ぶ。答えの文は英語。
+
+制限：
+
+- リストにあるラベルの大きさ・重さは測らないため、ラベルの誤りがそのまま答えの誤りになる。物体リストと異なる代替品が置かれた場合は、リストの大きさ・重さを直す。
+- 部屋で探すのは `rooms` の家具の上面だけで、床や家具の中は探さない。
+- 数えるのは1回の見回しで検出された物体だけで、隠れた物体は数えない。
+
 ### 地点
 
 部屋・家具のラベルは[CompetitionTemplate](https://github.com/RoboCupAtHome/CompetitionTemplate)の語彙を `_` 区切りにしたもので、RCJO2026 simの部屋・家具を割り当てる。simにない語彙は登録しない。
@@ -587,6 +628,7 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 | `office` | Study Room | `chairs`（`chair_left` / `chair_right`）、`shelf` |
 | `living_room` | Living Room / Laundry Area | `desk`（`long_table`）、`side_tables`（`tall_table`）、`trashbin`（`trash_box`） |
 
+部屋と家具の対応はタスク定義の `rooms` に書く（[物体を探す・数える・答えるスキル](#物体を探す数える答えるスキル)）。
 `instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
 物体は `object_scene:=gpsr` で家具に置く（[シミュレーションの物体](#シミュレーションの物体)）。
 審判がタイマーを止める間も、GUIの経過時間は止まらない。

@@ -104,3 +104,51 @@ def test_duplicate_labels():
     item = {"label": "x", "category": "c", "shape": "box", "size": [0.1, 0.1, 0.1]}
     with pytest.raises(ObjectListError):
         parse_object_list({"objects": [item, item]})
+
+
+def test_package_weights_aliases_and_groups():
+    objects = load_object_list(CONFIG)
+    # Every label has a weight for heaviest / lightest.
+    assert all(o.weight for o in objects.objects)
+    assert objects.get("green tea").weight > objects.get("red bull").weight
+    assert "tuna" in objects.get("tuna can").aliases
+    groups = dict(objects.groups)
+    assert "cutlery" in groups["kitchen item"]
+
+
+ITEM = {"label": "x", "category": "c", "shape": "box", "size": [0.1, 0.1, 0.1]}
+
+
+def test_weights_aliases_and_groups():
+    objects = parse_object_list(
+        {
+            "objects": [ITEM, dict(ITEM, label="y")],
+            "weights": {"x": 0.25},
+            "aliases": {"y": ["why", "wye"]},
+            "groups": {"things": ["c"], "pair": ["x", "y"]},
+        }
+    )
+    assert objects.get("x").weight == 0.25
+    assert objects.get("y").weight is None
+    assert objects.get("y").aliases == ("why", "wye")
+    assert dict(objects.groups) == {"things": ("c",), "pair": ("x", "y")}
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"weights": {"z": 0.1}},
+        {"weights": {"x": 0}},
+        {"weights": {"x": True}},
+        {"weights": [0.1]},
+        {"aliases": {"x": "why"}},
+        {"aliases": {"x": [""]}},
+        {"aliases": {"z": ["zed"]}},
+        {"groups": {"things": ["unknown"]}},
+        {"groups": {"things": []}},
+        {"weight": {"x": 0.1}},
+    ],
+)
+def test_invalid_weights_aliases_and_groups(extra):
+    with pytest.raises(ObjectListError):
+        parse_object_list({"objects": [ITEM], **extra})
