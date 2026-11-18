@@ -7,6 +7,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 PACKAGE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE))
@@ -357,6 +358,25 @@ class CompleteCommandTests(unittest.TestCase):
         )
         self.assertEqual(plan[3]["params"]["key"], "cmd3.info")
 
+    def test_the_place_is_navigated_again_after_approaching_a_person(self):
+        find = act("find_described_person", gesture="waving person", location="office")
+        count = act(
+            "count_people", clothing="people wearing white shirts", location="office"
+        )
+        steps, errors = complete([find, count])
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            [s["action"] for s in steps],
+            ["navigate", "find_described_person", "navigate", "count_people"],
+        )
+        # Without approaching, the robot stays at the office.
+        stay = {**find, "params": {**find["params"], "approach": False}}
+        steps, _ = complete([stay, count])
+        self.assertEqual(
+            [s["action"] for s in steps],
+            ["navigate", "find_described_person", "count_people"],
+        )
+
     def test_guiding_moves_the_robot(self):
         steps, errors = complete(
             [
@@ -569,7 +589,8 @@ class InterleaveTests(unittest.TestCase):
     def test_equal_travel_keeps_the_command_order(self):
         plans = self.plans(TIME, TIME)
         plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
-        self.assertEqual([s["command"] for s in plan], [1, 1, 1, 2, 2])
+        # The second search starts from the bedroom again, not at the first person.
+        self.assertEqual([s["command"] for s in plan], [1, 1, 1, 2, 2, 2])
         self.assertFalse(gp.interleaved(plan))
 
     def test_both_answers_are_told_after_one_trip(self):
@@ -580,6 +601,17 @@ class InterleaveTests(unittest.TestCase):
             ["navigate", "count", "count", "navigate", "tell_info", "tell_info"],
         )
         self.assertTrue(gp.interleaved(plan))
+
+    def test_navigation_after_approaching_a_person_is_kept(self):
+        plans = self.plans(
+            COLA, "Tell me how many people in the office are wearing white shirts"
+        )
+        plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
+        actions = [s["action"] for s in plan]
+        found = actions.index("find_described_person")
+        counted = actions.index("count_people")
+        self.assertLess(found, counted)  # the order the travel favours
+        self.assertEqual(plan[counted - 1], {**nav("office"), "command": 2})
 
     def test_navigation_to_where_the_robot_is_is_dropped(self):
         plans = self.plans(DRINKS, "Tell me the name of the person at the desk")
@@ -702,8 +734,12 @@ class ConfirmationTests(unittest.TestCase):
         )
 
 
+REJECTED = object()  # an ASR error: the goal was rejected
+
+
 class FakeInteraction:
-    """Says and shows; listen answers in turn (None is silence, NO_ASR no server)."""
+    """Says and shows; listen answers in turn (None is silence, NO_ASR no
+    server, REJECTED an ASR error)."""
 
     def __init__(self, *answers):
         self.said, self.shown, self.hidden = [], [], 0
@@ -726,6 +762,8 @@ class FakeInteraction:
         answer = self.answers.pop(0)
         if answer is NO_ASR:
             return None, f"{NO_ASR}: /aha/perception/audio/listen is not served"
+        if answer is REJECTED:
+            return None, "ASR: the goal was rejected"
         if answer is None:
             return None, "ASR: no transcript within 10.0s"
         return answer, ""
@@ -811,6 +849,24 @@ class ListenCommandTests(unittest.TestCase):
         rt = runtime(DRINKS, None, None)
         result = run_skill(ListenCommand(rt), {"command": 1})
         self.assertEqual(result.outputs, {"cmd1.text": DRINKS})
+
+    @mock.patch("aha_tasks.gpsr_commands.ASR_RETRY", 0.01)
+    def test_asr_errors_are_not_silence(self):
+        # Two silences would take the command; errors are heard again instead.
+        rt = runtime(DRINKS, REJECTED, REJECTED, "No")
+        result = run_skill(
+            ListenCommand(rt), {"command": 1, "attempts": 1, "custom_operator": 0}
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(sum("I heard" in s for s in rt.interaction.said), 1)
+
+    @mock.patch("aha_tasks.gpsr_commands.ASR_RETRY", 0.25)
+    def test_lasting_asr_errors_fail_without_asking_again(self):
+        rt = runtime(*[REJECTED] * 10)
+        result = run_skill(ListenCommand(rt), {"command": 1, "timeout": 1.0})
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "ASR: the goal was rejected")
+        self.assertEqual(rt.interaction.said, ["Please tell me the first command."])
 
     def test_no_asr_fails_at_once(self):
         rt = runtime(NO_ASR)

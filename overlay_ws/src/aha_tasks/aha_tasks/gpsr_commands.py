@@ -69,6 +69,9 @@ OPENERS = {"sorry", "well", "um", "uh", "oh", "hmm", "wait", "actually"}
 LEADING = YES | NO | OPENERS | {"quite", "really"}
 MIN_WORDS = 3  # a command has at least this many words
 PLANNERS = ("auto", "llm", "grammar")
+# Interaction.listen's reasons for silence (the ASR's "no transcript within").
+SILENCE = ("ASR: no transcript", "ASR: nothing was said")
+ASR_RETRY = 1.0  # s between tries after another ASR error
 
 
 def words_of(text):
@@ -176,20 +179,29 @@ def integer(params, key, default, low=0):
 
 
 class Lost(RuntimeError):
-    """The ASR is not served."""
+    """The ASR is not served, or it keeps failing."""
 
 
 def hear(interaction, hotwords, timeout, cancelled):
-    """(transcript, "") or (None, why) of Interaction.listen.
+    """(transcript, "") or (None, why) of silence, by Interaction.listen.
 
-    Raises Cancelled, or Lost when there is no ASR.
+    Another ASR error (a goal rejected while another client listens, no
+    answer from the server) is no answer, not silence: listening is tried
+    again until `timeout` has passed. Raises Cancelled, or Lost when there is
+    no ASR or it still fails then.
     """
-    text, why = interaction.listen(hotwords, cancelled, timeout=timeout)
-    if why == "Cancelled" or cancelled.is_set():
-        raise Cancelled
-    if why.startswith(NO_ASR):
-        raise Lost(why)
-    return text, why
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = max(1.0, deadline - time.monotonic())
+        text, why = interaction.listen(hotwords, cancelled, timeout=remaining)
+        if why == "Cancelled" or cancelled.is_set():
+            raise Cancelled
+        if text is not None or why.startswith(SILENCE):
+            return text, why
+        if why.startswith(NO_ASR) or time.monotonic() + ASR_RETRY >= deadline:
+            raise Lost(why)
+        if cancelled.wait(ASR_RETRY):
+            raise Cancelled
 
 
 class ListenCommand(Skill):
@@ -281,7 +293,7 @@ class ListenCommand(Skill):
     def _confirm(self, interaction, text, vocabulary, ctx):
         """The command once the operator says yes, or None on a no."""
         timeout = float(ctx.params.get("confirm_timeout", 8.0))
-        unclear = 0
+        silences = 0  # hear raises on other ASR errors
         corrected = False  # the text is a restatement from an answer
         for _ in range(4):
             self._say(
@@ -309,8 +321,8 @@ class ListenCommand(Skill):
                 # Heard, but neither yes nor no ("I don't think so"): ask
                 # again rather than take a command the operator may deny.
                 continue
-            unclear += 1
-            if unclear >= 2:
+            silences += 1
+            if silences >= 2:
                 ctx.log(f"No answer to the confirmation ({why}); taking {text!r}")
                 return text
         return None  # no yes in the tries (or the last answer restated the command)

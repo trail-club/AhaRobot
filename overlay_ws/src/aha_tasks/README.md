@@ -411,7 +411,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
-| `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめる（下記）。無音・3語未満・noでは頼み直す（言い直しの依頼）。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。音声認識はrunnerの準備のときに最大2 s待って見つけておく | `cmd<N>.text` |
+| `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめる（下記）。無音・3語未満・noでは頼み直す（言い直しの依頼）。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。音声認識はrunnerの準備のときに最大2 s待って見つけておく。無音以外の音声認識のエラー（goalの拒否など）は答えとせず、待つ秒の間は聞き直し、続けば失敗する | `cmd<N>.text` |
 | `plan_commands` | 命令を計画し（下記）、計画を画像で画面に出し、理解した命令と実行の順を言う。聞き取りをskipした命令（`/aha/tasks/status` で `listen_command` の枠が `skipped`）は、記憶にmockの命令文があっても計画せず、聞き取れなかった命令とする | `plan`、`plan.commands`（命令ごとの文・計画の方法・要約・失敗の理由） |
 | `report_results` | 命令ごとに要約と結果を言う。全手順が成功なら `done`、失敗・未実装の手順があれば何手順できたか。結果は `/aha/tasks/status` の枠の状態から求め、成功した手順の `count` などの答え（`<output>.answer`、なければ値）を添える（mockで通過した手順や状態が分からない手順の値は、mockの値かもしれないので添えない）。`plan_commands` の枠がskipされていれば、記憶の計画はmockなので、命令を計画できなかったとだけ言う | |
 
@@ -431,14 +431,14 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 - yesで確定する。答えの途中のyes（「That's right, thank you」）も、否定の語がなければyesとする。`not` だけ（「I didn't hear you」「Sure, why not」）ではnoとしない。
 - 命令を言い直した答え（「No, I said ...」。名前・地点・物体などの語を含む）は、その文を確かめ直し、yesのときだけ確定する。
 - yesでもnoでもない答え（「I don't think so」、聞き返しの「What?」）では確定せず、確かめ直す。
-- 2回無音なら聞き取った文で確定する。
+- 2回無音（音声認識の `no transcript`）なら聞き取った文で確定する。
 
 ホットワードは人の名前（`initial_state` の `gpsr.names`）と語彙の地点・物体・カテゴリ（英語のParakeetは受け取っても使わない）。LLMはrunnerのparameter `llm_url` / `llm_model`。DGXに届かないホスト（trail-pc）では、届くPCから `ssh -N -R 127.0.0.1:18081:10.99.0.1:8080 <host>` で転送し、`llm_url:=http://127.0.0.1:18081/v1` で起動する。
 
 計画の作り方（[gpsr_planner.py](aha_tasks/gpsr_planner.py)）:
 
 1. **命令ごとの手順**: [コマンド生成器](https://github.com/RoboCupAtHome/CommandGenerator)の22の文型と続きの句のとおりの文は、[gpsr_grammar.py](aha_tasks/gpsr_grammar.py) が読む。それ以外（LLMで言い換えた文、認識の誤り）は、命令を1つずつ並列にLLMへ聞く。プロンプトは語彙・手順の説明・規則と例16件（文法で作った答え）。答えは `response_format` のJSON schemaで、手順ごとのparamsの値（地点、物体・カテゴリ、人の句、話題など）を列挙して縛る。
-2. **補完と検査**: 場所で行う手順の前の `navigate` を足し、今いる場所への `navigate` を除く。答えのキー（`count` / `count_people` は `cmd<N>.count`、`describe` は `cmd<N>.info`、`info` 付きの `find_described_person` は `role` を `cmd<N>.person` にして `cmd<N>.person.<info>`。間に他の命令の人探しが入っても残るため。`tell_info` の `key`）、`find_object` の `output`（`cmd<N>.object`。続く `pick_object` の `object` はこのキー）、`mock`（`robot.holding`、`guide_person` と場所付きの `follow_person` の `robot.location`）を付ける。持つのは1個まで、置く・渡す前に持つ、人に渡す・ついて行く・案内する前に `find_described_person`、`tell_info` の前に答える手順、`validate_plan` を検査し、誤りはLLMに返して直させる（`attempts` 回、`timeout` 内）。
+2. **補完と検査**: 場所で行う手順の前の `navigate` を足し、今いる場所への `navigate` を除く（人へ近づく `find_described_person` の後は同じ地点でも残す）。答えのキー（`count` / `count_people` は `cmd<N>.count`、`describe` は `cmd<N>.info`、`info` 付きの `find_described_person` は `role` を `cmd<N>.person` にして `cmd<N>.person.<info>`。間に他の命令の人探しが入っても残るため。`tell_info` の `key`）、`find_object` の `output`（`cmd<N>.object`。続く `pick_object` の `object` はこのキー）、`mock`（`robot.holding`、`guide_person` と場所付きの `follow_person` の `robot.location`）を付ける。持つのは1個まで、置く・渡す前に持つ、人に渡す・ついて行く・案内する前に `find_described_person`、`tell_info` の前に答える手順、`validate_plan` を検査し、誤りはLLMに返して直させる（`attempts` 回、`timeout` 内）。
 3. **並べ替え**: 命令を `navigate` ごとの塊に分け、各命令の順を保ち、持つ物体を同時に1個までにして、Instruction Pointから戻るまでの地点間の直線距離の合計が最短の順を求める。同じ距離なら命令を切り替えない順。枠（20）に入らなければ手順の多い命令から外す。
 
 計画できなかった命令は外して「I could not understand command 2.」と言い、全命令が計画できなければ失敗する。

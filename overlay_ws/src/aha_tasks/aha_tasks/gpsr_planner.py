@@ -357,14 +357,22 @@ def asks_info(spec, params):
     return True
 
 
+def leaves_place(action, params):
+    """Whether a step moves the robot away from its location's pose:
+    find_described_person approaches the person found (`approach`, default
+    true), so the next step at that location needs its navigation again."""
+    return action == "find_described_person" and params.get("approach", True)
+
+
 def complete_command(steps, number, vocabulary, spec):
     """(plan steps, errors) of one command's steps.
 
     Adds missing navigation, memory keys and mock states, drops navigation to
-    where the robot already is (the place of its last step), and checks the
-    order of picking, placing, finding and telling. The person info of a
-    find_described_person goes to `cmd<N>.person.<info>` (role `cmd<N>.person`),
-    so that another command's search in between does not replace it.
+    where the robot already is (the place of its last step, unless the robot
+    left it, see leaves_place), and checks the order of picking, placing,
+    finding and telling. The person info of a find_described_person goes to
+    `cmd<N>.person.<info>` (role `cmd<N>.person`), so that another command's
+    search in between does not replace it.
     """
     actions = set(plannable(spec))
     errors, out = [], []
@@ -492,6 +500,8 @@ def complete_command(steps, number, vocabulary, spec):
             area = params.get("location")
             if area is not None:
                 mock[LOCATION] = area
+        elif leaves_place(action, params):
+            area = None
         add(action, params, mock)
     if holding is not None:
         errors.append(f"the {holding} is still held at the end; place or deliver it")
@@ -747,6 +757,8 @@ def join(blocks, start=None):
                 area = step["params"]["location"]
             elif action in ("follow_person", "guide_person"):
                 area = step["params"].get("location")
+            elif leaves_place(action, step["params"]):
+                area = None
             plan.append(step)
     return plan
 
