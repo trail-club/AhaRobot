@@ -1281,6 +1281,14 @@ class HandsTests(unittest.TestCase):
         hands.arm_after(PickResult(success=False, message="stuck H", at_home=False))
         self.answer(client, None)
         self.assertIn("not at home: stuck H", hands.runtime.arm_out)
+        # Nor does G's late failure with the arm back home clear H's state.
+        hands, client = self.give_up_after(None)
+        hands.arm_ok()
+        hands.arm_after(PickResult(success=False, message="stuck H", at_home=False))
+        self.answer(
+            client, PlaceResult(success=False, status=4, message="G back", at_home=True)
+        )
+        self.assertIn("not at home: stuck H", hands.runtime.arm_out)
         # A late success holds the hands and the base whatever H says.
         hands, client = self.give_up_after(None)
         hands.arm_ok()

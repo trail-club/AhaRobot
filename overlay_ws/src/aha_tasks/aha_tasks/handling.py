@@ -612,7 +612,8 @@ class Hands:
         back the ARM_OUT of before it, unless arm_ok came since (the arm did
         not move: the operator's word, or a newer goal's state, stands); a
         success sets `hold` (check the hand, as its skill failed); another
-        result sets ARM_OUT by how the goal ended."""
+        result sets ARM_OUT by how the goal ended, but one from before arm_ok
+        only when it says the arm is out (it cannot clear a newer state)."""
         generation, earlier = before
         with self.lock:
             if rejected or (result is not None and before_motion(result)):
@@ -625,7 +626,7 @@ class Hands:
                 )
                 self.set_out(self.hold)
                 self.node.get_logger().warning(self.hold)
-            else:
+            elif generation == self.generation or result is None or not result.at_home:
                 self.set_out(arm_text(arm_why(result)))
             self.pending.discard(number)
 
