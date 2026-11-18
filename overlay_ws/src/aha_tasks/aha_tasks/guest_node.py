@@ -16,7 +16,6 @@ import threading
 
 from aha_tasks.guests import (
     ARRIVE,
-    CHAIR_MODEL,
     TRIGGERS,
     Guest,
     attempts_of,
@@ -26,7 +25,6 @@ from aha_tasks.guests import (
     guest_phase,
     guest_sdf,
     load_config,
-    offered_seat,
     seated_models,
     seated_pose,
     statuses_of,
@@ -40,6 +38,7 @@ PERIOD = 0.1  # s (simulation clock)
 REQUEST_TIMEOUT = 2000  # ms
 MAX_DT = 0.5  # s; the clock may jump when Gazebo restarts
 MOVED = 1e-3  # m or rad; below this a guest keeps its pose in Gazebo
+CHAIR_MODEL = "chair"  # model://chair of sobits_gazebo_worlds, as in the world
 
 
 def set_pose(gz, world, name, x, y, z, yaw, timeout=REQUEST_TIMEOUT):
@@ -148,11 +147,11 @@ def main(argv=None):
         (name, guest_sdf(name, person["away"], person["colors"]))
         for name, person in scene["guests"].items()
     ]
-    seated_people = seated_models(
+    seated = seated_models(
         scene, lambda needed: build_meshes(args.cache, needed), log.error
     )
-    missing += seated_people
-    seated = [name for name, _ in seated_people]
+    missing += seated
+    seated_poses = {name: seated_pose(scene, name) for name, _ in seated}
     chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
     if chairs:
         try:
@@ -195,13 +194,12 @@ def main(argv=None):
             if move(door["model"], x, y, z, yaw):
                 opened = is_open
                 log.info(f"Door {'open' if is_open else 'closed'}")
-        poses = {name: seated_pose(scene, name) for name in seated}
+        poses = dict(seated_poses)
         for guest in guests:
             phase = guest_phase(guest.name, statuses)
-            seat = offered_seat(guest.name, memory, scene["seats"])
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
-            guest.set_phase(phase, seat)
+            guest.set_phase(phase, memory.get(f"{guest.name}.seat"))
             bell = f"{guest.name}.{TRIGGERS[ARRIVE]}"
             guest.set_bell(attempts.get(bell), running == bell)
             guest.step(dt, robot)

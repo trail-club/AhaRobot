@@ -58,7 +58,6 @@ SEATED_KEYS = {"seat", "shirt"}  # a shirt of sim_people.SHIRT_COLOURS
 # [x, y, yaw] to add one.
 SEAT_KEYS = {"pose", "sit", "via"}
 SITTING = "sitting"  # the sim_people label of seated people
-CHAIR_MODEL = "chair"  # model://chair of sobits_gazebo_worlds, as in the world
 
 
 def load_config(path):
@@ -69,36 +68,30 @@ def load_config(path):
     for name, seat in config["seats"].items():
         if not SEAT_KEYS <= set(seat) <= SEAT_KEYS | {"chair"}:
             raise ValueError(f"{path}: seat {name} needs {sorted(SEAT_KEYS)}")
-    people = [*config["seated"].items(), *config["guests"].items()]
-    for name, person in people:
-        keys = SEATED_KEYS if name in config["seated"] else GUEST_KEYS
+    seated, guests = config["seated"], config["guests"]
+    if set(seated) & set(guests):
+        raise ValueError(f"{path}: a guest cannot also be seated")
+    for name, person in [*seated.items(), *guests.items()]:
+        keys = SEATED_KEYS if name in seated else GUEST_KEYS
         if set(person) != keys:
             raise ValueError(f"{path}: {name} needs exactly {sorted(keys)}")
         if person["seat"] not in config["seats"]:
             raise ValueError(f"{path}: {name} has an unknown seat {person['seat']}")
-        if name in config["seated"]:
-            if person["shirt"] not in SHIRT_COLOURS:
-                raise ValueError(f"{path}: {name} has unknown shirt {person['shirt']}")
-            continue
-        unknown = set(person["colors"]) - set(COLOR_PARTS)
+    for name, person in seated.items():
+        if person["shirt"] not in SHIRT_COLOURS:
+            raise ValueError(f"{path}: {name} has unknown shirt {person['shirt']}")
+    for name, guest in guests.items():
+        unknown = set(guest["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
-        if person["bell"] not in BELLS:
+        if guest["bell"] not in BELLS:
             raise ValueError(f"{path}: {name} bell must be one of {BELLS}")
-    if set(config["seated"]) & set(config["guests"]):
-        raise ValueError(f"{path}: a guest cannot also be seated")
     return config
 
 
 def statuses_of(status):
     """Subgoal id -> status from a /aha/tasks/status message."""
     return {subgoal["id"]: subgoal["status"] for subgoal in status["subgoals"]}
-
-
-def offered_seat(name, memory, seats):
-    """The seat in memory for a guest (`<name>.seat`) if the scene has it."""
-    seat = memory.get(f"{name}.seat")
-    return seat if seat in seats else None
 
 
 def attempts_of(status):
@@ -208,7 +201,7 @@ class Guest:
         self.name = name
         self.config = config
         self.seats = scene["seats"]
-        self.seat = config["seat"]  # the seat it goes to or sits at
+        self.seat = config["seat"]  # the seat it goes to
         self.speed = scene["walk_speed"]
         self.gap = scene["follow_gap"]
         self.pace = scene["pace"]

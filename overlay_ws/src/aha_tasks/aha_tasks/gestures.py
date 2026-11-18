@@ -231,12 +231,13 @@ class OfferSeat(Skill):
     "seat": "chair_left" with "position": [x, y, z], the seat in map (m).
     Without them the seat is `<guest>.seat` and `<guest>.seat_position` of
     the task memory (aha_tasks.seats.FindFreeSeat). A seat outside the arm's
-    bearings (pointing.MIN_BEARING..MAX_BEARING) turns the base first. The wrist rises to `height` m above the floor if the lift
-    controller is there, and the arm points for `hold` s, then returns to where
-    it was. The pose is computed again once the arm is there, as the base may
-    still settle after navigation, and corrected if it changed. While the
-    robot holds something (robot.holding), only the head shows the seat. The
-    head then follows the guest (by `<guest>.track` and name).
+    bearings (pointing.MIN_BEARING..MAX_BEARING) turns the base first. The
+    wrist rises to `height` m above the floor if the lift controller is there,
+    and the arm points for `hold` s, then returns to where it was. The pose is
+    computed again once the arm is there, as the base may still settle after
+    navigation, and corrected if it changed. While the robot holds something
+    (robot.holding), only the head shows the seat. The head then follows the
+    guest (by `<guest>.track` and name).
     """
 
     @classmethod

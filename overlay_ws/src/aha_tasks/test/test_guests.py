@@ -25,7 +25,6 @@ from aha_tasks.guests import (  # noqa: E402
     guest_phase,
     guest_sdf,
     load_config,
-    offered_seat,
     seated_models,
     seated_pose,
     statuses_of,
@@ -225,9 +224,10 @@ class MotionTests(unittest.TestCase):
         self.assertAlmostEqual(guest.yaw, -math.pi / 2, places=3)
 
     def test_without_an_offered_seat_it_takes_the_configured_one(self):
-        guest = guest1()
-        guest.set_phase(SEAT, "sofa_that_the_sim_does_not_have")
-        self.assertEqual(guest.seat, guest.config["seat"])
+        for seat in (None, "sofa_that_the_sim_does_not_have"):
+            guest = guest1()
+            guest.set_phase(SEAT, seat)
+            self.assertEqual(guest.seat, guest.config["seat"])
 
     def test_another_seat_offered_meanwhile_turns_the_guest(self):
         guest = guest1()
@@ -320,14 +320,6 @@ class SceneTests(unittest.TestCase):
         }
         self.assertEqual(len(taken), len(SCENE["seated"]) + len(SCENE["guests"]))
 
-    def test_the_offered_seat_comes_from_memory_if_the_sim_has_it(self):
-        seats = SCENE["seats"]
-        self.assertEqual(
-            offered_seat("guest1", {"guest1.seat": "chair_left"}, seats), "chair_left"
-        )
-        self.assertIsNone(offered_seat("guest1", {"guest2.seat": "chair_left"}, seats))
-        self.assertIsNone(offered_seat("guest1", {"guest1.seat": "sofa"}, seats))
-
     def test_the_host_sits_at_its_seat_facing_the_room(self):
         x, y, z, yaw = seated_pose(SCENE, "host")
         seat = SCENE["seats"][SCENE["seated"]["host"]["seat"]]
@@ -357,7 +349,7 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(len(names), 7)
         self.assertEqual(len(model.findall(".//material")), 1)
 
-    def test_unknown_color_is_rejected(self):
+    def test_a_broken_scene_is_rejected(self):
         import json
         import tempfile
 
