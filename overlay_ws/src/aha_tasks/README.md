@@ -17,6 +17,7 @@
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
 | `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
+| `aha_tasks/door.py`、`aha_tasks/sim_door.py`、`sim_door` | 場外で入口のドアが開くのを待つ `wait_door_open` と、シミュレーションでドアを開けるnode（[開始時のドア](#開始時のドア)） |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
@@ -53,6 +54,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
+| `start` / `door_delay` | `inside` / `5.0` | `outside` はロボットを場外の入口のドアの前から始め、`start.wait_door` の開始の `door_delay` 秒（模擬時間）後にドアを開ける（[開始時のドア](#開始時のドア)） |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -200,6 +202,45 @@ TTSで読み上げられなかった場合も、`wait_start_signal` はボタン
 
 `test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
 
+## 開始時のドア
+
+PPC・GPSR・Doing Laundryの最初の `start.wait_door` は、審判が入口のドアを開ける開始合図（ルール §3.6.8）を `wait_door_open` で待つ。
+ロボットは場外でドアの中央に正面を向けて立ち、ドアから1.2 m以内に置く。スキルは台車を動かさず、次の `navigate` がドアを通って入る。
+
+1. 頭を正面・水平へ向け、両腕を折りたたむ（左右対称に上腕を0.9 rad後ろへ振り、前腕を体に沿って前へ、グリッパを内側へ向け、左右に約0.38 m。実機の関節の範囲（[arm.yaml](../aha_manipulation/config/arm.yaml)）に収め、肘はMoveItの `standby` より浅い1.06 rad。関節空間の直線で動かし、衝突は確認しない）。全関節0の腕は左右に約0.53 m張り出し、幅1 mのドアを通れない。折りたためない（`/joint_states` に腕の関節がない、controllerがない、goalの拒否・失敗・取り消し・時間切れ）と、`/joint_states` で腕が既に畳まれていない限り失敗する。失敗・中断では動いている両腕のgoalを取り消す。
+2. `I am waiting for the door to open.` と言う。
+3. 頭部カメラのDepthと、あれば `/scan`（シミュレーションのみ）で、正面の通路（幅 `width`、床から0.1〜1.8 m、台車の中心から0.3 m先から）の空きを測る。空きが `distance` 以上の画像・scanが5回続き、その間が1 s以上になると開いたとする。両方のセンサがあれば両方で判定する。
+   - Depth: 通路に20点以上あれば、20番目に近い点までの距離。なければ、通路の `distance` の断面を通してその先に有効なDepthが20画素以上見えるとき（開いたドアの奥の床や部屋）だけ空きとする。どちらもない画像（Depthが欠ける黒・光沢のドア、近すぎるドア）は閉じたドアとみなして待ち続ける。
+   - `/scan`: 通路に2点未満なら空き（反射のないビームは遠いとみなす）。
+
+| params（省略可） | 既定 | 内容 |
+| --- | --- | --- |
+| `distance` | `1.5` | 開いたとみなす正面の空き（m、台車の中心から） |
+| `width` | `0.5` | 通路の幅（m）。ドアは幅0.9 m以上（ルールの付録） |
+| `timeout` | `0` | 待つ上限（s、模擬時間）。0は中断まで待つ |
+| `fold` | `true` | `false` は腕を折りたたまない（腕のcontrollerがない構成） |
+
+頭が正面（左右0.2 rad、上0.35 rad・下0.6 rad以内）を向いていない画像と、画像全体で有効なDepthが5%未満の画像（見えないカメラ）は使わない。使える画像もscanも10 s（実時間）届かないと失敗する。
+Depth・CameraInfo・`/scan`・TF・`/joint_states` はスキルの実行中だけ購読する（runnerのexecutorは1つで、Depth画像の処理が後のサブゴールを遅らせないように）。
+開いたドアの奥に人が立つと、その人が `distance` より遠くなるまで待つ。
+代替の開始合図（−100）を使う場合は、`start.wait_door` のスキルを `wait_start_signal` に替える。
+
+### シミュレーションのドア
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=gpsr start:=outside door_delay:=20
+```
+
+`start:=outside` は、ロボットを地点 `start_outside`（入口のドアの外側0.98 m）に置き（Gazeboのspawn、AMCLの初期姿勢、runnerの `robot.location`）、頭部カメラをbridgeし、`sim_door` を起動する。
+`sim_door` は [config/sim/entrance.json](config/sim/entrance.json) のドアを閉じ、`start.wait_door` がスキルを始めて `door_delay` 秒（模擬時間）後に内側へ開く。
+`start.wait_door` を実行しない（選択外・mock・スキップ）場合と、runnerがロボットを `start_outside` へ戻す（記憶の復元）間も開ける。新しい実行や巻き戻しで `start.wait_door` が未実行に戻ると閉じる。
+`start:=inside`（既定）では場内の `spawn` から始め、正面が空いているため `wait_door_open` はすぐに終わる。
+
+制限：
+
+- `e2e:=final` のNav2（robot radius 0.40 m）では、幅1.0 mのドアの左右の余裕が約5 cmで、通過中に `collision ahead` が出る。場外から `instruction_point` への移動は確かめたが、場内から `start_outside` へ戻る移動（2回目の実行の復元）は失敗することがある。`e2e:=debug` は移動でドアを通らない。
+- 実機ではドアの判定・腕の折りたたみとも確かめていない。
+
 ## Human Robot Interaction Challenge
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
@@ -321,7 +362,7 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 ## Pick and Place Challenge
 
 [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を71サブゴールに分ける。
-実装済みのスキルは `navigate` のみで、他はmockで通過する。
+実装済みのスキルは `navigate` と `wait_door_open`（[開始時のドア](#開始時のドア)）のみで、他はmockで通過する。
 
 ```bash
 ros2 launch aha_tasks task.launch.py task:=pick_and_place subgoals:='dishwasher.*'
@@ -341,7 +382,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `tall_table` | ボウル・スプーン・洗剤タブの指定の台 | `tall_table` の−y側 |
 | `long_table` | 補助台 | `long_table` の−y側 |
 
-入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。物体のモデルは配置しない。
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める（場外から始めるのは `start:=outside`）。物体のモデルは配置しない。
 
 ### 記憶の受け渡し
 
@@ -365,7 +406,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、`wait_door_open`（[開始時のドア](#開始時のドア)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -450,14 +491,14 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 | `office` | Study Room | `chairs`（`chair_left` / `chair_right`）、`shelf` |
 | `living_room` | Living Room / Laundry Area | `desk`（`long_table`）、`side_tables`（`tall_table`）、`trashbin`（`trash_box`） |
 
-`instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+`instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める（場外から始めるのは `start:=outside`）。
 審判がタイマーを止める間も、GUIの経過時間は止まらない。
 
 ## Doing Laundry Challenge
 
 [ルールブック §5.4](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を41サブゴールに分ける。
 `points` は得点表の最大点で、合計は総計の4415。減点は `note` に書く。
-実装済みのスキルは `navigate` のみで、洗濯機と衣類の操作はmockで通過する。
+実装済みのスキルは `navigate` と `wait_door_open`（[開始時のドア](#開始時のドア)）のみで、洗濯機と衣類の操作はmockで通過する。
 
 | 地点 | 位置 |
 | --- | --- |
@@ -465,7 +506,7 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 | `laundry_basket` | worldのバスケットの前 |
 | `folding_table` | 畳む台の固定の代替地点。worldの `long_table` の前 |
 
-入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
+入口のドアは閉じたままで、ロボットは内側の `spawn` から始める（場外から始めるのは `start:=outside`）。
 worldの `pile_of_clothes` と `laundry_in_drum` は剛体で、畳める衣類のモデルはない。
 
 順序は、洗濯機の扉を開ける、1枚をバスケットへ移す、バスケットを台の横へ運ぶ（`basket.carry` は持つ・移動・置くを1スキルにまとめる）、台の1枚を畳む（`shirt0.*`）、バスケットの衣類を取って畳み重ねる（`shirt1.*`〜`shirt6.*`）。

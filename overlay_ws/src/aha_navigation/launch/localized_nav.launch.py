@@ -4,11 +4,14 @@
 stand-in NavigateToPose server such as aha_tasks sim_teleport.
 """
 
+import tempfile
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+import yaml
 
 SERVERS = [
     ("nav2_map_server", "map_server"),
@@ -29,6 +32,22 @@ def selected_servers(context):
     return [(package, name) for package, name in SERVERS if name in LOCALIZATION]
 
 
+def initial_pose_file(x, y, yaw):
+    """A parameter file with AMCL's initial pose.
+
+    It names the node: the "amcl:" entries of nav2.yaml would win over "/**"
+    entries (launch_ros dicts, -p) of any later file.
+    """
+    pose = {"x": x, "y": y, "yaw": yaw}
+    with tempfile.NamedTemporaryFile(
+        "w", prefix="aha_amcl_pose_", suffix=".yaml", delete=False
+    ) as file:
+        file.write(
+            yaml.safe_dump({"amcl": {"ros__parameters": {"initial_pose": pose}}})
+        )
+    return file.name
+
+
 def servers(context):
     params = PathJoinSubstitution(
         [FindPackageShare("aha_navigation"), "config", "nav2.yaml"]
@@ -37,20 +56,18 @@ def servers(context):
     nodes = []
     chosen = selected_servers(context)
     for package, name in chosen:
+        files = [params]
         overrides = dict(COMMON)
         if name == "map_server":
             overrides["yaml_filename"] = LaunchConfiguration("map")
         if name == "amcl" and pose:
-            x, y, yaw = (float(v) for v in pose.split(","))
-            overrides.update(
-                {"initial_pose.x": x, "initial_pose.y": y, "initial_pose.yaw": yaw}
-            )
+            files.append(initial_pose_file(*(float(v) for v in pose.split(","))))
         nodes.append(
             Node(
                 package=package,
                 executable=name,
                 name=name,
-                parameters=[params, overrides],
+                parameters=[*files, overrides],
                 remappings=[("cmd_vel", "/diff_drive_controller/cmd_vel")],
                 output="screen",
             )

@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+import yaml
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core import load_spec  # noqa: E402
 from aha_tasks.run_task import (  # noqa: E402
@@ -32,7 +34,7 @@ MAP = PACKAGE.parent / "aha_navigation" / "maps"
 LAUNCH = PACKAGE / "launch" / "task.launch.py"
 
 
-def served(pixel, occupied=0.65, free=0.25):
+def served(pixel, occupied=0.65, free=0.196):
     """map_server's trinary value of a pixel (rcjo2026.yaml thresholds)."""
     occupancy = (255 - pixel) / 255.0
     if occupancy > occupied:
@@ -55,7 +57,7 @@ def demo_map():
         "width": width,
         "height": height,
         "resolution": 0.05,
-        "origin": [-5.5, -4.5],
+        "origin": yaml.safe_load((MAP / "rcjo2026.yaml").read_text())["origin"][:2],
     }
 
 
@@ -77,11 +79,18 @@ class TeleportTests(unittest.TestCase):
                     self.assertIsNone(footprint_blocked(self.grid, x, y, 0.40))
 
     def test_walls_and_outside_are_refused(self):
-        # The entrance door at x = -5.0 is occupied on the map; the grid ends at
-        # x = -5.5.
-        self.assertIn("occupied", footprint_blocked(self.grid, -5.0, 1.5, 0.40))
-        self.assertIn("unknown", footprint_blocked(self.grid, -7.0, 1.5, 0.40))
+        # The front wall is at x = -5.0. Outside the arena only the way in
+        # through the entrance door (y 1.0 to 2.0) is free; the grid ends at
+        # x = -7.5.
+        self.assertIn("occupied", footprint_blocked(self.grid, -5.0, 0.5, 0.40))
+        self.assertIn("unknown", footprint_blocked(self.grid, -6.0, -1.0, 0.40))
+        self.assertIn("unknown", footprint_blocked(self.grid, -8.0, 1.5, 0.40))
         self.assertIn("unknown", footprint_blocked(self.grid, 50.0, 50.0, 0.40))
+
+    def test_the_entrance_door_is_not_on_the_map(self):
+        # The door opens and closes; the lidar sees it when it is closed.
+        self.assertIsNone(footprint_blocked(self.grid, -5.0, 1.5, 0.40))
+        self.assertIsNone(footprint_blocked(self.grid, -6.0, 1.5, 0.40))
 
     def test_pose_error_wraps_the_yaw(self):
         distance, angle = pose_error(
@@ -326,6 +335,8 @@ class LaunchSwitchTests(unittest.TestCase):
             "people": "true",
             "guests": "false",
             "people_scene": "",
+            "start": "inside",
+            "door_delay": "5.0",
             **self.launch.PEOPLE_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
@@ -397,6 +408,29 @@ class LaunchSwitchTests(unittest.TestCase):
             e2e="debug", perception="model", people_scene="gpsr"
         )
         self.assertIn("sim_people", nodes)
+
+    def test_start_outside_waits_at_the_entrance_door(self):
+        gpsr = str(PACKAGE / "config" / "gpsr.json")
+        _, nodes, includes = self.launch_task(task=gpsr, people="false")
+        self.assertEqual(includes["sim.launch.py"]["spawn_x"], "-2.0")
+        self.assertNotIn("sim_door", nodes)
+        self.assertNotIn("camera_bridge.launch.py", includes)
+        _, nodes, includes = self.launch_task(
+            task=gpsr, people="false", start="outside", door_delay="20"
+        )
+        self.assertEqual(
+            [includes["sim.launch.py"][k] for k in ("spawn_x", "spawn_y", "spawn_yaw")],
+            ["-6.0", "1.5", "0.0"],
+        )
+        self.assertEqual(
+            includes["localized_nav.launch.py"]["initial_pose"], "-6.0,1.5,0.0"
+        )
+        self.assertEqual(includes["sim.launch.py"]["cameras"], "true")
+        self.assertIn("camera_bridge.launch.py", includes)
+        self.assertIn("--start=start_outside", nodes["task_runner"]["arguments"])
+        self.assertIn("--delay=20.0", nodes["sim_door"]["arguments"])
+        with self.assertRaises(ValueError):  # no start_outside location
+            self.launch_task(start="outside")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

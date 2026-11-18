@@ -1,6 +1,7 @@
 """Subgoal task runner: executes a task definition and serves status/commands."""
 
 import argparse
+from dataclasses import replace
 import json
 import math
 from pathlib import Path
@@ -22,9 +23,17 @@ def positive_seconds(value):
     return number
 
 
-def load_task(path):
-    """Task definition and its skill classes, fully validated without ROS."""
+def load_task(path, start=None):
+    """Task definition and its skill classes, fully validated without ROS.
+
+    `start` (a location label) replaces the initial robot.location, where the
+    robot is when the runner starts (task.launch.py start:=outside).
+    """
     spec = load_spec(path)
+    if start:
+        if start not in spec.locations:
+            raise ValueError(f"Unknown start location: {start}")
+        spec = replace(spec, initial_state={**spec.initial_state, LOCATION: start})
     classes = {name: resolve(target) for name, target in spec.skills.items()}
     for subgoal in spec.subgoals:
         skill = classes[subgoal.skill]
@@ -69,8 +78,13 @@ def main(argv=None):
     )
     parser.add_argument("--startup-timeout", type=positive_seconds, default=300.0)
     parser.add_argument("--goal-timeout", type=positive_seconds, default=600.0)
+    parser.add_argument(
+        "--start",
+        default="",
+        help="Location label replacing the initial robot.location",
+    )
     args, ros_args = parser.parse_known_args(argv)
-    spec, classes = load_task(args.config)
+    spec, classes = load_task(args.config, args.start)
     selection = select(spec, args.subgoals)
     if args.dry_run:
         print("DRY RUN: no navigation goals will be sent")

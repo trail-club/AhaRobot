@@ -6,6 +6,9 @@ head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 sim_sounds, which makes the sounds they make at the door.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
+`start:=outside` puts the robot outside the arena at the entrance door
+(config/sim/entrance.json) and adds sim_door, which opens the door when the
+robot waits for it, and the head camera bridge for that wait.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -41,6 +44,7 @@ from launch_ros.actions import Node
 
 from aha_tasks.core import load_spec
 from aha_tasks.guests import load_config as load_scene
+from aha_tasks.sim_door import load_config as load_entrance
 from aha_tasks.skills import LOCATION, resolve_pose
 
 # Launch argument -> task_runner option.
@@ -121,15 +125,27 @@ def launch_task(context):
     spec = load_spec(config)
     if LOCATION not in spec.initial_state:
         raise ValueError(f"{config}: initial_state needs {LOCATION} as the spawn pose")
-    x, y, yaw = (
-        str(float(v)) for v in resolve_pose(spec, spec.initial_state[LOCATION])
-    )
+    start = spec.initial_state[LOCATION]
+    outside = value("start") == "outside"
+    if outside:
+        entrance_path = task_config("sim/entrance")
+        entrance = load_entrance(entrance_path)
+        start = entrance["location"]
+        if start not in spec.locations or entrance["trigger"] not in {
+            s.id for s in spec.subgoals
+        }:
+            raise ValueError(
+                f"start:=outside: task {spec.task} needs the location {start} "
+                f"and the subgoal {entrance['trigger']}"
+            )
+    x, y, yaw = (str(float(v)) for v in resolve_pose(spec, start))
     runner = Node(
         package="aha_tasks",
         executable="task_runner",
         parameters=[{"use_sim_time": True}],
         arguments=[f"--config={config}"]
-        + [f"--{name.replace('_', '-')}={value(name)}" for name in RUNNER_OPTIONS],
+        + [f"--{name.replace('_', '-')}={value(name)}" for name in RUNNER_OPTIONS]
+        + ([f"--start={start}"] if outside else []),
         output="screen",
         # Debug: a stopped runner comes back with the changed code; the
         # simulation stays up.
@@ -153,7 +169,7 @@ def launch_task(context):
             "sim.launch.py",
             {
                 "world": "rcjo2026",
-                "cameras": "true" if people else "false",
+                "cameras": "true" if people or outside else "false",
                 "headless": value("headless"),
                 "spawn_x": x,
                 "spawn_y": y,
@@ -237,11 +253,23 @@ def launch_task(context):
                 **{name: value(name) for name in PEOPLE_OPTIONS},
             },
         )
+    if people or outside:
+        actions.append(include("aha_perception", "camera_bridge.launch.py", {}))
     if people:
-        actions += [
-            include("aha_perception", "camera_bridge.launch.py", {}),
-            people_node,
-        ]
+        actions.append(people_node)
+    if outside:
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_door",
+                parameters=[{"use_sim_time": True}],
+                arguments=[
+                    f"--config={entrance_path}",
+                    f"--delay={float(value('door_delay'))}",
+                ],
+                output="screen",
+            )
+        )
     if guests:
         actions.append(
             Node(
@@ -322,6 +350,18 @@ def generate_launch_description():
                 "people_scene",
                 default_value="",
                 description="Posed people from config/sim/people/<name>.json",
+            ),
+            DeclareLaunchArgument(
+                "start",
+                default_value="inside",
+                choices=["inside", "outside"],
+                description="outside: start at the closed entrance door "
+                "(config/sim/entrance.json); inside: initial_state",
+            ),
+            DeclareLaunchArgument(
+                "door_delay",
+                default_value="5.0",
+                description="start:=outside: s (sim) from start.wait_door to the door opening",
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
