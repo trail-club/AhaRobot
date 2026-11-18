@@ -1,9 +1,9 @@
 # Put down the object held in a gripper: on a support at a spot, or into a
 # container (a trash bin). Owner: manipulation squad. Consumers: task.
 # The fields mirror aha_test_msgs/action/PlaceObject (the place test bed)
-# where they overlap. A goal that moved the arm ends with the arm at a safe
-# pose (carry, or its pose before the goal), else `returned` is false; a
-# cancel stops it where it is.
+# where they overlap. A goal that moved the arm ends with the arm at home
+# (the SRDF group_state "carry" of aha_manipulation), else `at_home` is false;
+# a cancel stops it where it is.
 
 string                     arm             # "right" (default when empty) | "left"
 geometry_msgs/Vector3      object_size     # x, y footprint and z height (m) of the held object, all > 0
@@ -22,7 +22,7 @@ float32                    clearance       # m of free space around the object b
 bool                       drop
 ---
 # NO_SURFACE, NO_SPACE, UNREACHABLE and ERROR are returned before the arm
-# moves; a goal that did not move the arm has `returned` true.
+# moves; a goal that did not move the arm has `at_home` true.
 uint8 STATUS_OK=0                # placed (retreat / return failures in message)
 uint8 STATUS_NO_SURFACE=1        # no support of the furniture level seen
 uint8 STATUS_NO_SPACE=2          # supports seen, but no free spot for the object
@@ -36,6 +36,6 @@ bool                       success
 uint8                      status
 string                     message
 geometry_msgs/PoseStamped  place_pose      # object bottom centre at release, z up
-bool                       returned        # the arm is at a safe pose at the end
+bool                       at_home         # the arm is at home at the end
 ---
 string                     phase           # "approaching" | "releasing" | "retreating" | "returning"

@@ -388,7 +388,8 @@ def arm_still(status):
 
 
 # Statuses a server returns before the arm moves (the actions' contract): the
-# arm is where it was, whatever `returned` says (its message default is false).
+# arm is where it was, whatever `at_home` says (true by the contract, but the
+# message default is false).
 BEFORE_MOTION = (
     "STATUS_NO_SURFACE",
     "STATUS_NO_SPACE",
@@ -399,10 +400,11 @@ BEFORE_MOTION = (
 
 def before_motion(result):
     """Whether a failed result may have come before any arm motion: a
-    PlaceObject / HandOver status for that, or a failed PickObject that is
-    back (it has no status; back is its pose before the goal, or carry)."""
+    PlaceObject / HandOver status for that, or a failed PickObject with
+    `at_home` true (it has no status: a goal that did not move the arm also
+    sets it)."""
     if not hasattr(result, "status"):  # PickObject
-        return not result.success and getattr(result, "returned", False)
+        return not result.success and getattr(result, "at_home", False)
     kind = type(result)
     return not result.success and any(
         getattr(kind, name) == result.status
@@ -622,11 +624,12 @@ class Hands:
 
     def arm_after(self, result, stopped=False):
         """Keep the runtime's arm_out (aha_tasks.skills.ARM_OUT) in line with
-        how a goal ended. A server ends a goal with the arm at a safe pose
-        (the actions' contract) unless its `returned` says otherwise; a
+        how a goal ended. A server ends a goal with the arm at home, the SRDF
+        "carry" pose (the actions' contract), unless its `at_home` says
+        otherwise; a
         result that may have come before any arm motion (before_motion)
         leaves the arm, and arm_out, as earlier goals left them. Without
-        `returned` (an older server) a cancel (`stopped`) or a failure may
+        `at_home` (an older server) a cancel (`stopped`) or a failure may
         leave the arm out; a goal that did not answer the cancel (`result`
         None) may still move it."""
         if self.runtime is not None and (result is None or not before_motion(result)):
@@ -638,10 +641,10 @@ class Hands:
         from before any motion), or None."""
         if result is None:
             return "a goal did not confirm that it stopped"
-        if hasattr(result, "returned"):
-            return None if result.returned else f"not back: {result.message}"
+        if hasattr(result, "at_home"):
+            return None if result.at_home else f"not at home: {result.message}"
         if stopped or not result.success:
-            return f"ended without returned: {result.message}"
+            return f"ended without at_home: {result.message}"
         return None
 
     def run(self, name, goal, timeout, cancelled):

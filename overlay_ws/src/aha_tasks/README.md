@@ -552,7 +552,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 - **受け渡し**: 手を出す点は人の中心で、高さを0.7–1.1 mに収める。serverが受け取りを感じ取る（`release: take`）と離す。`touch: true` なら画面の `Release` のタッチでも離す（HIC以外ではタッチを使わない方針のため既定はfalse）。タッチでは `take` のgoalを取り消して（腕は出したまま）`release: now` で送り直す。取り消す間に `take` のgoalが終わっていれば（受け取られた後のタッチなど）、送り直さずにその結果を使う。5 s以内に止まったと確かめられなければ、送り直さずに失敗とする。`timeout` 秒で受け取られなければ、言い直して `retries` 回まで送る。
 - 失敗しても人に助けを求めない（§3.7の補助は最後の手段で、まず手順を飛ばす）。失敗はサブゴールの失敗としてポリシーに従う。
 - 時間切れのgoalを取り消しても止まったとserverが確かめられなければ（5 s以内に結果がない）、腕がまだ動くかもしれないため、次のgoalを送らずに失敗とする（渡すも同じ）。
-- 腕が安全な姿勢にないかもしれない間（止まったと確かめられないgoal、受け付けの返事を待ちきれなかったgoal（断られたと分かるか結果が届くまで。時間切れならスキルは次のgoalを送らずに失敗する。後から成功で終われば、記憶の `robot.holding` と手が食い違うので「check the hand」を残し、runnerの再起動まで）、`returned` がfalseのgoal。取り消したgoalや、`carry` へ動けなかった `PickObject` の成功を含む）は、runnerは台車を動かさない（runnerの `Navigation` を通るすべての移動。`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動、`find_described_person` などが人へ近づく移動）。`NavigateToPose` を直接送る他のクライアントは、runtimeの `arm_out`（`aha_tasks.skills.ARM_OUT`）を確かめる。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。`returned` がtrueのgoalの終了で解除する。ただし腕を動かす前に返る `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` と、`returned` がtrueの `PickObject` の失敗（statusがなく、腕を動かしたか分からない）は、前のgoalの後の状態を変えない。腕を手で戻した後は、runnerを再起動して解除する（runnerの記憶ではなくプロセスの状態のため）。
+- 腕がhome姿勢（SRDFの `carry`）にないかもしれない間（止まったと確かめられないgoal、受け付けの返事を待ちきれなかったgoal（断られたと分かるか結果が届くまで。時間切れならスキルは次のgoalを送らずに失敗する。後から成功で終われば、記憶の `robot.holding` と手が食い違うので「check the hand」を残し、runnerの再起動まで）、`at_home` がfalseのgoal。取り消したgoalや、`carry` へ動けなかった `PickObject` の成功を含む）は、runnerは台車を動かさない（runnerの `Navigation` を通るすべての移動。`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動、`find_described_person` などが人へ近づく移動）。`NavigateToPose` を直接送る他のクライアントは、runtimeの `arm_out`（`aha_tasks.skills.ARM_OUT`）を確かめる。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。`at_home` がtrueのgoalの終了で解除する。ただし腕を動かす前に返る `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` と、`at_home` がtrueの `PickObject` の失敗（statusがなく、腕を動かしたか分からない）は、前のgoalの後の状態を変えない。腕を手で戻した後は、runnerを再起動して解除する（runnerの記憶ではなくプロセスの状態のため）。
 - serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。そのときはスキルのメッセージとログに、記憶に入らない `robot.holding` の値と「check the hand」を書く（手の物体は人が確かめる）。
 - 持てる物体は1つで、持っている間の `pick_object` は失敗する。
 
@@ -560,11 +560,11 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 
 `e2e:=debug`（`manipulation:=sim`）では `sim_manipulation` が取る・置く・渡すserverの代わりに、把持を計画せずGazeboで物体のモデルを動かす。
 
-- **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に1.0 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕を `carry` の姿勢へ動かす。手先に置いた後は、`carry` へ動けなくても（取り消し・controllerの失敗）成功を返し、メッセージに書いて `returned` をfalseにする。placeとhandoverも、物体が手を離れた後のGazeboの失敗（モデルの作り直し・削除）は成功のメッセージに書く。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
+- **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に1.0 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕をhome姿勢の `carry` へ動かす。手先に置いた後は、`carry` へ動けなくても（取り消し・controllerの失敗）成功を返し、メッセージに書いて `at_home` をfalseにする。placeとhandoverも、物体が手を離れた後のGazeboの失敗（モデルの作り直し・削除）は成功のメッセージに書く。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
 - pickとplaceは、腕を目標の上へ向けられなければ（届く姿勢がない）、腕を動かさずに失敗する（placeは `STATUS_UNREACHABLE`）。
-- **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をpickの前の姿勢へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
-- **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕を戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
-- 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕を戻してから失敗を返す（`returned` は戻れたか）。pickは物体を手先に置いた後なら、`grasp_pose_used` を求められなくても成功を返す。
+- **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をhome姿勢（`carry`）へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
+- **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕をhome姿勢へ戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
+- 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕をhome姿勢へ戻してから失敗を返す（`at_home` は戻れたか）。pickは物体を手先に置いた後なら、`grasp_pose_used` を求められなくても成功を返す。
 - 腕は関節空間の直線で動き、衝突を確かめない。上げるときは昇降、下げるときは腕を先に動かし、手は物体の上0.08 mを通る。右腕だけを扱う。終了時、持っている物体はその場で動く物体に戻す。
 - 指は閉じず、持った物体は指を通り抜ける。巻き戻しても物体は戻らない（`sim_objects` を実行し直す）。`sim_manipulation` が持ったまま異常終了すると、物体は静的なまま宙に残る。
 

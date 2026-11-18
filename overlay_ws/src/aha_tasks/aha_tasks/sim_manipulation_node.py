@@ -8,20 +8,21 @@ planned; the object is moved by gz-transport (aha_tasks.sim_manipulation):
   model of the target's label nearest the target (MATCH_DISTANCE), within
   `reach` of the base. The right arm reaches out over it, the model becomes
   a static copy without collision that follows the TCP (`tcp_frame`), and
-  the arm goes to the carry pose. Once the object is in the hand the pick
+  the arm goes to home, the carry pose (CARRY), where every goal ends (the
+  actions' `at_home`). Once the object is in the hand the pick
   succeeds, also when the arm does not get to carry (cancel, controller:
-  `returned` false) or grasp_pose_used is not known: the message says so.
+  `at_home` false) or grasp_pose_used is not known: the message says so.
   Likewise place and handover succeed once the object left the hand, also
   when Gazebo then fails to re-create or remove it.
 - place (aha_msgs/action/PlaceObject, /aha/manipulation/place): the arm
   reaches out over `near` (within `reach`; over the top of a container to
   drop into), the static copy is set standing at `near` (`drop`: its centre
-  at `near`), the arm goes back, and the dynamic model is created there,
+  at `near`), the arm goes back to home, and the dynamic model is created there,
   clear of the hand (a dropped object falls).
 - handover (aha_msgs/action/HandOver, /aha/manipulation/handover): the arm
   points at the target at its height; with release "take" the simulated
   person takes the object `take_delay` s later (never if `take` is false,
-  then the goal times out); the model is removed and the arm goes back.
+  then the goal times out); the model is removed and the arm goes back to home.
 
 The arm moves in straight lines in joint space (aha_tasks.gestures.Arm,
 aha_manipulation.pointing) without collision checks, the lift before the
@@ -68,21 +69,21 @@ DEFAULT_CACHE = Path.home() / ".cache" / "aharobot" / "sim_objects"
 class Failed(Exception):
     """A goal fails with this message (and the status in `status`).
 
-    `returned`: whether the arm is at a safe pose at the end (its pose
-    before the goal, or carry); None: the arm did not move."""
+    `at_home`: whether the arm is at home (CARRY) at the end; None: the arm
+    did not move."""
 
-    def __init__(self, message, status=None, returned=None):
+    def __init__(self, message, status=None, at_home=None):
         super().__init__(message)
-        self.status, self.returned = status, returned
+        self.status, self.at_home = status, at_home
 
 
 def failed_status(error):
     """The PlaceObject / HandOver status name of a failed goal: its own, else
-    STATUS_ERROR before the arm moved (`returned` None), else
-    STATUS_EXECUTION_FAILED (the runner then reads `returned`)."""
+    STATUS_ERROR before the arm moved (`at_home` None), else
+    STATUS_EXECUTION_FAILED (the runner then reads `at_home`)."""
     if error.status:
         return error.status
-    return "STATUS_ERROR" if error.returned is None else "STATUS_EXECUTION_FAILED"
+    return "STATUS_ERROR" if error.at_home is None else "STATUS_EXECUTION_FAILED"
 
 
 class Flag:
@@ -139,7 +140,6 @@ class Stand:
         self.lock = threading.Lock()
         self.held = None  # Held
         self.placed = None  # (Held, centre, yaw) let go, still static
-        self.rest = None  # (lift, arm joints) before the pick
         self.busy = False
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, node)
@@ -385,17 +385,6 @@ class Stand:
 
     # -- arm ------------------------------------------------------------------
 
-    def remember_rest(self):
-        if self.arm is None or self.rest is not None:
-            return
-        from aha_manipulation.pointing import ARM_JOINTS, LIFT_JOINT
-
-        try:
-            values = self.arm.positions([LIFT_JOINT, *ARM_JOINTS])
-        except TimeoutError as error:
-            raise Failed(f"Arm: {error}") from None
-        self.rest = (values[0], tuple(values[1:]))
-
     def move(self, lift, joints, cancelled, what):
         """Up before reaching out, in before going down: the lift and the arm
         one after the other, so that the arm does not sweep through a table."""
@@ -419,19 +408,19 @@ class Stand:
                     # place and handover), unlike a failed motion.
                     stopped = cancelled is not None and cancelled.is_set()
                     status = "STATUS_CANCELED" if stopped else None
-                    raise Failed(f"Arm ({what}): {text}", status, returned=False)
+                    raise Failed(f"Arm ({what}): {text}", status, at_home=False)
         except TimeoutError as error:
-            raise Failed(f"Arm ({what}): {error}", returned=False) from None
+            raise Failed(f"Arm ({what}): {error}", at_home=False) from None
 
     def reach_out(self, base_xyz, height, cancelled, what):
         """point(); a motion that fails other than by a cancel (which stops
         the arm where it is) brings the arm back first: a server ends a goal
-        with the arm at a safe pose."""
+        with the arm at home."""
         try:
             return self.point(base_xyz, height, cancelled, what)
         except Failed as error:
             if error.status != "STATUS_CANCELED":
-                error.returned = self.back(cancelled)
+                error.at_home = self.back(cancelled)
             raise
 
     def point(self, base_xyz, height, cancelled, what):
@@ -456,21 +445,14 @@ class Stand:
         return True
 
     def back(self, cancelled):
-        """The arm to the carry pose while it holds an object, else to its pose
-        before the pick; True when there."""
+        """The arm to home (CARRY), with or without an object; True when there."""
         if self.arm is None:
             return True
-        holding = self.held is not None
-        if not holding and self.rest is None:
-            return True
-        lift, joints = CARRY if holding else self.rest
         try:
-            self.move(lift, joints, cancelled, "back")
+            self.move(CARRY[0], CARRY[1], cancelled, "home")
         except Failed as error:
             self.log.warning(str(error))
             return False
-        if not holding:
-            self.rest = None
         return True
 
     def wait(self, seconds, cancelled):
@@ -514,7 +496,6 @@ class Stand:
             )
         cancelled = Flag(handle)
         feedback("approaching", 0.2)
-        self.remember_rest()
         entry = self.object_list.for_model(name)
         above = world_object[2, 3] + entry.size[2] / 2 + HAND_ABOVE
         if not self.reach_out(
@@ -522,12 +503,12 @@ class Stand:
         ):
             raise Failed(f"The arm cannot reach out over {name}")  # not moved
         if cancelled.is_set():
-            raise Failed("Cancelled", returned=False)
+            raise Failed("Cancelled", at_home=False)
         feedback("grasping", 0.5)
         try:
             self.attach(name, entry.label, world_object)
         except Failed as error:  # remove / create / TF: the arm comes back first
-            error.returned = self.back(cancelled)
+            error.at_home = self.back(cancelled)
             raise
         feedback("retreating", 0.8)
         back, note = True, ""
@@ -536,7 +517,7 @@ class Stand:
         except Failed as error:
             # The object is in the hand now: a failed pick would leave the task
             # without it, and every later pick refused (Already holding). The
-            # arm is not back (`returned` false).
+            # arm is not at home (`at_home` false).
             back, note = False, f"; the arm is not at carry ({error})"
             self.log.warning(f"Picked {name}{note}")
         self.log.info(f"Picked {name}")
@@ -572,7 +553,7 @@ class Stand:
         if not self.reach_out(self.base_point(centre), above, cancelled, "spot"):
             raise Failed("The arm cannot reach out over the spot", "STATUS_UNREACHABLE")
         if cancelled.is_set():
-            raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
+            raise Failed("Cancelled", "STATUS_CANCELED", at_home=False)
         feedback("releasing")
         name = self.held.name
         self.put(centre)
@@ -600,14 +581,14 @@ class Stand:
         if not self.reach_out(target, target[2], cancelled, "person"):
             raise Failed("The arm cannot reach out there", "STATUS_UNREACHABLE")
         if cancelled.is_set():
-            raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
+            raise Failed("Cancelled", "STATUS_CANCELED", at_home=False)
         name = self.held.name
         if goal.release != "now":
             feedback("waiting")
             timeout = goal.timeout if goal.timeout > 0 else self.param("take_timeout")
             delay = self.param("take_delay") if self.param("take") else math.inf
             if not self.wait(min(delay, timeout), cancelled):
-                raise Failed("Cancelled", "STATUS_CANCELED", returned=False)
+                raise Failed("Cancelled", "STATUS_CANCELED", at_home=False)
             if delay > timeout:
                 feedback("returning")
                 back = self.back(cancelled)
@@ -696,10 +677,10 @@ def main(argv=None):
             result.success, result.message = True, f"Picked {name}{note}"
             if pose is not None:
                 result.grasp_pose_used = pose
-            result.returned = back
+            result.at_home = back
             return finish(handle, result, True)
         except Failed as error:
-            result.returned = error.returned is not False
+            result.at_home = error.at_home is not False
             result.message = str(error)
             log.warning(f"Pick: {error}")
             return finish(handle, result, False, handle.is_cancel_requested)
@@ -713,15 +694,15 @@ def main(argv=None):
             )
             result.success, result.status = True, R.STATUS_OK
             result.message = (
-                f"Placed {name}" + ("" if back else "; the arm is not back") + note
+                f"Placed {name}" + ("" if back else "; the arm is not at home") + note
             )
             if pose is not None:
                 result.place_pose = pose
-            result.returned = back
+            result.at_home = back
             return finish(handle, result, True)
         except Failed as error:
             result.status = getattr(R, failed_status(error))
-            result.returned = error.returned is not False
+            result.at_home = error.at_home is not False
             result.message = str(error)
             log.warning(f"Place: {error}")
             return finish(handle, result, False, handle.is_cancel_requested)
@@ -735,13 +716,15 @@ def main(argv=None):
             )
             result.success, result.status = True, R.STATUS_RELEASED
             result.message = (
-                f"Handed over {name}" + ("" if back else "; the arm is not back") + note
+                f"Handed over {name}"
+                + ("" if back else "; the arm is not at home")
+                + note
             )
-            result.returned = back
+            result.at_home = back
             return finish(handle, result, True)
         except Failed as error:
             result.status = getattr(R, failed_status(error))
-            result.returned = error.returned is not False
+            result.at_home = error.at_home is not False
             result.message = str(error)
             log.warning(f"Handover: {error}")
             return finish(handle, result, False, handle.is_cancel_requested)

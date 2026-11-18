@@ -20,6 +20,7 @@ import numpy as np
 
 # aha_manipulation srdf group_state "carry" of right_arm: lift, then
 # joint_r2..joint_r6. The hand is at about (0.22, -0.30, 0.92) in base_footprint.
+# It is home: the pose where pick, place and handover goals end (`at_home`).
 CARRY = (0.5, (-0.6, 1.2, 0.6, 0.0, 0.0))
 MATCH_DISTANCE = 0.2  # m from the goal's target to the object model
 # m (horizontal) from the base centre the stand-in reaches: objects up to

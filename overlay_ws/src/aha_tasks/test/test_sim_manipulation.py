@@ -133,7 +133,7 @@ class FakeStand(Stand):
         self.held, self.object_list, self.carry_fails = None, OBJECT_LIST, carry_fails
         self.tf_fails, self.backs = tf_fails, 0
         self.gazebo_fails, self.created = gazebo_fails, []
-        self.lock, self.placed, self.arm, self.rest = threading.Lock(), None, None, None
+        self.lock, self.placed, self.arm = threading.Lock(), None, None
         self.furniture = SimpleNamespace(get=lambda name: None)
         self.log = SimpleNamespace(info=lambda text: None, warning=lambda text: None)
 
@@ -161,9 +161,6 @@ class FakeStand(Stand):
 
     def base_point(self, xyz):
         return xyz
-
-    def remember_rest(self):
-        pass
 
     def point(self, base_xyz, height, cancelled, what):
         return True
@@ -210,7 +207,7 @@ class StandPickTests(unittest.TestCase):
         # thinks the hand is empty, and every later pick is refused.
         stand = FakeStand(carry_fails=True)
         name, back, _, note = self.pick(stand)
-        self.assertEqual((name, back), ("cola", False))  # `returned` false
+        self.assertEqual((name, back), ("cola", False))  # `at_home` false
         self.assertIn("not at carry", note)
         self.assertEqual(stand.held.name, "cola")
         with self.assertRaises(Failed):
@@ -223,7 +220,7 @@ class StandUnreachableTests(unittest.TestCase):
         stand.point = lambda *args: False  # point_at: no pose for the point
         with self.assertRaises(Failed) as caught:
             StandPickTests().pick(stand)
-        self.assertIsNone(caught.exception.returned)  # the arm did not move
+        self.assertIsNone(caught.exception.at_home)  # the arm did not move
         self.assertIsNone(stand.held)
         stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
         with self.assertRaises(Failed) as caught:
@@ -260,11 +257,11 @@ class StatusTests(unittest.TestCase):
     def test_a_failure_after_the_arm_moved_is_not_a_before_motion_status(self):
         self.assertEqual(failed_status(Failed("only right")), "STATUS_ERROR")
         self.assertEqual(
-            failed_status(Failed("Arm: stuck", returned=False)),
+            failed_status(Failed("Arm: stuck", at_home=False)),
             "STATUS_EXECUTION_FAILED",
         )
         self.assertEqual(
-            failed_status(Failed("Arm: stuck", returned=True)),
+            failed_status(Failed("Arm: stuck", at_home=True)),
             "STATUS_EXECUTION_FAILED",
         )
         self.assertEqual(
@@ -277,10 +274,10 @@ class StatusTests(unittest.TestCase):
         stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
 
         def point(base_xyz, height, cancelled, what):
-            raise Failed("Arm (person): stuck", returned=False)
+            raise Failed("Arm (person): stuck", at_home=False)
 
         stand.point = point
-        stand.back = lambda cancelled: False  # and not back either
+        stand.back = lambda cancelled: False  # and not at home either
         goal = SimpleNamespace(
             arm="",
             target=StandReleaseTests.point(None, 1.0, 0.0, 0.9),
@@ -290,7 +287,7 @@ class StatusTests(unittest.TestCase):
         handle = SimpleNamespace(is_cancel_requested=False)
         with self.assertRaises(Failed) as caught:
             stand.hand_over(goal, handle, lambda *a: None)
-        self.assertEqual(caught.exception.returned, False)
+        self.assertEqual(caught.exception.at_home, False)
         self.assertEqual(failed_status(caught.exception), "STATUS_EXECUTION_FAILED")
 
 
@@ -343,13 +340,13 @@ class StandAttachTests(unittest.TestCase):
         handle = SimpleNamespace(is_cancel_requested=False)
         with self.assertRaises(Failed) as caught:
             stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
-        self.assertEqual((stand.backs, caught.exception.returned), (1, True))
+        self.assertEqual((stand.backs, caught.exception.at_home), (1, True))
         self.assertIsNone(stand.held)
-        # And not back either: the result says so (`returned` false).
+        # And not at home either: the result says so (`at_home` false).
         stand.back = lambda cancelled: False
         with self.assertRaises(Failed) as caught:
             stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
-        self.assertEqual(caught.exception.returned, False)
+        self.assertEqual(caught.exception.at_home, False)
 
 
 class StandPoseTests(unittest.TestCase):
@@ -371,7 +368,7 @@ class StandReachTests(unittest.TestCase):
         stand = FakeStand()
 
         def point(base_xyz, height, cancelled, what):
-            raise Failed("Arm (spot): stuck", status, returned=False)
+            raise Failed("Arm (spot): stuck", status, at_home=False)
 
         stand.point = point
         with self.assertRaises(Failed) as caught:
@@ -380,11 +377,11 @@ class StandReachTests(unittest.TestCase):
 
     def test_a_failed_motion_brings_the_arm_back(self):
         stand, error = self.failing(None)
-        self.assertEqual((stand.backs, error.returned), (1, True))
+        self.assertEqual((stand.backs, error.at_home), (1, True))
 
     def test_a_cancel_leaves_the_arm_where_it_is(self):
         stand, error = self.failing("STATUS_CANCELED")
-        self.assertEqual((stand.backs, error.returned), (0, False))
+        self.assertEqual((stand.backs, error.at_home), (0, False))
 
 
 class StandMoveTests(unittest.TestCase):
@@ -396,9 +393,6 @@ class StandMoveTests(unittest.TestCase):
         stand.arm = SimpleNamespace(positions=no_joint_states)
         with self.assertRaises(Failed):
             Stand.move(stand, 0.5, (0.0,) * 5, None, "carry")
-        stand.rest = None
-        with self.assertRaises(Failed):
-            Stand.remember_rest(stand)
 
     def test_a_cancel_during_a_motion_is_a_cancel(self):
         stand = FakeStand()

@@ -944,9 +944,11 @@ class HandsTests(unittest.TestCase):
         cancelled = threading.Event()
         cancelled.set()
         # The object in the hand, the arm stopped on its way to carry.
-        done = PickResult(success=True, message="Picked; not at carry", returned=False)
+        done = PickResult(success=True, message="Picked; not at carry", at_home=False)
         self.assertIs(hands.finish(FakeHandle(done), 1.0, cancelled), done)
-        self.assertIn("not back: Picked; not at carry", getattr(hands.runtime, ARM_OUT))
+        self.assertIn(
+            "not at home: Picked; not at carry", getattr(hands.runtime, ARM_OUT)
+        )
         with self.assertRaises(Cancelled):
             hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
         # A timeout likewise.
@@ -956,17 +958,19 @@ class HandsTests(unittest.TestCase):
         runtime = SimpleNamespace()
         hands = Hands.__new__(Hands)
         hands.runtime = runtime
-        place = PlaceResult(success=False, status=4, message="stuck", returned=False)
+        place = PlaceResult(success=False, status=4, message="stuck", at_home=False)
         hands.arm_after(place)
-        self.assertIn("the arm may be out (not back: stuck)", getattr(runtime, ARM_OUT))
-        hands.arm_after(Result(success=False, status=0, message="no", returned=True))
+        self.assertIn(
+            "the arm may be out (not at home: stuck)", getattr(runtime, ARM_OUT)
+        )
+        hands.arm_after(Result(success=False, status=0, message="no", at_home=True))
         self.assertIsNone(getattr(runtime, ARM_OUT))
-        # A pick: `returned` false where a cancel or failure left the arm.
-        hands.arm_after(PickResult(success=False, message="stuck", returned=False))
-        self.assertIn("not back: stuck", getattr(runtime, ARM_OUT))
-        hands.arm_after(PickResult(success=True, message="Picked", returned=True))
+        # A pick: `at_home` false where a cancel or failure left the arm.
+        hands.arm_after(PickResult(success=False, message="stuck", at_home=False))
+        self.assertIn("not at home: stuck", getattr(runtime, ARM_OUT))
+        hands.arm_after(PickResult(success=True, message="Picked", at_home=True))
         self.assertIsNone(getattr(runtime, ARM_OUT))
-        # Without `returned` (an older server), a cancel or failure may leave
+        # Without `at_home` (an older server), a cancel or failure may leave
         # the arm out.
         for pick in (
             SimpleNamespace(success=True, message="Picked"),
@@ -974,9 +978,9 @@ class HandsTests(unittest.TestCase):
         ):
             with self.subTest(stopped=pick.message):
                 hands.arm_after(pick, stopped=True)
-                self.assertIn("ended without returned", getattr(runtime, ARM_OUT))
+                self.assertIn("ended without at_home", getattr(runtime, ARM_OUT))
         hands.arm_after(SimpleNamespace(success=False, message="no grasp"))
-        self.assertIn("ended without returned", getattr(runtime, ARM_OUT))
+        self.assertIn("ended without at_home", getattr(runtime, ARM_OUT))
         hands.arm_after(SimpleNamespace(success=True, message="Picked"))
         self.assertIsNone(getattr(runtime, ARM_OUT))
         with self.assertRaises(Unstopped):
@@ -984,22 +988,22 @@ class HandsTests(unittest.TestCase):
         self.assertIn("did not confirm that it stopped", getattr(runtime, ARM_OUT))
 
     def test_failures_before_any_motion_leave_the_arm_as_it_was(self):
-        # `returned` is false by the message default; the status says more.
+        # `at_home` is false by the message default; the status says more.
         # The arm is where earlier goals left it, e.g. out after a cancel.
         runtime = SimpleNamespace(arm_out="earlier")
         hands = Hands.__new__(Hands)
         hands.runtime = runtime
         before = [
             *(
-                PlaceResult(success=False, status=status, message="", returned=False)
+                PlaceResult(success=False, status=status, message="", at_home=False)
                 for status in (1, 2, 3, 5)  # no surface, no space, unreachable, error
             ),
             *(
-                Result(success=False, status=status, message="", returned=False)
+                Result(success=False, status=status, message="", at_home=False)
                 for status in (2, 3)  # unreachable, error
             ),
             # No status: maybe before any motion, else back to its pose before.
-            PickResult(success=False, message="too far", returned=True),
+            PickResult(success=False, message="too far", at_home=True),
         ]
         for result in before:
             for earlier in ("earlier", None):
@@ -1007,15 +1011,15 @@ class HandsTests(unittest.TestCase):
                     runtime.arm_out = earlier
                     hands.arm_after(result, stopped=True)
                     self.assertEqual(runtime.arm_out, earlier)
-        # After a motion, `returned` decides: execution failed, cancelled.
+        # After a motion, `at_home` decides: execution failed, cancelled.
         for result in (
-            PlaceResult(success=False, status=4, message="stuck", returned=False),
-            Result(success=False, status=4, message="cancelled", returned=False),
+            PlaceResult(success=False, status=4, message="stuck", at_home=False),
+            Result(success=False, status=4, message="cancelled", at_home=False),
         ):
             with self.subTest(after_motion=result.status):
                 runtime.arm_out = None
                 hands.arm_after(result, stopped=True)
-                self.assertIn("not back", runtime.arm_out)
+                self.assertIn("not at home", runtime.arm_out)
 
     def test_every_base_motion_waits_for_the_arm(self):
         try:
@@ -1101,11 +1105,11 @@ class HandsTests(unittest.TestCase):
         hands.runtime = SimpleNamespace(arm_out=None)
         cancelled = threading.Event()
         cancelled.set()
-        stuck = PickResult(success=False, message="cancelled", returned=False)
+        stuck = PickResult(success=False, message="cancelled", at_home=False)
         # Done after the skill failed: the memory does not know the hand.
-        done = PickResult(success=True, message="Picked", returned=True)
-        back = PlaceResult(success=False, status=4, message="stopped", returned=True)
-        before = PickResult(success=False, message="too far", returned=True)
+        done = PickResult(success=True, message="Picked", at_home=True)
+        back = PlaceResult(success=False, status=4, message="stopped", at_home=True)
+        before = PickResult(success=False, message="too far", at_home=True)
         for on_cancel, out in (
             (stuck, True),
             (done, True),
