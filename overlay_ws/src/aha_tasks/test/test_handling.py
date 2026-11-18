@@ -1115,6 +1115,36 @@ class HandsTests(unittest.TestCase):
         self.assertIsNone(hands.runtime.arm_out)
         self.assertIsNone(hands.blocked())
 
+    def test_no_goal_after_one_whose_stop_is_not_confirmed(self):
+        for late, out in (
+            (PickResult(success=False, message="stopped", at_home=True), None),
+            (
+                PickResult(success=True, message="Picked", at_home=True),
+                "check the hand",
+            ),
+        ):
+            with self.subTest(late=late.message):
+                hands = Hands.__new__(Hands)
+                hands.runtime = SimpleNamespace(arm_out=None)
+                client = FakeClient()
+                hands.clients = {PICK_ACTION: (None, client)}
+                handle = FakeHandle(None)
+                handle.cancel_goal_async = lambda: None  # no answer to the cancel
+                with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
+                    with self.assertRaises(Unstopped):
+                        hands.finish(handle, 0.0, threading.Event())
+                    with self.assertRaises(Unstopped) as caught:
+                        hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+                self.assertIn("Not sending", str(caught.exception))
+                self.assertEqual(client.sent, [])
+                handle.future.set_result(SimpleNamespace(result=late))  # it ends
+                if out is None:
+                    self.assertIsNone(hands.runtime.arm_out)
+                    self.assertIsNone(hands.blocked())
+                else:
+                    self.assertIn(out, hands.runtime.arm_out)
+                    self.assertIn(out, hands.blocked())
+
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = Hands.__new__(Hands)
         hands.runtime = SimpleNamespace(arm_out=None)

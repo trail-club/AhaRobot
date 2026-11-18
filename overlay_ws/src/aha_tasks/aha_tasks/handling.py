@@ -571,42 +571,52 @@ class Hands:
 
     def cancel_late(self, sent, number=None, earlier=None):
         """Cancel goal `number`, answered after start gave up on it (start set
-        arm_out, from `earlier`, and no goal is sent until this one settles).
-        A rejection, or a result from before any motion, gives back
-        `earlier`; a success keeps the base and the hands blocked until a
-        restart (`hold`: check the hand); another result sets arm_out by how
-        the goal ended (a cancel stops the arm where it is)."""
-
-        def settle(result, rejected=False):
-            self.__dict__.setdefault("pending", set()).discard(number)
-            if self.runtime is None:
-                return
-            if rejected or (result is not None and before_motion(result)):
-                after = earlier
-            elif result is not None and result.success:
-                after = self.hold = self.arm_text(
-                    f"a goal succeeded after the skill gave up ({result.message}): "
-                    "check the hand"
-                )
-                node = getattr(self, "node", None)
-                if node is not None:
-                    node.get_logger().warning(after)
-            else:
-                after = self.arm_text(self.arm_why(result, stopped=True))
-            setattr(self.runtime, ARM_OUT, after)
-
+        arm_out, from `earlier`, and no goal is sent until it is settled): a
+        rejection settles it at once, an acceptance once its result comes."""
         handle = sent.result()
         if handle is None or not handle.accepted:
-            settle(None, rejected=True)
+            self.settle(number, None, earlier, rejected=True)
             return
-
-        def ended(future):
-            response = future.result()
-            settle(None if response is None else response.result)
-
         if self.runtime is not None:
-            handle.get_result_async().add_done_callback(ended)
+            self.follow(handle.get_result_async(), number, earlier)
         handle.cancel_goal_async()
+
+    def follow(self, future, number, earlier):
+        """Goal `number` may still move the arm: no goal is sent (blocked)
+        until its result `future` comes and settles it."""
+        if self.runtime is None:
+            return
+        self.__dict__.setdefault("pending", set()).add(number)
+
+        def ended(done):
+            response = done.result()
+            result = None if response is None else response.result
+            self.settle(number, result, earlier)
+
+        future.add_done_callback(ended)
+
+    def settle(self, number, result, earlier, rejected=False):
+        """The late end of goal `number`. A rejection, or a result from before
+        any motion, gives back the arm_out of before it (`earlier`); a success
+        keeps the base and the hands blocked until a restart (`hold`: check
+        the hand, as its skill failed); another result sets arm_out by how the
+        goal ended (a cancel stops the arm where it is)."""
+        self.__dict__.setdefault("pending", set()).discard(number)
+        if self.runtime is None:
+            return
+        if rejected or (result is not None and before_motion(result)):
+            after = earlier
+        elif result is not None and result.success:
+            after = self.hold = self.arm_text(
+                f"a goal succeeded after the skill gave up ({result.message}): "
+                "check the hand"
+            )
+            node = getattr(self, "node", None)
+            if node is not None:
+                node.get_logger().warning(after)
+        else:
+            after = self.arm_text(self.arm_why(result, stopped=True))
+        setattr(self.runtime, ARM_OUT, after)
 
     def finish(self, handle, timeout, cancelled, until=None):
         """The result, or None once `until()` holds. On cancel or timeout the
@@ -633,7 +643,9 @@ class Hands:
 
     def cancel(self, handle):
         """Cancel a goal and wait (a few seconds) until it stopped: its result
-        (it may have ended otherwise meanwhile), or None without one."""
+        (it may have ended otherwise meanwhile), or None without one; then it
+        may still move the arm, and no goal is sent until its result comes
+        (follow)."""
         future = handle.get_result_async()
         handle.cancel_goal_async()
         try:
@@ -641,7 +653,10 @@ class Hands:
         except TimeoutError:
             response = None
         ended = None if response is None else response.result
+        earlier = self.arm_state()
         self.arm_after(ended, stopped=True)
+        if response is None:
+            self.follow(future, next(UNANSWERED), earlier)
         return ended
 
     def arm_after(self, result, stopped=False):
