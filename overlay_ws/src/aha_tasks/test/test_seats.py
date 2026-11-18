@@ -55,26 +55,31 @@ class FakeNode:
 class FakeGaze:
     def __init__(self):
         self.looks = []
+        self.turned = time.monotonic()
 
     def look_at(self, frame, target):
         self.looks.append((frame, (target.x, target.y, target.z)))
+        self.turned = time.monotonic()
 
 
 class FakePeople(People):
     """A new message at every poll, of the people within VIEW of the head's target.
 
-    Its image was taken `delay` s before (person_perception's latency);
-    `alive=False` has none.
+    Its image was taken `delay` s before (person_perception's latency).
+    `alive=False` has none, and `until` none from `until` s after the head
+    turned (a gap, which makes the latest message stale).
     """
 
     now = staticmethod(time.monotonic)
 
-    def __init__(self, gaze, people, frame="map", delay=0.0, alive=True):
+    def __init__(
+        self, gaze, people, frame="map", delay=0.0, alive=True, until=math.inf
+    ):
         self.gaze, self.people, self.frame = gaze, people, frame
-        self.delay, self.alive = delay, alive
+        self.delay, self.alive, self.until = delay, alive, until
 
     def latest(self):
-        if not self.alive:
+        if not self.alive or time.monotonic() - self.gaze.turned > self.until:
             return None
         target = self.gaze.looks[-1][1] if self.gaze.looks else (0.0, 0.0)
         seen = [
@@ -237,6 +242,22 @@ class FindFreeSeatTests(unittest.TestCase):
         self.assertIn("/aha/perception/people", result.message)
         self.assertIn("chair_right: not looked at", result.message)
         self.assertEqual(len(rt.gaze.looks), 1)
+
+    def test_a_gap_at_the_end_keeps_a_seat_seen_free(self):
+        rt = runtime([HOST], until=0.25)  # no message for the last 0.1 s
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        self.assertEqual(
+            result.message, "chair_right for guest2 (chair_left: person 3 sits there)"
+        )
+
+    def test_a_gap_at_the_end_does_not_skip_the_other_seats(self):
+        rt = runtime([], delay=1.0, until=0.25)  # images from before it settled
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        self.assertIn("not seen free", result.message)
+        self.assertNotIn("not looked at", result.message)
+        self.assertEqual(looked_at(rt), list(SEATS))
 
     def test_people_outside_map_are_not_looked_for_at_the_other_seats(self):
         rt = runtime([], frame="camera_color_optical_frame")

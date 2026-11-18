@@ -95,7 +95,8 @@ class FindFreeSeat(Skill):
     is not looked at. Outputs `<guest>.seat` (the name) and
     `<guest>.seat_position` for offer_seat and leaves the head on the seat
     seen free. If none was, outputs the first seat not seen taken (when
-    person_perception has nothing in map, without looking at the rest). Fails
+    person_perception sent nothing in map while the head looked at a seat,
+    without looking at the rest). Fails
     only if every seat was seen taken. The message gives each seat's reason.
     """
 
@@ -156,9 +157,11 @@ class FindFreeSeat(Skill):
             )
             settled = clock.now().nanoseconds * 1e-9 + SETTLE
             seen = False
+            frames = set()  # of the messages received while waiting
 
             def choose(message):
                 nonlocal seen
+                frames.add(message.header.frame_id)
                 for seat, person in occupants(
                     message, seats, radius, guest, track
                 ).items():
@@ -175,14 +178,15 @@ class FindFreeSeat(Skill):
                 return SkillResult(False, "Cancelled")
             if found is not None:
                 continue
-            latest = people.latest()
-            if latest is None:
-                down = reason
-            elif latest.header.frame_id != "map":
-                down = f"people are in {latest.header.frame_id}, not map"
-            elif seen:
+            if seen:
                 ctx.log(f"{name} is free")
                 return chosen(name, f"{name} for {guest}")
+            # Down only if the whole wait had nothing in map: people.latest()
+            # is None after any gap of STALE_AFTER, also at the end of the wait.
+            if not frames:
+                down = reason
+            elif "map" not in frames:
+                down = f"people are in {', '.join(sorted(frames))}, not map"
             reasons[name] = f"not seen ({down or reason})"
         unseen = [name for name in seats if name not in taken]
         if not unseen:
