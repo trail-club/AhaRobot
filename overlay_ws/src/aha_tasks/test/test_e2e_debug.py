@@ -1,7 +1,6 @@
 """Debug and final end-to-end runs: the launch switch, teleport checks and run summaries."""
 
 import importlib.util
-import json
 import math
 import os
 from pathlib import Path
@@ -9,6 +8,8 @@ import sys
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core import load_spec  # noqa: E402
@@ -41,14 +42,6 @@ def served(pixel, occupied=0.65, free=0.196):
     return 0 if occupancy < free else -1
 
 
-def map_origin():
-    """[x, y] of the lower left corner of the RCJO2026 map (rcjo2026.yaml)."""
-    for line in (MAP / "rcjo2026.yaml").read_text().splitlines():
-        if line.startswith("origin:"):
-            return json.loads(line.split(":", 1)[1])[:2]
-    raise ValueError("rcjo2026.yaml has no origin")
-
-
 def demo_map():
     """The RCJO2026 map as map_server serves it on /map."""
     raw = (MAP / "rcjo2026.pgm").read_bytes()
@@ -64,7 +57,7 @@ def demo_map():
         "width": width,
         "height": height,
         "resolution": 0.05,
-        "origin": map_origin(),
+        "origin": yaml.safe_load((MAP / "rcjo2026.yaml").read_text())["origin"][:2],
     }
 
 

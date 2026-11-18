@@ -37,23 +37,18 @@ class EntranceDoor:
 
     def update(self, status, now):
         """True if the door is open now; status is a /aha/tasks/status dict or None."""
-        if status is None:
-            self.since = None
-            return False
-        statuses = {s["id"]: s["status"] for s in status["subgoals"]}
-        state = statuses.get(self.trigger, PENDING)
-        active = status.get("current") == self.trigger
-        executing = state == RUNNING and active and status.get("phase") == "executing"
-        if not executing:
-            self.since = None
-        if state == PENDING:
-            return False
+        state, phase = PENDING, None
+        if status is not None:
+            statuses = {s["id"]: s["status"] for s in status["subgoals"]}
+            state = statuses.get(self.trigger, PENDING)
+            if status.get("current") == self.trigger:
+                phase = status.get("phase")
         if state != RUNNING:
-            return True  # done, failed, skipped or mocked: the referee opened it
-        if active and status.get("phase") == "restoring":
-            return True  # the robot goes back out through the door
-        if not executing:
-            return False
+            self.since = None
+            return state != PENDING  # done, failed, skipped or mocked: opened
+        if phase != "executing":
+            self.since = None
+            return phase == "restoring"  # the robot goes back out through the door
         if self.since is None:
             self.since = now
         return now - self.since >= self.delay

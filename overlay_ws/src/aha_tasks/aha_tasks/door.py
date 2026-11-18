@@ -1,23 +1,19 @@
 """Wait outside the arena until a referee opens the entrance door (rulebook 3.6.8).
 
-The robot stands outside, facing the closed door. It says that it waits for
-the door, looks straight ahead with the head camera and watches the space in
-front of it: a corridor `width` m wide, from NEAR in front of the base centre,
-between LOW and HIGH above the floor (above the floor, below a door's lintel).
-The door counts as open once that corridor is free for `distance` m in FRAMES
-consecutive frames over at least HOLD s of one sensor, and in every sensor
-that delivers data: the head depth camera (the real robot has no lidar) and,
-in simulation, /scan. Missing depth is never free space: a depth image shows
-the corridor free only with pixels that look through it and see something
-beyond `distance` (the floor or the room behind the open door). A frame that
-shows neither that nor an obstacle (a black or glossy door without depth)
-counts as a closed door: the robot keeps waiting. A sensor that delivers no
-usable frame (no image or TF, the head not looking ahead, a blind camera)
-for NO_DATA_TIMEOUT fails the skill.
-Before it waits, the robot folds its arms in front of the body to fit through
-the door, and fails if they cannot be folded. The sensors are subscribed only
-while the skill runs. The skill does not move the base: the next navigate
-subgoal drives through the door.
+The robot stands outside, facing the closed door. It folds its arms to fit
+through the door (and fails if it cannot), says that it waits, looks straight
+ahead and watches a corridor `width` m wide in front of it: from NEAR ahead of
+the base centre, between LOW and HIGH above the floor. The door counts as open
+once every sensor with a usable frame, the head depth camera (the real robot
+has no lidar) and in simulation /scan, sees the corridor free for `distance` m
+in FRAMES consecutive frames over HOLD s. Missing depth is never free space:
+a depth image shows the corridor free only through pixels that see something
+beyond `distance` (the floor or the room behind the open door); otherwise it
+shows a closed door (a black or glossy door without depth). A sensor without
+a usable frame (no image or TF, the head not looking ahead, a blind camera)
+for NO_DATA_TIMEOUT fails the skill. The sensors are subscribed only while
+the skill runs. The base does not move: the next navigate subgoal drives
+through the door.
 
 ROS and numpy are imported on use, so task definitions load without them.
 """
@@ -53,12 +49,12 @@ LOG_PERIOD = 30.0  # s (wall clock) between reports while waiting
 POLL = 0.05  # s
 TF_WAIT = 0.1  # s for the transform at an image's stamp
 WAITING_TEXT = "I am waiting for the door to open."
-# Arms folded to pass a door, mirrored, at the lift's height: the upper arms
-# swung 0.9 rad back, the forearms forward along the body and the grippers
-# turned in, about 0.38 m to each side (meshes; 0.53 m at zero, the
-# simulation's start, which does not fit through a 0.9 to 1.0 m door). Within
-# the real arms' limits (aha_manipulation/config/arm.yaml), which MoveIt's
-# "standby" (joint_r3 1.5) is not: the left elbow folds only to 1.08 rad.
+# Arms folded to pass a door, mirrored: the upper arms swung 0.9 rad back, the
+# forearms forward along the body and the grippers turned in, about 0.38 m to
+# each side (0.53 m at zero, the simulation's start: too wide for a 0.9 to
+# 1.0 m door). Within the real arms' limits (aha_manipulation/config/arm.yaml),
+# which MoveIt's "standby" (joint_r3 1.5) exceeds: the left elbow folds to
+# 1.08 rad at most.
 FOLDED = {
     "/right_arm_controller/follow_joint_trajectory": {
         "joint_r2": -0.9,
@@ -178,7 +174,7 @@ def rotation_matrix(x, y, z, w):
     )
 
 
-def free_distance(points, width=WIDTH, near=NEAR, low=LOW, high=HIGH, min_points=1):
+def free_distance(points, width=WIDTH, min_points=1):
     """Free distance (m, base x) straight ahead in the corridor; inf if nothing.
 
     points are (N, 3) in the base frame (x forward, z up from the floor). The
@@ -189,21 +185,21 @@ def free_distance(points, width=WIDTH, near=NEAR, low=LOW, high=HIGH, min_points
 
     points = np.asarray(points, dtype=np.float64).reshape(-1, 3)
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
-    inside = (x >= near) & (np.abs(y) <= width / 2.0) & (z >= low) & (z <= high)
+    inside = (x >= NEAR) & (np.abs(y) <= width / 2.0) & (z >= LOW) & (z <= HIGH)
     ahead = x[inside]
     if ahead.size < min_points:
         return math.inf
     return float(np.partition(ahead, min_points - 1)[min_points - 1])
 
 
-def looks_ahead(rotation, max_pan=MAX_PAN, max_up=MAX_UP, max_down=MAX_DOWN):
+def looks_ahead(rotation):
     """Whether a camera (optical frame rotation in the base frame) looks ahead."""
     import numpy as np
 
     axis = np.asarray(rotation)[:, 2]  # the optical z axis
     pan = math.atan2(axis[1], axis[0])
     down = math.atan2(-axis[2], math.hypot(axis[0], axis[1]))
-    return abs(pan) <= max_pan and -max_up <= down <= max_down
+    return abs(pan) <= MAX_PAN and -MAX_UP <= down <= MAX_DOWN
 
 
 class DoorWatch:
@@ -253,24 +249,23 @@ def describe(free):
     return f"{free:.2f} m free ahead"
 
 
-def fold_duration(current, target, speed=ARM_SPEED, minimum=MIN_DURATION):
+def fold_duration(current, target):
     """Seconds to move the joints from `current` to `target` (name -> rad).
 
-    0 if every joint is within FOLDED_WITHIN already; unknown joints count as
-    the full way from 0.
+    0 if every joint is within FOLDED_WITHIN already.
     """
-    moves = [abs(value - current.get(name, 0.0)) for name, value in target.items()]
+    moves = [abs(value - current[name]) for name, value in target.items()]
     if all(move < FOLDED_WITHIN for move in moves):
         return 0.0
-    return max(minimum, max(moves) / speed)
+    return max(MIN_DURATION, max(moves) / ARM_SPEED)
 
 
-def number(params, key, default, minimum=0.0):
+def number(params, key, default):
     value = params.get(key, default)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{key} must be a number: {value!r}")
-    if not math.isfinite(value) or value < minimum:
-        raise ValueError(f"{key} must be at least {minimum}: {value!r}")
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"{key} must be at least 0.0: {value!r}")
     return float(value)
 
 
@@ -394,7 +389,7 @@ class Sensors:
         rays, ranges = depth_rays(depth, fx, fy, cx, cy)
         return depth_free(rays, ranges, *pose, distance, width)
 
-    def scan_free(self, message, width, distance):
+    def scan_free(self, message, width):
         """Free distance ahead in a scan; a beam without a return is far."""
         pose = self.transform(message.header.frame_id, message.header.stamp)
         if pose is None:
@@ -487,23 +482,20 @@ class Arms:
 
     def current(self):
         """Joint positions from /joint_states, waiting up to SERVER_TIMEOUT for all."""
-        names = [name for target in FOLDED.values() for name in target]
         deadline = time.monotonic() + SERVER_TIMEOUT
         while True:
             with self.lock:
-                if all(name in self.joints for name in names):
-                    return dict(self.joints)
-            if time.monotonic() >= deadline:
-                with self.lock:
-                    return dict(self.joints)
+                joints = dict(self.joints)
+            if not missing_joints(joints) or time.monotonic() >= deadline:
+                return joints
             time.sleep(0.02)
 
     def folded(self):
         """Whether /joint_states shows both arms at FOLDED."""
         current = self.current()
-        if missing_joints(current):
-            return False
-        return all(fold_duration(current, target) == 0.0 for target in FOLDED.values())
+        return not missing_joints(current) and all(
+            fold_duration(current, target) == 0.0 for target in FOLDED.values()
+        )
 
     def fold(self, cancelled):
         """(ok, message): ok once /joint_states shows both arms folded.
@@ -629,9 +621,7 @@ class WaitDoorOpen(Skill):
                     return SkillResult(False, f"Could not fold the arms: {message}")
                 ctx.log(f"Arms: {message}")
             ok, message = Interaction.of(self.runtime).say(WAITING_TEXT, ctx.cancelled)
-            if ctx.cancelled.is_set():
-                return SkillResult(False, "Cancelled")
-            if not ok:
+            if not ok and not ctx.cancelled.is_set():
                 ctx.log(f"Could not say that the robot waits for the door: {message}")
             return self.watch(ctx, sensors, distance, width, timeout)
         finally:
@@ -660,7 +650,7 @@ class WaitDoorOpen(Skill):
                 if source == "depth":
                     free = sensors.depth_free(message, width, distance)
                 else:
-                    free = sensors.scan_free(message, width, distance)
+                    free = sensors.scan_free(message, width)
                 stamp = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
                 if free is not None and source not in logged:
                     logged.add(source)  # the first view, e.g. the closed door
@@ -669,10 +659,10 @@ class WaitDoorOpen(Skill):
                 watch.update(free, stamp)
                 if free is not None:
                     usable = now
-            current = [s for s in messages if s in watches]
-            if door_open([watches[s] for s in current]):
+            # Each fresh message was processed (now or before), so it has a watch.
+            if door_open([watches[s] for s in messages]):
                 return SkillResult(
-                    True, f"Door open after {now - started:.1f} s ({report(current)})"
+                    True, f"Door open after {now - started:.1f} s ({report(messages)})"
                 )
             if now - usable > NO_DATA_TIMEOUT:
                 return SkillResult(
@@ -693,7 +683,7 @@ class WaitDoorOpen(Skill):
                 )
             if now - last_log >= LOG_PERIOD:
                 last_log = now
-                ctx.log(f"Waiting for the door: {report(current)}")
+                ctx.log(f"Waiting for the door: {report(messages)}")
             time.sleep(POLL)
 
 

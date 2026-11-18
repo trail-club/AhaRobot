@@ -268,34 +268,29 @@ class FakeSensors:
     def depth_free(self, message, width, distance):
         return message.value
 
-    scan_free = depth_free
+    def scan_free(self, message, width):
+        return message.value
 
 
-def context(params=None):
+# A node whose clock has no sim time: WaitClock counts wall time.
+WALL_NODE = SimpleNamespace(get_clock=lambda: SimpleNamespace())
+
+
+def context(params=None, log=lambda text: None):
     return SkillContext(
         subgoal="start.wait_door",
         params=params or {},
         memory={},
         cancelled=threading.Event(),
-        log=lambda text: None,
+        log=log,
     )
-
-
-def skill():
-    node = SimpleNamespace(get_clock=lambda: SimpleNamespace())  # wall clock
-    return WaitDoorOpen(SimpleNamespace(node=node))
 
 
 @patch.object(door, "POLL", 0.0)
 class SkillTests(unittest.TestCase):
-    def run_watch(self, frames, params=None):
-        params = params or {}
-        return skill().watch(
-            context(params),
-            FakeSensors(frames),
-            params.get("distance", door.DISTANCE),
-            door.WIDTH,
-            params.get("timeout", 0.0),
+    def run_watch(self, frames, timeout=0.0, ctx=None):
+        return WaitDoorOpen(SimpleNamespace(node=WALL_NODE)).watch(
+            ctx or context(), FakeSensors(frames), door.DISTANCE, door.WIDTH, timeout
         )
 
     def test_waits_while_closed_then_enters(self):
@@ -308,7 +303,7 @@ class SkillTests(unittest.TestCase):
         self.assertIn("scan: nothing ahead", result.message)
 
     def test_closed_door_times_out(self):
-        result = self.run_watch({"depth": [0.95]}, {"timeout": 0.2})
+        result = self.run_watch({"depth": [0.95]}, timeout=0.2)
         self.assertFalse(result.success)
         self.assertIn("Door not open within", result.message)
         self.assertIn("0.95 m free ahead", result.message)
@@ -328,14 +323,8 @@ class SkillTests(unittest.TestCase):
         # Closed without depth for 15 frames (15 s of stamps, 0.3 s of wall
         # time, longer than NO_DATA_TIMEOUT), then open.
         logs = []
-        ctx = context()
-        ctx = SkillContext(ctx.subgoal, {}, {}, ctx.cancelled, logs.append)
-        result = skill().watch(
-            ctx,
-            FakeSensors({"depth": [HIDDEN] * 15 + [4.0] * 10}),
-            door.DISTANCE,
-            door.WIDTH,
-            0.0,
+        result = self.run_watch(
+            {"depth": [HIDDEN] * 15 + [4.0] * 10}, ctx=context(log=logs.append)
         )
         self.assertTrue(result.success, result.message)
         self.assertIn("depth: 4.00 m free ahead", result.message)
@@ -344,9 +333,7 @@ class SkillTests(unittest.TestCase):
     def test_cancel(self):
         ctx = context()
         ctx.cancelled.set()
-        result = skill().watch(
-            ctx, FakeSensors({"depth": [0.95]}), door.DISTANCE, door.WIDTH, 0.0
-        )
+        result = self.run_watch({"depth": [0.95]}, ctx=ctx)
         self.assertEqual((result.success, result.message), (False, "Cancelled"))
 
     def test_params(self):
@@ -369,7 +356,7 @@ class SkillTests(unittest.TestCase):
     def execute(self, params, arms, frames):
         sensors = FakeSensors(frames)
         runtime = SimpleNamespace(
-            node=SimpleNamespace(get_clock=lambda: SimpleNamespace()),
+            node=WALL_NODE,
             door_sensors=sensors,
             door_arms=arms,
             interaction=SimpleNamespace(say=lambda text, cancelled: (True, "shown")),
@@ -447,7 +434,7 @@ class FakeArms(Arms):
     """Arms with fake controllers and joint states, at `joints` when subscribed."""
 
     def __init__(self, joints=None, right=None, left=None):
-        self.node = SimpleNamespace(get_clock=lambda: SimpleNamespace())  # wall
+        self.node = WALL_NODE
         self.lock = threading.Lock()
         # All arm joints at 0 (the sim's start) unless given.
         zero = {name: 0.0 for target in FOLDED.values() for name in target}
@@ -480,8 +467,9 @@ class ArmTests(unittest.TestCase):
     def test_folds_both_arms(self):
         arms = FakeArms()
         self.assertEqual(arms.fold(threading.Event()), (True, "Folded"))
+        _, left = FOLDED.values()
         self.assertEqual(len(arms.right.goals), 1)
-        self.assertEqual(arms.left.goals[0], (FOLDED[next(reversed(FOLDED))], 1.06))
+        self.assertEqual(arms.left.goals[0], (left, 1.06))
         self.assertIsNone(arms.subscription)  # /joint_states only while folding
 
     def test_no_goal_without_all_joint_states(self):
@@ -599,7 +587,8 @@ class FoldTests(unittest.TestCase):
 
     def test_duration_from_the_farthest_joint(self):
         right, left = FOLDED.values()
-        self.assertEqual(fold_duration({}, right), 1.06)  # from zero: joint_r3
+        zero = dict.fromkeys(right, 0.0)
+        self.assertEqual(fold_duration(zero, right), 1.06)  # joint_r3
         self.assertEqual(fold_duration(dict(right), right), 0.0)  # already folded
         near = {name: value + 0.01 for name, value in left.items()}
         self.assertEqual(fold_duration(near, left), 0.0)
@@ -648,7 +637,6 @@ class SimDoorTests(unittest.TestCase):
             with self.subTest(name):
                 spec = load_spec(CONFIG / f"{name}.json")
                 self.assertIn(scene["location"], spec.locations)
-                self.assertIn(scene["trigger"], [s.id for s in spec.subgoals])
                 start, *_ = spec.subgoals
                 self.assertEqual(start.id, scene["trigger"])
                 self.assertEqual(

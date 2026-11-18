@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 import unittest
 
+import yaml
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from aha_tasks.core import load_spec, select  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
@@ -22,17 +24,10 @@ PICK_KEYS = {"pick_object": "object", "pick_cloth": "cloth"}
 PLACE_KEYS = {"place_object": "object", "place_cloth": "cloth"}
 
 
-def map_origin():
-    """(x, y) of the lower left corner of the RCJO2026 map (rcjo2026.yaml)."""
-    for line in (MAP / "rcjo2026.yaml").read_text().splitlines():
-        if line.startswith("origin:"):
-            return tuple(json.loads(line.split(":", 1)[1])[:2])
-    raise ValueError("rcjo2026.yaml has no origin")
-
-
 def occupied_cells():
     """Centres of the non-free cells of the RCJO2026 map, in map coordinates."""
-    resolution, (origin_x, origin_y) = 0.05, map_origin()
+    meta = yaml.safe_load((MAP / "rcjo2026.yaml").read_text())
+    resolution, (origin_x, origin_y, _) = meta["resolution"], meta["origin"]
     raw = (MAP / "rcjo2026.pgm").read_bytes()
     _, width, height, _ = raw.split(maxsplit=4)[:4]
     width, height = int(width), int(height)
