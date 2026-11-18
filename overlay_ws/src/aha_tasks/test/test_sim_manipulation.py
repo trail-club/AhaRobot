@@ -166,7 +166,7 @@ class FakeStand(Stand):
         return True
 
     def attach(self, name, label, world_object):
-        self.held = Held(name, label, 0.0, (0.066, 0.066, 0.12))
+        self.held = Held(name, label, 0.0, COLA_SIZE)
 
     def move(self, lift, joints, cancelled, what):
         if self.carry_fails:
@@ -182,8 +182,23 @@ class FakeStand(Stand):
         return True
 
 
-class StandPickTests(unittest.TestCase):
-    GOAL = SimpleNamespace(
+COLA_SIZE = (0.066, 0.066, 0.12)
+HANDLE = SimpleNamespace(is_cancel_requested=False)
+
+
+def point(x, y, z):
+    return SimpleNamespace(
+        header=SimpleNamespace(frame_id="map"), point=SimpleNamespace(x=x, y=y, z=z)
+    )
+
+
+def holding(stand):
+    stand.held = Held("cola", "cola", 0.0, COLA_SIZE)
+    return stand
+
+
+def pick(stand):
+    goal = SimpleNamespace(
         arm="",
         target=SimpleNamespace(
             header=SimpleNamespace(frame_id="map"),
@@ -193,25 +208,43 @@ class StandPickTests(unittest.TestCase):
             ),
         ),
     )
+    return stand.pick(goal, HANDLE, lambda *args: None)
 
-    def pick(self, stand):
-        handle = SimpleNamespace(is_cancel_requested=False)
-        return stand.pick(self.GOAL, handle, lambda *args: None)
 
+def place(stand):
+    goal = SimpleNamespace(arm="", near=point(0.6, -0.2, 0.8), furniture="", drop=False)
+    return stand.place(goal, HANDLE, lambda *args: None)
+
+
+def hand_over(stand):
+    goal = SimpleNamespace(
+        arm="", target=point(1.0, 0.0, 0.9), release="now", timeout=0.0
+    )
+    return stand.hand_over(goal, HANDLE, lambda *args: None)
+
+
+class StandPickTests(unittest.TestCase):
     def test_the_object_in_the_hand_is_a_picked_object(self):
-        name, back, _, note = self.pick(FakeStand(carry_fails=False))
+        name, back, _, note = pick(FakeStand(carry_fails=False))
         self.assertEqual((name, back, note), ("cola", True, ""))
 
     def test_a_failed_carry_still_picks(self):
         # Failing here would keep the object in the hand while the task
         # thinks the hand is empty, and every later pick is refused.
         stand = FakeStand(carry_fails=True)
-        name, back, _, note = self.pick(stand)
+        name, back, _, note = pick(stand)
         self.assertEqual((name, back), ("cola", False))  # `at_home` false
         self.assertIn("not at carry", note)
         self.assertEqual(stand.held.name, "cola")
         with self.assertRaises(Failed):
-            self.pick(stand)  # already holding
+            pick(stand)  # already holding
+
+    def test_no_grasp_pose_still_picks(self):
+        stand = FakeStand(tf_fails=True)
+        name, back, pose, note = pick(stand)
+        self.assertEqual((name, back, pose), ("cola", True, None))
+        self.assertIn("no grasp_pose (No TF", note)
+        self.assertEqual(stand.held.name, "cola")
 
 
 class StandUnreachableTests(unittest.TestCase):
@@ -219,12 +252,11 @@ class StandUnreachableTests(unittest.TestCase):
         stand = FakeStand(carry_fails=False)
         stand.point = lambda *args: False  # point_at: no pose for the point
         with self.assertRaises(Failed) as caught:
-            StandPickTests().pick(stand)
+            pick(stand)
         self.assertIsNone(caught.exception.at_home)  # the arm did not move
         self.assertIsNone(stand.held)
-        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
         with self.assertRaises(Failed) as caught:
-            StandReleaseTests().place(stand)
+            place(holding(stand))
         self.assertEqual(caught.exception.status, "STATUS_UNREACHABLE")
         self.assertEqual(stand.held.name, "cola")
 
@@ -270,23 +302,15 @@ class StatusTests(unittest.TestCase):
         )
 
     def test_a_handover_motion_that_fails_after_moving(self):
-        stand = FakeStand()
-        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
+        stand = holding(FakeStand())
 
         def point(base_xyz, height, cancelled, what):
             raise Failed("Arm (person): stuck", at_home=False)
 
         stand.point = point
         stand.back = lambda cancelled: False  # and not at home either
-        goal = SimpleNamespace(
-            arm="",
-            target=StandReleaseTests.point(None, 1.0, 0.0, 0.9),
-            release="take",
-            timeout=1.0,
-        )
-        handle = SimpleNamespace(is_cancel_requested=False)
         with self.assertRaises(Failed) as caught:
-            stand.hand_over(goal, handle, lambda *a: None)
+            hand_over(stand)
         self.assertEqual(caught.exception.at_home, False)
         self.assertEqual(failed_status(caught.exception), "STATUS_EXECUTION_FAILED")
 
@@ -337,28 +361,15 @@ class StandAttachTests(unittest.TestCase):
             raise Failed("Could not create cola")
 
         stand.attach = attach
-        handle = SimpleNamespace(is_cancel_requested=False)
         with self.assertRaises(Failed) as caught:
-            stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
+            pick(stand)
         self.assertEqual((stand.backs, caught.exception.at_home), (1, True))
         self.assertIsNone(stand.held)
         # And not at home either: the result says so (`at_home` false).
         stand.back = lambda cancelled: False
         with self.assertRaises(Failed) as caught:
-            stand.pick(StandPickTests.GOAL, handle, lambda *a: None)
+            pick(stand)
         self.assertEqual(caught.exception.at_home, False)
-
-
-class StandPoseTests(unittest.TestCase):
-    def test_no_grasp_pose_still_picks(self):
-        stand = FakeStand(tf_fails=True)
-        handle = SimpleNamespace(is_cancel_requested=False)
-        name, back, pose, note = stand.pick(
-            StandPickTests.GOAL, handle, lambda *a: None
-        )
-        self.assertEqual((name, back, pose), ("cola", True, None))
-        self.assertIn("no grasp_pose (No TF", note)
-        self.assertEqual(stand.held.name, "cola")
 
 
 class StandReachTests(unittest.TestCase):
@@ -412,53 +423,28 @@ class StandReleaseTests(unittest.TestCase):
     """Once the object left the hand, place and handover succeed (with a
     note on a Gazebo failure), so that the task's memory matches."""
 
-    def holding(self, gazebo_fails):
-        stand = FakeStand(gazebo_fails=gazebo_fails)
-        stand.held = Held("cola", "cola", 0.0, (0.066, 0.066, 0.12))
-        return stand
-
-    def point(self, x, y, z):
-        return SimpleNamespace(
-            header=SimpleNamespace(frame_id="map"),
-            point=SimpleNamespace(x=x, y=y, z=z),
-        )
-
-    def place(self, stand):
-        goal = SimpleNamespace(
-            arm="", near=self.point(0.6, -0.2, 0.8), furniture="", drop=False
-        )
-        handle = SimpleNamespace(is_cancel_requested=False)
-        return stand.place(goal, handle, lambda *args: None)
-
-    def hand_over(self, stand):
-        goal = SimpleNamespace(
-            arm="", target=self.point(1.0, 0.0, 0.9), release="now", timeout=0.0
-        )
-        handle = SimpleNamespace(is_cancel_requested=False)
-        return stand.hand_over(goal, handle, lambda *args: None)
-
     def test_place_and_handover(self):
-        stand = self.holding(gazebo_fails=False)
-        name, back, pose, note = self.place(stand)
+        stand = holding(FakeStand())
+        name, back, pose, note = place(stand)
         self.assertEqual(
             (name, back, note, stand.created), ("cola", True, "", ["cola"])
         )
         self.assertAlmostEqual(pose[2], 0.8 + PLACE_LIFT)  # the bottom on the spot
-        stand = self.holding(gazebo_fails=False)
-        self.assertEqual(self.hand_over(stand), ("cola", True, ""))
+        stand = holding(FakeStand())
+        self.assertEqual(hand_over(stand), ("cola", True, ""))
         self.assertIsNone(stand.held)
 
     def test_gazebo_failures_after_letting_go_are_notes(self):
-        stand = self.holding(gazebo_fails=True)
-        name, _, _, note = self.place(stand)
+        stand = holding(FakeStand(gazebo_fails=True))
+        name, _, _, note = place(stand)
         self.assertIn("let go, but cola stays in Gazebo", note)
         self.assertIsNone(stand.held)
-        stand = self.holding(gazebo_fails=True)
-        name, _, note = self.hand_over(stand)
+        stand = holding(FakeStand(gazebo_fails=True))
+        name, _, note = hand_over(stand)
         self.assertIn("let go, but cola stays in Gazebo", note)
         self.assertIsNone(stand.held)
         with self.assertRaises(Failed):  # nothing held any more
-            self.hand_over(stand)
+            hand_over(stand)
 
 
 if __name__ == "__main__":

@@ -55,7 +55,6 @@ from aha_tasks.people import (
 from aha_tasks.skills import ARM_OUT, LOCATION, go_to, resolve_pose
 
 PICK_ACTION = "/aha/manipulation/pick"
-UNANSWERED = itertools.count(1)  # numbers goals start gave up on (arm_out)
 PLACE_ACTION = "/aha/manipulation/place"
 HANDOVER_ACTION = "/aha/manipulation/handover"
 HOLDING = "robot.holding"
@@ -162,14 +161,18 @@ def choose_object(percepts, text, remembered, origin):
     )
 
 
+def is_xyz(value):
+    return (
+        isinstance(value, list)
+        and len(value) == 3
+        and all(isinstance(v, (int, float)) for v in value)
+    )
+
+
 def object_size(entry, list_size=None):
     """(x, y, z) of an object record, else of the object list, else DEFAULT_SIZE."""
     size = entry.get("size") if isinstance(entry, dict) else None
-    if (
-        isinstance(size, list)
-        and len(size) == 3
-        and all(isinstance(v, (int, float)) and v > 0 for v in size)
-    ):
+    if is_xyz(size) and all(v > 0 for v in size):
         return tuple(float(v) for v in size)
     return tuple(list_size) if list_size else DEFAULT_SIZE
 
@@ -185,9 +188,9 @@ def outline_point(region, x, y):
     return region.world(cx, cy, 0.0)[:2]
 
 
-def furniture_ahead(pose, regions, max_distance=SURFACE_DISTANCE):
+def furniture_ahead(pose, regions):
     """The region nearest a location pose [x, y, yaw] whose outline is in
-    front of it (within 90 deg of its heading) and at most `max_distance`
+    front of it (within 90 deg of its heading) and at most SURFACE_DISTANCE
     away: the furniture a GPSR placement location stands for. None if none."""
     x, y, yaw = pose
     best = None
@@ -196,7 +199,7 @@ def furniture_ahead(pose, regions, max_distance=SURFACE_DISTANCE):
             continue
         px, py = outline_point(region, x, y)
         distance = math.dist((px, py), (x, y))
-        if distance > max_distance:
+        if distance > SURFACE_DISTANCE:
             continue
         if distance > 1e-6:
             bearing = math.atan2(py - y, px - x)
@@ -211,13 +214,13 @@ def arm_point(arm):
     return (ARM_POINT[0], ARM_POINT[1] if arm == "right" else -ARM_POINT[1])
 
 
-def reach_pose(robot, target, region=None, arm="right", standoff=STANDOFF):
+def reach_pose(robot, target, region=None, arm="right"):
     """[x, y, yaw] of the base with `target` (x, y) at the arm's point.
 
     By furniture (`region`): facing the side of it the robot is on, the base
-    centre `standoff` from that edge (so the object may still lie farther
-    than the arm point). On the floor (`region` None or the floor): facing
-    the target from where the robot is.
+    centre STANDOFF from that edge (so the object may still lie farther than
+    the arm point). On the floor (`region` None or the floor): facing the
+    target from where the robot is.
     """
     ax, ay = arm_point(arm)
     if region is None or region.floor:
@@ -233,7 +236,7 @@ def reach_pose(robot, target, region=None, arm="right", standoff=STANDOFF):
         normal = (c * local[0] - s * local[1], s * local[0] + c * local[1])
         yaw = math.atan2(-normal[1], -normal[0])
         along = (target[0] - region.x) * normal[0] + (target[1] - region.y) * normal[1]
-        forward = edge - along + standoff
+        forward = edge - along + STANDOFF
     f = (math.cos(yaw), math.sin(yaw))
     left = (-f[1], f[0])
     return [
@@ -253,40 +256,31 @@ def in_reach(robot, target, reach=REACH, arm="right"):
     return math.hypot(ahead - SHOULDER[0], left - side) <= reach and ahead > 0.0
 
 
-def needs_move(robot, pose, tolerance=MOVE_TOLERANCE):
+def needs_move(robot, pose):
     return (
-        math.dist(robot[:2], pose[:2]) > tolerance[0]
-        or abs(math.remainder(robot[2] - pose[2], math.tau)) > tolerance[1]
+        math.dist(robot[:2], pose[:2]) > MOVE_TOLERANCE[0]
+        or abs(math.remainder(robot[2] - pose[2], math.tau)) > MOVE_TOLERANCE[1]
     )
 
 
-def free_spot(
-    region,
-    level,
-    obstacles,
-    size,
-    preferred,
-    clearance=PLACE_CLEARANCE,
-    edge=EDGE_GAP,
-    step=GRID,
-):
-    """(x, y, z) on a level of a table nearest `preferred` (x, y) where an
-    object of `size` stands `clearance` from the obstacles and `edge` inside
-    the outline, or None. Objects are circles around their footprint (any yaw)."""
-    height = region.heights[level - 1]
+def free_spot(region, obstacles, size, preferred, clearance=PLACE_CLEARANCE):
+    """(x, y, z) on a table nearest `preferred` (x, y) where an object of
+    `size` stands `clearance` from the obstacles and EDGE_GAP inside the
+    outline, or None. Objects are circles around their footprint (any yaw)."""
+    height = region.heights[0]
     radius = math.hypot(size[0], size[1]) / 2
-    half_x = region.depth / 2 - radius - edge
-    half_y = region.width / 2 - radius - edge
+    half_x = region.depth / 2 - radius - EDGE_GAP
+    half_y = region.width / 2 - radius - EDGE_GAP
     if half_x < 0 or half_y < 0:
         return None
     blocked = [
         (o.position[:2], math.hypot(o.size[0], o.size[1]) / 2) for o in obstacles
     ]
     best = None
-    nx, ny = int(half_x / step), int(half_y / step)
+    nx, ny = int(half_x / GRID), int(half_y / GRID)
     for i in range(-nx, nx + 1):
         for j in range(-ny, ny + 1):
-            x, y, _ = region.world(i * step, j * step, height)
+            x, y, _ = region.world(i * GRID, j * GRID, height)
             if any(
                 math.dist((x, y), centre) < radius + other + clearance
                 for centre, other in blocked
@@ -318,28 +312,17 @@ def spot_from(value, key):
     is none."""
     if isinstance(value, dict) and "position" not in value:
         value = value.get(key)
+    position, level, frame = value, 0, "map"
     if isinstance(value, dict):
         position = value.get("position")
         level, frame = value.get("level", 0), value.get("frame", "map")
         size = value.get("size")
-        if (
-            "level" not in value
-            and isinstance(position, list)
-            and len(position) == 3
-            and isinstance(size, list)
-            and len(size) == 3
-            and all(isinstance(v, (int, float)) for v in [*position, size[2]])
-        ):  # an object record: its centre down to its bottom
+        if "level" not in value and is_xyz(position) and is_xyz(size):
+            # an object record: its centre down to its bottom
             position = [*position[:2], position[2] - size[2] / 2]
-    else:
-        position, level, frame = value, 0, "map"
-    if (
-        isinstance(position, list)
-        and len(position) == 3
-        and all(isinstance(v, (int, float)) for v in position)
-    ):
-        return (*map(float, position), int(level), frame)
-    return None
+    if not is_xyz(position):
+        return None
+    return (*map(float, position), int(level), frame)
 
 
 def handover_point(position):
@@ -354,6 +337,15 @@ def is_operator(person):
 
 def is_trash(name, category=""):
     return query_text(name) in TRASH or same_category(category, TRASH_CATEGORY)
+
+
+def trash_bins(objects):
+    """Names of the furniture of the bin category."""
+    return [
+        f.name
+        for f in objects.furniture.furniture
+        if same_category(f.category, TRASH_CATEGORY)
+    ]
 
 
 def check_params(params, required, optional):
@@ -378,25 +370,9 @@ def check_params(params, required, optional):
 # -- ROS ---------------------------------------------------------------------
 
 
-def location_of(outputs):
-    """Where the base went, reported with a failure. The engine keeps no
-    output of a failure: its rollback restores the checkpoint's location."""
-    return {k: v for k, v in outputs.items() if k == LOCATION}
-
-
 class Unstopped(Exception):
     """A goal given up on (timed out) whose stop the server did not confirm:
     it may still move the arm, so no other goal may follow."""
-
-
-def arm_still(status):
-    """PlaceObject statuses returned before the arm moved: the base may move
-    for the next try."""
-    return (
-        status.STATUS_NO_SURFACE,
-        status.STATUS_NO_SPACE,
-        status.STATUS_UNREACHABLE,
-    )
 
 
 # Statuses a server returns before the arm moves (the actions' contract): the
@@ -408,6 +384,20 @@ BEFORE_MOTION = (
     "STATUS_UNREACHABLE",
     "STATUS_ERROR",
 )
+# PlaceObject statuses that another spot or base pose may change.
+RETRY_PLACE = (
+    "STATUS_NO_SURFACE",
+    "STATUS_NO_SPACE",
+    "STATUS_UNREACHABLE",
+    "STATUS_EXECUTION_FAILED",
+)
+UNANSWERED = itertools.count(1)  # numbers of the goals Hands.pending holds
+
+
+def has_status(result, names):
+    """Whether the result's status is one of the constants `names` of its
+    action (an action may lack some)."""
+    return any(getattr(type(result), name, None) == result.status for name in names)
 
 
 def before_motion(result):
@@ -415,24 +405,24 @@ def before_motion(result):
     PlaceObject / HandOver status for that, or a failed PickObject with
     `at_home` true (it has no status: a goal that did not move the arm also
     sets it)."""
+    if result.success:
+        return False
     if not hasattr(result, "status"):  # PickObject
-        return not result.success and getattr(result, "at_home", False)
-    kind = type(result)
-    return not result.success and any(
-        getattr(kind, name) == result.status
-        for name in BEFORE_MOTION
-        if hasattr(kind, name)
-    )
+        return result.at_home
+    return has_status(result, BEFORE_MOTION)
 
 
-def retry_place(status):
-    """PlaceObject statuses that another spot or base pose may change."""
-    return (
-        status.STATUS_NO_SURFACE,
-        status.STATUS_NO_SPACE,
-        status.STATUS_UNREACHABLE,
-        status.STATUS_EXECUTION_FAILED,
-    )
+def arm_why(result):
+    """Why the arm may be out after a goal ended with `result` (None: it did
+    not confirm that it stopped), or None."""
+    if result is None:
+        return "a goal did not confirm that it stopped"
+    return None if result.at_home else f"not at home: {result.message}"
+
+
+def arm_text(why):
+    """The ARM_OUT value for `why` (None: the arm is at home)."""
+    return why and f"the arm may be out ({why}); move it back and restart the runner"
 
 
 def wait(future, timeout, cancelled, until=None):
@@ -450,15 +440,23 @@ def wait(future, timeout, cancelled, until=None):
 
 
 class Hands:
-    """Clients of the pick, place and handover servers of one runner."""
+    """Clients of the pick, place and handover servers of one runner.
 
-    def __init__(self, node):
+    They keep the runtime's ARM_OUT (aha_tasks.skills), which stops the base,
+    in line with how the goals ended: a server ends a goal with the arm at
+    home (the SRDF "carry" pose) unless its `at_home` says otherwise, and a
+    result from before any motion (before_motion) leaves the arm as earlier
+    goals left it. A goal that may still move the arm (its acceptance or the
+    stop after a cancel not confirmed) stays in `pending`, and no goal is
+    sent until it ends."""
+
+    def __init__(self, runtime):
         from aha_msgs.action import HandOver, PickObject, PlaceObject
         from aha_msgs.msg import DetectedObject
         from geometry_msgs.msg import PointStamped
         from rclpy.action import ActionClient
 
-        self.node = node
+        self.runtime, self.node = runtime, runtime.node
         self.PickObject, self.PlaceObject, self.HandOver = (
             PickObject,
             PlaceObject,
@@ -466,21 +464,22 @@ class Hands:
         )
         self.DetectedObject, self.PointStamped = DetectedObject, PointStamped
         self.clients = {
-            name: (action, ActionClient(node, action, name))
+            name: ActionClient(self.node, action, name)
             for name, action in (
                 (PICK_ACTION, PickObject),
                 (PLACE_ACTION, PlaceObject),
                 (HANDOVER_ACTION, HandOver),
             )
         }
-
-    runtime = None  # of(): where arm_after keeps ARM_OUT
+        self.pending = set()  # numbers of goals that may still move the arm
+        # Why no goal may be sent until a restart: a goal succeeded after its
+        # skill failed, so the hand and the memory differ.
+        self.hold = None
 
     @classmethod
     def of(cls, runtime):
         if getattr(runtime, "hands", None) is None:
-            runtime.hands = cls(runtime.node)
-            runtime.hands.runtime = runtime
+            runtime.hands = cls(runtime)
         return runtime.hands
 
     def point(self, frame, xyz):
@@ -504,19 +503,26 @@ class Hands:
         out.size.x, out.size.y, out.size.z = (float(v) for v in entry["size"])
         return out
 
+    def set_arm(self, why):
+        setattr(self.runtime, ARM_OUT, arm_text(why))
+
+    def blocked(self):
+        """Why no goal may be sent now, or None."""
+        if self.pending:
+            return "an earlier goal did not answer and may still move the arm"
+        return self.hold
+
     def start(self, name, goal, cancelled):
         """The accepted goal handle; RuntimeError if not served or rejected.
 
         A goal still unanswered at a cancel or timeout may be accepted (or
-        its answer lost) and move the arm: arm_out is set at once, and the
-        goal is cancelled once the server accepts it (cancel_late). Unstopped
-        on the timeout, and for every later goal while that one is not
-        settled or ended well after its skill failed (blocked): no other goal
-        may follow it."""
-        _, client = self.clients[name]
+        its answer lost) and move the arm: ARM_OUT is set at once, and the
+        goal is pending until a late answer settles it (cancel_late).
+        Unstopped on the timeout, and while blocked()."""
         why = self.blocked()
         if why:
             raise Unstopped(f"Not sending a {name} goal: {why}")
+        client = self.clients[name]
         if cancelled.is_set():  # e.g. while the base came closer: no goal
             raise Cancelled
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
@@ -527,13 +533,12 @@ class Hands:
         try:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
         except (Cancelled, TimeoutError) as error:
-            number, earlier = next(UNANSWERED), self.arm_state()
+            number, earlier = next(UNANSWERED), getattr(self.runtime, ARM_OUT, None)
             self.set_arm(
                 f"a goal did not confirm that it stopped: {name} goal {number} "
                 "not answered"
             )
-            if self.runtime is not None:
-                self.__dict__.setdefault("pending", set()).add(number)
+            self.pending.add(number)
             sent.add_done_callback(lambda done: self.cancel_late(done, number, earlier))
             if isinstance(error, TimeoutError):
                 raise Unstopped(
@@ -544,78 +549,42 @@ class Hands:
             raise RuntimeError(f"{name} rejected the goal")
         return handle
 
-    def blocked(self):
-        """Why no goal may be sent, or None: a goal start gave up on is not
-        settled yet (it may still move the arm), or one ended well after its
-        skill failed (the hand and the memory differ, until a restart)."""
-        if self.__dict__.get("pending"):
-            return "an earlier goal did not answer and may still move the arm"
-        return self.__dict__.get("hold")
-
-    def arm_state(self):
-        return None if self.runtime is None else getattr(self.runtime, ARM_OUT, None)
-
-    @staticmethod
-    def arm_text(why):
-        """The arm_out value for `why` (None: the arm is safe)."""
-        return (
-            why and f"the arm may be out ({why}); move it back and restart the runner"
-        )
-
-    def set_arm(self, why):
-        """Set arm_out for `why`; the value set."""
-        if self.runtime is None:
-            return None
-        setattr(self.runtime, ARM_OUT, self.arm_text(why))
-        return getattr(self.runtime, ARM_OUT)
-
-    def cancel_late(self, sent, number=None, earlier=None):
-        """Cancel goal `number`, answered after start gave up on it (start set
-        arm_out, from `earlier`, and no goal is sent until it is settled): a
+    def cancel_late(self, sent, number, earlier):
+        """Cancel goal `number`, answered after start gave up on it: a
         rejection settles it at once, an acceptance once its result comes."""
         handle = sent.result()
         if handle is None or not handle.accepted:
             self.settle(number, None, earlier, rejected=True)
             return
-        if self.runtime is not None:
-            self.follow(handle.get_result_async(), number, earlier)
+        self.follow(handle.get_result_async(), number, earlier)
         handle.cancel_goal_async()
 
     def follow(self, future, number, earlier):
-        """Goal `number` may still move the arm: no goal is sent (blocked)
-        until its result `future` comes and settles it."""
-        if self.runtime is None:
-            return
-        self.__dict__.setdefault("pending", set()).add(number)
+        """Keep goal `number` pending until its result `future` settles it."""
+        self.pending.add(number)
 
         def ended(done):
             response = done.result()
-            result = None if response is None else response.result
-            self.settle(number, result, earlier)
+            self.settle(number, None if response is None else response.result, earlier)
 
         future.add_done_callback(ended)
 
     def settle(self, number, result, earlier, rejected=False):
         """The late end of goal `number`. A rejection, or a result from before
-        any motion, gives back the arm_out of before it (`earlier`); a success
-        keeps the base and the hands blocked until a restart (`hold`: check
-        the hand, as its skill failed); another result sets arm_out by how the
-        goal ended (a cancel stops the arm where it is)."""
-        self.__dict__.setdefault("pending", set()).discard(number)
-        if self.runtime is None:
-            return
+        any motion, gives back the ARM_OUT of before it (`earlier`); a success
+        sets `hold` (check the hand, as its skill failed); another result sets
+        ARM_OUT by how the goal ended."""
+        self.pending.discard(number)
         if rejected or (result is not None and before_motion(result)):
             after = earlier
         elif result is not None and result.success:
-            after = self.hold = self.arm_text(
+            after = self.hold = arm_text(
                 f"a goal succeeded after the skill gave up ({result.message}): "
                 "check the hand"
             )
-            node = getattr(self, "node", None)
-            if node is not None:
-                node.get_logger().warning(after)
+            self.node.get_logger().warning(after)
         else:
-            after = self.arm_text(self.arm_why(result, stopped=True))
+            after = arm_text(arm_why(result))
         setattr(self.runtime, ARM_OUT, after)
 
     def finish(self, handle, timeout, cancelled, until=None):
@@ -644,8 +613,7 @@ class Hands:
     def cancel(self, handle):
         """Cancel a goal and wait (a few seconds) until it stopped: its result
         (it may have ended otherwise meanwhile), or None without one; then it
-        may still move the arm, and no goal is sent until its result comes
-        (follow)."""
+        stays pending until its result comes."""
         future = handle.get_result_async()
         handle.cancel_goal_async()
         try:
@@ -653,38 +621,18 @@ class Hands:
         except TimeoutError:
             response = None
         ended = None if response is None else response.result
-        earlier = self.arm_state()
-        self.arm_after(ended, stopped=True)
+        earlier = getattr(self.runtime, ARM_OUT, None)
+        self.arm_after(ended)
         if response is None:
             self.follow(future, next(UNANSWERED), earlier)
         return ended
 
-    def arm_after(self, result, stopped=False):
-        """Keep the runtime's arm_out (aha_tasks.skills.ARM_OUT) in line with
-        how a goal ended. A server ends a goal with the arm at home, the SRDF
-        "carry" pose (the actions' contract), unless its `at_home` says
-        otherwise; a
-        result that may have come before any arm motion (before_motion)
-        leaves the arm, and arm_out, as earlier goals left them. Without
-        `at_home` (an older server) a cancel (`stopped`) or a failure may
-        leave the arm out; a goal that did not answer the cancel (`result`
-        None) may still move it."""
-        if self.__dict__.get("hold"):  # kept until a restart
-            return
-        if self.runtime is not None and (result is None or not before_motion(result)):
-            self.set_arm(self.arm_why(result, stopped))
-
-    @staticmethod
-    def arm_why(result, stopped=False):
-        """Why the arm may be out after a goal ended with `result` (not one
-        from before any motion), or None."""
-        if result is None:
-            return "a goal did not confirm that it stopped"
-        if hasattr(result, "at_home"):
-            return None if result.at_home else f"not at home: {result.message}"
-        if stopped or not result.success:
-            return f"ended without at_home: {result.message}"
-        return None
+    def arm_after(self, result):
+        """Set ARM_OUT by how a goal ended (`result` None: it did not confirm
+        that it stopped), unless the result came before any motion or `hold`
+        keeps it until a restart."""
+        if not self.hold and (result is None or not before_motion(result)):
+            self.set_arm(arm_why(result))
 
     def run(self, name, goal, timeout, cancelled):
         """(result, "") of a goal, or (None, why). Unstopped is raised."""
@@ -705,8 +653,8 @@ class _HandSkill(Skill):
         Objects.of(self.runtime)
         Hands.of(self.runtime)
 
-    def fail(self, message, outputs=None):
-        return SkillResult(False, message, outputs or {})
+    def fail(self, message):
+        return SkillResult(False, message)
 
     def done(self, ctx, message, outputs):
         """A success. A goal may end well after the task was cancelled (the
@@ -721,15 +669,24 @@ class _HandSkill(Skill):
             ctx.log(message)
         return SkillResult(True, message, outputs)
 
+    def held(self, ctx):
+        """(record or None, label) of the held object, or None if nothing is
+        held."""
+        holding = ctx.memory.get(HOLDING)
+        if not holding:
+            return None
+        held = ctx.memory.get(HELD)
+        if not isinstance(held, dict):
+            held, _ = object_target(holding, ctx.memory)
+        return held, (held or {}).get("label") or query_text(ctx.params["object"])
+
     def surface(self, objects, name):
         """The furniture (or floor) a surface param means: a furniture name, a
         trash word, or a location of the task in front of furniture."""
         if name == FLOOR or objects.furniture.get(name) is not None:
             return name
         if query_text(name) in TRASH:
-            bins = [
-                f.name for f in objects.furniture.furniture if is_trash("", f.category)
-            ]
+            bins = trash_bins(objects)
             if bins:
                 return bins[0]
         if name in self.runtime.spec.locations:
@@ -749,7 +706,8 @@ class _HandSkill(Skill):
     ):
         """Move the base so that the arm reaches `target`, unless it does (by
         in_reach; `force`: unless the base is at reach_pose already); the new
-        robot pose. A failed move is only logged (the server may reach).
+        robot pose. A failed move (e.g. refused while ARM_OUT is set) is only
+        logged: the server may reach.
 
         Without `arm_known` (a goal was sent before: after a timeout, cancel or
         failed execution the arm may still be out over the furniture) the
@@ -765,7 +723,7 @@ class _HandSkill(Skill):
         pose = reach_pose(robot, target, region, arm)
         if not needs_move(robot, pose):
             return robot
-        if not arm_known or getattr(self.runtime, ARM_OUT, None):
+        if not arm_known:
             ctx.log("Not moving the base: the arm may still be out")
             return robot
         ctx.log(f"Moving to [{pose[0]:.2f}, {pose[1]:.2f}] to reach the object")
@@ -820,25 +778,18 @@ class PickObject(_HandSkill):
             name = self.surface(objects, surface)
         except (RuntimeError, ValueError) as error:
             return self.fail(str(error))
-        # Objects put into a bin lie near the floor too: no floor objects.
-        bins = tuple(
-            f.name for f in objects.furniture.furniture if is_trash("", f.category)
+        margin = float(
+            params.get("margin", FLOOR_RADIUS if name == FLOOR else PICK_MARGIN)
         )
+        # Objects put into a bin lie near the floor too: no floor objects.
+        exclude = tuple(trash_bins(objects)) if name == FLOOR else ()
         outputs, message, sent = {}, "", False
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
                 ctx.log(f"Trying again: {message}")
             try:
                 frame, region, placed, _ = objects.scan(
-                    name,
-                    float(
-                        params.get(
-                            "margin", FLOOR_RADIUS if name == FLOOR else PICK_MARGIN
-                        )
-                    ),
-                    ctx.cancelled,
-                    ctx.log,
-                    bins if name == FLOOR else (),
+                    name, margin, ctx.cancelled, ctx.log, exclude
                 )
             except Cancelled:
                 return self.fail("Cancelled")
@@ -865,10 +816,10 @@ class PickObject(_HandSkill):
                     PICK_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled
                 )
             except Unstopped as error:
-                return self.fail(f"{PICK_ACTION}: {error}", location_of(outputs))
+                return self.fail(f"{PICK_ACTION}: {error}")
             if result is None:
                 if why == "Cancelled":
-                    return self.fail(why, outputs)
+                    return self.fail(why)
                 message = why
                 continue
             if not result.success:
@@ -876,8 +827,7 @@ class PickObject(_HandSkill):
                 continue
             outputs.update({HOLDING: key, HELD: target})
             return self.done(ctx, f"Picked {percept.label} from {surface}", outputs)
-        # The base may have moved: keep the location for the rollback.
-        return self.fail(message, location_of(outputs))
+        return self.fail(message)
 
 
 class PlaceObject(_HandSkill):
@@ -886,15 +836,16 @@ class PlaceObject(_HandSkill):
     params: {"object": "cola" | "<memory key>", "surface": "desk", "spot":
     "<memory key>", "arm": "right", "clearance": 0.05, "retries": 1,
     "approach": true}. A failure is tried again only when another spot or
-    base pose may help (retry_place); the base moves for the next try only
-    after a status returned before the arm moved (arm_still; for
+    base pose may help (RETRY_PLACE); the base moves for the next try only
+    after a status returned before the arm moved (before_motion; for
     STATUS_UNREACHABLE also within REACH). STATUS_NOT_AT_SPOT (let go, but
-    not seen at the spot) counts as done with the object out of the hand. A trash bin (furniture of category "trash bin", or
-    "trashbin", "trash") gets the object dropped inside. On a shelf the spot
-    is next to the objects of its category (aha_tasks.objects.placement), on
-    a table the free spot nearest the arm `clearance` from the objects seen,
-    on the floor FLOOR_PLACE ahead. `spot` (a placement of perceive_shelf, a
-    record or [x, y, z] in map) gives the spot instead.
+    not seen at the spot) counts as done with the object out of the hand. A
+    trash bin (furniture of category "trash bin", or "trashbin", "trash")
+    gets the object dropped inside. On a shelf the spot is next to the
+    objects of its category (aha_tasks.objects.placement), on a table the
+    free spot nearest the arm `clearance` from the objects seen, on the floor
+    FLOOR_PLACE ahead. `spot` (a placement of perceive_shelf, a record or
+    [x, y, z] in map) gives the spot instead.
     """
 
     @classmethod
@@ -912,13 +863,10 @@ class PlaceObject(_HandSkill):
 
     def execute(self, ctx):
         params = ctx.params
-        holding = ctx.memory.get(HOLDING)
-        if not holding:
+        found = self.held(ctx)
+        if found is None:
             return self.fail("Not holding anything")
-        held = ctx.memory.get(HELD)
-        if not isinstance(held, dict):
-            held, _ = object_target(holding, ctx.memory)
-        label = (held or {}).get("label") or query_text(params["object"])
+        held, label = found
         objects, hands = Objects.of(self.runtime), Hands.of(self.runtime)
         listed = objects.object_list.get(label)
         size = object_size(held, listed.size if listed else None)
@@ -928,6 +876,7 @@ class PlaceObject(_HandSkill):
             return self.fail(str(error))
         furniture = objects.furniture.get(name)
         trash = furniture is not None and is_trash(name, furniture.category)
+        where = "into" if trash else "on"
         arm = params.get("arm", "right")
         clearance = float(params.get("clearance", PLACE_CLEARANCE))
         outputs, message, sent, force, last = {}, "", False, False, None
@@ -937,7 +886,7 @@ class PlaceObject(_HandSkill):
             try:
                 spot = self.spot(ctx, objects, name, trash, label, size, clearance)
             except Cancelled:
-                return self.fail("Cancelled", outputs)
+                return self.fail("Cancelled")
             except (RuntimeError, ValueError) as error:
                 message = str(error)
                 continue
@@ -954,12 +903,7 @@ class PlaceObject(_HandSkill):
                     self.approach(ctx, robot, (x, y), region, outputs, not sent, force)
                     is not robot
                 )
-            if (
-                force
-                and not moved
-                and last is not None
-                and math.dist(last, (x, y)) < 0.02
-            ):
+            if force and not moved and math.dist(last, (x, y)) < 0.02:
                 # Unreachable, and the base cannot come closer (furniture:
                 # STANDOFF from its edge already) to the same spot.
                 ctx.log("The base cannot come closer to the spot")
@@ -980,37 +924,37 @@ class PlaceObject(_HandSkill):
                     PLACE_ACTION, goal, MOTION_TIMEOUT, ctx.cancelled
                 )
             except Unstopped as error:
-                return self.fail(f"{PLACE_ACTION}: {error}", location_of(outputs))
+                return self.fail(f"{PLACE_ACTION}: {error}")
             if result is None:
                 if why == "Cancelled":
-                    return self.fail(why, outputs)
+                    return self.fail(why)
                 message = why
                 continue
-            where = "into" if trash else "on"
-            if not result.success:
-                status = type(result)
-                if result.status == status.STATUS_NOT_AT_SPOT:
-                    # Released: nothing to place again, and only a success
-                    # clears robot.holding (a failure rolls memory back).
-                    outputs.update({HOLDING: None, HELD: None})
-                    return self.done(
-                        ctx,
-                        f"Let go of {label} {where} {params['surface']}, but it "
-                        f"was not seen there: {result.message}",
-                        outputs,
-                    )
-                message = f"Place failed: {result.message}"
-                if result.status in retry_place(status):
-                    # Before the arm moved: the base may come closer, also
-                    # when in_reach thought it close enough.
-                    if result.status in arm_still(status):
-                        sent = False
-                        force = result.status == status.STATUS_UNREACHABLE
-                    continue
+            if result.success:
+                outputs.update({HOLDING: None, HELD: None})
+                return self.done(
+                    ctx, f"Put {label} {where} {params['surface']}", outputs
+                )
+            status = type(result)
+            if result.status == status.STATUS_NOT_AT_SPOT:
+                # Released: nothing to place again, and only a success
+                # clears robot.holding (a failure rolls memory back).
+                outputs.update({HOLDING: None, HELD: None})
+                return self.done(
+                    ctx,
+                    f"Let go of {label} {where} {params['surface']}, but it "
+                    f"was not seen there: {result.message}",
+                    outputs,
+                )
+            message = f"Place failed: {result.message}"
+            if not has_status(result, RETRY_PLACE):
                 break
-            outputs.update({HOLDING: None, HELD: None})
-            return self.done(ctx, f"Put {label} {where} {params['surface']}", outputs)
-        return self.fail(message, location_of(outputs))
+            if before_motion(result):
+                # The base may come closer, also when in_reach thought it
+                # close enough.
+                sent = False
+                force = result.status == status.STATUS_UNREACHABLE
+        return self.fail(message)
 
     def spot(self, ctx, objects, name, trash, label, size, clearance):
         """(x, y, z, level, frame, region) to put the object at; raises
@@ -1043,12 +987,7 @@ class PlaceObject(_HandSkill):
             ctx.log(f"Shelf level {where['level']} {where['side']} ({where['reason']})")
             return (*where["position"], where["level"], frame, region)
         found = free_spot(
-            region,
-            1,
-            [p for p, _ in placed],
-            size,
-            arm_target(robot, arm),
-            clearance,
+            region, [p for p, _ in placed], size, arm_target(robot, arm), clearance
         )
         if found is None:
             raise RuntimeError(f"No free spot for {label} on {name}")
@@ -1091,13 +1030,10 @@ class DeliverObject(_HandSkill):
         from aha_tasks.interaction import Interaction
 
         params = ctx.params
-        holding = ctx.memory.get(HOLDING)
-        if not holding:
+        found = self.held(ctx)
+        if found is None:
             return self.fail("Not holding anything")
-        held = ctx.memory.get(HELD)
-        if not isinstance(held, dict):
-            held, _ = object_target(holding, ctx.memory)
-        label = (held or {}).get("label") or query_text(params["object"])
+        _, label = found
         outputs = {}
         try:
             found = (
@@ -1106,7 +1042,7 @@ class DeliverObject(_HandSkill):
                 else self.person(ctx, outputs)
             )
         except Cancelled:
-            return self.fail("Cancelled", outputs)
+            return self.fail("Cancelled")
         if isinstance(found, SkillResult):
             return found
         frame, position = found
@@ -1122,8 +1058,6 @@ class DeliverObject(_HandSkill):
                 ctx, interaction, frame, handover_point(position), label, timeout, text
             )
             if result is None:
-                if message == "Cancelled":
-                    return self.fail(message, outputs)
                 break
             if result.success:
                 outputs.update({HOLDING: None, HELD: None})
@@ -1133,7 +1067,7 @@ class DeliverObject(_HandSkill):
             message = f"Handover: {result.message}"
             if result.status != type(result).STATUS_TIMEOUT:
                 break
-        return self.fail(message, outputs)
+        return self.fail(message)
 
     def robot(self, memory):
         try:
@@ -1144,32 +1078,24 @@ class DeliverObject(_HandSkill):
 
     def face(self, ctx, frame, position, outputs):
         """Come `distance` from a person in map and face them; a failure or
-        None (there, or could not move). While the arm may be out the base
-        stays, and a person not in reach fails the handover (as go_to does
-        for the operator)."""
+        None (there, or no navigation). While ARM_OUT is set, navigation
+        refuses to move: a person not in reach fails the handover (as go_to
+        does for the operator)."""
         navigation = self.runtime.navigation
         if navigation is None or frame != "map":
             return None
         robot = self.robot(ctx.memory)
         distance = positive(ctx.params, "distance", DELIVER_DISTANCE)
-        gap = math.dist(robot[:2], position[:2])
         heading = math.atan2(position[1] - robot[1], position[0] - robot[0])
-        if gap > distance + 0.3:
+        if math.dist(robot[:2], position[:2]) > distance + 0.3:
             pose = approach_pose(robot[:2], position[:2], distance)
         elif abs(math.remainder(heading - robot[2], math.tau)) > FACE_TOLERANCE:
             pose = [robot[0], robot[1], heading]
         else:
             return None
-        arm_out = getattr(self.runtime, ARM_OUT, None)
-        if arm_out:
-            return self.fail(
-                f"Could not go to the person {gap:.1f} m away: "
-                f"not moving the base: {arm_out}",
-                outputs,
-            )
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
-            return self.fail(f"Could not go to the person: {text}", outputs)
+            return self.fail(f"Could not go to the person: {text}")
         outputs[LOCATION] = [round(v, 3) for v in pose]
         return None
 
@@ -1243,8 +1169,8 @@ class DeliverObject(_HandSkill):
             return None, "Cancelled"
         except Unstopped as error:  # no answer: no second goal (no retry)
             return None, f"{HANDOVER_ACTION}: {error}"
-        except (RuntimeError, TimeoutError) as error:
-            return None, str(error) or f"{HANDOVER_ACTION} did not answer"
+        except RuntimeError as error:
+            return None, str(error)
         interaction.say(text, ctx.cancelled)
         stop, touched = threading.Event(), threading.Event()
 
@@ -1277,10 +1203,8 @@ class DeliverObject(_HandSkill):
                 # It may still run, or have let go: a second goal could move
                 # the same arm, or be refused.
                 return None, f"{HANDOVER_ACTION} did not stop the take goal"
-            if ended.success:
+            if ended.success or ended.status != type(ended).STATUS_CANCELED:
                 return ended, "taken"
-            if ended.status != type(ended).STATUS_CANCELED:
-                return ended, ""
             goal.release = "now"
             result, why = hands.run(
                 HANDOVER_ACTION, goal, HANDOVER_MARGIN, ctx.cancelled

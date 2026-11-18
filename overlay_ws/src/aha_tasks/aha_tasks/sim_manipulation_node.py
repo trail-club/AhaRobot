@@ -9,29 +9,33 @@ planned; the object is moved by gz-transport (aha_tasks.sim_manipulation):
   `reach` of the base. The right arm reaches out over it, the model becomes
   a static copy without collision that follows the TCP (`tcp_frame`), and
   the arm goes to home, the carry pose (CARRY), where every goal ends (the
-  actions' `at_home`). Once the object is in the hand the pick
-  succeeds, also when the arm does not get to carry (cancel, controller:
-  `at_home` false) or grasp_pose_used is not known: the message says so.
-  Likewise place and handover succeed once the object left the hand, also
-  when Gazebo then fails to re-create or remove it.
+  actions' `at_home`).
 - place (aha_msgs/action/PlaceObject, /aha/manipulation/place): the arm
   reaches out over `near` (within `reach`; over the top of a container to
   drop into), the static copy is set standing at `near` (`drop`: its centre
-  at `near`), the arm goes back to home, and the dynamic model is created there,
-  clear of the hand (a dropped object falls).
+  at `near`), the arm goes back to home, and the dynamic model is created
+  there, clear of the hand (a dropped object falls).
 - handover (aha_msgs/action/HandOver, /aha/manipulation/handover): the arm
   points at the target at its height; with release "take" the simulated
   person takes the object `take_delay` s later (never if `take` is false,
-  then the goal times out); the model is removed and the arm goes back to home.
+  then the goal times out); the model is removed and the arm goes back to
+  home.
+
+Once the object is in the hand, a pick succeeds, also when the arm does not
+get to carry (`at_home` false) or grasp_pose_used is not known; once it left
+the hand, place and handover succeed, also when Gazebo then fails to
+re-create or remove it (the message says so): a failure would leave the task
+believing the hand holds otherwise.
 
 The arm moves in straight lines in joint space (aha_tasks.gestures.Arm,
 aha_manipulation.pointing) without collision checks, the lift before the
 arm when going up and after it when going down; the hand passes HAND_ABOVE
-over the objects it reaches for. `move_arm` false skips the motions. Only the right arm is served. Model poses come from
-Gazebo's pose/info, targets in `map` go to the world through the robot's
-Gazebo pose and the TF map -> base_footprint (the detections' path in
-sim_object_detector.py). Waits are on the simulation clock. On exit, held
-objects are put back into the physics where they are.
+over the objects it reaches for. `move_arm` false skips the motions. Only
+the right arm is served. Model poses come from Gazebo's pose/info, targets
+in `map` go to the world through the robot's Gazebo pose and the TF map ->
+base_footprint (the detections' path in sim_object_detector.py). Waits are
+on the simulation clock. On exit, held objects are put back into the
+physics where they are.
 """
 
 import math
@@ -140,7 +144,6 @@ class Stand:
         self.lock = threading.Lock()
         self.held = None  # Held
         self.placed = None  # (Held, centre, yaw) let go, still static
-        self.busy = False
         self.tf = Buffer()
         self.listener = TransformListener(self.tf, node)
         self.arm = None
@@ -643,102 +646,69 @@ def main(argv=None):
         busy.release()
         return GoalResponse.ACCEPT
 
-    def serve(run):
+    def serve(kind, what, run):
+        """The execute callback of a server: `run(goal, handle, feedback,
+        result)` fills in a success, or raises Failed."""
+
         def execute(handle):
+            def feedback(phase, progress=None):
+                message = kind.Feedback(phase=phase)
+                if progress is not None:
+                    message.progress = float(progress)
+                handle.publish_feedback(message)
+
+            result = kind.Result()
             with busy:
-                return run(handle)
+                try:
+                    run(handle.request, handle, feedback, result)
+                except Failed as error:
+                    if hasattr(result, "status"):  # not PickObject
+                        result.status = getattr(kind.Result, failed_status(error))
+                    result.at_home = error.at_home is not False
+                    result.message = str(error)
+                    log.warning(f"{what}: {error}")
+                    if handle.is_cancel_requested:
+                        handle.canceled()
+                    else:
+                        handle.abort()
+                    return result
+                result.success = True
+                handle.succeed()
+                return result
 
         return execute
 
-    def publish(handle, kind):
-        def feedback(phase, progress=None):
-            message = kind.Feedback(phase=phase)
-            if progress is not None:
-                message.progress = float(progress)
-            handle.publish_feedback(message)
+    def away(back):
+        return "" if back else "; the arm is not at home"
 
-        return feedback
+    def pick(goal, handle, feedback, result):
+        name, back, pose, note = stand.pick(goal, handle, feedback)
+        result.message, result.at_home = f"Picked {name}{note}", back
+        if pose is not None:
+            result.grasp_pose_used = pose
 
-    def finish(handle, result, ok, cancelled=False):
-        if cancelled:
-            handle.canceled()
-        elif ok:
-            handle.succeed()
-        else:
-            handle.abort()
-        return result
+    def place(goal, handle, feedback, result):
+        name, back, pose, note = stand.place(goal, handle, feedback)
+        result.status = PlaceObject.Result.STATUS_OK
+        result.message, result.at_home = f"Placed {name}{away(back)}{note}", back
+        if pose is not None:
+            result.place_pose = pose
 
-    def run_pick(handle):
-        result = PickObject.Result()
-        try:
-            name, back, pose, note = stand.pick(
-                handle.request, handle, publish(handle, PickObject)
-            )
-            result.success, result.message = True, f"Picked {name}{note}"
-            if pose is not None:
-                result.grasp_pose_used = pose
-            result.at_home = back
-            return finish(handle, result, True)
-        except Failed as error:
-            result.at_home = error.at_home is not False
-            result.message = str(error)
-            log.warning(f"Pick: {error}")
-            return finish(handle, result, False, handle.is_cancel_requested)
+    def hand_over(goal, handle, feedback, result):
+        name, back, note = stand.hand_over(goal, handle, feedback)
+        result.status = HandOver.Result.STATUS_RELEASED
+        result.message, result.at_home = f"Handed over {name}{away(back)}{note}", back
 
-    def run_place(handle):
-        R = PlaceObject.Result
-        result = R()
-        try:
-            name, back, pose, note = stand.place(
-                handle.request, handle, publish(handle, PlaceObject)
-            )
-            result.success, result.status = True, R.STATUS_OK
-            result.message = (
-                f"Placed {name}" + ("" if back else "; the arm is not at home") + note
-            )
-            if pose is not None:
-                result.place_pose = pose
-            result.at_home = back
-            return finish(handle, result, True)
-        except Failed as error:
-            result.status = getattr(R, failed_status(error))
-            result.at_home = error.at_home is not False
-            result.message = str(error)
-            log.warning(f"Place: {error}")
-            return finish(handle, result, False, handle.is_cancel_requested)
-
-    def run_handover(handle):
-        R = HandOver.Result
-        result = R()
-        try:
-            name, back, note = stand.hand_over(
-                handle.request, handle, publish(handle, HandOver)
-            )
-            result.success, result.status = True, R.STATUS_RELEASED
-            result.message = (
-                f"Handed over {name}"
-                + ("" if back else "; the arm is not at home")
-                + note
-            )
-            result.at_home = back
-            return finish(handle, result, True)
-        except Failed as error:
-            result.status = getattr(R, failed_status(error))
-            result.at_home = error.at_home is not False
-            result.message = str(error)
-            log.warning(f"Handover: {error}")
-            return finish(handle, result, False, handle.is_cancel_requested)
-
-    for kind, name, run in (
-        (PickObject, PICK_ACTION, run_pick),
-        (PlaceObject, PLACE_ACTION, run_place),
-        (HandOver, HANDOVER_ACTION, run_handover),
+    for kind, name, what, run in (
+        (PickObject, PICK_ACTION, "Pick", pick),
+        (PlaceObject, PLACE_ACTION, "Place", place),
+        (HandOver, HANDOVER_ACTION, "Handover", hand_over),
     ):
         ActionServer(
             node,
             kind,
             name,
-            serve(run),
+            serve(kind, what, run),
             goal_callback=accept,
             cancel_callback=lambda _: CancelResponse.ACCEPT,
             callback_group=group,

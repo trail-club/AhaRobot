@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
+from aha_tasks.objects import norm_label
+
 # aha_manipulation srdf group_state "carry" of right_arm: lift, then
 # joint_r2..joint_r6. The hand is at about (0.22, -0.30, 0.92) in base_footprint.
 # It is home: the pose where pick, place and handover goals end (`at_home`).
@@ -50,10 +52,6 @@ def apply(matrix, xyz):
     return tuple(float(v) for v in (matrix @ np.array([*xyz, 1.0]))[:3])
 
 
-def norm(label):
-    return " ".join(str(label).lower().replace("_", " ").split())
-
-
 def find_model(poses, object_list, label, point, max_distance=MATCH_DISTANCE):
     """(name, distance) of the model of `label` nearest `point` (world xyz)
     within `max_distance`, else of any object model that close; None if none.
@@ -66,7 +64,7 @@ def find_model(poses, object_list, label, point, max_distance=MATCH_DISTANCE):
             continue
         distance = float(np.linalg.norm(pose[:3, 3] - np.asarray(point)))
         if distance <= max_distance:
-            (same if norm(entry.label) == norm(label) else other).append(
+            (same if norm_label(entry.label) == norm_label(label) else other).append(
                 (distance, name)
             )
     for found in (same, other):

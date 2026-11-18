@@ -36,7 +36,7 @@ from aha_tasks.handling import (  # noqa: E402
 )
 from aha_tasks.objects import Cancelled, Percept, furniture_region  # noqa: E402
 from aha_tasks.runner import guard_navigation, load_task  # noqa: E402
-from aha_tasks.skills import ARM_OUT, LOCATION, go_to  # noqa: E402
+from aha_tasks.skills import LOCATION, go_to  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from test_object_skills import FURNITURE, FakeObjects, detection  # noqa: E402
 
@@ -161,12 +161,18 @@ class FakeHands:
 
 
 class FakeNavigation:
-    """Stops `off` m off the goal in y (Nav2 stops within its tolerance)."""
+    """Stops `off` m off the goal in y (Nav2 stops within its tolerance).
+    Refuses at once while `blocked()` gives a reason, as Navigation does."""
+
+    blocked = None
 
     def __init__(self, objects, fail=False, off=0.0):
         self.objects, self.fail, self.off, self.goals = objects, fail, off, []
 
     def navigate(self, pose, cancelled=None):
+        why = self.blocked() if self.blocked is not None else None
+        if why:
+            return False, f"Not moving the base: {why}"
         self.goals.append([round(v, 3) for v in pose])
         if self.fail:
             return False, "blocked"
@@ -236,6 +242,7 @@ def make_runtime(scene=None, robot="kitchen_table", hands=None, **kw):
     runtime.navigation = FakeNavigation(
         objects, kw.get("blocked", False), kw.get("off", 0.0)
     )
+    guard_navigation(runtime.navigation, runtime)
     return runtime
 
 
@@ -331,7 +338,7 @@ class GeometryTests(unittest.TestCase):
             percept("rubiks cube", (2.22, -0.48, 0.429), (0.058, 0.059, 0.058)),
             percept("red bull", (2.03, -0.5, 0.4675), (0.053, 0.053, 0.135)),
         ]
-        spot = free_spot(table, 1, objects, COLA, (2.2, -0.92))
+        spot = free_spot(table, objects, COLA, (2.2, -0.92))
         self.assertEqual(spot[2], 0.40)
         radius = math.hypot(*COLA[:2]) / 2
         for other in objects:
@@ -342,7 +349,7 @@ class GeometryTests(unittest.TestCase):
         self.assertLessEqual(abs(spot[1] + 0.5), 0.2 - radius - 0.03 + 1e-9)
         self.assertAlmostEqual(spot[0], 2.2)
         # A table too small for the object has no spot.
-        self.assertIsNone(free_spot(table, 1, [], (0.5, 0.5, 0.1), (2.0, -0.9)))
+        self.assertIsNone(free_spot(table, [], (0.5, 0.5, 0.1), (2.0, -0.9)))
 
     def test_spots_from_memory(self):
         placement = {"table.other2": {"level": 4, "position": [3.3, 3.4, 0.91]}}
@@ -555,16 +562,6 @@ class PickTests(unittest.TestCase):
                 self.assertIn(message, result.message)
                 self.assertEqual(hands.goals, [])
 
-    def test_the_last_failure_keeps_where_the_base_went(self):
-        runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[failed()]))
-        result, _ = run(
-            PickObject,
-            runtime,
-            {"object": "cola", "surface": "kitchen_table", "retries": 0},
-        )
-        self.assertFalse(result.success)
-        self.assertEqual(result.outputs, {LOCATION: [-1.6, -0.7, -1.571]})
-
 
 class PlaceTests(unittest.TestCase):
     HELD_COLA = {
@@ -740,7 +737,7 @@ class DeliverTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("did not answer the goal", result.message)
         self.assertEqual(len(runtime.hands.goals), 1)
-        self.assertEqual(result.outputs[LOCATION], [2.0, 1.0, 1.571])  # it moved
+        self.assertEqual(runtime.navigation.goals, [[2.0, 1.0, 1.571]])  # it moved
 
     def test_no_handover_from_afar_while_the_arm_may_be_out(self):
         memory = {
@@ -762,7 +759,9 @@ class DeliverTests(unittest.TestCase):
                 self.assertEqual(len(runtime.hands.goals), sent)
                 self.assertEqual(runtime.navigation.goals, [])
                 if not sent:
-                    self.assertIn("2.0 m away: not moving the base", result.message)
+                    self.assertIn(
+                        "Not moving the base: the arm may be out", result.message
+                    )
 
     def test_the_operator_at_the_instruction_point(self):
         runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[ok()]))
@@ -961,62 +960,51 @@ class FakeHandle:
         self.future.set_result(SimpleNamespace(result=self.on_cancel))
 
 
+def bare_hands(clients=None, arm_out=None):
+    """Hands without ROS, on a runtime with `arm_out`."""
+    hands = Hands.__new__(Hands)
+    hands.runtime = SimpleNamespace(arm_out=arm_out)
+    hands.node = SimpleNamespace(
+        get_logger=lambda: SimpleNamespace(warning=lambda text: None)
+    )
+    hands.clients, hands.pending, hands.hold = clients or {}, set(), None
+    return hands
+
+
 class HandsTests(unittest.TestCase):
     def test_a_goal_that_succeeded_before_the_cancel_counts(self):
-        hands = Hands.__new__(Hands)
-        hands.runtime = SimpleNamespace()
+        hands = bare_hands()
         cancelled = threading.Event()
         cancelled.set()
         # The object in the hand, the arm stopped on its way to carry.
         done = PickResult(success=True, message="Picked; not at carry", at_home=False)
         self.assertIs(hands.finish(FakeHandle(done), 1.0, cancelled), done)
-        self.assertIn(
-            "not at home: Picked; not at carry", getattr(hands.runtime, ARM_OUT)
-        )
+        self.assertIn("not at home: Picked; not at carry", hands.runtime.arm_out)
+        stopped = Result(success=False, status=4, message="cancelled", at_home=False)
         with self.assertRaises(Cancelled):
-            hands.finish(FakeHandle(failed(4, "cancelled")), 1.0, cancelled)
+            hands.finish(FakeHandle(stopped), 1.0, cancelled)
         # A timeout likewise.
         self.assertIs(hands.finish(FakeHandle(done), 0.0, threading.Event()), done)
 
     def test_the_arm_state_follows_the_ends_of_the_goals(self):
-        runtime = SimpleNamespace()
-        hands = Hands.__new__(Hands)
-        hands.runtime = runtime
+        hands = bare_hands()
+        runtime = hands.runtime
         place = PlaceResult(success=False, status=4, message="stuck", at_home=False)
         hands.arm_after(place)
-        self.assertIn(
-            "the arm may be out (not at home: stuck)", getattr(runtime, ARM_OUT)
-        )
+        self.assertIn("the arm may be out (not at home: stuck)", runtime.arm_out)
         hands.arm_after(Result(success=False, status=0, message="no", at_home=True))
-        self.assertIsNone(getattr(runtime, ARM_OUT))
+        self.assertIsNone(runtime.arm_out)
         # A pick: `at_home` false where a cancel or failure left the arm.
         hands.arm_after(PickResult(success=False, message="stuck", at_home=False))
-        self.assertIn("not at home: stuck", getattr(runtime, ARM_OUT))
+        self.assertIn("not at home: stuck", runtime.arm_out)
         hands.arm_after(PickResult(success=True, message="Picked", at_home=True))
-        self.assertIsNone(getattr(runtime, ARM_OUT))
-        # Without `at_home` (an older server), a cancel or failure may leave
-        # the arm out.
-        for pick in (
-            SimpleNamespace(success=True, message="Picked"),
-            SimpleNamespace(success=False, message="cancelled"),
-        ):
-            with self.subTest(stopped=pick.message):
-                hands.arm_after(pick, stopped=True)
-                self.assertIn("ended without at_home", getattr(runtime, ARM_OUT))
-        hands.arm_after(SimpleNamespace(success=False, message="no grasp"))
-        self.assertIn("ended without at_home", getattr(runtime, ARM_OUT))
-        hands.arm_after(SimpleNamespace(success=True, message="Picked"))
-        self.assertIsNone(getattr(runtime, ARM_OUT))
-        with self.assertRaises(Unstopped):
-            hands.finish(FakeHandle(None), 0.0, threading.Event())
-        self.assertIn("did not confirm that it stopped", getattr(runtime, ARM_OUT))
+        self.assertIsNone(runtime.arm_out)
 
     def test_failures_before_any_motion_leave_the_arm_as_it_was(self):
         # `at_home` is false by the message default; the status says more.
         # The arm is where earlier goals left it, e.g. out after a cancel.
-        runtime = SimpleNamespace(arm_out="earlier")
-        hands = Hands.__new__(Hands)
-        hands.runtime = runtime
+        hands = bare_hands(arm_out="earlier")
+        runtime = hands.runtime
         before = [
             *(
                 PlaceResult(success=False, status=status, message="", at_home=False)
@@ -1033,7 +1021,7 @@ class HandsTests(unittest.TestCase):
             for earlier in ("earlier", None):
                 with self.subTest(result=result, earlier=earlier):
                     runtime.arm_out = earlier
-                    hands.arm_after(result, stopped=True)
+                    hands.arm_after(result)
                     self.assertEqual(runtime.arm_out, earlier)
         # After a motion, `at_home` decides: execution failed, cancelled.
         for result in (
@@ -1042,7 +1030,7 @@ class HandsTests(unittest.TestCase):
         ):
             with self.subTest(after_motion=result.status):
                 runtime.arm_out = None
-                hands.arm_after(result, stopped=True)
+                hands.arm_after(result)
                 self.assertIn("not at home", runtime.arm_out)
 
     def test_every_base_motion_waits_for_the_arm(self):
@@ -1060,13 +1048,6 @@ class HandsTests(unittest.TestCase):
         moved = go_to(runtime, "desk", threading.Event())
         self.assertEqual((moved.success, moved.message), refused)
 
-    def test_the_guard_reads_the_runtime(self):
-        navigation, runtime = SimpleNamespace(), SimpleNamespace()
-        guard_navigation(navigation, runtime)
-        self.assertIsNone(navigation.blocked())
-        runtime.arm_out = "out"
-        self.assertEqual(navigation.blocked(), "out")
-
     def test_the_base_stays_while_the_arm_may_be_out(self):
         runtime = make_runtime(kitchen_scene(), hands=FakeHands(pick=[ok()]))
         runtime.arm_out = "the arm may be out (test)"
@@ -1075,41 +1056,34 @@ class HandsTests(unittest.TestCase):
         )
         self.assertTrue(result.success, result.message)  # from where it is
         self.assertEqual(runtime.navigation.goals, [])
-        self.assertTrue(any("the arm may still be out" in line for line in logs))
+        self.assertTrue(any("Not moving the base" in line for line in logs))
 
     def test_a_timed_out_goal_that_did_not_confirm_its_stop(self):
-        hands = Hands.__new__(Hands)
+        hands = bare_hands()
         with self.assertRaises(Unstopped):
             hands.finish(FakeHandle(None), 0.0, threading.Event())
+        self.assertIn("did not confirm that it stopped", hands.runtime.arm_out)
         # On a cancel of the task the skill ends anyway.
         cancelled = threading.Event()
         cancelled.set()
         with self.assertRaises(Cancelled):
             hands.finish(FakeHandle(None), 1.0, cancelled)
 
-    def test_a_goal_accepted_after_a_cancel_is_cancelled(self):
+    def test_no_goal_once_cancelled(self):
+        # e.g. cancelled while the base came closer
         cancelled = threading.Event()
-        client = FakeClient(cancel=cancelled)  # cancelled while waiting
-        hands = Hands.__new__(Hands)
-        hands.clients = {HANDOVER_ACTION: (None, client)}
-        result, why = hands.run(HANDOVER_ACTION, goal(), 1.0, cancelled)
-        self.assertEqual((result, why), (None, "Cancelled"))
-        # Cancelled before: no goal at all (e.g. while the base came closer).
+        cancelled.set()
+        client = FakeClient()
+        hands = bare_hands({HANDOVER_ACTION: client})
         self.assertEqual(
             hands.run(HANDOVER_ACTION, goal(), 1.0, cancelled), (None, "Cancelled")
         )
-        self.assertEqual(len(client.sent), 1)
-        handle = SimpleNamespace(accepted=True, cancels=0)
-        handle.cancel_goal_async = lambda: setattr(handle, "cancels", 1)
-        client.sent[0].set_result(handle)  # the late acceptance
-        self.assertEqual(handle.cancels, 1)
+        self.assertEqual(client.sent, [])
 
     def test_a_goal_without_an_answer_is_not_followed(self):
         # The acceptance may come late or be lost: the arm may move.
         client = FakeClient()
-        hands = Hands.__new__(Hands)
-        hands.runtime = SimpleNamespace(arm_out=None)
-        hands.clients = {PICK_ACTION: (None, client)}
+        hands = bare_hands({PICK_ACTION: client})
         with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
             with self.assertRaises(Unstopped):
                 hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
@@ -1137,10 +1111,8 @@ class HandsTests(unittest.TestCase):
             ),
         ):
             with self.subTest(late=late.message):
-                hands = Hands.__new__(Hands)
-                hands.runtime = SimpleNamespace(arm_out=None)
                 client = FakeClient()
-                hands.clients = {PICK_ACTION: (None, client)}
+                hands = bare_hands({PICK_ACTION: client})
                 handle = FakeHandle(None)
                 handle.cancel_goal_async = lambda: None  # no answer to the cancel
                 with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
@@ -1159,8 +1131,7 @@ class HandsTests(unittest.TestCase):
                     self.assertIn(out, hands.blocked())
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
-        hands = Hands.__new__(Hands)
-        hands.runtime = SimpleNamespace(arm_out=None)
+        hands = bare_hands()
         cancelled = threading.Event()
         stuck = PickResult(success=False, message="cancelled", at_home=False)
         # Done after the skill failed: the memory does not know the hand.
@@ -1176,7 +1147,7 @@ class HandsTests(unittest.TestCase):
             with self.subTest(result=on_cancel.message):
                 cancelled.clear()
                 client = FakeClient(cancel=cancelled)  # cancelled while waiting
-                hands.clients = {PICK_ACTION: (None, client)}
+                hands.clients = {PICK_ACTION: client}
                 self.assertEqual(
                     hands.run(PICK_ACTION, goal(), 1.0, cancelled), (None, "Cancelled")
                 )
@@ -1199,11 +1170,9 @@ class HandsTests(unittest.TestCase):
         with self.assertRaises(Unstopped):
             hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
         # A late rejection changes nothing.
-        hands = Hands.__new__(Hands)
-        hands.runtime = SimpleNamespace(arm_out=None)
         cancelled.clear()
         client = FakeClient(cancel=cancelled)
-        hands.clients = {PICK_ACTION: (None, client)}
+        hands = bare_hands({PICK_ACTION: client})
         hands.run(PICK_ACTION, goal(), 1.0, cancelled)
         client.sent[0].set_result(SimpleNamespace(accepted=False))
         self.assertIsNone(hands.runtime.arm_out)
