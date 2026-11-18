@@ -3,6 +3,9 @@ build/
 install/
 log/
 
+# Simulation models downloaded and built at run time (AHA_CACHE_DIR)
+/.cache/
+
 # Python
 __pycache__/
 *.pyc

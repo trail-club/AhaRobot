@@ -8,6 +8,8 @@ services:
       - LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-0}
       # Web GUI bind address; macOS needs 0.0.0.0 for `make forward`.
       - AHA_GUI_HOST=${AHA_GUI_HOST:-127.0.0.1}
+      # Downloaded and built simulation models, kept across containers (gitignored).
+      - AHA_CACHE_DIR=/app/.cache/aharobot
     network_mode: host
     ipc: host
     privileged: true
