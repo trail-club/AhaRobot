@@ -6,18 +6,29 @@ skills can address the same person; a remembered name survives lost tracks.
 Described people (GPSR: gesture, posture, clothing) are checked with
 /aha/perception/classify_person. The head goes through the runner's
 aha_tasks.gaze.Gaze: find_person and memorize_person leave it following the
-person, also through the subgoals that come next (the conversation). Speech is
-not part of these skills.
+person, also through the subgoals that come next (the conversation). Only
+find_described_person speaks: it asks people their name
+(aha_tasks.conversation).
 """
 
+import dataclasses
 import itertools
 import math
 import threading
 import time
 
 from aha_tasks.appearance import consensus
+from aha_tasks.conversation import (
+    PERSON_INFO,
+    Dialogue,
+    count_sentence,
+    names_of,
+    person_info_sentence,
+    same_name,
+)
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.gaze import LOOK_HEIGHT
+from aha_tasks.interaction import Interaction
 from aha_tasks.person_description import parse as parse_description
 from aha_tasks.skills import LOCATION, resolve_pose
 
@@ -42,6 +53,10 @@ SERVER_MARGIN = 30.0
 # Judgements of one person; one that fails (lost track, VLM error, timeout)
 # is tried again.
 MAX_JUDGEMENTS = 2
+# s (wait clock) an unnamed track is not asked its name while the VLM may still
+# name it, when the name searched for was remembered (a new track of them).
+NAME_WAIT = 3.0
+ASK_TIMEOUT = 120.0  # s, default timeout of find_described_person when it asks
 
 
 def planar(point):
@@ -104,6 +119,19 @@ class Cancelled(RuntimeError):
     """The skill was aborted while waiting for person_perception."""
 
 
+class Until:
+    """`cancelled` that is also set once `now()` reaches `deadline`.
+
+    Interaction and Navigation poll is_set(), so their waits end at the deadline.
+    """
+
+    def __init__(self, cancelled, now, deadline):
+        self.cancelled, self.now, self.deadline = cancelled, now, deadline
+
+    def is_set(self):
+        return self.cancelled.is_set() or self.now() >= self.deadline
+
+
 class People:
     """ROS access to person_perception, shared by the skills of one runner."""
 
@@ -118,6 +146,7 @@ class People:
         self.lock = threading.Lock()
         self.message = None
         self.received = -math.inf
+        self.remembered = set()  # names remembered through this runner
         node.create_subscription(PersonArray, PEOPLE_TOPIC, self._on_people, 10)
         self.remember = node.create_client(RememberPerson, REMEMBER_SERVICE)
         self.describe = node.create_client(DescribePerson, DESCRIBE_SERVICE)
@@ -215,16 +244,39 @@ class People:
                 return
             time.sleep(0.05)
 
+    def remember_name(self, person_id, name, cancelled):
+        """RememberPerson: (ok, message); the name is then in `remembered`."""
+        try:
+            reply = self.call(
+                self.remember,
+                self.RememberPerson.Request(id=person_id, name=name),
+                10.0,
+                cancelled,
+            )
+        except (TimeoutError, RuntimeError) as error:
+            return False, str(error)
+        if reply.success:
+            self.remembered.add(name)
+        return reply.success, reply.message
+
     def attributes(
-        self, person, description, cancelled, vlm_timeout, frame=None, deadline=math.inf
+        self,
+        person,
+        description,
+        cancelled,
+        vlm_timeout,
+        frame=None,
+        deadline=math.inf,
+        need=(),
     ):
         """ClassifyPerson answers for the person, or None if they could not be judged.
 
         The head first turns to the person (when `frame` is given). Depth and
         keypoints answer at once; the VLM is asked only when the description
-        still cannot be decided (clothing, unclear posture or gesture). None
-        when the track is gone, the service failed or timed out, or `deadline`
-        (now()) passed meanwhile; Cancelled is raised when the skill is aborted.
+        still cannot be decided (clothing, unclear posture or gesture) or an
+        answer in `need` ("posture", "gesture") is unknown. None when the
+        track is gone, the service failed or timed out, or `deadline` (now())
+        passed meanwhile; Cancelled is raised when the skill is aborted.
         """
         if frame is not None and self.look_settle > 0:
             # The head point is the top of the mask, which is too low while the
@@ -267,7 +319,8 @@ class People:
                 "garments": list(reply.garments),
                 "reasons": getattr(reply, "message", ""),
             }
-            if description.matches(name=person.name, **seen(answers)) is not None:
+            decided = description.matches(name=person.name, **seen(answers))
+            if decided is not None and all(answers[key] for key in need):
                 break
         return answers
 
@@ -629,61 +682,107 @@ def describe_answers(answers):
     return text
 
 
+INFO_ANSWER = {"pose": "posture", "gesture": "gesture"}  # info -> ClassifyPerson
+STOP = object()  # choose() result that ends the search with a failure
+
+
 class FindDescribedPerson(Skill):
     """Find a person by GPSR description in the area, look at them and face them.
 
     params: {"gesture" | "pose" | "clothing" | "description": "<phrase>",
-    "name": "<remembered name>", "location": "<area centre>", "radius": 3.0,
-    "role": "person", "approach": true, "distance": 1.0, "pans": [0.0, 0.4, -0.4],
-    "dwell": 6.0, "look_height": 1.0, "timeout": 60.0}. Phrases are those of the GPSR command
-    generator, e.g. "waving person", "person pointing to the left", "sitting
-    person", "person wearing a red t shirt"; they may be combined. The head
-    scans `pans`; each visible person in the area is checked once, nearest
-    first (up to MAX_JUDGEMENTS times while checks fail). A name matches only
-    people person_perception remembered.
+    "name": "<name>", "info": "name" | "pose" | "gesture",
+    "location": "<area centre>", "radius": 3.0, "role": "person",
+    "approach": true, "ask": true, "touch": false, "distance": 1.0, "pans": [0.0, 0.4, -0.4],
+    "dwell": 6.0, "look_height": 1.0, "timeout": 60.0 (120.0 when asking)}.
+    Phrases are those of the GPSR command generator, e.g. "waving person",
+    "person pointing to the left", "sitting person", "person wearing a red t
+    shirt"; they may be combined. The head scans `pans`; each visible person
+    in the area is checked once, nearest first (up to MAX_JUDGEMENTS times
+    while checks fail).
+    A name matches the people person_perception remembered under it. With
+    `ask`, the robot also approaches each unnamed person who fits the rest of
+    the description, asks whether they are that person (Dialogue) and on yes
+    remembers them under the name, so that a later search finds them by name.
+    With `touch`, an unclear answer to "Are you <name>?" falls back to Yes / No
+    on the screen (this bypasses the speech recognition).
+    `info` is what the robot will report about the person (anyone in the area
+    if nothing else is given): their name (asked unless remembered), pose or
+    gesture (the VLM is asked until it is known).
     Outputs `<role>.track` / `.position` / `.frame` and what was seen:
-    `<role>.pose` / `.gesture` / `.garments`.
+    `<role>.pose` / `.gesture` / `.garments`, `<role>.name` when known, and
+    `<role>.<info>.answer` (a sentence for tell_info).
     """
 
     @classmethod
     def validate(cls, params, spec):
         description = check_description_params(
-            params, optional=("role", "approach", "distance", *SEARCH_KEYS)
+            params,
+            optional=(
+                "role",
+                "approach",
+                "ask",
+                "touch",
+                "info",
+                "distance",
+                *SEARCH_KEYS,
+            ),
         )
-        if not isinstance(params.get("approach", True), bool):
-            raise ValueError(f"approach must be true or false: {params['approach']!r}")
-        if description.empty:
-            raise ValueError(f"needs a gesture, posture, clothing or name: {params}")
+        for key in ("approach", "ask", "touch"):
+            if not isinstance(params.get(key, True), bool):
+                raise ValueError(f"{key} must be true or false: {params[key]!r}")
+        info = params.get("info")
+        if info is not None and info not in PERSON_INFO:
+            raise ValueError(f"info must be one of {PERSON_INFO}: {info!r}")
+        if description.empty and info is None:
+            raise ValueError(
+                f"needs a gesture, posture, clothing, name or info: {params}"
+            )
         if "role" in params:
             check_name(params, "role")
         positive(params, "distance", 1.0)
         positive(params, "timeout", 60.0)
         check_search_params(params, spec)
 
-    def unsupported(self, params):
-        # person_perception names only people remembered with remember_person;
-        # nothing in a GPSR plan asks a person's name yet.
-        if params.get("name"):
-            return "finding a person by name needs their name asked first (not implemented)"
-        return None
-
     def execute(self, ctx):
         people = People.of(self.runtime)
         params = ctx.params
         description = parse_description(params)
+        name = description.name
+        # What a person must show; the name is matched or asked separately.
+        shown = dataclasses.replace(description, name=None)
+        info = params.get("info")
+        need = (INFO_ANSWER[info],) if info in INFO_ANSWER else ()
+        wants_name = name is not None or info == "name"
+        asking = params.get("ask", True) and wants_name
+        touch = params.get("touch", False)
         role = params.get("role", "person")
         area = search_area(self.runtime, ctx.memory, params)
         origin = robot_xy(self.runtime, ctx.memory)
-        pans = itertools.cycle(params.get("pans", SCAN_PANS))
+        pan_list = list(params.get("pans", SCAN_PANS))
+        pans = itertools.cycle(pan_list)
         dwell = positive(params, "dwell", 6.0)
         height = positive(params, "look_height", 1.0)
         vlm_timeout = positive(params, "describe_timeout", 180.0)
-        timeout = positive(params, "timeout", 60.0)
+        distance = positive(params, "distance", 1.0)
+        timeout = positive(params, "timeout", ASK_TIMEOUT if asking else 60.0)
         deadline = people.now() + timeout
+        until = Until(ctx.cancelled, people.now, deadline)  # for talking
+        # Someone remembered under the name may be anywhere around, and a new
+        # track of them gets the name from the VLM within seconds: look all
+        # around once before asking anyone, and give each track NAME_WAIT.
+        renamed = name is not None and any(
+            same_name(name, n) for n in people.remembered
+        )
+        looks = 0  # head turns so far
+        dialogue = None
         checked = {}  # track ID -> answers (None: not the named person)
         failures = {}  # track ID -> judgements that failed
         checked_at = []  # (map position, track ID) of people already judged
+        first_seen = {}  # track ID -> now() when first seen
         pan, next_look = None, -math.inf  # the head's pan, end of its dwell
+        # [x, y, yaw] the robot moved to, and the track it went to talk to.
+        moved, talked_to = None, None
+        unreached = set()  # tracks the robot could not approach to ask
 
         def judged(message, person):
             if person.id in checked or failures.get(person.id, 0) >= MAX_JUDGEMENTS:
@@ -700,11 +799,87 @@ class FindDescribedPerson(Skill):
                 if track not in in_view
             )
 
+        def waiting(person, now):
+            """An unnamed person who cannot be the named one yet."""
+            if person.name or name is None:
+                return False
+            if not asking:
+                return True  # names come seconds after a track starts
+            return renamed and (
+                looks <= len(pan_list) or now - first_seen[person.id] < NAME_WAIT
+            )
+
         def look_next():
-            nonlocal pan, next_look
+            nonlocal pan, next_look, looks
+            looks += 1
             pan = next(pans)
             people.look_towards(pan, height)
             next_look = people.now() + dwell
+
+        def come_closer(message, person):
+            """Approach the person to talk; the head stays on them.
+
+            A person who cannot be approached is asked from where the robot is.
+            """
+            nonlocal origin, moved, talked_to
+            people.follow(track=person.id)
+            talked_to = person.id
+            navigation = self.runtime.navigation
+            if (
+                navigation is None
+                or message.header.frame_id != "map"
+                or not params.get("approach", True)
+            ):
+                return
+            pose = approach_pose(origin, planar(person.position), distance)
+            ok, text = navigation.navigate(pose, until)
+            if ok:
+                origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
+            elif not until.is_set():
+                # E.g. the pose is too close to furniture: ask from here
+                # rather than give up on everyone.
+                ctx.log(
+                    f"Could not approach person {person.id} ({text}): asking from here"
+                )
+                unreached.add(person.id)
+
+        def talk(message, person):
+            """(match, name heard); (STOP, why) if cancelled or nobody can be asked.
+
+            The approach and the questions end at the deadline: (None, None).
+            """
+            nonlocal dialogue
+            if until.is_set():
+                return None, None
+            if dialogue is None:
+                dialogue = Dialogue(
+                    Interaction.of(self.runtime),
+                    names_of(ctx.memory),
+                    until,
+                    ctx.log,
+                    # Touch input bypasses the ASR (GPSR −50): only when asked for.
+                    touch=touch,
+                )
+            come_closer(message, person)
+            if ctx.cancelled.is_set():
+                return STOP, "Cancelled"
+            if until.is_set():
+                return None, None
+            if name is not None:
+                match = dialogue.confirm(name)
+                heard = name if match else None
+            else:
+                heard = dialogue.ask_name()
+                match = None if heard is None else True
+            if match is None:
+                if not dialogue.voice and (name is None or not dialogue.screen):
+                    return STOP, "Cannot ask: no ASR" + (
+                        " and no screen" if name is not None and touch else ""
+                    )
+                # Asked already: do not ask again, also under a new track ID.
+                failures[person.id] = MAX_JUDGEMENTS - 1
+                checked_at.append((planar(person.position), person.id))
+            return match, heard
 
         def choose(message):
             # One person per call, so that the timeout is checked between people
@@ -713,6 +888,10 @@ class FindDescribedPerson(Skill):
             nonlocal next_look
             if pan is None:
                 look_next()
+            now = people.now()
+            for p in message.people:
+                if p.visible:
+                    first_seen.setdefault(p.id, now)
             candidates = sorted(
                 (
                     p
@@ -720,50 +899,64 @@ class FindDescribedPerson(Skill):
                     if p.visible
                     and not judged(message, p)
                     and in_area(message, p, area)
-                    # Names come seconds after a track starts: wait for one.
-                    and not (description.name and not p.name)
+                    and not waiting(p, now)
                 ),
-                key=lambda p: math.dist(planar(p.position), origin),
+                # Someone with the name before anyone to ask.
+                key=lambda p: (
+                    name is None or not same_name(p.name, name),
+                    math.dist(planar(p.position), origin),
+                ),
             )
             if not candidates:
                 if people.now() >= next_look:
                     look_next()
                 return None
             person = candidates[0]
-            if description.name and person.name != description.name:
+            if name and person.name and not same_name(person.name, name):
                 checked[person.id] = None
                 return None
-            if description.name and not (
-                description.gesture or description.posture or description.clothing
-            ):
+            if shown.empty and not need:
                 answers = {"posture": "", "gesture": "", "garments": []}
             else:
                 try:
                     answers = people.attributes(
                         person,
-                        description,
+                        shown,
                         ctx.cancelled,
                         vlm_timeout,
                         message.header.frame_id,
                         deadline,
+                        need,
                     )
                 except Cancelled:
                     return None  # wait_for reports the abort
-            match = (
-                None
-                if answers is None
-                else description.matches(name=person.name, **seen(answers))
-            )
+            match = None if answers is None else shown.matches(**seen(answers))
+            if match and not all(answers[key] for key in need):
+                match = None  # what is to be reported is not known
+            heard = person.name or None
+            if match and heard is None and wants_name:
+                if not asking:
+                    match = None
+                else:
+                    match, heard = talk(message, person)
+                    if match is STOP:
+                        return STOP, heard
             if match is None:
-                # Not judged, or the answers cannot decide (e.g. the clothing
-                # was hidden): try again, as count_people does.
+                # Not judged, the answers cannot decide (e.g. the clothing was
+                # hidden) or no answer to the question: try again, as
+                # count_people does.
                 failures[person.id] = failures.get(person.id, 0) + 1
             else:
                 checked[person.id] = answers
                 checked_at.append((planar(person.position), person.id))
-            ctx.log(f"{where(person)}: {describe_answers(answers)}")
+            parts = [] if shown.empty and not need else [describe_answers(answers)]
+            if heard:
+                parts.append(heard)
+            elif wants_name:
+                parts.append(f"not {name}" if name and match is False else "no name")
+            ctx.log(f"{where(person)}: {', '.join(parts)}")
             if match:
-                return message, person, answers
+                return message, person, answers, heard
             # The head turned to this person: look this way again for a full
             # dwell, so that nobody at the edge of the view is missed.
             people.look_towards(pan, height)
@@ -771,6 +964,9 @@ class FindDescribedPerson(Skill):
             return None
 
         found, reason = people.wait_for(choose, timeout, ctx.cancelled)
+        if found is not None and found[0] is STOP:
+            people.look_towards(0.0)
+            return SkillResult(False, found[1])
         if found is None:
             people.look_towards(0.0)
             if ctx.cancelled.is_set():
@@ -782,9 +978,8 @@ class FindDescribedPerson(Skill):
                 + (f" ({unchecked} could not be checked)" if unchecked else "")
                 + f": {reason}",
             )
-        message, person, answers = found
+        message, person, answers, heard = found
         frame = message.header.frame_id
-        people.look_at(frame, person.head)
         outputs = person_outputs(role, message, person)
         outputs.update(
             {
@@ -793,21 +988,57 @@ class FindDescribedPerson(Skill):
                 f"{role}.garments": answers["garments"],
             }
         )
-        ctx.log(
-            f"Person {person.id} ({description.text()}) at {outputs[f'{role}.position']}"
-        )
+        # Always overwrite the name an earlier search left under the same role
+        # (run_plan_step clears the stale `<role>.<info>.answer` sentences).
+        outputs[f"{role}.name"] = heard or ""
+        if info is not None:
+            outputs[f"{role}.{info}.answer"] = person_info_sentence(
+                info, outputs[f"{role}.{info}"]
+            )
+        who = heard or f"person {person.id}"
+        ctx.log(f"{who} ({description.text()}) at {outputs[f'{role}.position']}")
+        if moved is not None:
+            outputs[LOCATION] = moved  # moved to talk to them or someone else
+        if talked_to == person.id:
+            ok, text = self.remember(people, person, heard, ctx.cancelled)
+            ctx.log(text if ok else f"Could not remember {heard}: {text}")
+            people.follow(track=person.id, name=heard)
+            if person.id not in unreached:
+                return SkillResult(True, f"Facing {who}", outputs)
+            # Asked from afar: try to approach them now, as when not asking.
+        people.look_at(frame, person.head)
         navigation = self.runtime.navigation
         if navigation is None or frame != "map" or not params.get("approach", True):
-            return SkillResult(True, f"Looking at person {person.id}", outputs)
-        pose = approach_pose(
-            origin, planar(person.position), params.get("distance", 1.0)
-        )
+            return SkillResult(True, f"Looking at {who}", outputs)
+        pose = approach_pose(origin, planar(person.position), distance)
         ok, text = navigation.navigate(pose, ctx.cancelled)
         if not ok:
-            return SkillResult(False, f"Could not approach person {person.id}: {text}")
+            if talked_to != person.id or ctx.cancelled.is_set():
+                return SkillResult(False, f"Could not approach {who}: {text}")
+            # Confirmed (and remembered) from afar: keep the result rather than
+            # lose it to the same failed goal; later steps talk from here.
+            message = f"Looking at {who}; could not approach: {text}"
+            return SkillResult(True, message, outputs)
         people.look_at(frame, person.head)
         outputs[LOCATION] = [round(v, 3) for v in pose]
-        return SkillResult(True, f"Facing person {person.id}", outputs)
+        return SkillResult(True, f"Facing {who}", outputs)
+
+    @staticmethod
+    def remember(people, person, name, cancelled):
+        """Remember the person under `name`, by a new track near them if theirs is gone."""
+        ok, text = people.remember_name(person.id, name, cancelled)
+        message = people.latest()
+        if ok or message is None or message.header.frame_id != "map":
+            return ok, text
+        near = [
+            (math.dist(planar(p.position), planar(person.position)), p.id)
+            for p in message.people
+            if p.visible and not p.name and p.id != person.id
+        ]
+        near = [(d, track) for d, track in near if d < SAME_PERSON_M]
+        if not near:
+            return ok, text
+        return people.remember_name(min(near)[1], name, cancelled)
 
 
 class CountPeople(Skill):
@@ -822,8 +1053,8 @@ class CountPeople(Skill):
     after they leave the view; a track lost meanwhile is tried up to
     MAX_JUDGEMENTS times.
     People who could not be judged, or whose answers cannot decide the
-    description, do not count. Outputs `<output>` (the count) and
-    `<output>.positions`.
+    description, do not count. Outputs `<output>` (the count),
+    `<output>.positions` and `<output>.answer` (a sentence for tell_info).
     """
 
     @classmethod
@@ -951,5 +1182,8 @@ class CountPeople(Skill):
             {
                 output: len(matching),
                 f"{output}.positions": [entry["position"] for entry in matching],
+                f"{output}.answer": count_sentence(
+                    len(matching), description, params.get("location")
+                ),
             },
         )

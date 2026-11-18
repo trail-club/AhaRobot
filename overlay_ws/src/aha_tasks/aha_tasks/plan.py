@@ -26,6 +26,26 @@ NOT_PLANNABLE = {
 }
 
 
+ANSWER = ".answer"  # suffix of the sentence tell_info says for a memory key
+
+
+def without_stale_answers(outputs, memory):
+    """`outputs` with `<key>.answer` cleared where `<key>` changes without one.
+
+    tell_info says `<key>.answer` before the value of `<key>`: a step that
+    writes `<key>` (a mock, a skill without sentences) must not leave the
+    sentence of an earlier step for it.
+    """
+    cleared = {
+        f"{key}{ANSWER}": None
+        for key in outputs
+        if not key.endswith(ANSWER)
+        and f"{key}{ANSWER}" not in outputs
+        and memory.get(f"{key}{ANSWER}") is not None
+    }
+    return {**outputs, **cleared}
+
+
 def plan_slots(spec):
     return [subgoal for subgoal in spec.subgoals if subgoal.skill == RUN_PLAN_STEP]
 
@@ -103,8 +123,10 @@ class RunPlanStep(Skill):
         mock = step.get("mock", {})
         skill = self.runtime.skills.get(step["action"])
         if skill is None or skill.unsupported(step["params"]):
-            return mock
-        return {**skill.assumed(step["params"], memory), **mock}
+            return without_stale_answers(mock, memory)
+        return without_stale_answers(
+            {**skill.assumed(step["params"], memory), **mock}, memory
+        )
 
     def execute(self, ctx):
         plan = ctx.memory.get(PLAN)
@@ -141,7 +163,8 @@ class RunPlanStep(Skill):
         message = f"{label}: {result.message}" if result.message else label
         if not result.success:
             return SkillResult(False, message)
-        return SkillResult(True, message, {**skill.expected(params), **result.outputs})
+        outputs = {**skill.expected(params), **result.outputs}
+        return SkillResult(True, message, without_stale_answers(outputs, ctx.memory))
 
     def _assume_mock(self, ctx, label, mock):
         # Unlike a mocked subgoal's location, which the engine restores with Nav2,
@@ -152,5 +175,7 @@ class RunPlanStep(Skill):
             if not moved.success:
                 return SkillResult(False, f"{label}: {moved.message}")
         return SkillResult(
-            True, f"{label} is not implemented; mock state assumed", mock
+            True,
+            f"{label} is not implemented; mock state assumed",
+            without_stale_answers(mock, ctx.memory),
         )

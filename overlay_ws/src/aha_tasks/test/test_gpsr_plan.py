@@ -13,7 +13,7 @@ PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PACKAGE)
 from aha_tasks.core import Skill, SkillResult, TaskEngine, parse_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
-from aha_tasks.plan import RunPlanStep, validate_plan  # noqa: E402
+from aha_tasks.plan import RunPlanStep, validate_plan, without_stale_answers  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
 from aha_tasks.skills import LOCATION, go_to  # noqa: E402
 
@@ -418,10 +418,14 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "say",
                 "find_described_person",
                 "count_people",
+                "answer_question",
+                "tell_info",
             },
         )
         for name in ("find_described_person", "count_people"):
             self.assertTrue(implemented[name].startswith("aha_tasks.people:"))
+        for name in ("answer_question", "tell_info"):
+            self.assertTrue(implemented[name].startswith("aha_tasks.talk:"))
 
 
 class Found(Skill):
@@ -447,9 +451,11 @@ class GpsrEngineTests(unittest.TestCase):
         by_id = records(status)
         self.assertEqual(by_id["start.wait_door"]["status"], "unsupported")
         self.assertEqual(by_id["command.mode"]["status"], "succeeded")
-        self.assertEqual(
-            runtime.interaction.said, ["Please give me all three commands at once."]
-        )
+        said = runtime.interaction.said
+        self.assertEqual(said[0], "Please give me all three commands at once.")
+        # answer_question (the time) and tell_info (the count) of the mock plan.
+        self.assertRegex(said[1], r"^It is \d+:\d\d [AP]M\.$")
+        self.assertEqual(said[2:], ["The answer is 3."])
         self.assertEqual(by_id["exec.step01"]["status"], "succeeded")
         self.assertIn("navigate", by_id["exec.step01"]["message"])
         self.assertIn("pick_object is not implemented", by_id["exec.step02"]["message"])
@@ -607,6 +613,19 @@ class GpsrEngineTests(unittest.TestCase):
         status = run(engine, "finish.return")
         self.assertEqual(status["memory"]["robot.location"], "instruction_point")
         self.assertEqual(len(status["memory"]["plan"]), 12)
+
+
+class StaleAnswerTests(unittest.TestCase):
+    def test_a_new_value_without_a_sentence_clears_the_old_sentence(self):
+        memory = {"count": 2, "count.answer": "There are 2 waving people."}
+        self.assertEqual(
+            without_stale_answers({"count": 3}, memory),
+            {"count": 3, "count.answer": None},
+        )
+        # A step that writes its own sentence, or another key, keeps it.
+        fresh = {"count": 3, "count.answer": "There are 3 drinks."}
+        self.assertEqual(without_stale_answers(fresh, memory), fresh)
+        self.assertEqual(without_stale_answers({"other": 1}, memory), {"other": 1})
 
 
 if __name__ == "__main__":

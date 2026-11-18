@@ -26,7 +26,15 @@
     "side_tables": [0.75, -1.37, 1.570796],
     "trashbin": [3.65, -3.1, -0.44]
   },
-  "initial_state": {"robot.location": "spawn"},
+  "initial_state": {
+    "robot.location": "spawn",
+    "gpsr.names": ["Adel", "Angel", "Axel", "Charlie", "Jane", "Jules", "Morgan", "Paris", "Robin", "Simone"],
+    "gpsr.robot_name": "AhaRobot",
+    "gpsr.team_name": "TRAIL",
+    "gpsr.team_country": "Japan",
+    "gpsr.team_affiliation": "the University of Tokyo",
+    "gpsr.utc_offset": 9
+  },
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",
     "run_plan_step": "aha_tasks.plan:RunPlanStep",
@@ -35,7 +43,7 @@
     "plan_commands": null,
     "report_results": null,
     "say": "aha_tasks.interaction:Say",
-    "answer_question": null,
+    "answer_question": "aha_tasks.talk:AnswerQuestion",
     "find_object": null,
     "pick_object": null,
     "place_object": null,
@@ -44,7 +52,7 @@
     "count_people": "aha_tasks.people:CountPeople",
     "count": null,
     "describe": null,
-    "tell_info": null,
+    "tell_info": "aha_tasks.talk:TellInfo",
     "follow_person": null,
     "guide_person": null
   },

@@ -24,6 +24,8 @@ from aha_tasks.core.skill import SkillContext  # noqa: E402
 from aha_tasks import interaction as interaction_module  # noqa: E402
 from aha_tasks.display import Screen, ScreenBridge  # noqa: E402
 from aha_tasks.interaction import (  # noqa: E402
+    LISTEN_ACTION,
+    NO_ASR,
     SPEAK_ACTION,
     Interaction,
     Say,
@@ -303,6 +305,40 @@ class RosTests(unittest.TestCase):
         self.assertTrue(ok, message)
         self.assertEqual(message, "TTS: done")
         self.assertEqual(spoken, ["Welcome."])
+
+    def test_listen_fails_without_an_asr(self):
+        text, message = self.interaction.listen(["Charlie"], self.cancelled)
+        self.assertIsNone(text)
+        self.assertTrue(message.startswith(NO_ASR), message)
+
+    def test_listen_returns_the_utterance(self):
+        from aha_msgs.action import Listen
+
+        replies = [(True, " Yes, I am Charlie. ", ""), (False, "", "no speech")]
+        goals = []
+
+        def listen(goal_handle):
+            request = goal_handle.request
+            goals.append((list(request.hotwords), request.language, request.timeout))
+            success, text, message = replies.pop(0)
+            goal_handle.succeed()
+            result = Listen.Result(success=success, message=message)
+            result.transcript.text = text
+            return result
+
+        asr = Node("test_asr")
+        server = ActionServer(asr, Listen, LISTEN_ACTION, listen)
+        self.executor.add_node(asr)
+        try:
+            heard = self.interaction.listen(["Charlie"], self.cancelled, timeout=3.0)
+            failed = self.interaction.listen([], self.cancelled)
+        finally:
+            self.executor.remove_node(asr)
+            server.destroy()
+            asr.destroy_node()
+        self.assertEqual(heard, ("Yes, I am Charlie.", ""))
+        self.assertEqual(failed, (None, "ASR: no speech"))
+        self.assertEqual(goals, [(["Charlie"], "en", 3.0), ([], "en", 10.0)])
 
     def test_start_signal_through_the_screen(self):
         skill = WaitStartSignal(SimpleNamespace(node=self.node))
