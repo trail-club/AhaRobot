@@ -468,7 +468,7 @@ DGXでの1枚の処理は約7 s（SAM 3.1が約5 s、Qwen3.8が約2 s、2026-11-
 
 その他のパラメータは [config/object_perception.yaml](config/object_perception.yaml)（`prompts`・`threshold`・`max_candidates`・`border_px`・`max_size`・`robot_frames`・`robot_margin`・`merge_distance`・`gate`・`forget_after`・`max_rate`・`request_timeout`）。
 `debug_dir` を指定すると、処理した画像ごとに輪郭とラベルを描いた画像と、候補・VLMの回答・物体をJSONで保存する。
-workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作り、Ctrl-Cで削除する。
+workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作ってコンテナを起動し、Ctrl-Cでコンテナと一時ディレクトリを削除する（イメージは人の認識と共有するので残す）。
 
 制限：
 
