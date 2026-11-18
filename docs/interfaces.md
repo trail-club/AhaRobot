@@ -166,6 +166,7 @@ aha_tasksの `e2e:=debug` では `navigation:=false` でmap_serverとAMCLだけ�
 
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
+`TaskCommand` の `command` は `start` / `retry` / `skip` / `rewind` / `abort` と、腕を手でhome姿勢へ戻した後に台車の移動と取る・置く・渡すgoalを再び許す `arm_ok`（サブゴールの実行中は断る。[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 

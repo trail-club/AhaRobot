@@ -25,6 +25,7 @@ from aha_tasks.handling import (  # noqa: E402
     Hands,
     PickObject,
     PlaceObject,
+    arm_text,
     choose_object,
     free_spot,
     furniture_ahead,
@@ -35,7 +36,7 @@ from aha_tasks.handling import (  # noqa: E402
     spot_from,
 )
 from aha_tasks.objects import Cancelled, Percept, furniture_region  # noqa: E402
-from aha_tasks.runner import guard_navigation, load_task  # noqa: E402
+from aha_tasks.runner import arm_ok, guard_navigation, load_task  # noqa: E402
 from aha_tasks.skills import LOCATION, go_to  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from test_object_skills import FURNITURE, FakeObjects, detection  # noqa: E402
@@ -1187,6 +1188,34 @@ class HandsTests(unittest.TestCase):
                 self.assertIn(out, arm_out)
                 if late.success:
                     self.assertIn(out, blocked)
+
+    def test_the_operator_clears_the_arm_state_with_arm_ok(self):
+        hands = bare_hands(arm_out=arm_text("not at home: stuck"))
+        hands.hold, hands.pending = arm_text("check the hand"), {7}
+        runtime, notes = hands.runtime, []
+        runtime.hands = hands
+        navigation = SimpleNamespace()
+        guard_navigation(navigation, runtime)
+        engine = SimpleNamespace(state="running", notify=notes.append)
+        self.assertFalse(arm_ok(engine, runtime)[0])  # a skill may move the arm
+        self.assertIn("move it back home and send arm_ok", navigation.blocked())
+        engine.state = "paused"
+        self.assertEqual(
+            arm_ok(engine, runtime), (True, "Arm marked home: the base may move again")
+        )
+        self.assertIsNone(navigation.blocked())
+        self.assertIsNone(hands.blocked())
+        self.assertIn("arm_ok from the operator", notes[0])
+        self.assertIn("not at home: stuck", notes[0])
+        self.assertEqual(arm_ok(engine, runtime), (True, "The arm was not marked out"))
+        self.assertEqual(len(notes), 1)
+        # A goal that ends later still sets the state.
+        hands.settle(7, PickResult(success=False, message="stuck", at_home=False), None)
+        self.assertIn("not at home: stuck", navigation.blocked())
+        # A task without the hands.
+        runtime = SimpleNamespace(arm_out="out")
+        self.assertTrue(arm_ok(engine, runtime)[0])
+        self.assertIsNone(runtime.arm_out)
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = bare_hands()

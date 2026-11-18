@@ -422,7 +422,7 @@ def arm_why(result):
 
 def arm_text(why):
     """The ARM_OUT value for `why` (None: the arm is at home)."""
-    return why and f"the arm may be out ({why}); move it back and restart the runner"
+    return why and f"the arm may be out ({why}); move it back home and send arm_ok"
 
 
 def wait(future, timeout, cancelled, until=None):
@@ -505,6 +505,13 @@ class Hands:
 
     def set_arm(self, why):
         setattr(self.runtime, ARM_OUT, arm_text(why))
+
+    def arm_ok(self):
+        """The operator checked that the arm is home and that no goal still
+        runs (runner.arm_ok): goals are sent again. A goal that ends later
+        still sets ARM_OUT (settle)."""
+        self.hold = None
+        self.pending.clear()
 
     def blocked(self):
         """Why no goal may be sent now, or None."""

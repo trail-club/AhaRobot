@@ -143,6 +143,7 @@ function renderControls() {
   $("start").disabled = !startable || selection.size === 0;
   $("select-all").disabled = busy();
   $("select-none").disabled = busy();
+  $("arm-ok").disabled = !online || status.state === "running";
   policy.disabled = busy();
   const points = status.subgoals.filter((s) => selection.has(s.id)).reduce((sum, s) => sum + s.points, 0);
   $("selection-count").textContent = `${selection.size} / ${status.subgoals.length} 件選択（最大 ${points} pt）`;
@@ -344,6 +345,9 @@ $("select-none").addEventListener("click", () => setSelection([]));
 $("retry").addEventListener("click", () => send({ command: "retry" }));
 $("rewind").addEventListener("click", () => send({ command: "rewind" }));
 $("skip").addEventListener("click", () => send({ command: "skip" }));
+$("arm-ok").addEventListener("click", () => {
+  if (window.confirm("腕がhome姿勢にあり、取る・置く・渡す動作が止まっていることを確かめましたか？")) send({ command: "arm_ok" });
+});
 $("abort").addEventListener("click", () => {
   if (window.confirm("実行中のサブゴールを中断しますか？")) send({ command: "abort" });
 });
