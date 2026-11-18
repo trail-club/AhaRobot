@@ -373,6 +373,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 `person_perception.py` は頭部カメラの色画像をDGX SparkのSAM 3.1へ送り、Depthから求めた人の3D位置・追跡ID・覚えた名前を配信する。
 覚えた人との照合と外見の特徴は、[ローカルLLM](../../../tools/local-llm/README.md) のQwen3.8が人の切り出し画像を見て答える。
+VLMは同じ画像に同じ答えを返すため、`describe_person` は同じ人の前回の画像より0.5 s（画像の時刻）以上後の切り出しを使う。保持中の最も大きい切り出しが条件を満たさなければ、直近の切り出しのうち条件を満たす最も大きいものを使う。まだなければ実時間で最大5 s待ち、それでもなければ失敗する。返答の `message` に使った画像の時刻を入れる。
 SAM 3.1は並んだ人を1つのマスクで返すことがあるため、マスクを空の列で分け、Depthから求めた床面上の距離が0.4 m以上なら別の人として扱う。0.4 m未満なら、ドア枠などの細い物に隠された1人として1つに戻す。床面はカメラから `target_frame` へのTFで求める。`target_frame` が空の場合は、カメラが水平と仮定した近似になる。列が重なって写る人は分けられない。
 topic・serviceは [ROSインターフェース](../../../docs/interfaces.md#人の認識)、追跡・名前付けの設定は `config/people.yaml` を参照。
 
@@ -468,7 +469,7 @@ DGXでの1枚の処理は約7 s（SAM 3.1が約5 s、Qwen3.8が約2 s、2026-11-
 
 その他のパラメータは [config/object_perception.yaml](config/object_perception.yaml)（`prompts`・`threshold`・`max_candidates`・`border_px`・`max_size`・`robot_frames`・`robot_margin`・`merge_distance`・`gate`・`forget_after`・`max_rate`・`request_timeout`）。
 `debug_dir` を指定すると、処理した画像ごとに輪郭とラベルを描いた画像と、候補・VLMの回答・物体をJSONで保存する。
-workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作り、Ctrl-Cで削除する。
+workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作ってコンテナを起動し、Ctrl-Cでコンテナと一時ディレクトリを削除する（イメージは人の認識と共有するので残す）。
 
 制限：
 

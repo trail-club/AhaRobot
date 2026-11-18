@@ -18,7 +18,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
-from tf2_ros import StaticTransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 import yaml
 
 from aha_perception.plane_detection_io import quaternion_from_matrix
@@ -54,9 +54,11 @@ def expected_centre(label, u, v):
 
 
 class NodeHarness(unittest.TestCase):
-    """Runs the node with the fake worker; TARGET is its target_frame."""
+    """Runs the node with the fake worker; TARGET is its target_frame. The
+    camera pose is on /tf_static, or with DYNAMIC_CAMERA on /tf with each image."""
 
     TARGET = "map"
+    DYNAMIC_CAMERA = False
 
     @classmethod
     def setUpClass(cls):
@@ -111,7 +113,9 @@ class NodeHarness(unittest.TestCase):
         q.x, q.y, q.z, q.w = quaternion_from_matrix(OPTICAL)
         cls.camera = transform
         cls.tf = StaticTransformBroadcaster(cls.node)
-        cls.tf.sendTransform(transform)
+        cls.dynamic_tf = TransformBroadcaster(cls.node)
+        if not cls.DYNAMIC_CAMERA:
+            cls.tf.sendTransform(transform)
 
     @classmethod
     def tearDownClass(cls):
@@ -130,14 +134,13 @@ class NodeHarness(unittest.TestCase):
         while time.monotonic() < deadline:
             self.executor.spin_once(timeout_sec=0.02)
 
-    def publish(self, blobs):
+    def publish(self, blobs, stamp):
         rgb = np.full((H, W, 3), 128, np.uint8)
         for colour, place in blobs.items():
             # (u, v), or (u, v, half width, half height) in pixels
             u, v, hu, hv = (*place, HALF, HALF)[:4]
             rgb[v - hv : v + hv, u - hu : u + hu] = COLOURS[colour]
         depth = np.full((H, W), DEPTH, np.float32)
-        stamp = self.node.get_clock().now().to_msg()
         color = Image(
             height=H, width=W, encoding="rgb8", step=W * 3, data=rgb.tobytes()
         )
@@ -149,19 +152,28 @@ class NodeHarness(unittest.TestCase):
         for message in (color, aligned, info):
             message.header.stamp = stamp
             message.header.frame_id = CAMERA
+        if self.DYNAMIC_CAMERA:
+            self.camera.header.stamp = stamp
+            self.dynamic_tf.sendTransform(self.camera)
         self.color.publish(color)
         self.depth.publish(aligned)
         self.info.publish(info)
 
-    def stream(self, blobs, seconds, until):
-        start = self.node.get_clock().now()
+    def stream(self, blobs, seconds, until, back=0.0):
+        """Publish images stamped `back` s before now until the node's message
+        for one of them satisfies `until`; None after `seconds`."""
+        offset = int(back * 1e9)
+        start = self.node.get_clock().now().nanoseconds - offset
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            self.publish(blobs)
+            last = self.node.get_clock().now().nanoseconds - offset
+            self.publish(blobs, Time(nanoseconds=last).to_msg())
             self.spin(0.1)
-            if self.objects and Time.from_msg(self.objects[-1].header.stamp) >= start:
-                if until(self.objects[-1]):
-                    return self.objects[-1]
+            if self.objects:
+                message = self.objects[-1]
+                stamp = Time.from_msg(message.header.stamp).nanoseconds
+                if start <= stamp <= last and until(message):
+                    return message
         return None
 
 
@@ -241,6 +253,21 @@ class CameraFrameTest(NodeHarness):
         self.assertAlmostEqual(found.size.x, 2 * HALF * DEPTH / FX, delta=0.01)
         self.assertAlmostEqual(found.size.y, 2 * hv * DEPTH / FX, delta=0.01)
         self.assertLessEqual(found.size.z, 0.011)  # the flat wall; 0.01 m at least
+
+
+class SimRestartTest(NodeHarness):
+    DYNAMIC_CAMERA = True
+
+    def test_objects_after_the_time_went_back(self):
+        # A restarted simulation sends images and /tf with earlier stamps; the
+        # old, later TF must not reject the new /tf (TF_OLD_DATA).
+        blobs = {"red": (160, 60)}
+        before = self.stream(blobs, 30.0, lambda m: len(m.objects) == 1)
+        self.assertIsNotNone(before, "the object was never published")
+        after = self.stream(blobs, 15.0, lambda m: len(m.objects) == 1, back=100.0)
+        self.assertIsNotNone(after, "no object after the time went back")
+        # The old run's tracks are dropped.
+        self.assertNotEqual(after.objects[0].track_id, before.objects[0].track_id)
 
 
 if __name__ == "__main__":

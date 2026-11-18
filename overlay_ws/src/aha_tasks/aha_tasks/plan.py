@@ -134,6 +134,7 @@ class RunPlanStep(Skill):
                     memory=ctx.memory,
                     cancelled=ctx.cancelled,
                     log=ctx.log,
+                    statuses=ctx.statuses,
                 )
             )
         )
