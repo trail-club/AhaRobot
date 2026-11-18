@@ -25,3 +25,6 @@
 [submodule "upstream/sam3"]
 	path = upstream/sam3
 	url = https://github.com/facebookresearch/sam3.git
+[submodule "upstream/PretrainedSED"]
+	path = upstream/PretrainedSED
+	url = https://github.com/fschmid56/PretrainedSED.git

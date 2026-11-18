@@ -12,14 +12,19 @@ from pathlib import Path
 import threading
 
 from aha_tasks.guests import (
+    ARRIVE,
+    TRIGGERS,
     Guest,
+    attempts_of,
     door_open,
+    executing,
     guest_phase,
     guest_sdf,
     load_config,
     statuses_of,
 )
 from aha_tasks.runner import STATUS_TOPIC
+from aha_tasks.sim_sound_node import BELL_TOPIC
 
 PERIOD = 0.1  # s (simulation clock)
 REQUEST_TIMEOUT = 2000  # ms
@@ -60,7 +65,7 @@ def main(argv=None):
     world = f"/world/{scene['world']}"
     gz = GzNode()
     lock = threading.Lock()
-    state = {"robot": None, "statuses": {}}
+    state = {"robot": None, "statuses": {}, "attempts": {}, "executing": None}
 
     def on_poses(message):
         for pose in message.pose:
@@ -82,8 +87,11 @@ def main(argv=None):
     log = node.get_logger()
 
     def on_status(message):
+        status = json.loads(message.data)
         with lock:
-            state["statuses"] = statuses_of(json.loads(message.data))
+            state["statuses"] = statuses_of(status)
+            state["attempts"] = attempts_of(status)
+            state["executing"] = executing(status)
 
     node.create_subscription(
         String,
@@ -95,6 +103,7 @@ def main(argv=None):
             reliability=ReliabilityPolicy.RELIABLE,
         ),
     )
+    bell_pub = node.create_publisher(String, BELL_TOPIC, 10)
     guests = [Guest(name, c, scene) for name, c in scene["guests"].items()]
     door = scene["door"]
     missing = list(guests)
@@ -126,6 +135,7 @@ def main(argv=None):
             return
         with lock:
             robot, statuses = state["robot"], state["statuses"]
+            attempts, running = state["attempts"], state["executing"]
         is_open = door_open([g.name for g in guests], statuses)
         if is_open != opened:
             x, y, z, yaw = door["open" if is_open else "closed"]
@@ -137,7 +147,13 @@ def main(argv=None):
             if phase != guest.phase:
                 log.info(f"{guest.name}: phase {guest.phase} -> {phase}")
             guest.set_phase(phase)
+            bell = f"{guest.name}.{TRIGGERS[ARRIVE]}"
+            guest.set_bell(attempts.get(bell), running == bell)
             guest.step(dt, robot)
+            if guest.ring is not None:
+                bell_pub.publish(String(data=guest.ring))
+                log.info(f"{guest.name}: {guest.ring} at the door")
+                guest.ring = None
             pose = (guest.x, guest.y, guest.z, guest.model_yaw)
             previous = sent.get(guest.name)
             if (

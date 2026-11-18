@@ -134,3 +134,40 @@ def test_listen_outlasts_a_model_load_past_the_hard_deadline():
     assert result.transcript.text == "hi"
     goal.succeed.assert_called_once()
     assert node._request is None
+
+
+def test_topic_stream_reports_when_the_simulated_audio_flows_and_stalls(monkeypatch):
+    from aha_perception.audio import doorbell_node
+
+    monkeypatch.setattr(doorbell_node, "STALL_S", 0.3)
+    callbacks = []
+    node = types.SimpleNamespace(
+        get_logger=lambda: Mock(),
+        create_subscription=lambda *args: callbacks.append(args[2]),
+    )
+    flows = []
+    stream = doorbell_node.TopicStream(node, flows.append)
+    stop = threading.Event()
+    frames = []
+    reader = threading.Thread(
+        target=lambda: frames.extend(stream.frames(stop)), daemon=True
+    )
+    reader.start()
+    block = types.SimpleNamespace(data=[0.0] * doorbell_node.FRAME)
+
+    def wait_for(condition):
+        end = time.monotonic() + 3.0
+        while not condition() and time.monotonic() < end:
+            time.sleep(0.02)
+        assert condition()
+
+    time.sleep(0.5)
+    assert flows == []  # nothing yet: not listening
+    callbacks[0](block)
+    wait_for(lambda: flows == [True])
+    wait_for(lambda: flows == [True, False])  # stalled
+    callbacks[0](block)
+    wait_for(lambda: flows == [True, False, True])
+    stop.set()
+    reader.join(2.0)
+    assert len(frames) == 2

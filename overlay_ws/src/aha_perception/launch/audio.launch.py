@@ -1,7 +1,9 @@
-"""Audio stack: ASR + TTS (+ debug UI). Run inside the aha_audio container.
+"""Audio stack: ASR + TTS (+ debug UI, doorbell). Run inside the aha_audio container.
 
-target chooses where the models run: dgx / trailpc over SSH (WARP), or local in
-these processes. See docs/audio.md.
+target chooses where the ASR / TTS models run: dgx / trailpc over SSH (WARP), or
+local in these processes. The doorbell detector, which HIC needs, always runs in
+its own process on the local GPU (use_doorbell:=false leaves it out;
+doorbell_input:=topic reads the simulated audio). See docs/audio.md.
 """
 
 from launch import LaunchDescription
@@ -52,6 +54,12 @@ def generate_launch_description():
             DeclareLaunchArgument("use_asr", default_value="true"),
             DeclareLaunchArgument("use_tts", default_value="true"),
             DeclareLaunchArgument("use_debug_ui", default_value="true"),
+            DeclareLaunchArgument("use_doorbell", default_value="true"),
+            DeclareLaunchArgument(
+                "doorbell_input",
+                default_value="mic",
+                description="Doorbell detector input: mic | topic (/aha/sim/audio)",
+            ),
             Node(
                 package="aha_perception",
                 executable="audio_asr_node",
@@ -73,6 +81,20 @@ def generate_launch_description():
                 parameters=[params, {"models_file": models, **inference}],
                 sigterm_timeout="20",
                 condition=IfCondition(LaunchConfiguration("use_tts")),
+            ),
+            Node(
+                package="aha_perception",
+                executable="audio_doorbell_node",
+                name="aha_audio_doorbell",
+                output="screen",
+                parameters=[
+                    params,
+                    {
+                        "models_file": models,
+                        "input": LaunchConfiguration("doorbell_input"),
+                    },
+                ],
+                condition=IfCondition(LaunchConfiguration("use_doorbell")),
             ),
             Node(
                 package="aha_perception",
