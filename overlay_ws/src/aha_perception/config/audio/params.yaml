@@ -36,6 +36,14 @@ aha_audio_tts:
     output_device: ''
     playback_rate: 24000
 
+aha_audio_doorbell:
+  ros__parameters:
+    device: cuda:0
+    # 入力は launch 引数 doorbell_input:=mic|topic (topic はシミュレーションの /aha/sim/audio)
+    input_device: ''
+    capture_rate: 16000
+    mute_tail_ms: 300              # TTS 終了後もしばらく判定しない
+
 aha_audio_debug_ui:
   ros__parameters:
     host: 127.0.0.1                # 別 PC から見るなら 0.0.0.0 (認証なしなので注意)

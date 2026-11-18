@@ -1,0 +1,26 @@
+[project]
+name = "aharobot-doorbell-bench"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "transformers==4.57.6",
+    "huggingface-hub",
+    "safetensors",
+    "torchaudio",
+    "soundfile==0.14.0",
+    "librosa",
+    "pyarrow",
+    "pandas",
+    "pyroomacoustics",
+    "timm",
+    "einops",
+    "nnaudio",
+    "ai-edge-litert",
+    "matplotlib",
+]
+
+[tool.uv]
+package = false
+required-version = ">=0.12.23"
+# Supplied by the CUDA base image, not the PyPI dependency resolver.
+exclude-dependencies = ["torch", "torchvision"]
