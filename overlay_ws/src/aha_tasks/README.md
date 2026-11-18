@@ -597,7 +597,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.*' --on-failure skip  # 別のシ�
 | `office` | Study Room | `chairs`（`chair_left` / `chair_right`）、`shelf` |
 | `living_room` | Living Room / Laundry Area | `desk`（`long_table`）、`side_tables`（`tall_table`）、`trashbin`（`trash_box`） |
 
-部屋と家具の対応はタスク定義の `rooms` に書き、上面を見る家具は `kitchen_table`・`desk`・`side_tables`・`shelf`。
+部屋と家具の対応はタスク定義の `rooms` に書く（[物体を探す・数える・答えるスキル](#物体を探す数える答えるスキル)）。
 `instruction_point` は固定の代替地点で、発表された地点に合わせて座標を変える。入口のドアは閉じたままで、ロボットは内側の `spawn` から始める。
 物体は `object_scene:=gpsr` で家具に置く（[シミュレーションの物体](#シミュレーションの物体)）。
 審判がタイマーを止める間も、GUIの経過時間は止まらない。

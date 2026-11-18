@@ -3,10 +3,9 @@
 Commands of the RoboCup@Home command generator (rulebook 5.3): findObjInRoom
 and findObj (`find_object`), countObjOnPlcmt (`count`), tellObjPropOnPlcmt and
 tellCatPropOnPlcmt (`describe`). A step's `location` is a room or a furniture
-location of the task definition's `rooms`, which also gives the furniture of
-the furniture config whose top is looked at (aha_tasks.objects). For a room
-the robot visits its furniture on the shortest straight-line path from where
-it is, and looks over each top with aha_tasks.objects (`Objects.scan`).
+location of the task definition's `rooms`, which also names the furniture
+whose top is looked over (aha_tasks.objects, `Objects.scan`). The furniture of
+a room is visited on the shortest straight-line path from the robot.
 
 Names in commands are matched to the object list (aha_perception.object_list)
 without regard to case, plurals, punctuation ("rubik's", "jell-o"), word order
@@ -14,16 +13,6 @@ or a container word ("tomato soup can", "can of cola"), and through the list's
 `aliases` (other names of a label) and `groups` (e.g. "kitchen item"). People
 ("the name of the person") are not this module's: such steps are unsupported,
 so a plan mocks them.
-
-Superlatives (`describe`): biggest / largest: largest volume of the box
-(x * y * z); smallest: smallest volume; heaviest / lightest: the object
-list's weight; thinnest: smallest of the box's three sides (thickness), then
-the second smallest. The box is the object list's size of the label (the
-official object; a camera detector sees only its front), else the detected
-box. Synonyms (tiniest, slimmest, "weighs the most", ...) map to these.
-
-Answers (`count`, `describe`) are written to `<output>` and an English
-sentence to `<output>.answer`, which `tell_info` says to the person.
 """
 
 from __future__ import annotations
@@ -36,7 +25,7 @@ import re
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.interaction import Interaction
 from aha_tasks.objects import Cancelled, Objects, check_margin, norm_label, record
-from aha_tasks.people import check_keys
+from aha_tasks.people import check_keys, check_name
 from aha_tasks.skills import LOCATION, go_to, resolve_pose
 
 MARGIN = 0.1  # m beyond a furniture outline where objects still count as on it
@@ -92,36 +81,42 @@ SUPERLATIVES = {
     "lightest": ("weight", False),
     "thinnest": ("thickness", False),
 }
+# Other words for them.
 SYNONYMS = {
     "bulkiest": "biggest",
     "hugest": "biggest",
     "greatest": "biggest",
+    "most big": "biggest",
+    "most large": "largest",
+    "most bulky": "biggest",
+    "most voluminous": "biggest",
     "tiniest": "smallest",
     "littlest": "smallest",
     "teeniest": "smallest",
+    "least big": "smallest",
+    "least large": "smallest",
+    "most compact": "smallest",
+    "most heavy": "heaviest",
+    "least light": "heaviest",
+    "weighs the most": "heaviest",
+    "weigh the most": "heaviest",
+    "least heavy": "lightest",
+    "weighs the least": "lightest",
+    "weigh the least": "lightest",
     "slimmest": "thinnest",
     "skinniest": "thinnest",
     "narrowest": "thinnest",
     "slenderest": "thinnest",
     "flattest": "thinnest",
+    "most thin": "thinnest",
+    "most slim": "thinnest",
+    "most slender": "thinnest",
+    "most narrow": "thinnest",
+    "least thick": "thinnest",
 }
-# "most <adjective>" / "least <adjective>".
-COMPARATIVES = {
-    ("most", "big"): "biggest",
-    ("most", "large"): "largest",
-    ("most", "bulky"): "biggest",
-    ("most", "voluminous"): "biggest",
-    ("least", "big"): "smallest",
-    ("least", "large"): "smallest",
-    ("most", "compact"): "smallest",
-    ("most", "heavy"): "heaviest",
-    ("least", "heavy"): "lightest",
-    ("least", "light"): "heaviest",
-    ("most", "thin"): "thinnest",
-    ("most", "slim"): "thinnest",
-    ("most", "slender"): "thinnest",
-    ("most", "narrow"): "thinnest",
-    ("least", "thick"): "thinnest",
+# Words of a superlative or a synonym -> the superlative.
+PHRASES = {(name,): name for name in SUPERLATIVES} | {
+    tuple(phrase.split()): name for phrase, name in SYNONYMS.items()
 }
 
 
@@ -206,14 +201,21 @@ def plural(phrase):
     return " ".join(ws[:-1] + [last])
 
 
-def place_name(label):
-    return str(label).replace("_", " ")
-
-
 def where(spec, location):
     """ "in the kitchen" for a room, "on the desk" for a piece of furniture."""
     preposition = "in" if location in spec.rooms else "on"
-    return f"{preposition} the {place_name(location)}"
+    return f"{preposition} the {location.replace('_', ' ')}"
+
+
+def count_answer(text, labels, place):
+    """ "There are 3 drinks on the desk: green tea, lemonade and red bull." """
+    n = len(labels)
+    if n == 0:
+        return f"There are no {plural(text)} {place}."
+    if n == 1:
+        return f"There is one {singular(text)} {place}: the {labels[0]}."
+    names = f": {', '.join(labels[:-1])} and {labels[-1]}" if n <= 5 else ""
+    return f"There are {n} {plural(text)} {place}{names}."
 
 
 # -- what a command asks for -------------------------------------------------
@@ -227,7 +229,6 @@ class Target:
     "unknown" (not in the object list).
     """
 
-    text: str
     kind: str
     labels: frozenset = frozenset()
     categories: frozenset = frozenset()
@@ -244,27 +245,26 @@ def resolve_target(text, object_list):
     """Target of a name: generic word, label (or an alias), category, group."""
     found = forms(text)
     if not found or found & {(w,) for w in GENERIC}:
-        return Target(text, "any")
+        return Target("any")
     labels = {
         o.label
         for o in object_list.objects
         if any(forms(name) & found for name in (o.label, *o.aliases))
     }
     if labels:
-        return Target(text, "objects", frozenset(labels))
+        return Target("objects", frozenset(labels))
     categories = {o.category for o in object_list.objects if forms(o.category) & found}
     if categories:
-        return Target(text, "objects", categories=frozenset(categories))
+        return Target("objects", categories=frozenset(categories))
     known = {o.category for o in object_list.objects}
     for name, members in object_list.groups:
         if forms(name) & found:
             return Target(
-                text,
                 "objects",
                 frozenset(m for m in members if m not in known),
                 frozenset(m for m in members if m in known),
             )
-    return Target(text, "unknown")
+    return Target("unknown")
 
 
 def parse_superlative(text):
@@ -276,20 +276,12 @@ def parse_superlative(text):
             break
     found, rest, i = [], [], 0
     while i < len(ws):
-        pair = tuple(ws[i : i + 2])
-        triple = tuple(ws[i : i + 3])
-        if ws[i] in SUPERLATIVES or ws[i] in SYNONYMS:
-            found.append(SYNONYMS.get(ws[i], ws[i]))
-            i += 1
-        elif pair in COMPARATIVES:
-            found.append(COMPARATIVES[pair])
-            i += 2
-        elif triple in {("weighs", "the", "most"), ("weigh", "the", "most")}:
-            found.append("heaviest")
-            i += 3
-        elif triple in {("weighs", "the", "least"), ("weigh", "the", "least")}:
-            found.append("lightest")
-            i += 3
+        for n in (3, 2, 1):  # the longest phrase first: "weighs the most"
+            phrase = tuple(ws[i : i + n])
+            if phrase in PHRASES:
+                found.append(PHRASES[phrase])
+                i += len(phrase)
+                break
         else:
             rest.append(ws[i])
             i += 1
@@ -304,7 +296,7 @@ def parse_superlative(text):
     return found[0], subject
 
 
-def measure(name, percept, entry=None):
+def measure(name, percept, entry):
     """Value of a percept for a superlative; None if unknown (no weight).
 
     The size is the object list's for a listed label (`entry`, the object
@@ -320,27 +312,16 @@ def measure(name, percept, entry=None):
     return tuple(sorted(size)[:2])  # thickness, then the next smallest side
 
 
-def rank(candidates, name, entry_of=lambda label: None):
+def rank(candidates, name, entry_of):
     """Candidates [(percept, ...)] best first for the superlative, then by
     detections and confidence; those without a value are left out.
     `entry_of(label)` gives the label's object list entry or None."""
-    largest = SUPERLATIVES[name][1]
-    valued = []
-    for item in candidates:
-        percept = item[0]
-        value = measure(name, percept, entry_of(percept.label))
-        if value is not None:
-            valued.append((value, item))
-
-    def key(entry):
-        value, item = entry
-        if isinstance(value, tuple):
-            value = tuple(-v for v in value) if largest else value
-        else:
-            value = -value if largest else value
-        return (value, -item[0].count, -item[0].confidence)
-
-    return [item for _, item in sorted(valued, key=key)]
+    valued = [(measure(name, c[0], entry_of(c[0].label)), c) for c in candidates]
+    valued = [(value, c) for value, c in valued if value is not None]
+    # Stable sorts: the value decides, ties go to more detections, then confidence.
+    valued.sort(key=lambda v: (v[1][0].count, v[1][0].confidence), reverse=True)
+    valued.sort(key=lambda v: v[0], reverse=SUPERLATIVES[name][1])
+    return [c for _, c in valued]
 
 
 # -- places ------------------------------------------------------------------
@@ -377,34 +358,39 @@ def visit_order(start, points):
     return list(min(itertools.permutations(labels), key=length)) if labels else []
 
 
+def placed_record(percept, place, frame, level):
+    """The object record of aha_tasks.objects with its furniture location
+    ("surface") and level."""
+    return {**record(percept, frame), "surface": place, "level": level}
+
+
 # -- skills ------------------------------------------------------------------
 
 
-def check_location(params, spec):
-    location = params.get("location")
-    if not isinstance(location, str) or location not in spec.locations:
-        raise ValueError(f"Unknown location: {location!r}")
-    if not places_of(spec, location):
-        raise ValueError(
-            f"{location} is not a room or a furniture location of the task's rooms"
-        )
-
-
-def check_text(params, key):
-    if not isinstance(params.get(key), str) or not params[key].strip():
-        raise ValueError(f"{key} must be a nonempty text: {params}")
-
-
-def check_output(params, default=None):
-    value = params.get("output", default)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"output must be a memory key: {value!r}")
-
-
 class _ObjectQuery(Skill):
-    """Common parts: places, the look over them and speech."""
+    """Common parts: params, places, the look over them and speech."""
 
-    TARGET = "target"
+    TARGET = "target"  # param of the name of the objects
+    OUTPUT = None  # default memory key of the output; None: `output` is required
+
+    @classmethod
+    def validate(cls, params, spec):
+        required = {cls.TARGET, "location"}
+        if cls.OUTPUT is None:
+            required.add("output")
+        check_keys(params, required, {"output", "margin"} - required)
+        check_name(params, cls.TARGET)
+        location = params["location"]
+        if not isinstance(location, str) or location not in spec.locations:
+            raise ValueError(f"Unknown location: {location!r}")
+        if not places_of(spec, location):
+            raise ValueError(
+                f"{location} is not a room or a furniture location of the task's rooms"
+            )
+        if "output" in params:
+            check_name(params, "output")
+        if "margin" in params:
+            check_margin(params)
 
     def ready(self):
         """Load the configs; every furniture of `rooms` must be in the furniture
@@ -430,9 +416,6 @@ class _ObjectQuery(Skill):
     def expected(self, params):
         return {LOCATION: params["location"]}
 
-    def target(self, text):
-        return resolve_target(text, Objects.of(self.runtime).object_list)
-
     def entry(self, label):
         """The object list's entry of a detected label, or None."""
         object_list = Objects.of(self.runtime).object_list
@@ -453,29 +436,36 @@ class _ObjectQuery(Skill):
     def ordered_places(self, ctx, location):
         """Furniture locations with a top, on the shortest path from the robot."""
         spec = self.runtime.spec
-        places = dict(p for p in places_of(spec, location) if p[1] is not None)
-        skipped = [p for p, f in places_of(spec, location) if f is None]
+        places = places_of(spec, location)
+        skipped = [place for place, furniture in places if furniture is None]
         if skipped:
             ctx.log(f"Not looked at (no furniture top): {', '.join(skipped)}")
-        here = ctx.memory.get(LOCATION)
+        tops = {
+            place: furniture for place, furniture in places if furniture is not None
+        }
         try:
-            start = resolve_pose(spec, here)[:2] if here is not None else (0.0, 0.0)
-        except ValueError:
+            start = resolve_pose(spec, ctx.memory.get(LOCATION))[:2]
+        except ValueError:  # no or an unknown robot.location
             start = (0.0, 0.0)
-        points = {p: tuple(resolve_pose(spec, p)[:2]) for p in places}
-        return [(p, places[p]) for p in visit_order(start, points)]
+        points = {place: resolve_pose(spec, place)[:2] for place in tops}
+        return [(place, tops[place]) for place in visit_order(start, points)]
 
-    def look_over(self, ctx, location, stop=None):
-        """Go to each furniture location of `location` and scan its top.
+    def look_over(self, ctx, text, location, first=False):
+        """Go to each furniture location of `location`, scan its top and keep
+        the objects that match the name `text`.
 
-        Returns ([(place, frame, [(percept, level)])], {robot.location: the
-        place where the robot stands} or {} if it is at none of them), or a
-        failed SkillResult. Stops after a place where `stop(on)` holds.
+        Returns ([(percept, place, frame, level)], places looked at,
+        {robot.location: the place where the robot stands} or {} if it is at
+        none of them), or a failed SkillResult. `first`: stop after the first
+        place with a match.
         """
         objects = Objects.of(self.runtime)
+        target = resolve_target(text, objects.object_list)
+        if target.kind == "unknown":
+            return SkillResult(False, f"{text} is not in the object list")
         margin = float(ctx.params.get("margin", MARGIN))
         here = ctx.memory.get(LOCATION)
-        seen = []
+        found, places = [], []
         for place, furniture in self.ordered_places(ctx, location):
             if place != here and self.runtime.navigation is not None:
                 moved = go_to(self.runtime, place, ctx.cancelled)
@@ -485,7 +475,7 @@ class _ObjectQuery(Skill):
                     )
                 here = place
             try:
-                frame, region, on, others = objects.scan(
+                frame, region, on, _ = objects.scan(
                     furniture, margin, ctx.cancelled, ctx.log
                 )
             except Cancelled:
@@ -496,11 +486,16 @@ class _ObjectQuery(Skill):
                 f"On {place} ({region.name}): "
                 + (", ".join(p.label for p, _ in on) or "nothing")
             )
-            seen.append((place, frame, on))
-            if stop is not None and stop(on):
+            places.append(place)
+            found += [
+                (p, place, frame, level)
+                for p, level in on
+                if target.matches(p.label, p.category)
+            ]
+            if first and found:
                 break
-        at = {LOCATION: here} if here in {place for place, _, _ in seen} else {}
-        return seen, at
+        at = {LOCATION: here} if here in places else {}
+        return found, places, at
 
 
 class FindObject(_ObjectQuery):
@@ -508,58 +503,30 @@ class FindObject(_ObjectQuery):
 
     params: {"object": "<name or category>", "location": "<room or furniture
     location>", "output": "object", "margin": 0.1}. Visits the furniture of a
-    room until an object matches; outputs `<output>` (the object record of
-    aha_tasks.objects plus "surface": the furniture location and "level") and
+    room until an object matches; outputs `<output>` (placed_record) and
     `robot.location`. Says what it found, and looks at it.
     """
 
     TARGET = "object"
-
-    @classmethod
-    def validate(cls, params, spec):
-        check_keys(params, {"object", "location"}, {"output", "margin"})
-        check_text(params, "object")
-        check_location(params, spec)
-        check_output(params, "object")
-        if "margin" in params:
-            check_margin(params)
+    OUTPUT = "object"
 
     def execute(self, ctx):
         params = ctx.params
         text, location = params["object"].strip(), params["location"]
-        target = self.target(text)
-        if target.kind == "unknown":
-            return SkillResult(False, f"{text} is not in the object list")
-
-        def matching(on):
-            return [(p, lv) for p, lv in on if target.matches(p.label, p.category)]
-
-        looked = self.look_over(ctx, location, stop=lambda on: bool(matching(on)))
+        looked = self.look_over(ctx, text, location, first=True)
         if isinstance(looked, SkillResult):
             return looked
-        seen, at = looked
+        found, places, at = looked
         spec = self.runtime.spec
-        for place, frame, on in seen:
-            found = matching(on)
-            if not found:
-                continue
-            percept, level = min(
-                found, key=lambda item: (-item[0].count, -item[0].confidence)
-            )
-            Objects.of(self.runtime).look_at(frame, percept.position)
-            outputs = {
-                params.get("output", "object"): {
-                    **record(percept, frame),
-                    "surface": place,
-                    "level": level,
-                },
-                **at,
-            }
-            self.say(ctx, f"I found the {percept.label} {where(spec, place)}.")
-            return SkillResult(True, f"{percept.label} {where(spec, place)}", outputs)
-        self.say(ctx, f"I could not find any {text} {where(spec, location)}.")
-        places = ", ".join(place for place, _, _ in seen)
-        return SkillResult(False, f"No {text} on {places}")
+        if not found:
+            self.say(ctx, f"I could not find any {text} {where(spec, location)}.")
+            return SkillResult(False, f"No {text} on {', '.join(places)}")
+        best = max(found, key=lambda item: (item[0].count, item[0].confidence))
+        percept, place, frame, _ = best
+        Objects.of(self.runtime).look_at(frame, percept.position)
+        self.say(ctx, f"I found the {percept.label} {where(spec, place)}.")
+        outputs = {params.get("output", self.OUTPUT): placed_record(*best), **at}
+        return SkillResult(True, f"{percept.label} {where(spec, place)}", outputs)
 
 
 class CountObjects(_ObjectQuery):
@@ -570,43 +537,23 @@ class CountObjects(_ObjectQuery):
     `<output>.answer` ("There are 3 drinks on the desk: ..."), and says it.
     """
 
-    @classmethod
-    def validate(cls, params, spec):
-        check_keys(params, {"target", "location", "output"}, {"margin"})
-        check_text(params, "target")
-        check_location(params, spec)
-        check_output(params)
-        if "margin" in params:
-            check_margin(params)
-
     def execute(self, ctx):
         params = ctx.params
-        text, location, output = (
-            params["target"].strip(),
-            params["location"],
-            params["output"],
-        )
-        target = self.target(text)
-        if target.kind == "unknown":
-            return SkillResult(False, f"{text} is not in the object list")
-        looked = self.look_over(ctx, location)
+        text, location = params["target"].strip(), params["location"]
+        output = params["output"]
+        looked = self.look_over(ctx, text, location)
         if isinstance(looked, SkillResult):
             return looked
-        seen, at = looked
-        labels = sorted(
-            p.label
-            for _, _, on in seen
-            for p, _ in on
-            if target.matches(p.label, p.category)
-        )
+        found, _, at = looked
+        labels = sorted(p.label for p, *_ in found)
         answer = count_answer(text, labels, where(self.runtime.spec, location))
         self.say(ctx, answer)
         outputs = {
             output: len(labels),
             f"{output}.labels": labels,
             f"{output}.answer": answer,
+            **at,
         }
-        outputs.update(at)
         return SkillResult(True, answer, outputs)
 
 
@@ -616,18 +563,13 @@ class DescribeObject(_ObjectQuery):
 
     params: {"target": "heaviest drink", "location": "desk", "output":
     "cmd1.answer", "margin": 0.1}. Outputs `<output>` (the label),
-    `<output>.object` (its record with "surface"), `<output>.answer` ("The
-    heaviest drink on the desk is the green tea.") and says it.
+    `<output>.object` (placed_record), `<output>.answer` ("The heaviest drink
+    on the desk is the green tea.") and says it.
     """
 
     @classmethod
     def validate(cls, params, spec):
-        check_keys(params, {"target", "location", "output"}, {"margin"})
-        check_text(params, "target")
-        check_location(params, spec)
-        check_output(params)
-        if "margin" in params:
-            check_margin(params)
+        super().validate(params, spec)
         if not is_person(params["target"]):
             parse_superlative(params["target"])
 
@@ -635,23 +577,14 @@ class DescribeObject(_ObjectQuery):
         params = ctx.params
         location, output = params["location"], params["output"]
         superlative, subject = parse_superlative(params["target"])
-        target = self.target(subject)
-        if target.kind == "unknown":
-            return SkillResult(False, f"{subject} is not in the object list")
-        looked = self.look_over(ctx, location)
+        looked = self.look_over(ctx, subject, location)
         if isinstance(looked, SkillResult):
             return looked
-        seen, at = looked
-        candidates = [
-            (p, place, frame, level)
-            for place, frame, on in seen
-            for p, level in on
-            if target.matches(p.label, p.category)
-        ]
+        found, _, at = looked
         spec = self.runtime.spec
-        if not candidates:
+        if not found:
             return SkillResult(False, f"No {subject} {where(spec, location)}")
-        ranked = rank(candidates, superlative, self.entry)
+        ranked = rank(found, superlative, self.entry)
         if not ranked:
             return SkillResult(False, f"No weight of {subject} in the object list")
         ctx.log(
@@ -661,7 +594,7 @@ class DescribeObject(_ObjectQuery):
                 for p, *_ in ranked
             )
         )
-        percept, place, frame, level = ranked[0]
+        percept, _, frame, _ = ranked[0]
         Objects.of(self.runtime).look_at(frame, percept.position)
         answer = (
             f"The {superlative} {singular(subject)} {where(spec, location)} "
@@ -670,26 +603,8 @@ class DescribeObject(_ObjectQuery):
         self.say(ctx, answer)
         outputs = {
             output: percept.label,
-            f"{output}.object": {
-                **record(percept, frame),
-                "surface": place,
-                "level": level,
-            },
+            f"{output}.object": placed_record(*ranked[0]),
             f"{output}.answer": answer,
+            **at,
         }
-        outputs.update(at)
         return SkillResult(True, answer, outputs)
-
-
-def count_answer(text, labels, place):
-    """ "There are 3 drinks on the desk: green tea, lemonade and red bull." """
-    n = len(labels)
-    if n == 0:
-        return f"There are no {plural(text)} {place}."
-    names = ""
-    if n <= 5:
-        names = labels[0] if n == 1 else ", ".join(labels[:-1]) + f" and {labels[-1]}"
-        names = f": {'the ' if n == 1 else ''}{names}"
-    if n == 1:
-        return f"There is one {singular(text)} {place}{names}."
-    return f"There are {n} {plural(text)} {place}{names}."

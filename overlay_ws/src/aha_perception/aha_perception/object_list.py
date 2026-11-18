@@ -21,8 +21,7 @@ ROS free (PyYAML).
 
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 
@@ -143,10 +142,10 @@ def parse_object_list(data, source: str = "object list") -> ObjectList:
         if not _names(names):
             raise ObjectListError(f"{source}: aliases.{label} must be a list of names")
     entries = [
-        dataclasses.replace(
+        replace(
             e,
             weight=float(weights[e.label]) if e.label in weights else None,
-            aliases=tuple(str(n).strip() for n in aliases.get(e.label, ())),
+            aliases=tuple(n.strip() for n in aliases.get(e.label, ())),
         )
         for e in entries
     ]

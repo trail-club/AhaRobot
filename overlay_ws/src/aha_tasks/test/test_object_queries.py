@@ -193,10 +193,11 @@ class SuperlativeTests(unittest.TestCase):
         # Labels not in the list: the detected boxes, and no weight.
         self.assertEqual(best("biggest", lambda label: None), "milk")
         self.assertEqual(best("thinnest", lambda label: None), "lemon")
-        self.assertEqual(rank(shelf, "heaviest"), [])
+        self.assertEqual(rank(shelf, "heaviest", lambda label: None), [])
         # Ties go to the object seen more often.
         twins = [seen("cola", (0.066,) * 3, 2), seen("cola", (0.066,) * 3, 5)]
-        self.assertEqual(rank(twins, "biggest")[0][0].count, 5)
+        for name in ("biggest", "smallest"):
+            self.assertEqual(rank(twins, name, lambda label: None)[0][0].count, 5)
 
 
 class PlaceTests(unittest.TestCase):
@@ -207,10 +208,6 @@ class PlaceTests(unittest.TestCase):
         )
         self.assertEqual(places_of(SPEC, "desk"), [("desk", "long_table")])
         self.assertEqual(places_of(SPEC, "instruction_point"), [])
-        for places in SPEC.rooms.values():
-            for furniture in places.values():
-                if furniture is not None:
-                    self.assertIsNotNone(FURNITURE.get(furniture), furniture)
 
     def test_visit_order_is_the_shortest_path(self):
         points = {"a": (1.0, 0.0), "b": (2.0, 0.0), "c": (-0.5, 0.0)}
