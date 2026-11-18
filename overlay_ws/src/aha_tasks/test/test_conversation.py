@@ -70,6 +70,7 @@ def dialogue(interaction, logs=None):
         NAMES,
         threading.Event(),
         (logs if logs is not None else []).append,
+        touch=True,
     )
 
 
@@ -112,10 +113,11 @@ class NameTests(unittest.TestCase):
             "Call me later",
             "Jane is over there",
             "Ask Charlie, not me",
+            "Sorry, what did you say?",
+            "What?",
+            "Pardon?",
+            "Huh?",
         ):
-            with self.subTest(heard):
-                self.assertIsNone(extract_name(heard, NAMES))
-        for heard in ("Sorry, what did you say?", "What?", "Pardon?", "Huh?"):
             with self.subTest(heard):
                 self.assertIsNone(extract_name(heard, NAMES))
 
@@ -352,7 +354,7 @@ class DialogueTests(unittest.TestCase):
         )
         talk = dialogue(interaction)
         self.assertIsNone(talk.confirm("Charlie"))
-        self.assertFalse(talk.can_ask)
+        self.assertFalse(talk.voice or talk.screen)
 
     def test_ask_name(self):
         interaction = FakeInteraction(["Uh, sorry?", "My name is Jewels."])

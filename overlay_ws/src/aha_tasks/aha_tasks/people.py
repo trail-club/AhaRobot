@@ -19,7 +19,6 @@ import time
 
 from aha_tasks.conversation import (
     PERSON_INFO,
-    TOUCH_TIMEOUT,
     Dialogue,
     count_sentence,
     names_of,
@@ -585,7 +584,6 @@ def describe_answers(answers):
     return text
 
 
-BLANK_ANSWERS = {"posture": "", "gesture": "", "garments": []}
 INFO_ANSWER = {"pose": "posture", "gesture": "gesture"}  # info -> ClassifyPerson
 STOP = object()  # choose() result that ends the search with a failure
 
@@ -656,7 +654,9 @@ class FindDescribedPerson(Skill):
         shown = dataclasses.replace(description, name=None)
         info = params.get("info")
         need = (INFO_ANSWER[info],) if info in INFO_ANSWER else ()
-        asking = params.get("ask", True) and (name is not None or info == "name")
+        wants_name = name is not None or info == "name"
+        asking = params.get("ask", True) and wants_name
+        touch = params.get("touch", False)
         role = params.get("role", "person")
         area = search_area(self.runtime, ctx.memory, params)
         origin = robot_xy(self.runtime, ctx.memory)
@@ -716,10 +716,9 @@ class FindDescribedPerson(Skill):
             next_look = people.now() + dwell
 
         def come_closer(message, person):
-            """Approach the person to talk; the head stays on them. Error or None.
+            """Approach the person to talk; the head stays on them.
 
-            Only a cancel is an error: a person who cannot be approached is
-            asked from where the robot is.
+            A person who cannot be approached is asked from where the robot is.
             """
             nonlocal origin, moved, talked_to
             people.follow(track=person.id)
@@ -730,24 +729,21 @@ class FindDescribedPerson(Skill):
                 or message.header.frame_id != "map"
                 or not params.get("approach", True)
             ):
-                return None
+                return
             pose = approach_pose(origin, planar(person.position), distance)
             ok, text = navigation.navigate(pose, ctx.cancelled)
-            if not ok:
-                if ctx.cancelled.is_set():
-                    return "Cancelled"
+            if ok:
+                origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
+            elif not ctx.cancelled.is_set():
                 # E.g. the pose is too close to furniture: ask from here
                 # rather than give up on everyone.
                 ctx.log(
                     f"Could not approach person {person.id} ({text}): asking from here"
                 )
                 unreached.add(person.id)
-                return None
-            origin, moved = tuple(pose[:2]), [round(v, 3) for v in pose]
-            return None
 
         def talk(message, person):
-            """(match, name heard), or (STOP, why) when nobody can be asked."""
+            """(match, name heard); (STOP, why) if cancelled or nobody can be asked."""
             nonlocal dialogue
             if dialogue is None:
                 dialogue = Dialogue(
@@ -756,11 +752,11 @@ class FindDescribedPerson(Skill):
                     ctx.cancelled,
                     ctx.log,
                     # Touch input bypasses the ASR (GPSR −50): only when asked for.
-                    touch_timeout=TOUCH_TIMEOUT if params.get("touch", False) else 0.0,
+                    touch=touch,
                 )
-            error = come_closer(message, person)
-            if error:
-                return STOP, error
+            come_closer(message, person)
+            if ctx.cancelled.is_set():
+                return STOP, "Cancelled"
             if name is not None:
                 match = dialogue.confirm(name)
                 heard = name if match else None
@@ -770,7 +766,7 @@ class FindDescribedPerson(Skill):
             if match is None:
                 if not dialogue.voice and (name is None or not dialogue.screen):
                     return STOP, "Cannot ask: no ASR" + (
-                        " and no screen" if name is not None and dialogue.touch else ""
+                        " and no screen" if name is not None and touch else ""
                     )
                 # Asked already: do not ask again, also under a new track ID.
                 failures[person.id] = MAX_JUDGEMENTS - 1
@@ -812,7 +808,7 @@ class FindDescribedPerson(Skill):
                 checked[person.id] = None
                 return None
             if shown.empty and not need:
-                answers = dict(BLANK_ANSWERS)
+                answers = {"posture": "", "gesture": "", "garments": []}
             else:
                 try:
                     answers = people.attributes(
@@ -830,7 +826,7 @@ class FindDescribedPerson(Skill):
             if match and not all(answers[key] for key in need):
                 match = None  # what is to be reported is not known
             heard = person.name or None
-            if match and heard is None and (name is not None or info == "name"):
+            if match and heard is None and wants_name:
                 if not asking:
                     match = None
                 else:
@@ -848,7 +844,7 @@ class FindDescribedPerson(Skill):
             parts = [] if shown.empty and not need else [describe_answers(answers)]
             if heard:
                 parts.append(heard)
-            elif name is not None or info == "name":
+            elif wants_name:
                 parts.append(f"not {name}" if name and match is False else "no name")
             ctx.log(f"{where(person)}: {', '.join(parts)}")
             if match:
@@ -884,28 +880,24 @@ class FindDescribedPerson(Skill):
                 f"{role}.garments": answers["garments"],
             }
         )
-        # Always overwrite what an earlier search left under the same role.
+        # Always overwrite the name an earlier search left under the same role
+        # (run_plan_step clears the stale `<role>.<info>.answer` sentences).
         outputs[f"{role}.name"] = heard or ""
-        for key in PERSON_INFO:
-            outputs[f"{role}.{key}.answer"] = (
-                person_info_sentence(info, outputs[f"{role}.{info}"])
-                if key == info
-                else None
+        if info is not None:
+            outputs[f"{role}.{info}.answer"] = person_info_sentence(
+                info, outputs[f"{role}.{info}"]
             )
         who = heard or f"person {person.id}"
         ctx.log(f"{who} ({description.text()}) at {outputs[f'{role}.position']}")
+        if moved is not None:
+            outputs[LOCATION] = moved  # moved to talk to them or someone else
         if talked_to == person.id:
-            if not person.name:
-                ok, text = self.remember(people, person, heard, ctx.cancelled)
-                ctx.log(text if ok else f"Could not remember {heard}: {text}")
-            people.follow(track=person.id, name=heard or "")
+            ok, text = self.remember(people, person, heard, ctx.cancelled)
+            ctx.log(text if ok else f"Could not remember {heard}: {text}")
+            people.follow(track=person.id, name=heard)
             if person.id not in unreached:
-                if moved is not None:
-                    outputs[LOCATION] = moved
                 return SkillResult(True, f"Facing {who}", outputs)
             # Asked from afar: approach them now, as when not asking.
-        if moved is not None:
-            outputs[LOCATION] = moved  # moved to talk to someone else
         people.look_at(frame, person.head)
         navigation = self.runtime.navigation
         if navigation is None or frame != "map" or not params.get("approach", True):
@@ -1078,12 +1070,7 @@ class CountPeople(Skill):
                 output: len(matching),
                 f"{output}.positions": [entry["position"] for entry in matching],
                 f"{output}.answer": count_sentence(
-                    len(matching),
-                    description,
-                    # A pose [x, y, yaw] has no name to say.
-                    location
-                    if isinstance(location := params.get("location"), str)
-                    else None,
+                    len(matching), description, params.get("location")
                 ),
             },
         )

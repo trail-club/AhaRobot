@@ -16,10 +16,10 @@ from aha_tasks.conversation import (
     KNOWN_QUESTIONS,
     UTC_OFFSET_KEY,
     answer,
+    check_facts,
     check_utc_offset,
     facts_of,
     local_now,
-    missing_facts,
     question_topic,
     value_sentence,
 )
@@ -68,9 +68,7 @@ class AnswerQuestion(Skill):
         # An unknown question is unsupported (only this step is mocked); a
         # fact missing from the task definition is an error.
         if topic is not None:
-            missing = missing_facts(topic, facts_of(spec.initial_state))
-            if missing:
-                raise ValueError(f"{', '.join(missing)} must be set in initial_state")
+            check_facts(topic, facts_of(spec.initial_state))
         check_utc_offset(spec.initial_state.get(UTC_OFFSET_KEY))
 
     def unsupported(self, params):

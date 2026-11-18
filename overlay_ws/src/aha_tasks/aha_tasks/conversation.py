@@ -47,70 +47,23 @@ PERSON_INFO = ("name", "pose", "gesture")
 
 # -- names and replies --------------------------------------------------------
 
-YES_WORDS = {
-    "yes",
-    "yeah",
-    "yep",
-    "yup",
-    "yea",
-    "correct",
-    "right",
-    "sure",
-    "indeed",
-    "exactly",
-    "affirmative",
-    "certainly",
-    "absolutely",
-    "ok",
-    "okay",
-    "me",  # "That's me", "It's me"
-}
+YES_WORDS = set(
+    "yes yeah yep yup yea correct right sure indeed exactly affirmative certainly"
+    " absolutely ok okay".split()
+)
 NO_WORDS = {"no", "nope", "nah", "wrong", "incorrect", "negative", "never"}
 # Asking back ("What?", "Pardon?", "Excuse me?"): no answer and no name.
 QUERY_WORDS = {"what", "pardon", "huh", "excuse", "again", "repeat", "sorry"}
-# Words that are not a name in a short reply.
+# Words that are not a name in a short reply ("me": "That's me").
 FILLER = (
     YES_WORDS
     | NO_WORDS
     | QUERY_WORDS
-    | {
-        "not",
-        "of",
-        "course",
-        "why",
-        "him",
-        "her",
-        "i",
-        "i'm",
-        "im",
-        "am",
-        "a",
-        "the",
-        "my",
-        "name",
-        "name's",
-        "is",
-        "it",
-        "it's",
-        "its",
-        "this",
-        "that",
-        "that's",
-        "call",
-        "hello",
-        "hi",
-        "hey",
-        "um",
-        "uh",
-        "oh",
-        "well",
-        "please",
-        "thank",
-        "thanks",
-        "you",
-        "sorry",
-        "and",
-    }
+    | set(
+        "me not of course why him her i i'm im am a the my name name's is it it's"
+        " its this that that's call hello hi hey um uh oh well please thank thanks"
+        " you and".split()
+    )
 )
 # A name follows these words.
 NAME_CUE = re.compile(
@@ -175,7 +128,7 @@ def _closest(word, names):
 def _cued(text):
     """The words right after a name cue ("my name is", "I'm", ...)."""
     lowered = " ".join(_tokens(text))
-    return [_tokens(lowered[m.end() :])[:1] for m in NAME_CUE.finditer(lowered)]
+    return [lowered[m.end() :].split()[0] for m in NAME_CUE.finditer(lowered)]
 
 
 def find_name(text, names):
@@ -186,7 +139,7 @@ def find_name(text, names):
     is spelt or sounds like a name.
     """
     lowered = " ".join(_tokens(text))
-    cued = {words[0] for words in _cued(text) if words}
+    cued = set(_cued(text))
     hits = []
     for name in names:
         match = re.search(rf"\b{re.escape(name.lower())}\b", lowered)
@@ -202,18 +155,6 @@ def find_name(text, names):
             return None
     scored = [found for word in words if (found := _closest(word, names))]
     return max(scored)[1] if scored else None
-
-
-def extract_name(text, names):
-    """The name of `names` a person gave in `text`, or None.
-
-    GPSR names come from the task's list (`gpsr.names`): a word outside it is
-    no name ("I'm fine", "Call me later", "What?"). As in parse_reply, the
-    name must be the answer itself ("My name is Jane", "Jane"), not a mention
-    ("Jane is over there").
-    """
-    name = find_name(text, names)
-    return name if name is not None and _answered_with(text, name) else None
 
 
 # "That's me", "It's me", a lone "Me", "I am".
@@ -238,10 +179,7 @@ def _answered_with(text, name):
     first = name.lower().split()[0]
     # "My name is Jewels" (Jules misheard); not a possessive ("This is
     # Charlie's seat").
-    if any(
-        words and "'" not in words[0] and _closest(words[0], [first])
-        for words in _cued(text)
-    ):
+    if any("'" not in word and _closest(word, [first]) for word in _cued(text)):
         return True
     rest = [t for t in _tokens(text) if t not in FILLER]
     return bool(rest) and all(_closest(t, [name]) for t in rest)
@@ -264,7 +202,7 @@ def parse_reply(text, names):
     # A yes word right after "not" ("I'm not sure") is no yes.
     negated = {i + 1 for i, t in enumerate(tokens) if t == "not" or t.endswith("n't")}
     yes = any(
-        t in YES_WORDS - {"me"} and i not in negated for i, t in enumerate(tokens)
+        t in YES_WORDS and i not in negated for i, t in enumerate(tokens)
     ) or bool(YES_PHRASE.search(joined))
     # A yes word in a longer sentence ("She's right there") is no answer.
     yes = yes and len([t for t in tokens if t not in FILLER]) < 2
@@ -274,6 +212,17 @@ def parse_reply(text, names):
         or bool(NO_PHRASE.search(joined) or denied_name),
         "name": name,
     }
+
+
+def extract_name(text, names):
+    """The name of `names` a person gave in `text`, or None.
+
+    GPSR names come from the task's list (`gpsr.names`): a word outside it is
+    no name ("I'm fine", "Call me later", "What?"). The name must be the
+    answer itself ("My name is Jane", "Jane"), not a mention ("Jane is over
+    there").
+    """
+    return parse_reply(text, names)["name"]
 
 
 def is_named(reply, name):
@@ -370,13 +319,15 @@ def facts_of(memory):
     return {fact: memory.get(key) for fact, key in FACTS.items()}
 
 
-def missing_facts(topic, facts):
-    """Memory keys the answer to `topic` needs but `facts` lacks."""
-    return [
+def check_facts(topic, facts):
+    """ValueError if the answer to `topic` needs a fact that `facts` lacks."""
+    missing = [
         FACTS[fact]
         for fact in TOPIC_FACTS.get(topic, ())
         if not isinstance(facts.get(fact), str) or not facts[fact].strip()
     ]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} must be set in initial_state")
 
 
 def local_now(memory):
@@ -407,10 +358,11 @@ def _date(day):
 
 
 def answer(topic, facts, now):
-    """The sentence answering `topic` (question_topic); KeyError for an unknown one."""
-    missing = missing_facts(topic, facts)
-    if missing:
-        raise ValueError(f"{', '.join(missing)} not set in initial_state")
+    """The sentence answering `topic` (question_topic).
+
+    ValueError if a fact is missing, KeyError for an unknown topic.
+    """
+    check_facts(topic, facts)
     if topic == "time":
         hour = now.hour % 12 or 12
         return f"It is {hour}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."
@@ -449,19 +401,10 @@ GESTURE_TEXT = {
 }
 POSTURE_TEXT = {"standing": "standing", "sitting": "sitting", "lying": "lying down"}
 # Last words of location labels that are rooms ("in the" rather than "at the").
-ROOM_WORDS = {
-    "room",
-    "bedroom",
-    "bathroom",
-    "kitchen",
-    "office",
-    "hall",
-    "hallway",
-    "corridor",
-    "entrance",
-    "garage",
-    "study",
-}
+ROOM_WORDS = set(
+    "room bedroom bathroom kitchen office hall hallway corridor entrance garage"
+    " study".split()
+)
 
 
 def person_info_sentence(info, value):
@@ -547,8 +490,11 @@ def people_phrase(description, plural):
 
 
 def count_sentence(count, description, location=None):
-    """'There are 2 waving people in the office.' for count_people."""
-    where = f" {place_phrase(location)}" if location else ""
+    """'There are 2 waving people in the office.' for count_people.
+
+    `location` is said only when it is a label, not a pose [x, y, yaw].
+    """
+    where = f" {place_phrase(location)}" if isinstance(location, str) else ""
     if count == 0:
         return f"There are no {people_phrase(description, True)}{where}."
     if count == 1:
@@ -565,77 +511,58 @@ TOUCH_TIMEOUT = 10.0  # s for a touch of Yes / No on the screen
 class Dialogue:
     """Ask the person in front of the robot.
 
-    `interaction` has say(text, cancelled), listen(hotwords, cancelled,
-    timeout) and ask(prompt, choices, cancelled, timeout) as
-    aha_tasks.interaction.Interaction. Without an ASR, later questions skip the
-    voice; `can_ask` turns false once neither the ASR nor the screen answers.
+    `interaction` has say(text, cancelled), listen(hotwords, cancelled) and
+    ask(prompt, choices, cancelled, timeout) as aha_tasks.interaction.Interaction.
+    With `touch`, "Are you <name>?" falls back to Yes / No on the screen.
+    `voice` / `screen` turn false once the ASR / the screen is not served, and
+    later questions skip it.
     """
 
-    def __init__(
-        self,
-        interaction,
-        names,
-        cancelled,
-        log,
-        attempts=ATTEMPTS,
-        listen_timeout=None,
-        touch_timeout=TOUCH_TIMEOUT,
-    ):
+    def __init__(self, interaction, names, cancelled, log, touch=False):
         self.interaction = interaction
         self.names = list(names)
         self.cancelled = cancelled
         self.log = log
-        self.attempts = attempts
-        self.listen_timeout = listen_timeout
-        self.touch_timeout = touch_timeout
-        self.voice = True  # cleared when the ASR is not served
-        self.touch = touch_timeout > 0  # the screen may be used at all
-        self.screen = self.touch  # cleared when the screen is not served
-
-    @property
-    def can_ask(self):
-        return self.voice or self.screen
+        self.voice = True
+        self.screen = touch
 
     def say(self, text):
         ok, message = self.interaction.say(text, self.cancelled)
         if not ok:
             self.log(f"Could not say {text!r}: {message}")
 
-    def hear(self, hotwords):
-        """The next utterance, or None (then the reason is logged)."""
-        kwargs = {} if self.listen_timeout is None else {"timeout": self.listen_timeout}
-        text, why = self.interaction.listen(hotwords, self.cancelled, **kwargs)
-        if text is None:
-            self.log(f"Nothing heard: {why}")
-            if why.startswith(NO_ASR):
-                self.voice = False
-        return text
+    def _by_voice(self, question, again, hotwords, understand):
+        """The first reply that `understand(text)` makes out (not None), or None.
 
-    def confirm(self, name):
-        """Whether the person is `name`: True / False, or None if they could not answer."""
-        hotwords = [*self.names, *([name] if name not in self.names else [])]
-        question = f"Are you {name}?"
-        if self.voice:
-            self.say(f"Excuse me, are you {name}?")
-        for attempt in range(self.attempts):
-            if self.cancelled.is_set() or not self.voice:
-                break
-            text = self.hear(hotwords)
-            if text is not None:
-                decision = is_named(parse_reply(text, hotwords), name)
-                verdict = {True: "yes", False: "no", None: "unclear"}[decision]
-                self.log(f"Heard {text!r} to {question!r}: {verdict}")
-                if decision is not None:
-                    return self._thank(name, decision)
-            if attempt + 1 < self.attempts and self.voice:
-                self.say(
-                    f"Sorry, I did not understand. {question} Please say yes or no."
-                )
+        Says `question`, and `again` before each further attempt.
+        """
+        if not self.voice:
+            return None
+        self.say(question)
+        for attempt in range(ATTEMPTS):
+            if self.cancelled.is_set():
+                return None
+            text, why = self.interaction.listen(hotwords, self.cancelled)
+            if text is None:
+                self.log(f"Nothing heard: {why}")
+                if why.startswith(NO_ASR):
+                    self.voice = False
+                    return None
+            else:
+                understood = understand(text)
+                if understood is not None:
+                    return understood
+            if attempt + 1 < ATTEMPTS:
+                self.say(again)
+        return None
+
+    def _by_touch(self, question):
+        """Yes (True) / No (False) touched on the screen, or None."""
         if self.cancelled.is_set() or not self.screen:
             return None
         self.say(f"{question} Please touch Yes or No on my screen.")
         index, label = self.interaction.ask(
-            question, ["Yes", "No"], self.cancelled, timeout=self.touch_timeout
+            question, ["Yes", "No"], self.cancelled, timeout=TOUCH_TIMEOUT
         )
         if index is None:
             self.log(f"No touch: {label}")
@@ -643,27 +570,45 @@ class Dialogue:
                 self.screen = False
             return None
         self.log(f"Touched {label!r} to {question!r}")
-        return self._thank(name, index == 0)
+        return index == 0
 
-    def _thank(self, name, decision):
-        self.say(f"Nice to meet you, {name}." if decision else "Thank you.")
+    def confirm(self, name):
+        """Whether the person is `name`: True / False, or None if they could not answer."""
+        hotwords = [*self.names, *([name] if name not in self.names else [])]
+        question = f"Are you {name}?"
+
+        def understand(text):
+            decision = is_named(parse_reply(text, hotwords), name)
+            verdict = {True: "yes", False: "no", None: "unclear"}[decision]
+            self.log(f"Heard {text!r} to {question!r}: {verdict}")
+            return decision
+
+        decision = self._by_voice(
+            f"Excuse me, are you {name}?",
+            f"Sorry, I did not understand. {question} Please say yes or no.",
+            hotwords,
+            understand,
+        )
+        if decision is None:
+            decision = self._by_touch(question)
+        if decision is not None:
+            self.say(f"Nice to meet you, {name}." if decision else "Thank you.")
         return decision
 
     def ask_name(self):
         """The name the person gives (one of `names` if it sounds like one), or None."""
-        if not self.voice:
-            return None
-        self.say("Excuse me, what is your name?")
-        for attempt in range(self.attempts):
-            if self.cancelled.is_set() or not self.voice:
-                break
-            text = self.hear(self.names)
-            if text is not None:
-                name = extract_name(text, self.names)
-                self.log(f"Heard {text!r} as the name {name!r}")
-                if name is not None:
-                    self.say(f"Nice to meet you, {name}.")
-                    return name
-            if attempt + 1 < self.attempts and self.voice:
-                self.say("Sorry, I did not catch your name. What is your name?")
-        return None
+
+        def understand(text):
+            name = extract_name(text, self.names)
+            self.log(f"Heard {text!r} as the name {name!r}")
+            return name
+
+        name = self._by_voice(
+            "Excuse me, what is your name?",
+            "Sorry, I did not catch your name. What is your name?",
+            self.names,
+            understand,
+        )
+        if name is not None:
+            self.say(f"Nice to meet you, {name}.")
+        return name

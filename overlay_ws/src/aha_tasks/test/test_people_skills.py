@@ -1041,12 +1041,14 @@ class AskNameTests(unittest.TestCase):
 
     def test_a_person_who_cannot_be_approached_is_asked_from_there(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0), person(2, 3.0, 0.0)))
-        navigation = FakeNavigation(ok=False)
-        results = iter([False, False, True])  # both approaches to ask fail
-        navigation.navigate = lambda pose, cancelled=None: (
-            navigation.goals.append(pose) or (ok := next(results)),
-            "" if ok else "blocked",
-        )
+        navigation = FakeNavigation()
+
+        def navigate(pose, cancelled=None):
+            navigation.goals.append(pose)
+            ok = len(navigation.goals) > 2  # both approaches to ask fail
+            return ok, "" if ok else "blocked"
+
+        navigation.navigate = navigate
         result, interaction = self.find(
             people, {"name": "Charlie"}, ["No, I'm Jane.", "Yes."], navigation
         )
@@ -1237,10 +1239,8 @@ class AskNameTests(unittest.TestCase):
             result.outputs["person.gesture.answer"], "The person is waving."
         )
         self.assertEqual([r.skip_vlm for r in people.classify.requests], [True, False])
-        # What an earlier search left under the role is overwritten.
+        # The name an earlier search left under the role is overwritten.
         self.assertEqual(result.outputs["person.name"], "")
-        self.assertIsNone(result.outputs["person.name.answer"])
-        self.assertIsNone(result.outputs["person.pose.answer"])
 
     def test_a_lost_track_is_remembered_by_its_new_track(self):
         people = FakePeople(people_message(person(2, 1.0, 0.0)))

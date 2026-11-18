@@ -13,7 +13,7 @@ PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PACKAGE)
 from aha_tasks.core import Skill, SkillResult, TaskEngine, parse_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
-from aha_tasks.plan import RunPlanStep, validate_plan  # noqa: E402
+from aha_tasks.plan import RunPlanStep, validate_plan, without_stale_answers  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
 from aha_tasks.skills import LOCATION, go_to  # noqa: E402
 
@@ -615,14 +615,8 @@ class GpsrEngineTests(unittest.TestCase):
         self.assertEqual(len(status["memory"]["plan"]), 12)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StaleAnswerTests(unittest.TestCase):
     def test_a_new_value_without_a_sentence_clears_the_old_sentence(self):
-        from aha_tasks.plan import without_stale_answers
-
         memory = {"count": 2, "count.answer": "There are 2 waving people."}
         self.assertEqual(
             without_stale_answers({"count": 3}, memory),
@@ -632,3 +626,7 @@ class StaleAnswerTests(unittest.TestCase):
         fresh = {"count": 3, "count.answer": "There are 3 drinks."}
         self.assertEqual(without_stale_answers(fresh, memory), fresh)
         self.assertEqual(without_stale_answers({"other": 1}, memory), {"other": 1})
+
+
+if __name__ == "__main__":
+    unittest.main()
