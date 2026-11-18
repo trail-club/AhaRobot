@@ -218,7 +218,7 @@ def launch_task(context):
             executable="sim_person_detector.py",
             parameters=[
                 {
-                    "models": list(guest_scene["guests"])
+                    "models": [*guest_scene["guests"], *guest_scene["seated"]]
                     if guest_scene is not None
                     else ["guest*"]
                 }

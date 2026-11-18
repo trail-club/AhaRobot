@@ -1,0 +1,323 @@
+"""FindFreeSeat against fake people messages and gaze (no ROS graph)."""
+
+import math
+import os
+import sys
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from aha_tasks.core.skill import SkillContext  # noqa: E402
+from aha_tasks.people import People  # noqa: E402
+from aha_tasks.seats import (  # noqa: E402
+    RADIUS,
+    TORSO,
+    FindFreeSeat,
+    bearing,
+    nearest_seat,
+    occupants,
+)
+
+SEATS = {
+    "chair_left": [1.75, 3.5, 0.5],
+    "chair_right": [0.75, 3.5, 0.5],
+    "chair_extra": [2.55, 3.5, 0.5],
+}
+VIEW = 0.8  # m around the point the head looks at
+
+
+def point(x, y, z=0.0):
+    return SimpleNamespace(x=x, y=y, z=z)
+
+
+def person(id, x, y, name="", visible=True):
+    return SimpleNamespace(id=id, name=name, visible=visible, position=point(x, y, 0.9))
+
+
+def message(people, frame="map", taken_at=0.0):
+    stamp = SimpleNamespace(sec=int(taken_at), nanosec=int(taken_at % 1.0 * 1e9))
+    header = SimpleNamespace(frame_id=frame, stamp=stamp)
+    return SimpleNamespace(header=header, people=people)
+
+
+class FakeNode:
+    """The clock of the image stamps, here the same as FakePeople.now."""
+
+    def get_clock(self):
+        return SimpleNamespace(
+            now=lambda: SimpleNamespace(nanoseconds=time.monotonic_ns())
+        )
+
+
+class FakeGaze:
+    def __init__(self):
+        self.looks = []
+        self.turned = time.monotonic()
+
+    def look_at(self, frame, target):
+        self.looks.append((frame, (target.x, target.y, target.z)))
+        self.turned = time.monotonic()
+
+
+class FakePeople(People):
+    """A new message at every poll, of the people within VIEW of the head's target.
+
+    Its image was taken `delay` s before (person_perception's latency).
+    `alive=False` has none, and `until` none from `until` s after the head
+    turned (a gap, which makes the latest message stale).
+    """
+
+    now = staticmethod(time.monotonic)
+
+    def __init__(
+        self, gaze, people, frame="map", delay=0.0, alive=True, until=math.inf
+    ):
+        self.gaze, self.people, self.frame = gaze, people, frame
+        self.delay, self.alive, self.until = delay, alive, until
+
+    def latest(self):
+        if not self.alive or time.monotonic() - self.gaze.turned > self.until:
+            return None
+        target = self.gaze.looks[-1][1] if self.gaze.looks else (0.0, 0.0)
+        seen = [
+            SimpleNamespace(
+                **{
+                    **vars(p),
+                    "visible": p.visible
+                    and math.dist(target[:2], (p.position.x, p.position.y)) <= VIEW,
+                }
+            )
+            for p in self.people
+        ]
+        return message(seen, self.frame, time.monotonic() - self.delay)
+
+
+def runtime(people_list, **kwargs):
+    gaze = FakeGaze()
+    spec = SimpleNamespace(
+        locations={
+            "living_room": [1.25, 2.5, math.pi / 2],
+            "facing_away": [1.25, 2.5, -math.pi / 2],
+        }
+    )
+    people = FakePeople(gaze, people_list, **kwargs)
+    return SimpleNamespace(node=FakeNode(), spec=spec, gaze=gaze, people=people)
+
+
+def context(memory=None, **params):
+    return SkillContext(
+        subgoal="guest2.find_seat",
+        params={"guest": "guest2", "seats": SEATS, "dwell": 0.3, **params},
+        memory={"robot.location": "living_room", **(memory or {})},
+        cancelled=threading.Event(),
+        log=lambda text: None,
+    )
+
+
+def looked_at(rt):
+    return [
+        name
+        for _, (x, y, _) in rt.gaze.looks
+        for name, seat in SEATS.items()
+        if (x, y) == tuple(seat[:2])
+    ]
+
+
+HOST = person(3, 1.75, 3.05)  # stands in front of chair_left, like the sim
+GUEST1 = person(5, 0.75, 3.05, name="guest1")
+
+
+class GeometryTests(unittest.TestCase):
+    def test_a_person_occupies_only_the_nearest_seat_within_the_radius(self):
+        self.assertEqual(nearest_seat(SEATS, (1.75, 3.05), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (2.2, 3.4), RADIUS), "chair_extra")
+        self.assertIsNone(nearest_seat(SEATS, (1.25, 2.5), RADIUS))
+        self.assertIsNone(nearest_seat(SEATS, (1.75, 2.6), RADIUS))
+
+    def test_the_measured_front_of_a_person_at_a_seat_occupies_it(self):
+        """Positions SAM 3.1 measured in the sim (living_room, 1.6 m from the seats)."""
+        # Standing 0.45 m in front of a seat.
+        self.assertEqual(nearest_seat(SEATS, (1.66, 2.84), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (1.0, 2.88), RADIUS), "chair_right")
+        # Seated, also at the edge of the image, and next to the other seat.
+        self.assertEqual(nearest_seat(SEATS, (1.51, 3.46), RADIUS), "chair_left")
+        self.assertEqual(nearest_seat(SEATS, (2.41, 3.49), RADIUS), "chair_extra")
+        self.assertEqual(nearest_seat(SEATS, (0.87, 3.49), RADIUS), "chair_right")
+
+    def test_the_guest_and_people_not_seen_now_occupy_nothing(self):
+        people = [
+            person(1, 1.75, 3.4, name="guest2"),
+            person(2, 0.75, 3.4),  # the guest's track before it had a name
+            person(4, 2.55, 3.4, visible=False),
+        ]
+        self.assertEqual(occupants(message(people), SEATS, RADIUS, "guest2", 2), {})
+        taken = occupants(message([HOST, GUEST1]), SEATS, RADIUS, "guest2")
+        self.assertEqual(
+            {k: v.id for k, v in taken.items()}, {"chair_left": 3, "chair_right": 5}
+        )
+
+    def test_people_outside_map_have_no_seat(self):
+        self.assertEqual(occupants(message([HOST], "camera"), SEATS, RADIUS, "g"), {})
+
+    def test_bearing_from_the_front_of_the_robot(self):
+        self.assertAlmostEqual(bearing([0.0, 0.0, 0.0], [1.0, 1.0]), math.pi / 4)
+        self.assertAlmostEqual(abs(bearing([0.0, 0.0, math.pi], [1.0, 0.0])), math.pi)
+        # Across the -x axis (yaw 172 deg, point at -169 deg): wrapped, 19 deg left.
+        self.assertAlmostEqual(bearing([0.0, 0.0, 3.0], [-1.0, -0.2]), 0.339, places=3)
+
+
+@patch("aha_tasks.seats.SETTLE", 0.05)
+class FindFreeSeatTests(unittest.TestCase):
+    def test_skips_the_host_and_outputs_the_next_seat(self):
+        rt = runtime([HOST])
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(
+            result.outputs,
+            {"guest2.seat": "chair_right", "guest2.seat_position": [0.75, 3.5, 0.5]},
+        )
+        self.assertEqual(looked_at(rt), ["chair_left", "chair_right"])
+        self.assertIn("chair_left: person 3 sits there", result.message)
+        # The head looks above the seat, where a sitting person is seen.
+        self.assertEqual(rt.gaze.looks[0], ("map", (1.75, 3.5, 0.5 + TORSO)))
+
+    def test_the_first_guest_also_occupies_a_seat(self):
+        rt = runtime([HOST, GUEST1])
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_extra")
+
+    def test_a_seat_taken_in_an_earlier_image_is_not_looked_at(self):
+        rt = runtime([HOST, GUEST1])
+        with patch(f"{__name__}.VIEW", 10.0):  # every image shows every seat
+            result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(looked_at(rt), ["chair_left", "chair_extra"])
+
+    def test_the_guest_being_seated_does_not_take_a_seat(self):
+        rt = runtime([person(7, 1.75, 3.05, name="guest2")])
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        rt = runtime([person(7, 1.75, 3.05)])
+        result = FindFreeSeat(rt).execute(context({"guest2.track": 7}))
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+
+    def test_fails_only_when_every_seat_is_seen_taken(self):
+        rt = runtime([HOST, GUEST1, person(8, 2.55, 3.1)])
+        result = FindFreeSeat(rt).execute(context())
+        self.assertFalse(result.success)
+        self.assertEqual(result.message.count("sits there"), len(SEATS))
+        self.assertIn("chair_right: guest1 5 sits there", result.message)
+
+    def test_an_image_taken_after_the_head_settled_shows_the_seat(self):
+        rt = runtime([], delay=0.1)  # arrives within dwell
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.message, "chair_left for guest2")
+        self.assertEqual(looked_at(rt), ["chair_left"])
+
+    def test_without_a_seat_seen_free_offers_the_first_not_seen_taken(self):
+        """Images that arrive in time were all taken while the head turned.
+
+        The host is still seen in them, so the mock could be a taken seat.
+        """
+        rt = runtime([HOST], delay=1.0)
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        self.assertEqual(result.outputs["guest2.seat_position"], [0.75, 3.5, 0.5])
+        self.assertIn("not seen free", result.message)
+        self.assertIn("chair_left: person 3 sits there", result.message)
+        self.assertIn("chair_right: not seen", result.message)
+        self.assertEqual(looked_at(rt), list(SEATS))
+
+    def test_without_person_perception_offers_the_first_seat_at_once(self):
+        rt = runtime([HOST], alive=False)
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        self.assertIn("/aha/perception/people", result.message)
+        self.assertIn("chair_right: not looked at", result.message)
+        self.assertEqual(len(rt.gaze.looks), 1)
+
+    def test_a_gap_at_the_end_keeps_a_seat_seen_free(self):
+        rt = runtime([HOST], until=0.25)  # no message for the last 0.1 s
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        self.assertEqual(
+            result.message, "chair_right for guest2 (chair_left: person 3 sits there)"
+        )
+
+    def test_a_gap_at_the_end_does_not_skip_the_other_seats(self):
+        rt = runtime([], delay=1.0, until=0.25)  # images from before it settled
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        self.assertIn("not seen free", result.message)
+        self.assertNotIn("not looked at", result.message)
+        self.assertEqual(looked_at(rt), list(SEATS))
+
+    def test_people_outside_map_are_not_looked_for_at_the_other_seats(self):
+        rt = runtime([], frame="camera_color_optical_frame")
+        result = FindFreeSeat(rt).execute(context())
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        self.assertIn("not map", result.message)
+        self.assertEqual(len(rt.gaze.looks), 1)
+
+    def test_seats_behind_the_robot_are_not_looked_at(self):
+        rt = runtime([])
+        result = FindFreeSeat(rt).execute(context({"robot.location": "facing_away"}))
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_left")
+        self.assertIn("out of the head's reach", result.message)
+        self.assertEqual(rt.gaze.looks, [])
+
+    def test_seats_from_the_task_memory(self):
+        rt = runtime([HOST])
+        ctx = context({"living_room.seats": SEATS}, seats="living_room.seats")
+        result = FindFreeSeat(rt).execute(ctx)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["guest2.seat"], "chair_right")
+        result = FindFreeSeat(rt).execute(context(seats="nowhere.seats"))
+        self.assertFalse(result.success)
+        self.assertIn("nowhere.seats", result.message)
+
+    def test_cancel_stops_the_search(self):
+        rt = runtime([HOST])
+        ctx = context()
+        ctx.cancelled.set()
+        result = FindFreeSeat(rt).execute(ctx)
+        self.assertFalse(result.success)
+        self.assertEqual(result.message, "Cancelled")
+
+    def test_params_are_validated(self):
+        spec = SimpleNamespace(locations={}, initial_state={"room.seats": SEATS})
+        FindFreeSeat.validate({"guest": "g", "seats": SEATS, "radius": 0.5}, spec)
+        FindFreeSeat.validate({"guest": "g", "seats": "room.seats"}, spec)
+        spec.initial_state["bad.seats"] = {"a": [1.0, 2.0]}
+        for params in (
+            {"guest": "g", "seats": "other.seats"},
+            {"guest": "g", "seats": "bad.seats"},
+            {"guest": "g"},
+            {"guest": "g", "seats": {}},
+            {"guest": "g", "seats": ["chair_left"]},
+            {"guest": "g", "seats": {"a": [1.0, 2.0]}},
+            {"guest": "g", "seats": {" ": [1.0, 2.0, 0.5]}},
+            {"guest": "", "seats": SEATS},
+            {"guest": "g", "seats": SEATS, "dwell": 0},
+            {"guest": "g", "seats": SEATS, "x": 1},
+        ):
+            with self.subTest(params), self.assertRaises(ValueError):
+                FindFreeSeat.validate(params, spec)
+
+    def test_nothing_is_expected_before_it_looks(self):
+        self.assertEqual(
+            FindFreeSeat(None).expected({"guest": "g", "seats": SEATS}), {}
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -227,25 +227,29 @@ def finite_point(value):
 class OfferSeat(Skill):
     """Show a guest their seat: look at it and point with the right arm.
 
-    params: {"guest": "guest1", "seat": "chair_left", "position": [x, y, z],
-    "height": 0.8, "hold": 3.0}. `position` is the seat in map (m). A seat
-    outside the arm's bearings (pointing.MIN_BEARING..MAX_BEARING) turns the
-    base first. The wrist rises to `height` m above the floor if the lift
-    controller is there, and the arm points for `hold` s, then returns to where
-    it was. The pose is computed again once the arm is there, as the base may
-    still settle after navigation, and corrected if it changed. While the
-    robot holds something (robot.holding), only the head shows the seat. The
-    head then follows the guest (by `<guest>.track` and name). Choosing a free
-    seat is not part of the skill.
+    params: {"guest": "guest1", "height": 0.8, "hold": 3.0}, and optionally
+    "seat": "chair_left" with "position": [x, y, z], the seat in map (m).
+    Without them the seat is `<guest>.seat` and `<guest>.seat_position` of
+    the task memory (aha_tasks.seats.FindFreeSeat). A seat outside the arm's
+    bearings (pointing.MIN_BEARING..MAX_BEARING) turns the base first. The
+    wrist rises to `height` m above the floor if the lift controller is there,
+    and the arm points for `hold` s, then returns to where it was. The pose is
+    computed again once the arm is there, as the base may still settle after
+    navigation, and corrected if it changed. While the robot holds something
+    (robot.holding), only the head shows the seat. The head then follows the
+    guest (by `<guest>.track` and name).
     """
 
     @classmethod
     def validate(cls, params, spec):
-        check_keys(params, {"guest", "seat", "position"}, {"height", "hold"})
+        check_keys(params, {"guest"}, {"seat", "position", "height", "hold"})
         check_name(params, "guest")
-        check_name(params, "seat")
-        if not finite_point(params["position"]):
-            raise ValueError(f"position must be [x, y, z] in map: {params}")
+        if ("seat" in params) != ("position" in params):
+            raise ValueError(f"seat and position go together: {params}")
+        if "seat" in params:
+            check_name(params, "seat")
+            if not finite_point(params["position"]):
+                raise ValueError(f"position must be [x, y, z] in map: {params}")
         positive(params, "height", 0.8)
         positive(params, "hold", 3.0)
 
@@ -254,6 +258,8 @@ class OfferSeat(Skill):
         Arm.of(self.runtime)
 
     def expected(self, params):
+        if "seat" not in params:
+            return {}  # <guest>.seat is already in memory
         return {f"{params['guest']}.seat": params["seat"]}
 
     def execute(self, ctx):
@@ -267,8 +273,13 @@ class OfferSeat(Skill):
             shoulder_bearing,
         )
 
-        guest, seat = ctx.params["guest"], ctx.params["seat"]
-        position = ctx.params["position"]
+        guest = ctx.params["guest"]
+        seat = ctx.params.get("seat", ctx.memory.get(f"{guest}.seat"))
+        position = ctx.params.get("position", ctx.memory.get(f"{guest}.seat_position"))
+        if not isinstance(seat, str) or not finite_point(position):
+            return SkillResult(
+                False, f"No seat for {guest}: {guest}.seat / .seat_position"
+            )
         hold = positive(ctx.params, "hold", 3.0)
         gaze = self.runtime.gaze
         gaze.look_at(

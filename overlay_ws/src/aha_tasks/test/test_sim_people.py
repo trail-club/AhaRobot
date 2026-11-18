@@ -1,5 +1,6 @@
 """Posed sim people: skinning on a tiny rig, texture recolouring and scenes."""
 
+import hashlib
 import io
 import json
 import os
@@ -7,7 +8,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
+import zipfile
 
 import numpy as np
 from PIL import Image
@@ -182,6 +185,87 @@ class SceneTests(unittest.TestCase):
         sdf = person_sdf("p", Path("/tmp/a b.dae"), 1.0, 2.0, 0.0, 1.5)
         self.assertIn("file:///tmp/a%20b.dae", sdf)
         self.assertIn("<pose>1.0 2.0 0.0 0 0 1.5</pose>", sdf)
+
+
+def png(colour):
+    out = io.BytesIO()
+    Image.new("RGB", (2, 2), colour).save(out, format="PNG")
+    return out.getvalue()
+
+
+def leftovers(folder):
+    """Temporary files of write_atomic left in a tree."""
+    return [p.name for p in Path(folder).rglob(".*") if p.is_file()]
+
+
+class CacheTests(unittest.TestCase):
+    """sim_people and sim_guests may fill one cache at the same time."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cache = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def source_zip(self, files):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as z:
+            for name, data in files.items():
+                z.writestr(name, data)
+        return archive.getvalue()
+
+    def serve(self, data, name):
+        """A file:// URL of the archive, outside the cache."""
+        path = self.cache.parent / f"{self.cache.name}_{name}.zip"
+        path.write_bytes(data)
+        self.addCleanup(path.unlink)
+        return path.as_uri()
+
+    def test_a_file_appears_only_when_complete(self):
+        path = self.cache / "a.bin"
+        sim_people.write_atomic(path, b"data")
+        self.assertEqual(path.read_bytes(), b"data")
+        with patch("aha_tasks.sim_people.os.replace", side_effect=OSError("full")):
+            with self.assertRaises(OSError):
+                sim_people.write_atomic(self.cache / "b.bin", b"data")
+        self.assertFalse((self.cache / "b.bin").exists())
+        self.assertEqual(leftovers(self.cache), [])
+
+    def test_the_source_is_extracted_whole_or_not_at_all(self):
+        files = {sim_people.DAE: TINY_RIG.encode(), sim_people.TEXTURE: png("red")}
+        digests = {n: hashlib.sha256(d).hexdigest() for n, d in files.items()}
+        url = self.serve(self.source_zip(files), "whole")
+        with patch.dict(sim_people.SOURCE_FILES, digests):
+            root = sim_people.fetch_source(self.cache, url)
+            for name, data in files.items():
+                self.assertEqual((root / name).read_bytes(), data)
+            self.assertEqual(leftovers(self.cache), [])
+            truncated = self.serve(self.source_zip(files)[:40], "truncated")
+            with self.assertRaises(zipfile.BadZipFile):
+                sim_people.fetch_source(self.cache / "other", truncated)
+        self.assertFalse((self.cache / "other").exists())
+
+    def test_meshes_are_built_once_without_partial_files(self):
+        source = self.cache / "source"
+        (source / sim_people.DAE).parent.mkdir(parents=True)
+        (source / sim_people.DAE).write_text(TINY_RIG)
+        (source / sim_people.TEXTURE).parent.mkdir(parents=True)
+        (source / sim_people.TEXTURE).write_bytes(png((150, 60, 200)))
+        with (
+            patch("aha_tasks.sim_people.fetch_source", return_value=source),
+            patch.dict(sim_people.POSES, {"lying": []}),  # joints of TINY_RIG only
+        ):
+            paths = sim_people.build_meshes(self.cache, [("lying", "red")])
+            mesh = paths[("lying", "red")]
+            self.assertTrue(mesh.is_file())
+            ET.parse(mesh)  # complete XML
+            with patch("aha_tasks.sim_people.write_atomic") as write:
+                self.assertEqual(
+                    sim_people.build_meshes(self.cache, [("lying", "red")]), paths
+                )
+            write.assert_not_called()
+        self.assertEqual(leftovers(self.cache), [])
 
 
 if __name__ == "__main__":

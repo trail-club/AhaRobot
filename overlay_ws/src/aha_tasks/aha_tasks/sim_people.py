@@ -18,7 +18,9 @@ import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
+import tempfile
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -136,8 +138,24 @@ def fetch_source(cache: Path, url: str = FUEL_URL) -> Path:
             raise RuntimeError(f"{url}: {name} does not match the expected hash")
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        write_atomic(path, data)
     return root
+
+
+def write_atomic(path: Path, data: bytes):
+    """Write a file of the cache so that no reader sees it half written.
+
+    sim_people and sim_guests may fill the same cache at the same time; the
+    data goes to a temporary file in the same directory, then replaces `path`.
+    """
+    handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(handle, "wb") as file:
+            file.write(data)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def _sha256(path: Path):
@@ -376,8 +394,9 @@ def build_meshes(cache: Path, needed, url: str = FUEL_URL) -> dict:
             raise ValueError(f"unknown shirt colour {shirt!r}")
         texture = out / "textures" / f"shirt_{shirt}.png"
         if not texture.is_file():
-            texture.write_bytes(
-                recolour_shirt((source / TEXTURE).read_bytes(), SHIRT_COLOURS[shirt])
+            write_atomic(
+                texture,
+                recolour_shirt((source / TEXTURE).read_bytes(), SHIRT_COLOURS[shirt]),
             )
         for frame in mesh_frames(label):
             path = out / "meshes" / f"{frame}__{shirt}.dae"
@@ -386,8 +405,9 @@ def build_meshes(cache: Path, needed, url: str = FUEL_URL) -> dict:
                 positions, normals = rig.pose(
                     POSES.get(frame, ARMS_DOWN), ROOT_ROTATIONS.get(frame)
                 )
-                path.write_bytes(
-                    rig.static_dae(positions, normals, f"../textures/{texture.name}")
+                write_atomic(
+                    path,
+                    rig.static_dae(positions, normals, f"../textures/{texture.name}"),
                 )
             paths[(frame, shirt)] = path
     return paths
