@@ -18,6 +18,7 @@ import time
 
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.gpsr_planner import (
+    CommandPlan,
     Planner,
     command_summary,
     interleaved,
@@ -31,14 +32,13 @@ from aha_tasks.gpsr_planner import (
 from aha_tasks.gpsr_vocabulary import load_vocabulary, names_of
 from aha_tasks.interaction import NO_ASR, Cancelled, Interaction
 from aha_tasks.plan import COMMANDS, PLAN, validate_plan
-from aha_tasks.task_status import TaskStatusSkill as _TaskStatus
-from aha_tasks.task_status import planning_skipped, unheard
+from aha_tasks.task_status import TaskStatusSkill, planning_skipped, unheard
 from aha_tasks.skills import LOCATION
 
 ORDINALS = {1: "first", 2: "second", 3: "third"}
-# Confirmations, as aha_tasks.conversation of the name questions: a bare "not"
-# or "n't" is no answer ("I didn't hear you", "Sure, why not"), and asking
-# back ("What?", "Pardon?") is neither an answer nor a command.
+# Words of an answer to "Is that correct?". A bare "not" or "n't" is no answer
+# ("I didn't hear you", "Sure, why not"), and asking back ("What?",
+# "Pardon?") is neither an answer nor a command.
 YES = {
     "yes",
     "yeah",
@@ -64,17 +64,15 @@ NO_PHRASE = re.compile(
 FILLERS = re.compile(
     r"^(?:i said|i say|it is|it's|its|it was|the command is|i mean)\s+"
 )
+# Words before a restated command: "No, no, sorry, I said ...".
+OPENERS = {"sorry", "well", "um", "uh", "oh", "hmm", "wait", "actually"}
+LEADING = YES | NO | OPENERS | {"quite", "really"}
 MIN_WORDS = 3  # a command has at least this many words
 PLANNERS = ("auto", "llm", "grammar")
 
 
 def words_of(text):
     return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", str(text).lower().replace("’", "'"))
-
-
-# Words before a restated command: "No, no, sorry, I said ...".
-OPENERS = {"sorry", "well", "um", "uh", "oh", "hmm", "wait", "actually"}
-LEADING = YES | NO | OPENERS | {"quite", "really"}
 
 
 def yes_no(text):
@@ -90,8 +88,6 @@ def yes_no(text):
     if not words:
         return None, ""
     joined = " ".join(words)
-    # A yes word right after "not" ("I'm not sure") is no yes.
-    negated = {i + 1 for i, w in enumerate(words) if w == "not" or w.endswith("n't")}
     if words[0] in YES and words[1:2] == ["not"]:
         return "no", ""  # "Absolutely not", "Certainly not"
     if words[0] in YES:
@@ -106,6 +102,8 @@ def yes_no(text):
         return "no", " ".join(rest)
     if len(words) <= 3 and any(w in NO for w in words):
         return "no", ""
+    # A yes word right after "not" ("I'm not sure") is no yes.
+    negated = {i + 1 for i, w in enumerate(words) if w == "not" or w.endswith("n't")}
     if len(words) <= 3 and any(
         w in YES for i, w in enumerate(words) if i not in negated
     ):
@@ -170,6 +168,13 @@ def number(params, key, default, low=0.0):
     return value
 
 
+def integer(params, key, default, low=0):
+    value = params.get(key, default)
+    if type(value) is not int or value < low:
+        raise ValueError(f"{key} must be an integer >= {low}: {value!r}")
+    return value
+
+
 class Lost(RuntimeError):
     """The ASR is not served."""
 
@@ -200,21 +205,14 @@ class ListenCommand(Skill):
 
     @classmethod
     def validate(cls, params, spec):
+        command = params.get("command")
         unknown = set(params) - cls.KEYS - {"vocabulary"}
-        if unknown or params.get("command") not in COMMANDS:
+        if unknown or type(command) is not int or command not in COMMANDS:
             raise ValueError(f"listen_command needs a command of {COMMANDS}: {params}")
-        if type(params["command"]) is not int:
-            raise ValueError(f"command must be an integer: {params}")
         number(params, "timeout", 15.0, low=1.0)
         number(params, "confirm_timeout", 8.0, low=1.0)
-        for key, default in (("attempts", 3), ("custom_operator", 3)):
-            if (
-                type(params.get(key, default)) is not int
-                or params.get(key, default) < 0
-            ):
-                raise ValueError(f"{key} must be a count: {params}")
-        if params.get("attempts", 3) < 1:
-            raise ValueError(f"attempts must be at least 1: {params}")
+        integer(params, "attempts", 3, low=1)
+        integer(params, "custom_operator", 3)
         vocabulary_of(params, spec)
 
     def ready(self):
@@ -227,27 +225,22 @@ class ListenCommand(Skill):
         n = params["command"]
         ordinal = ORDINALS[n]
         interaction = Interaction.of(self.runtime)
-        hotwords = vocabulary_of(params, self.runtime.spec).hotwords()
+        vocabulary = vocabulary_of(params, self.runtime.spec)
+        hotwords = vocabulary.hotwords()
+        timeout = float(params.get("timeout", 15.0))
         attempts = params.get("attempts", 3)
         tries = attempts + params.get("custom_operator", 3)
         prompt = f"Please tell me the {ordinal} command."
-        requests = 0
         try:
+            # Every attempt after the first is a rephrasing request.
             for attempt in range(tries):
                 if attempt == attempts:
                     prompt = (
                         "I am sorry. Could a custom operator please tell me the "
                         f"{ordinal} command?"
                     )
-                if attempt:
-                    requests += 1
                 self._say(interaction, prompt, ctx)
-                text, why = hear(
-                    interaction,
-                    hotwords,
-                    float(params.get("timeout", 15.0)),
-                    ctx.cancelled,
-                )
+                text, why = hear(interaction, hotwords, timeout, ctx.cancelled)
                 text = clean(text or "")
                 if not text:
                     ctx.log(f"Nothing heard: {why}")
@@ -262,12 +255,12 @@ class ListenCommand(Skill):
                         "command again."
                     )
                     continue
-                accepted, text = self._confirm(interaction, text, ctx)
-                if accepted:
+                confirmed = self._confirm(interaction, text, vocabulary, ctx)
+                if confirmed:
                     return SkillResult(
                         True,
-                        f"Command {n}: {text!r} ({requests} rephrasing request(s))",
-                        {f"cmd{n}.text": text},
+                        f"Command {n}: {confirmed!r} ({attempt} rephrasing request(s))",
+                        {f"cmd{n}.text": confirmed},
                     )
                 prompt = f"Sorry. Please tell me the {ordinal} command again."
         except Cancelled:
@@ -285,10 +278,9 @@ class ListenCommand(Skill):
         if not ok:
             ctx.log(f"Could not say {text!r}: {message}")
 
-    def _confirm(self, interaction, text, ctx):
-        """(True, text) once the operator says yes, (False, text) on a no."""
+    def _confirm(self, interaction, text, vocabulary, ctx):
+        """The command once the operator says yes, or None on a no."""
         timeout = float(ctx.params.get("confirm_timeout", 8.0))
-        vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
         unclear = 0
         corrected = False  # the text is a restatement from an answer
         for _ in range(4):
@@ -301,18 +293,18 @@ class ListenCommand(Skill):
             verdict, rest = yes_no(answer or "")
             ctx.log(f"Confirmation of {text!r}: {answer!r} -> {verdict}")
             if verdict == "yes":
-                return True, text
+                return text
             correction = restated(rest, vocabulary)
             if correction:  # "no, I said ..." or the command once more
                 text, corrected = clean(correction), True
                 continue
             if verdict == "no":
-                return False, text
+                return None
             if affirms(rest):  # "That's right, thank you"; no command restated
-                return True, text
+                return text
             if corrected:
                 # A restated command (heard once) is taken only on a yes.
-                return False, text
+                return None
             if answer:
                 # Heard, but neither yes nor no ("I don't think so"): ask
                 # again rather than take a command the operator may deny.
@@ -320,31 +312,21 @@ class ListenCommand(Skill):
             unclear += 1
             if unclear >= 2:
                 ctx.log(f"No answer to the confirmation ({why}); taking {text!r}")
-                return True, text
-        # No yes in the tries (or the last answer restated the command).
-        return False, text
+                return text
+        return None  # no yes in the tries (or the last answer restated the command)
 
 
 def command_infos(results, count, vocabulary):
     """`plan.commands`: every command 1..count, a not heard one included, so
     that report_results says something about each."""
-    infos = {r.number: r.info(vocabulary) for r in results}
-    for n in range(1, count + 1):
-        infos.setdefault(
-            n,
-            {
-                "command": n,
-                "text": "",
-                "planner": "",
-                "summary": "",
-                "error": "not heard",
-                "dropped": False,
-            },
-        )
-    return [infos[n] for n in sorted(infos)]
+    planned = {r.number: r for r in results}
+    return [
+        planned.get(n, CommandPlan(n, "", error="not heard")).info(vocabulary)
+        for n in range(1, count + 1)
+    ]
 
 
-class PlanCommands(_TaskStatus):
+class PlanCommands(TaskStatusSkill):
     """Plan the heard commands, show the plan on the screen and say it.
 
     params: {"commands": ["cmd1.text", ...] (memory keys, in command order),
@@ -367,8 +349,7 @@ class PlanCommands(_TaskStatus):
         ):
             raise ValueError(f"commands must be 1 to 3 memory keys: {commands!r}")
         number(params, "timeout", 60.0, low=1.0)
-        if type(params.get("attempts", 3)) is not int or params.get("attempts", 3) < 1:
-            raise ValueError(f"attempts must be a positive count: {params}")
+        integer(params, "attempts", 3, low=1)
         if params.get("planner", "auto") not in PLANNERS:
             raise ValueError(f"planner must be one of {PLANNERS}: {params}")
         if not isinstance(params.get("thinking", False), bool):
@@ -377,7 +358,7 @@ class PlanCommands(_TaskStatus):
 
     def ready(self):
         Interaction.of(self.runtime).find_tts()
-        self._subscribe_status()
+        super().ready()
 
     def planner(self, params):
         from aha_tasks.llm import Chat, parameters
@@ -441,10 +422,12 @@ class PlanCommands(_TaskStatus):
                 + (f" {result.error}" if result.error and not result.steps else "")
             )
         interaction = Interaction.of(self.runtime)
+        count = len(params["commands"])
         understood = [r.number for r in results if r.steps]
         dropped = [r.number for r in results if r.dropped]
-        missing = [r.number for r in results if not r.steps and not r.dropped]
-        missing += [n for n in range(1, len(params["commands"]) + 1) if n not in texts]
+        missing = [
+            n for n in range(1, count + 1) if n not in understood and n not in dropped
+        ]
         if not plan:
             interaction.say("I am sorry, I could not plan the commands.", ctx.cancelled)
             return SkillResult(False, "No command could be planned")
@@ -458,7 +441,7 @@ class PlanCommands(_TaskStatus):
         one_by_one = plan_travel(sequential(commands), spec, *ends)
         speech = [f"I understood {_numbers(understood)}."]
         if missing:
-            speech.append(f"I could not understand {_numbers(sorted(set(missing)))}.")
+            speech.append(f"I could not understand {_numbers(missing)}.")
         if dropped:
             speech.append(
                 f"I understood {_numbers(dropped)}, but it does not fit my plan."
@@ -479,9 +462,7 @@ class PlanCommands(_TaskStatus):
             f"({one_by_one:.1f} m one by one)",
             {
                 PLAN: plan,
-                f"{PLAN}.commands": command_infos(
-                    results, len(params["commands"]), vocabulary
-                ),
+                f"{PLAN}.commands": command_infos(results, count, vocabulary),
             },
         )
 
@@ -493,7 +474,7 @@ def _numbers(numbers):
     return f"commands {words} and {numbers[-1]}"
 
 
-class ReportResults(_TaskStatus):
+class ReportResults(TaskStatusSkill):
     """Say per command what was done.
 
     Uses the plan and `plan.commands` in memory, the outcome of each plan slot
@@ -510,21 +491,22 @@ class ReportResults(_TaskStatus):
 
     def ready(self):
         Interaction.of(self.runtime).find_tts()
-        self._subscribe_status()
+        super().ready()
 
     def execute(self, ctx):
-        vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
         status = self.latest_status(ctx.subgoal)
         if planning_skipped(self.runtime.spec, status):
             # The plan in memory is the task definition's mock, not the
             # operator's commands: say none were planned.
-            sentence = "I could not plan the commands, so I did not do them."
-            return self._say(ctx, "Here is my report. " + sentence, sentence)
+            return self._report(
+                ctx, "I could not plan the commands, so I did not do them."
+            )
         plan = ctx.memory.get(PLAN)
         if not isinstance(plan, list) or not plan:
             return SkillResult(False, "No plan in memory")
         commands = ctx.memory.get(f"{PLAN}.commands")
-        if not isinstance(commands, list):
+        if not isinstance(commands, list):  # a plan not made by plan_commands
+            vocabulary = vocabulary_of(ctx.params, self.runtime.spec)
             numbers = sorted({step["command"] for step in plan})
             commands = [
                 {
@@ -537,14 +519,12 @@ class ReportResults(_TaskStatus):
             ]
         outcomes = step_outcomes(status, plan)
         sentences = report_sentences(plan, commands, outcomes, ctx.memory)
-        return self._say(
-            ctx, "Here is my report. " + " ".join(sentences), " ".join(sentences)
-        )
+        return self._report(ctx, " ".join(sentences))
 
-    def _say(self, ctx, text, summary):
+    def _report(self, ctx, summary):
         interaction = Interaction.of(self.runtime)
         interaction.hide()
-        ok, message = interaction.say(text, ctx.cancelled)
+        ok, message = interaction.say("Here is my report. " + summary, ctx.cancelled)
         if ctx.cancelled.is_set():
             return SkillResult(False, "Cancelled")
         if not ok:

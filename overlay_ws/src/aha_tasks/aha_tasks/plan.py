@@ -9,7 +9,7 @@ retries apply per step.
 
 import copy
 
-from aha_tasks.core.skill import Skill, SkillContext, SkillResult, normalize, resolve
+from aha_tasks.core.skill import SkillContext, SkillResult, normalize, resolve
 from aha_tasks.skills import LOCATION, go_to, resolve_pose
 from aha_tasks.task_status import TaskStatusSkill, planning_skipped
 
@@ -78,10 +78,6 @@ class RunPlanStep(TaskStatusSkill):
     After a planning subgoal that failed and was skipped, the plan in memory is
     the task definition's mock, not the operator's commands: no step is run.
     """
-
-    def ready(self):
-        if getattr(self.runtime, "node", None) is not None:
-            self._subscribe_status()
 
     @classmethod
     def validate(cls, params, spec):

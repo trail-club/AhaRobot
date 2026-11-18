@@ -99,14 +99,15 @@ def load_config(path, locations, people=None):
     return settings, speakers
 
 
-NAME_QUESTION = re.compile(r"\b(your name|who are you|are you)\b")
+def _words(sentence):
+    """Lower case words without punctuation."""
+    return " ".join(re.sub(r"[^a-z0-9' ]+", " ", sentence.lower()).split())
 
 
 def asks_name(question):
     """Whether the robot asks a person's name ("What is your name?", "Are you
     Charlie?"): only people answer it; the operator answers the rest."""
-    text = " ".join(re.sub(r"[^a-z0-9' ]+", " ", question.lower()).split())
-    return bool(NAME_QUESTION.search(text))
+    return bool(re.search(r"\b(your name|who are you|are you)\b", _words(question)))
 
 
 def speaker_for(pose, speakers, radius, fov, person=None):
@@ -153,7 +154,7 @@ class Voices:
         """What `speaker` says to the robot's `question`, or None."""
         if speaker is None:
             return None
-        text = " ".join(re.sub(r"[^a-z0-9' ]+", " ", question.lower()).split())
+        text = _words(question)
         if speaker.operator and re.search(r"\bcommands?\b", text):
             index = next(
                 (i for word, i in ORDINALS.items() if re.search(rf"\b{word}\b", text)),

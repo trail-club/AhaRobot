@@ -5,8 +5,9 @@ the official command generator (RoboCupAtHome/CommandGenerator). The arena's
 words come from config/vocabulary/<task>.json: which task locations are rooms,
 placement locations and other locations, and the object list of aha_perception
 (config/objects/robocup_objects.yaml) with the spoken singular and plural of
-its categories. People's names are the task's initial_state `gpsr.names`. Location labels use "_" where the
-spoken word has a space ("kitchen_table" is "kitchen table").
+its categories. People's names are the task's initial_state `gpsr.names`.
+Location labels use "_" where the spoken word has a space ("kitchen_table" is
+"kitchen table").
 """
 
 from dataclasses import dataclass
@@ -114,16 +115,6 @@ class Vocabulary:
     def plural_categories(self):
         return tuple(c.plural for c in self.categories)
 
-    def category(self, phrase):
-        """The object list category of an object or category phrase, or None."""
-        words = " ".join(str(phrase).lower().split())
-        if words in self.object_categories:
-            return self.object_categories[words]
-        for category in self.categories:
-            if words in (category.name, category.singular, category.plural):
-                return category.name
-        return None
-
     def label(self, words):
         """The location label of spoken words ('kitchen table'), or None."""
         label = "_".join(str(words).lower().split())
@@ -170,9 +161,9 @@ def load_object_list(reference):
     """{label: category} from an object list YAML, '<package>/<path in share>'."""
     from aha_perception.object_list import load_object_list as load
 
-    package, _, relative = str(reference).partition("/")
-    path = Path(reference) if Path(reference).is_absolute() else None
-    if path is None:
+    path = Path(reference)
+    if not path.is_absolute():
+        package, _, relative = str(reference).partition("/")
         path = share_path(package, relative)
     return {entry.label: entry.category for entry in load(path).objects}
 

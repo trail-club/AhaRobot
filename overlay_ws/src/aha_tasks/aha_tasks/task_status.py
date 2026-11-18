@@ -12,14 +12,16 @@ STATUS_WAIT = 2.0  # s (wall clock) for the status of the running subgoal
 
 
 class TaskStatusSkill(Skill):
-    """The runner's own task status (/aha/tasks/status), for skills that look
-    at how other subgoals ended."""
+    """A skill that subscribes to the task status at ready() (with a ROS node)."""
 
-    def _subscribe_status(self):
+    status = None  # the last status JSON
+
+    def ready(self):
+        if getattr(self.runtime, "node", None) is None:
+            return
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
         from std_msgs.msg import String
 
-        self.status = None
         qos = QoSProfile(
             depth=1,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -34,7 +36,7 @@ class TaskStatusSkill(Skill):
 
     def _parsed(self):
         try:
-            return json.loads(self.status) if getattr(self, "status", None) else None
+            return json.loads(self.status) if self.status else None
         except ValueError:
             return None
 
@@ -56,6 +58,14 @@ class TaskStatusSkill(Skill):
         return self._parsed()
 
 
+def _outcomes(status):
+    """{subgoal id: status} of a task status (empty without one)."""
+    return {
+        item.get("id"): item.get("status")
+        for item in (status or {}).get("subgoals", [])
+    }
+
+
 def unheard(keys, spec, status):
     """Memory keys among `keys` whose listen_command subgoal was skipped.
 
@@ -63,28 +73,19 @@ def unheard(keys, spec, status):
     memory: that text was not heard and must not be planned. A bypassed one
     (not selected) keeps it, so that a run can start from the mock commands.
     """
-    if not status:
-        return set()
-    outcome = {
-        item.get("id"): item.get("status") for item in status.get("subgoals", [])
-    }
-    return {
+    outcome = _outcomes(status)
+    skipped = {
         f"cmd{subgoal.params.get('command')}.text"
         for subgoal in spec.subgoals
-        if subgoal.skill == "listen_command"
-        and outcome.get(subgoal.id) == "skipped"
-        and f"cmd{subgoal.params.get('command')}.text" in keys
+        if subgoal.skill == "listen_command" and outcome.get(subgoal.id) == "skipped"
     }
+    return skipped & set(keys)
 
 
 def planning_skipped(spec, status):
     """Whether the plan_commands subgoal failed and was skipped (its mock plan
     is in memory then). Not when it was not selected (bypassed)."""
-    if not status:
-        return False
-    outcome = {
-        item.get("id"): item.get("status") for item in status.get("subgoals", [])
-    }
+    outcome = _outcomes(status)
     return any(
         outcome.get(subgoal.id) == "skipped"
         for subgoal in spec.subgoals

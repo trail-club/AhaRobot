@@ -23,6 +23,7 @@ from aha_tasks.gpsr_vocabulary import (
     POSE_PERSONS_PLURAL,
     TALK,
     COLOURS,
+    article,
     spoken,
 )
 
@@ -58,6 +59,10 @@ def normalize(text):
 def _alt(words):
     ordered = sorted({w.lower() for w in words}, key=len, reverse=True)
     return "(?:" + "|".join(re.escape(w) for w in ordered) + ")"
+
+
+def _navigate(label):
+    return {"action": "navigate", "params": {"location": label}}
 
 
 def _person(phrase):
@@ -295,7 +300,7 @@ class Parser:
         return label
 
     def _go(self, words):
-        return {"action": "navigate", "params": {"location": self._label(words)}}
+        return _navigate(self._label(words))
 
     def _find(self, location, **who):
         return {
@@ -308,11 +313,10 @@ class Parser:
 
     def _report(self, action, params, location):
         """Find out something at a location and tell the operator."""
-        operator = self.vocabulary.operator
         return [
             self._go(location),
             {"action": action, "params": {**params, "location": self._label(location)}},
-            {"action": "navigate", "params": {"location": operator}},
+            _navigate(self.vocabulary.operator),
             {"action": "tell_info", "params": {"person": OPERATOR}},
         ]
 
@@ -353,12 +357,7 @@ class Parser:
 
     def tell_person_info(self, g, context):
         location = g.get("room") or g["loc"]
-        return [
-            self._go(location),
-            self._find(location, info=g["info"]),
-            {"action": "navigate", "params": {"location": self.vocabulary.operator}},
-            {"action": "tell_info", "params": {"person": OPERATOR}},
-        ]
+        return self._report("find_described_person", {"info": g["info"]}, location)
 
     def tell_object_property(self, g, context):
         target = f"{g['comp']} object"
@@ -408,12 +407,7 @@ class Parser:
                 "action": "pick_object",
                 "params": {"object": g["obj"], "surface": self._label(g["plc"])},
             },
-            {"action": "navigate", "params": {"location": self.vocabulary.operator}},
-            {
-                "action": "deliver_object",
-                "params": {"object": g["obj"], "person": OPERATOR},
-            },
-        ]
+        ] + self.deliver_to_me(g, {"object": g["obj"]})
 
     def tell_category_property(self, g, context):
         target = f"{g['comp']} {g['cat']}"
@@ -497,7 +491,7 @@ class Parser:
 
     def _put(self, context, surface):
         return [
-            {"action": "navigate", "params": {"location": surface}},
+            _navigate(surface),
             {
                 "action": "place_object",
                 "params": {"object": context["object"], "surface": surface},
@@ -512,7 +506,7 @@ class Parser:
 
     def deliver_to_me(self, g, context):
         return [
-            {"action": "navigate", "params": {"location": self.vocabulary.operator}},
+            _navigate(self.vocabulary.operator),
             {
                 "action": "deliver_object",
                 "params": {"object": context["object"], "person": OPERATOR},
@@ -566,4 +560,4 @@ class Parser:
 
 def clothed(clothing):
     """'person wearing a red t shirt' of the generator's 'red t shirt'."""
-    return f"person wearing {'an' if clothing[0] in 'aeiou' else 'a'} {clothing}"
+    return f"person wearing {article(clothing)} {clothing}"

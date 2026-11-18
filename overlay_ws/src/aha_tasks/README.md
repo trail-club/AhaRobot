@@ -388,7 +388,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
-| `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめ、yesで確定する。no・無音・3語未満は頼み直す（言い直しの依頼）。「No, I said ...」のように言い直した文（名前・地点・物体などの語を含む）は、それを確かめ直す。`not` だけ（「Sure, why not」）や聞き返し（「What?」）は答えとしない。確認に2回無音なら聞き取った文で確定する。答えの途中のyes（「That's right, thank you」）も、否定の語がなく命令の言い直しでもなければyesとする。yesでもnoでもない答え（「I don't think so」）は確定せず、確かめ直す。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。runnerの準備のときに音声認識のclientを作り、最大2 s待って見つけておく（見つけた直後に送ったgoalは失われることがあるため） | `cmd<N>.text` |
+| `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめる（下記）。無音・3語未満・noでは頼み直す（言い直しの依頼）。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。音声認識はrunnerの準備のときに最大2 s待って見つけておく | `cmd<N>.text` |
 | `plan_commands` | 命令を計画し（下記）、計画を画像で画面に出し、理解した命令と実行の順を言う。聞き取りをskipした命令（`/aha/tasks/status` で `listen_command` の枠が `skipped`）は、記憶にmockの命令文があっても計画せず、聞き取れなかった命令とする | `plan`、`plan.commands`（命令ごとの文・計画の方法・要約・失敗の理由） |
 | `report_results` | 命令ごとに要約と結果を言う。全手順が成功なら `done`、失敗・未実装の手順があれば何手順できたか。結果は `/aha/tasks/status` の枠の状態から求め、成功した手順の `count` などの答え（`<output>.answer`、なければ値）を添える（mockで通過した手順や状態が分からない手順の値は、mockの値かもしれないので添えない）。`plan_commands` の枠がskipされていれば、記憶の計画はmockなので、命令を計画できなかったとだけ言う | |
 
@@ -402,6 +402,13 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `planner` | `auto` | `auto` は文型どおりの命令を文法で、他をLLMで。`llm` / `grammar` は一方だけ |
 | `thinking` | `false` | LLMの思考（`reasoning_content`）を使う |
 | `vocabulary` | タスク名 | `config/vocabulary/` の名前、またはJSONのパス（3スキル共通） |
+
+`listen_command` の確認の答え:
+
+- yesで確定する。答えの途中のyes（「That's right, thank you」）も、否定の語がなければyesとする。`not` だけ（「I didn't hear you」「Sure, why not」）ではnoとしない。
+- 命令を言い直した答え（「No, I said ...」。名前・地点・物体などの語を含む）は、その文を確かめ直し、yesのときだけ確定する。
+- yesでもnoでもない答え（「I don't think so」、聞き返しの「What?」）では確定せず、確かめ直す。
+- 2回無音なら聞き取った文で確定する。
 
 ホットワードは人の名前（`initial_state` の `gpsr.names`）と語彙の地点・物体・カテゴリ（英語のParakeetは受け取っても使わない）。LLMはrunnerのparameter `llm_url` / `llm_model`。DGXに届かないホスト（trail-pc）では、届くPCから `ssh -N -R 127.0.0.1:18081:10.99.0.1:8080 <host>` で転送し、`llm_url:=http://127.0.0.1:18081/v1` で起動する。
 
@@ -481,7 +488,7 @@ GPSRの `cmd*.listen` はASRを待つため、シミュレーションでは `sp
 ros2 launch aha_tasks task.launch.py task:=gpsr e2e:=debug people_scene:=gpsr speech:=gpsr
 ```
 
-話し手は、Instruction Pointから `radius`（既定1.5 m）以内ならoperator、ロボットの正面 ±`fov`（既定1.0 rad）で `radius` 以内に名前付きの人がいればその人（近い方）。ロボットの位置はTF（`map` → `base_footprint`）。答えはロボットの直前の字幕（`/aha/display/caption`）で決める。
+話し手は、名前を尋ねる字幕（下表）にはロボットの正面 ±`fov`（既定1.0 rad）で `radius`（既定1.5 m）以内の最も近い名前付きの人、ほかの字幕にはロボットが `operator` の `location` から `radius` 以内ならoperator。ロボットの位置はTF（`map` → `base_footprint`）。答えはロボットの直前の字幕（`/aha/display/caption`）で決める。
 
 | ロボットの字幕 | 答え |
 | --- | --- |

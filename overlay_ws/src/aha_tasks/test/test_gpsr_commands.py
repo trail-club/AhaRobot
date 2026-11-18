@@ -38,6 +38,7 @@ from aha_tasks.sim_speech import (  # noqa: E402
 GPSR = PACKAGE / "config" / "gpsr.json"
 SPEC, _ = load_task(GPSR)
 VOCABULARY = load_vocabulary("gpsr", SPEC.locations, names_of(SPEC.initial_state))
+MOCK_PLAN = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
 COLA = (
     "Get a cola from the kitchen table and bring it to the waving person in the office"
 )
@@ -91,7 +92,7 @@ class FakeChat:
         content = self.contents.pop(0)
         if not isinstance(content, str):
             content = json.dumps({"steps": content})
-        return Reply(content, "", "stop", {}, 0.1)
+        return Reply(content, 0.1)
 
 
 def check_schema(value, schema, path="$"):
@@ -136,8 +137,6 @@ class VocabularyTests(unittest.TestCase):
         self.assertIn("Charlie", VOCABULARY.names)
         self.assertEqual(VOCABULARY.label("kitchen table"), "kitchen_table")
         self.assertIsNone(VOCABULARY.label("bathroom"))
-        self.assertEqual(VOCABULARY.category("drinks"), "drink")
-        self.assertEqual(VOCABULARY.category("cola"), "drink")
         hotwords = VOCABULARY.hotwords()
         for word in ("Charlie", "kitchen table", "living room", "cola", "drinks"):
             self.assertIn(word, hotwords)
@@ -524,6 +523,15 @@ class InterleaveTests(unittest.TestCase):
         parser = Parser(VOCABULARY)
         return {n: complete(parser.parse(t), n)[0] for n, t in enumerate(texts, 1)}
 
+    def assert_one_object_at_a_time(self, plan):
+        holding = None
+        for step in plan:
+            if step["action"] == "pick_object":
+                self.assertIsNone(holding, plan)
+                holding = step["command"]
+            elif step["action"] in ("place_object", "deliver_object"):
+                holding = None
+
     def test_shorter_travel_than_one_by_one(self):
         plans = self.plans(COLA, DRINKS, TIME)
         plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
@@ -544,13 +552,7 @@ class InterleaveTests(unittest.TestCase):
             "Take an apple from the kitchen table and put it on the side tables",
         )
         plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
-        holding = None
-        for step in plan:
-            if step["action"] == "pick_object":
-                self.assertIsNone(holding)
-                holding = step["command"]
-            elif step["action"] in ("place_object", "deliver_object"):
-                holding = None
+        self.assert_one_object_at_a_time(plan)
 
     def test_no_pick_while_another_command_holds_within_a_block(self):
         # Command 1 picks and gives away within one block (one room); command 2
@@ -562,13 +564,7 @@ class InterleaveTests(unittest.TestCase):
             "in the office",
         )
         plan = gp.interleave(plans, SPEC, "instruction_point", VOCABULARY)
-        holding = None
-        for step in plan:
-            if step["action"] == "pick_object":
-                self.assertIsNone(holding, plan)
-                holding = step["command"]
-            elif step["action"] in ("place_object", "deliver_object"):
-                holding = None
+        self.assert_one_object_at_a_time(plan)
 
     def test_equal_travel_keeps_the_command_order(self):
         plans = self.plans(TIME, TIME)
@@ -676,6 +672,7 @@ class ConfirmationTests(unittest.TestCase):
 
     def test_restated(self):
         for answer in (
+            "No, I said bring me a cola from the desk",
             "No, no, sorry, bring me a cola from the desk",
             "Sorry, no, I said bring me a cola from the desk",
             "Um, no, I said bring me a cola from the desk",
@@ -689,9 +686,6 @@ class ConfirmationTests(unittest.TestCase):
                 self.assertEqual(
                     restated(rest, VOCABULARY), "bring me a cola from the desk"
                 )
-        verdict, rest = yes_no("No, I said bring me a cola from the desk")
-        self.assertEqual(verdict, "no")
-        self.assertEqual(restated(rest, VOCABULARY), "bring me a cola from the desk")
         for rest in (
             "not that",
             "i didn't hear you at all",
@@ -742,7 +736,7 @@ def runtime(*answers):
 
 
 def run_skill(skill, params, memory=None):
-    ListenCommand.validate(params, SPEC) if isinstance(skill, ListenCommand) else None
+    type(skill).validate(params, SPEC)
     return skill.execute(
         SkillContext(
             subgoal="x",
@@ -856,7 +850,6 @@ class PlanCommandsTests(unittest.TestCase):
     def test_plan_is_shown_and_said(self):
         skill, rt = self.skill(FakeChat())
         params = {"commands": ["cmd1.text", "cmd2.text", "cmd3.text"]}
-        PlanCommands.validate(params, SPEC)
         memory = {
             "cmd1.text": COLA,
             "cmd2.text": DRINKS,
@@ -930,8 +923,7 @@ class ReportResultsTests(unittest.TestCase):
         rt = runtime()
         skill = ReportResults(rt)
         skill.status = None
-        plan = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
-        result = run_skill(skill, {}, {"plan": plan, "cmd2.count": 3})
+        result = run_skill(skill, {}, {"plan": MOCK_PLAN, "cmd2.count": 3})
         self.assertTrue(result.success, result.message)
         said = rt.interaction.said[0]
         self.assertTrue(
@@ -944,11 +936,10 @@ class ReportResultsTests(unittest.TestCase):
     def test_a_skipped_planning_reports_no_mock_commands(self):
         rt = runtime()
         skill = ReportResults(rt)
-        plan = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
         skill.status = json.dumps(
             {"subgoals": [{"id": "plan.generate", "status": "skipped"}]}
         )
-        result = run_skill(skill, {}, {"plan": plan})
+        result = run_skill(skill, {}, {"plan": MOCK_PLAN})
         self.assertTrue(result.success, result.message)
         self.assertEqual(
             rt.interaction.said[0],
@@ -958,10 +949,9 @@ class ReportResultsTests(unittest.TestCase):
     def test_status_gives_the_outcomes(self):
         rt = runtime()
         skill = ReportResults(rt)
-        plan = next(s for s in SPEC.subgoals if s.id == "plan.generate").mock["plan"]
         slots = [{"skill": "run_plan_step", "status": "succeeded", "message": ""}] * 20
         skill.status = json.dumps({"subgoals": slots})
-        result = run_skill(skill, {}, {"plan": plan})
+        result = run_skill(skill, {}, {"plan": MOCK_PLAN})
         self.assertEqual(result.message.count(": done."), 3)
 
 
@@ -973,9 +963,10 @@ class SimSpeechTests(unittest.TestCase):
         )
         self.voices = Voices(self.settings)
 
-    def speaker(self, x, y, yaw):
+    def speaker(self, x, y, yaw, person=None):
+        settings = self.settings
         return speaker_for(
-            (x, y, yaw), self.speakers, self.settings["radius"], self.settings["fov"]
+            (x, y, yaw), self.speakers, settings["radius"], settings["fov"], person
         )
 
     def test_who_answers(self):
@@ -991,22 +982,8 @@ class SimSpeechTests(unittest.TestCase):
         pose = (-1.68, 2.17, 0.68)
         self.assertTrue(asks_name("Excuse me, are you Charlie?"))
         self.assertFalse(asks_name("Please tell me the first command."))
-        charlie = speaker_for(
-            pose,
-            self.speakers,
-            self.settings["radius"],
-            self.settings["fov"],
-            person=True,
-        )
-        self.assertEqual(charlie.name, "Charlie")
-        operator = speaker_for(
-            pose,
-            self.speakers,
-            self.settings["radius"],
-            self.settings["fov"],
-            person=False,
-        )
-        self.assertTrue(operator.operator)
+        self.assertEqual(self.speaker(*pose, person=True).name, "Charlie")
+        self.assertTrue(self.speaker(*pose, person=False).operator)
 
     def test_commands_get_simpler_when_asked_again(self):
         operator = Speaker("", (0.0, 0.0), True)

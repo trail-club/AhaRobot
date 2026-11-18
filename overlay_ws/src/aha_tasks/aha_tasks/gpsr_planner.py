@@ -40,7 +40,7 @@ from aha_tasks.gpsr_vocabulary import (
     spoken,
 )
 from aha_tasks.core.skill import resolve
-from aha_tasks.plan import NOT_PLANNABLE, _validate_step
+from aha_tasks.plan import NOT_PLANNABLE, _validate_step, plan_slots
 from aha_tasks.skills import LOCATION
 
 HOLDING = "robot.holding"
@@ -305,10 +305,7 @@ def system_prompt(vocabulary, actions):
         "Actions (params; '|' separates alternatives, '?' is optional):",
     ]
     for action in actions:
-        forms = []
-        for schema in variants[action]:
-            keys = list(schema["properties"])
-            forms.append(", ".join(keys))
+        forms = [", ".join(schema["properties"]) for schema in variants[action]]
         description = DESCRIPTIONS[action].format(trash=v.trash)
         lines.append(f"- {action} {{{' | '.join(forms)}}}: {description}")
     lines += ["", RULES.format(operator=v.operator)]
@@ -358,13 +355,6 @@ def asks_info(spec, params):
     except ValueError:
         return False
     return True
-
-
-def object_phrase(step):
-    """Spoken words of a step's object (a found object's key gives its words)."""
-    if step["action"] == "pick_object":
-        return step.get("mock", {}).get(HOLDING) or step["params"]["object"]
-    return step["params"].get("object", "")
 
 
 def complete_command(steps, number, vocabulary, spec):
@@ -459,12 +449,15 @@ def complete_command(steps, number, vocabulary, spec):
         elif action in ("place_object", "deliver_object"):
             if holding is None:
                 errors.append(f"step {index}: {action} without a held object")
-            elif action == "deliver_object" and params.get("person") != OPERATOR:
-                if not found_person:
-                    errors.append(
-                        f"step {index}: find the person with find_described_person "
-                        "before deliver_object"
-                    )
+            elif (
+                action == "deliver_object"
+                and params.get("person") != OPERATOR
+                and not found_person
+            ):
+                errors.append(
+                    f"step {index}: find the person with find_described_person "
+                    "before deliver_object"
+                )
             holding = None
             mock[HOLDING] = None
         elif action in ANSWERS:
@@ -504,7 +497,7 @@ def complete_command(steps, number, vocabulary, spec):
         errors.append(f"the {holding} is still held at the end; place or deliver it")
     if not any(step["action"] != "navigate" for step in out):
         errors.append("needs a step other than navigate")
-    for index, step in enumerate(out, 1):
+    for step in out:
         try:
             _validate_step(step, spec)
         except ValueError as error:
@@ -642,19 +635,16 @@ class Planner:
             ]
             results = [future.result() for future in futures]
         commands = {r.number: r.steps for r in results if r.steps}
-        plan = interleave(
-            commands, self.spec, start or self.vocabulary.operator, self.vocabulary
-        )
-        capacity = sum(1 for s in self.spec.subgoals if s.skill == "run_plan_step")
+        start = start or self.vocabulary.operator
+        plan = interleave(commands, self.spec, start, self.vocabulary)
+        capacity = len(plan_slots(self.spec))
         while len(plan) > capacity and commands:
             longest = max(commands, key=lambda n: (len(commands[n]), n))
             dropped = next(r for r in results if r.number == longest)
             dropped.error = f"the plan does not fit {capacity} steps"
             dropped.steps, dropped.planner, dropped.dropped = [], "", True
             del commands[longest]
-            plan = interleave(
-                commands, self.spec, start or self.vocabulary.operator, self.vocabulary
-            )
+            plan = interleave(commands, self.spec, start, self.vocabulary)
         return plan, results
 
 
@@ -686,8 +676,8 @@ def blocks_of(steps):
         elif step["action"] in ("place_object", "deliver_object"):
             holding = False
         elif step["action"] in ("follow_person", "guide_person"):
-            location = step["params"].get("location")
-            block.end = location if location is not None else block.end
+            if step["params"].get("location") is not None:
+                block.end = step["params"]["location"]
         block.holds = holding
     return blocks
 
@@ -697,15 +687,6 @@ def _distance(spec, a, b):
         return 0.0
     (xa, ya, _), (xb, yb, _) = spec.locations[a], spec.locations[b]
     return math.hypot(xa - xb, ya - yb)
-
-
-def travel(blocks, spec, start, finish):
-    """m of straight lines from `start` through the blocks to `finish`."""
-    total, here = 0.0, start
-    for block in blocks:
-        total += _distance(spec, here, block.start)
-        here = block.end or block.start or here
-    return total + _distance(spec, here, finish)
 
 
 def order_blocks(commands, spec, start, finish):
@@ -770,13 +751,13 @@ def join(blocks, start=None):
     return plan
 
 
-def interleave(commands, spec, start, vocabulary=None):
-    """One plan of {number: plan steps}, ordered for the least travel."""
-    finish = vocabulary.operator if vocabulary is not None else start
+def interleave(commands, spec, start, vocabulary):
+    """One plan of {number: plan steps}, ordered for the least travel from
+    `start` back to the operator."""
     blocks = {n: blocks_of(steps) for n, steps in commands.items() if steps}
     if not blocks:
         return []
-    return join(order_blocks(blocks, spec, start, finish), start)
+    return join(order_blocks(blocks, spec, start, vocabulary.operator), start)
 
 
 def sequential(commands):
@@ -863,7 +844,9 @@ def step_phrase(step, vocabulary):
         obj = p["object"]
         return f"find {article(obj)} {obj} {_where(p['location'], vocabulary)}"
     if action == "pick_object":
-        words = f"pick up the {object_phrase(step)}"
+        # After find_object the object is a memory key; the mock has its words.
+        held = step.get("mock", {}).get(HOLDING) or p["object"]
+        words = f"pick up the {held}"
         return words + (f" from the {spoken(p['surface'])}" if "surface" in p else "")
     if action == "place_object":
         if p["surface"] == vocabulary.trash:
@@ -961,14 +944,13 @@ def render_plan(plan, vocabulary, title="My plan"):
     line = min(44, (SIZE[1] - 90) // rows)
     font, heading = _font(max(14, int(line * 0.72))), _font(40)
     draw.text((30, 18), f"{title} ({len(plan)} steps)", fill=(0, 0, 0), font=heading)
-    x = SIZE[0] - 30
+    x, legend = SIZE[0] - 30, _font(28)
     for number in sorted({s["command"] for s in plan}, reverse=True):
         label = f"Command {number}"
-        width = draw.textlength(label, font=_font(28))
-        x -= width + 50
+        x -= draw.textlength(label, font=legend) + 50
         colour = COLOURS[(number - 1) % len(COLOURS)]
         draw.rectangle((x, 28, x + 30, 52), fill=colour)
-        draw.text((x + 38, 24), label, fill=(0, 0, 0), font=_font(28))
+        draw.text((x + 38, 24), label, fill=(0, 0, 0), font=legend)
     for i, step in enumerate(plan):
         y = 80 + i * line
         colour = COLOURS[(step["command"] - 1) % len(COLOURS)]
@@ -986,7 +968,7 @@ def render_plan(plan, vocabulary, title="My plan"):
 def report_sentences(plan, commands, outcomes, memory):
     """What was done per command.
 
-    `commands`: [{"command", "summary", "error"}] (memory "plan.commands");
+    `commands`: [{"command", "summary", "dropped", ...}] (memory "plan.commands");
     `outcomes`: {plan index: "done" | "failed" | "mocked" | None (unknown)}.
     """
     sentences = []

@@ -107,23 +107,19 @@ def e2e_choices(mode, navigation="", perception=""):
     return chosen["navigation"], chosen["perception"]
 
 
+def sim_config(kind, name):
+    """config/sim/<kind>/<name>.json, or a JSON path."""
+    return Path(name) if name.endswith(".json") else task_config(f"sim/{kind}/{name}")
+
+
 def sim_speech(speech, config, people_scene):
     """sim_speech of config/sim/speech/<speech>.json with the people's names."""
-    path = (
-        Path(speech)
-        if speech.endswith(".json")
-        else task_config(f"sim/speech/{speech}")
-    )
+    path = sim_config("speech", speech)
     if not path.is_file():
         raise ValueError(f"speech:={speech}: no {path}")
     arguments = [f"--config={path}", f"--task={config}"]
     if people_scene:
-        people = (
-            Path(people_scene)
-            if people_scene.endswith(".json")
-            else task_config(f"sim/people/{people_scene}")
-        )
-        arguments.append(f"--people={people}")
+        arguments.append(f"--people={sim_config('people', people_scene)}")
     return Node(
         package="aha_tasks",
         executable="sim_speech",

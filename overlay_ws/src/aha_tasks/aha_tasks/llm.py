@@ -24,9 +24,6 @@ class LlmError(RuntimeError):
 @dataclass
 class Reply:
     content: str
-    reasoning: str
-    finish_reason: str
-    usage: dict
     seconds: float
 
 
@@ -84,14 +81,7 @@ class Chat:
         except (urllib.error.URLError, OSError, ValueError) as error:
             raise LlmError(f"{self.url}: {error}") from None
         try:
-            choice = data["choices"][0]
-            message = choice["message"]
-            return Reply(
-                content=message.get("content") or "",
-                reasoning=message.get("reasoning_content") or "",
-                finish_reason=choice.get("finish_reason") or "",
-                usage=data.get("usage") or {},
-                seconds=time.monotonic() - started,
-            )
+            content = data["choices"][0]["message"].get("content") or ""
+            return Reply(content, time.monotonic() - started)
         except (KeyError, IndexError, TypeError):
             raise LlmError(f"Unexpected reply from {self.url}: {data!r:.300}") from None

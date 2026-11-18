@@ -46,6 +46,7 @@ from aha_tasks.gpsr_vocabulary import (  # noqa: E402
     spoken,
 )
 from aha_tasks.llm import DEFAULT_MODEL, DEFAULT_URL, Chat  # noqa: E402
+from aha_tasks.plan import plan_slots  # noqa: E402
 
 PARALLEL = 4  # requests the DGX server handles at once
 
@@ -154,7 +155,6 @@ def main():
 
     cases = [(text, text) for text in commands]
     if args.rephrase:
-        sys.path.insert(0, str(source))
         from robocupathome_generator.llm import SimpleOpenaiAPI
 
         api = SimpleOpenaiAPI(args.llm_url.rstrip("/") + "/chat/completions", "none")
@@ -244,7 +244,7 @@ def main():
     if batches:
         steps = sorted(b["steps"] for b in batches)
         saved = [b["sequential_travel"] - b["travel"] for b in batches]
-        capacity = sum(1 for s in spec.subgoals if s.skill == "run_plan_step")
+        capacity = len(plan_slots(spec))
         print(
             f"Batches of 3: {len(batches)}, steps median {steps[len(steps) // 2]} "
             f"max {steps[-1]} (fit {capacity}: "

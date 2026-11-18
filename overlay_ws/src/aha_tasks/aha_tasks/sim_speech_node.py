@@ -103,18 +103,21 @@ def main(argv=None):
         finally:
             busy.release()
 
+    def cancelled(handle, until):
+        """Wait until the monotonic time `until`; True if the goal was canceled."""
+        while time.monotonic() < until:
+            if handle.is_cancel_requested:
+                handle.canceled()
+                return True
+            time.sleep(0.05)
+        return False
+
     def listen(handle):
         timeout = handle.request.timeout
         timeout = timeout if timeout > 0 else DEFAULT_TIMEOUT
         started = time.monotonic()
-        result = Listen.Result()
-        feedback = Listen.Feedback(state="waiting")
-        while time.monotonic() - started < settings["delay"]:
-            if handle.is_cancel_requested:
-                handle.canceled()
-                result.message = "canceled"
-                return result
-            time.sleep(0.05)
+        if cancelled(handle, started + settings["delay"]):
+            return Listen.Result(message="canceled")
         question = caption["text"]
         pose = robot_pose()
         speaker = (
@@ -132,8 +135,7 @@ def main(argv=None):
         who = "nobody" if speaker is None else speaker.name or "the operator"
         log.info(f"{question!r} -> {who}: {text!r}")
         if text is not None:
-            feedback.state = "hearing"
-            handle.publish_feedback(feedback)
+            handle.publish_feedback(Listen.Feedback(state="hearing"))
             message = SpeechTranscript(
                 text=text,
                 language="en",
@@ -141,20 +143,13 @@ def main(argv=None):
                 audio_duration=0.3 * len(text.split()),
             )
             message.header.stamp = node.get_clock().now().to_msg()
-            message.header.frame_id = ""
             transcripts.publish(message)
             handle.succeed()
-            result.success, result.transcript = True, message
-            return result
-        while time.monotonic() - started < timeout:
-            if handle.is_cancel_requested:
-                handle.canceled()
-                result.message = "canceled"
-                return result
-            time.sleep(0.05)
+            return Listen.Result(success=True, transcript=message)
+        if cancelled(handle, started + timeout):
+            return Listen.Result(message="canceled")
         handle.abort()
-        result.message = f"no transcript within {timeout:.1f}s"
-        return result
+        return Listen.Result(message=f"no transcript within {timeout:.1f}s")
 
     ActionServer(
         node,

@@ -127,19 +127,16 @@ class Interaction:
 
             self.Listen = Listen
             self.listener = ActionClient(self.node, Listen, LISTEN_ACTION)
+            self.asr_searched = False
         return self.listener
 
     def find_asr(self, cancelled=None):
-        """True if an ASR runs. Creates the Listen client and, the first time,
-        waits up to ASR_DISCOVERY for the server.
-
-        As for the TTS: a goal sent right after discovery, or its answer, may
-        be lost, so the client is made and discovered before the first listen.
+        """True if an ASR runs. The first call creates the Listen client and
+        waits up to ASR_DISCOVERY for the server: as for the TTS, a goal sent
+        right after discovery, or its answer, may be lost.
         """
         client = self._listener()
-        if client.server_is_ready():
-            return True
-        if not getattr(self, "asr_searched", False):
+        if not client.server_is_ready() and not self.asr_searched:
             self.asr_searched = True
             try:
                 self._poll(
@@ -148,9 +145,8 @@ class Interaction:
                     cancelled or threading.Event(),
                 )
             except (TimeoutError, Cancelled):
-                return False
-            return True
-        return False
+                pass
+        return client.server_is_ready()
 
     def listen(self, hotwords, cancelled, timeout=LISTEN_TIMEOUT, language="en"):
         """The next utterance from the ASR: (text, "") or (None, why).
