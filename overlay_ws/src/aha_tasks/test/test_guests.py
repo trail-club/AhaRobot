@@ -19,6 +19,7 @@ from aha_tasks.guests import (  # noqa: E402
     DOOR_TRIGGER,
     Guest,
     attempts_of,
+    chair_models,
     chair_sdf,
     door_open,
     executing,
@@ -429,6 +430,33 @@ class SeatedModelsTests(unittest.TestCase):
     def test_nobody_seated_builds_nothing(self):
         scene = {**SCENE, "seated": {}}
         self.assertEqual(seated_models(scene, None, None), [])
+
+
+class ChairModelsTests(unittest.TestCase):
+    MODEL = '<sdf version="1.8"><model name="chair"><link name="link"/></model></sdf>'
+
+    def test_the_chairs_of_the_seats_are_added(self):
+        logged = []
+        models = chair_models(SCENE, lambda: self.MODEL, logged.append)
+        self.assertEqual([name for name, _ in models], ["chair_extra"])
+        self.assertEqual(logged, [])
+        no_chair = {**SCENE, "seats": {"chair_left": SCENE["seats"]["chair_left"]}}
+        self.assertEqual(chair_models(no_chair, None, None), [])
+
+    def test_a_chair_that_cannot_be_made_is_left_out_but_the_guests_run(self):
+        def missing():
+            raise FileNotFoundError("model://chair not found")
+
+        seat = {**SCENE["seats"]["chair_extra"], "chair": [2.55, 3.5]}
+        two_values = {**SCENE, "seats": {**SCENE["seats"], "chair_extra": seat}}
+        for scene, find in (
+            (SCENE, missing),
+            (SCENE, lambda: "<sdf/>"),
+            (two_values, lambda: self.MODEL),
+        ):
+            logged = []
+            self.assertEqual(chair_models(scene, find, logged.append), [])
+            self.assertEqual(len(logged), 1)
 
 
 if __name__ == "__main__":

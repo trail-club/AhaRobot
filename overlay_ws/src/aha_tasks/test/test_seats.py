@@ -37,8 +37,19 @@ def person(id, x, y, name="", visible=True):
     return SimpleNamespace(id=id, name=name, visible=visible, position=point(x, y, 0.9))
 
 
-def message(people, frame="map"):
-    return SimpleNamespace(header=SimpleNamespace(frame_id=frame), people=people)
+def message(people, frame="map", taken_at=0.0):
+    stamp = SimpleNamespace(sec=int(taken_at), nanosec=int(taken_at % 1.0 * 1e9))
+    header = SimpleNamespace(frame_id=frame, stamp=stamp)
+    return SimpleNamespace(header=header, people=people)
+
+
+class FakeNode:
+    """The clock of the image stamps, here the same as FakePeople.now."""
+
+    def get_clock(self):
+        return SimpleNamespace(
+            now=lambda: SimpleNamespace(nanoseconds=time.monotonic_ns())
+        )
 
 
 class FakeGaze:
@@ -52,21 +63,19 @@ class FakeGaze:
 class FakePeople(People):
     """A new message at every poll, of the people within VIEW of the head's target.
 
-    `fresh=False` repeats one message (no new image), `alive=False` has none.
+    Its image was taken `delay` s before (person_perception's latency);
+    `alive=False` has none.
     """
 
     now = staticmethod(time.monotonic)
 
-    def __init__(self, gaze, people, frame="map", fresh=True, alive=True):
+    def __init__(self, gaze, people, frame="map", delay=0.0, alive=True):
         self.gaze, self.people, self.frame = gaze, people, frame
-        self.fresh, self.alive = fresh, alive
-        self.cached = None
+        self.delay, self.alive = delay, alive
 
     def latest(self):
         if not self.alive:
             return None
-        if not self.fresh and self.cached is not None:
-            return self.cached
         target = self.gaze.looks[-1][1] if self.gaze.looks else (0.0, 0.0)
         seen = [
             SimpleNamespace(
@@ -78,8 +87,7 @@ class FakePeople(People):
             )
             for p in self.people
         ]
-        self.cached = message(seen, self.frame)
-        return self.cached
+        return message(seen, self.frame, time.monotonic() - self.delay)
 
 
 def runtime(people_list, **kwargs):
@@ -91,7 +99,7 @@ def runtime(people_list, **kwargs):
         }
     )
     people = FakePeople(gaze, people_list, **kwargs)
-    return SimpleNamespace(node=None, spec=spec, gaze=gaze, people=people)
+    return SimpleNamespace(node=FakeNode(), spec=spec, gaze=gaze, people=people)
 
 
 def context(memory=None, **params):
@@ -200,9 +208,18 @@ class FindFreeSeatTests(unittest.TestCase):
         self.assertEqual(result.message.count("sits there"), len(SEATS))
         self.assertIn("chair_right: guest1 5 sits there", result.message)
 
+    def test_an_image_taken_after_the_head_settled_shows_the_seat(self):
+        rt = runtime([], delay=0.1)  # arrives within dwell
+        result = FindFreeSeat(rt).execute(context())
+        self.assertEqual(result.message, "chair_left for guest2")
+        self.assertEqual(looked_at(rt), ["chair_left"])
+
     def test_without_a_seat_seen_free_offers_the_first_not_seen_taken(self):
-        """No new image after the host's: the mock could be a taken seat."""
-        rt = runtime([HOST], fresh=False)
+        """Images that arrive in time were all taken while the head turned.
+
+        The host is still seen in them, so the mock could be a taken seat.
+        """
+        rt = runtime([HOST], delay=1.0)
         result = FindFreeSeat(rt).execute(context())
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["guest2.seat"], "chair_right")

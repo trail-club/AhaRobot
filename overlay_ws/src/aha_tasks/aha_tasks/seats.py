@@ -66,6 +66,10 @@ def bearing(pose, point):
     return math.remainder(math.atan2(point[1] - y, point[0] - x) - yaw, math.tau)
 
 
+def stamp_seconds(stamp):
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
 def who(person):
     return f"{person.name or 'person'} {person.id} sits there"
 
@@ -80,14 +84,16 @@ class FindFreeSeat(Skill):
     `radius`, except the guest being seated (by name and `<guest>.track`).
     People seen at any time of the search count, so a seat taken in the image
     of another one is not looked at. The head looks TORSO above each seat for
-    SETTLE + `dwell` s (node clock), less if someone is seen there; the seat
-    counts as seen once a people message in map arrives after the one at
-    SETTLE s. A seat more than HEAD_REACH from the front of robot.location is
-    not looked at. Outputs `<guest>.seat` (the name) and `<guest>.seat_position`
-    for offer_seat and leaves the head on the seat seen free. If none was,
-    outputs the first seat not seen taken (when person_perception has nothing
-    in map, without looking at the rest). Fails only if every seat was seen
-    taken. The message gives each seat's reason.
+    SETTLE + `dwell` s (the wait clock of People), less if someone is seen
+    there. The seat counts as seen once a people message in map arrives whose
+    image was taken SETTLE s or more after the head was turned (header.stamp
+    on the node clock), as person_perception publishes later than it takes the
+    image. A seat more than HEAD_REACH from the front of robot.location
+    is not looked at. Outputs `<guest>.seat` (the name) and
+    `<guest>.seat_position` for offer_seat and leaves the head on the seat
+    seen free. If none was, outputs the first seat not seen taken (when
+    person_perception has nothing in map, without looking at the rest). Fails
+    only if every seat was seen taken. The message gives each seat's reason.
     """
 
     @classmethod
@@ -113,6 +119,7 @@ class FindFreeSeat(Skill):
         taken = {}  # seat -> person, from every message of the search
         reasons = {}  # seat -> why it is not chosen, if not taken
         down = None  # why person_perception gives nothing in map
+        clock = self.runtime.node.get_clock()  # of the image stamps
 
         def listing():
             return "; ".join(
@@ -144,20 +151,20 @@ class FindFreeSeat(Skill):
             people.look_at(
                 "map", SimpleNamespace(x=point[0], y=point[1], z=point[2] + TORSO)
             )
-            settled = people.now() + SETTLE
-            first, seen = None, False
+            settled = clock.now().nanoseconds * 1e-9 + SETTLE
+            seen = False
 
             def choose(message):
-                nonlocal first, seen
+                nonlocal seen
                 for seat, person in occupants(
                     message, seats, radius, guest, track
                 ).items():
                     taken.setdefault(seat, person)
-                if people.now() >= settled and message.header.frame_id == "map":
-                    if first is None:
-                        first = message  # may show the head turning
-                    elif message is not first:
-                        seen = True
+                if (
+                    message.header.frame_id == "map"
+                    and stamp_seconds(message.header.stamp) >= settled
+                ):
+                    seen = True
                 return name if name in taken else None
 
             found, reason = people.wait_for(choose, SETTLE + dwell, ctx.cancelled)

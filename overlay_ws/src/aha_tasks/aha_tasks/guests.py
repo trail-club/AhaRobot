@@ -194,6 +194,23 @@ def chair_sdf(model_sdf, name, pose):
     return text
 
 
+def chair_models(scene, find, log):
+    """(name, SDF) of the chairs that seats add, from `find()`, the chair model.
+
+    If the model cannot be read or used, there are no added chairs and `log`
+    gets why: the guests and the door still run.
+    """
+    chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
+    if not chairs:
+        return []
+    try:
+        model = find()
+        return [(name, chair_sdf(model, name, pose)) for name, pose in chairs.items()]
+    except (OSError, ValueError) as error:
+        log(f"No chairs added: {type(error).__name__}: {error}")
+        return []
+
+
 class Guest:
     """Position and heading (map-like world frame) of one guest over time."""
 

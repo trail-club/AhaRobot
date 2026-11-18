@@ -19,7 +19,7 @@ from aha_tasks.guests import (
     TRIGGERS,
     Guest,
     attempts_of,
-    chair_sdf,
+    chair_models,
     door_open,
     executing,
     guest_phase,
@@ -152,13 +152,7 @@ def main(argv=None):
     )
     missing += seated
     seated_poses = {name: seated_pose(scene, name) for name, _ in seated}
-    chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
-    if chairs:
-        try:
-            model = find_model_sdf(CHAIR_MODEL)
-            missing += [(n, chair_sdf(model, n, p)) for n, p in chairs.items()]
-        except FileNotFoundError as error:
-            log.error(f"No chairs added: {error}")
+    missing += chair_models(scene, lambda: find_model_sdf(CHAIR_MODEL), log.error)
     sent = {}
     opened = None
     last = None
