@@ -112,7 +112,11 @@ SSH_USER ?=
 # 一覧は `make audio-shell` 内で `pactl list sources short`
 PULSE_SOURCE ?=
 
+# ドアベル検出 (true | false) と、その入力 (mic | topic)。シミュレーションの HIC では DOORBELL_INPUT=topic
+USE_DOORBELL ?= true
+DOORBELL_INPUT ?= mic
+
 .PHONY: audio-run
 audio-run:
 	$(AUDIO_COMPOSE) exec $(if $(PULSE_SOURCE),-e PULSE_SOURCE=$(PULSE_SOURCE)) aha_audio bash -lc \
-		"source /app/overlay_ws/install/setup.bash && ros2 launch aha_perception audio.launch.py target:=$(AUDIO_TARGET) ssh_user:=$(SSH_USER)"
+		"source /app/overlay_ws/install/setup.bash && ros2 launch aha_perception audio.launch.py target:=$(AUDIO_TARGET) ssh_user:=$(SSH_USER) use_doorbell:=$(USE_DOORBELL) doorbell_input:=$(DOORBELL_INPUT)"

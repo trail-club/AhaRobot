@@ -28,7 +28,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
 | `objects.launch.py` | `object_perception.py`。頭部カメラの物体をDGX SparkのSAM 3.1とQwen3.8で認識する（[物体の認識](#物体の認識)） |
 | `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
-| `audio.launch.py` | ASR・TTS・デバッグUI。別コンテナ `aha_audio` で動かし、推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
+| `audio.launch.py` | ASR・TTS・デバッグUI・ドアベル検出。別コンテナ `aha_audio` で動かし、ASR・TTSの推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
 
 ## ノード
 
