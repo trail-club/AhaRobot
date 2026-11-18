@@ -461,6 +461,17 @@ class PickTests(unittest.TestCase):
         self.assertIn("its memory does not keep robot.holding='", result.message)
         self.assertTrue(any("check the hand" in line for line in logs))
 
+    def test_an_unreachable_spot_is_not_sent_again_from_the_same_pose(self):
+        hands = FakeHands(place=[place_failed(3, "unreachable"), ok()])
+        runtime = make_runtime([], robot="kitchen_table", hands=hands, off=0.0)
+        runtime.objects.robot = (-2.0, -0.35, -math.pi / 2)
+        params = {"object": "cola", "surface": "kitchen_table"}
+        result, logs = run(PlaceObject, runtime, params, PlaceTests.HELD_COLA)
+        self.assertFalse(result.success)
+        self.assertIn("unreachable", result.message)
+        self.assertEqual(len(hands.goals), 1)
+        self.assertTrue(any("cannot come closer" in line for line in logs))
+
     def test_the_base_comes_closer_after_a_place_before_the_arm_moved(self):
         for status, moves in ((3, 2), (2, 2), (4, 1)):  # unreachable, no space, exec
             with self.subTest(status=status):
@@ -646,7 +657,9 @@ class PlaceTests(unittest.TestCase):
         )
 
     def test_a_failed_place_is_tried_again_and_nothing_held_fails(self):
-        hands = FakeHands(place=[place_failed(3, "unreachable"), ok()])
+        # No space: a new scan may find one (unreachable from the same pose
+        # is not sent again: test_an_unreachable_spot_is_not_sent_again...).
+        hands = FakeHands(place=[place_failed(2, "no space"), ok()])
         runtime = make_runtime(desk_scene(), robot="desk", hands=hands)
         result, _ = run(
             PlaceObject, runtime, {"object": "cola", "surface": "desk"}, self.HELD_COLA

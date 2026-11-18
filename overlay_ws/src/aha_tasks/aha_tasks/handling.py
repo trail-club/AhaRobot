@@ -930,7 +930,7 @@ class PlaceObject(_HandSkill):
         trash = furniture is not None and is_trash(name, furniture.category)
         arm = params.get("arm", "right")
         clearance = float(params.get("clearance", PLACE_CLEARANCE))
-        outputs, message, sent, force = {}, "", False, False
+        outputs, message, sent, force, last = {}, "", False, False, None
         for attempt in range(1 + params.get("retries", 1)):
             if attempt:
                 ctx.log(f"Trying again: {message}")
@@ -947,9 +947,24 @@ class PlaceObject(_HandSkill):
                 f"[{x:.2f}, {y:.2f}, {z:.2f}] on {name}"
             )
             self.look(frame, (x, y, z))
+            moved = False
             if frame == "map":
                 robot = objects.robot_pose(frame)
-                self.approach(ctx, robot, (x, y), region, outputs, not sent, force)
+                moved = (
+                    self.approach(ctx, robot, (x, y), region, outputs, not sent, force)
+                    is not robot
+                )
+            if (
+                force
+                and not moved
+                and last is not None
+                and math.dist(last, (x, y)) < 0.02
+            ):
+                # Unreachable, and the base cannot come closer (furniture:
+                # STANDOFF from its edge already) to the same spot.
+                ctx.log("The base cannot come closer to the spot")
+                break
+            last = (x, y)
             goal = hands.PlaceObject.Goal(
                 arm=arm,
                 near=hands.point(frame, (x, y, z)),
