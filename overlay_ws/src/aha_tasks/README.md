@@ -482,7 +482,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 `surface` は発話の場所（`dining_table` は「on the dining table」）、`dwell`（省略時2 s、実時間）は画像を残す時間。
 物体ごとに次を行い、最後に画像を消す。
 
-1. 頭を物体の中心へ向け（[注視](#注視)）、1.5 s（模擬時間）待つ。その後に撮られた `/camera/color/image_raw` を5 sまで待つ。画像と `camera_info` は `show_objects` の実行中だけ購読する。
+1. 頭を物体の中心へ向け（[注視](#注視)）、1.5 s（模擬時間）待つ。その後に撮られた `/camera/color/image_raw` を5 sまで待つ。
 2. 立てた外接箱の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
    箱は `yaw` で回し、`yaw` がなければどの向きでも物体が入るよう、底面を外接円に外接する正方形にする。
 3. 画像全体（切り抜かない）に、長方形の外側へ緑の枠（黒の縁取り）と `label` の札を描き、JPEGで `show` に渡す。

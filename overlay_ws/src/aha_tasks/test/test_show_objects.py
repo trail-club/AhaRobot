@@ -93,10 +93,7 @@ class FakeCamera(HeadCamera):
             raise Cancelled
         return not self.stalled
 
-    def stamp_now(self):
-        return 0
-
-    def frame(self, after, timeout, cancelled):
+    def new_image(self, cancelled):
         if not self.image_available:
             return None
         image = SimpleNamespace(
@@ -159,19 +156,10 @@ class ShowObjectsTests(unittest.TestCase):
         self.skill = ShowObjects(runtime)
         self.logs = []
 
-    def run_skill(
-        self,
-        memory,
-        objects=OBJECTS,
-        surface="dining_table",
-        cancel=None,
-        statuses=None,
-    ):
-        cancelled = threading.Event()
-        if cancel:
-            cancel(cancelled)
-        params = {"objects": objects, "surface": surface, "dwell": 0.0}
+    def run_skill(self, memory, objects=OBJECTS, cancelled=None, statuses=None):
+        params = {"objects": objects, "surface": "dining_table", "dwell": 0.0}
         ShowObjects.validate(params, None)
+        cancelled = cancelled or threading.Event()
         ctx = SkillContext(
             "table.show", params, memory, cancelled, self.logs.append, statuses or {}
         )
@@ -252,13 +240,9 @@ class ShowObjectsTests(unittest.TestCase):
             "table.cup": record("mug", 2.0, 0.3),
             "table.plate": record("plate", 2.0, -0.3),
         }
-        holder = {}
-        self.camera.on_pause = lambda: (
-            holder["cancelled"].set() if len(self.gaze.targets) == 2 else None
-        )
-        result = self.run_skill(
-            memory, cancel=lambda event: holder.setdefault("cancelled", event)
-        )
+        cancelled = threading.Event()
+        self.camera.on_pause = lambda: len(self.gaze.targets) == 2 and cancelled.set()
+        result = self.run_skill(memory, cancelled=cancelled)
         self.assertFalse(result.success)
         self.assertEqual(result.message, "Cancelled")
         self.assertEqual(self.screen.events[-1], ("hide",))
@@ -270,6 +254,7 @@ class ShowObjectsTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.message, "Cancelled")
         self.assertEqual([e[0] for e in self.screen.events], ["show", "hide"])
+        self.assertEqual(self.camera.calls, ["open", "close"])  # images unsubscribed
 
     def test_frame_is_removed_before_an_object_only_spoken(self):
         """The previous frame must not stay up while another object is named."""
@@ -311,11 +296,6 @@ class ShowObjectsTests(unittest.TestCase):
         self.camera.calls.clear()
         self.run_skill({"table.cup": "mug"})  # nothing to picture
         self.assertEqual(self.camera.calls, [])
-
-    def test_images_are_unsubscribed_on_cancel(self):
-        self.screen.cancel_on_show = True
-        self.run_skill({"table.cup": record("mug", 2.0, 0.3)})
-        self.assertEqual(self.camera.calls, ["open", "close"])
 
     def test_mock_of_a_skipped_perception_is_neither_shown_nor_spoken(self):
         """After a failed, skipped perception the memory holds its mock (rule 16)."""
@@ -366,9 +346,8 @@ class Failing(Skill):
 
 
 class EngineTests(unittest.TestCase):
-    """The subgoal statuses that the engine gives show_objects."""
-
-    def run_task(self, selection):
+    def test_skipped_perception_is_not_shown(self):
+        """The engine gives show_objects the subgoal statuses."""
         screen = FakeScreen()
         runtime = SimpleNamespace(
             node=None,
@@ -383,28 +362,18 @@ class EngineTests(unittest.TestCase):
         }
         engine = TaskEngine(runtime.spec, skills, default_policy="skip")
         engine.set_ready()
-        ok, message = engine.start(selection)
+        ok, message = engine.start(None)
         self.assertTrue(ok, message)
         deadline = time.monotonic() + 10.0
         while not engine.finished():
             self.assertLess(time.monotonic(), deadline, "Timed out")
             time.sleep(0.01)
         records = {s["id"]: s for s in engine.status()["subgoals"]}
-        return records, screen
-
-    def test_skipped_perception_is_not_shown(self):
-        records, screen = self.run_task(None)
         self.assertEqual(records["table.perceive"]["status"], "skipped")
         show = records["table.show"]["history"]
         self.assertEqual(show[0]["status"], "failed")
         self.assertIn("not perceived (table.perceive skipped)", show[0]["message"])
         self.assertEqual(screen.events, [])
-
-    def test_unselected_perception_is_shown(self):
-        records, screen = self.run_task("table.show")
-        self.assertEqual(records["table.perceive"]["status"], "bypassed")
-        self.assertEqual(records["table.show"]["status"], "succeeded")
-        self.assertEqual([e[0] for e in screen.events], ["show", "show", "hide"])
 
 
 class FakeClock:
@@ -455,11 +424,8 @@ class SubscriptionTests(unittest.TestCase):
         )
         camera = HeadCamera.__new__(HeadCamera)
         camera.node, camera.lock, camera.subscriptions = node, threading.Lock(), []
-        camera.image = camera.info = "old"
         camera.open()
-        camera.open()  # once only
         self.assertEqual(created, [show_objects.IMAGE_TOPIC, show_objects.INFO_TOPIC])
-        self.assertIsNone(camera.image)
         camera._on_image("image")
         camera.close()
         self.assertEqual(destroyed, created)

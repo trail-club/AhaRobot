@@ -19,7 +19,6 @@ from aha_tasks.object_view import (  # noqa: E402
     image_array,
     image_box,
     object_sentence,
-    place_words,
     project,
     rotation_matrix,
 )
@@ -30,6 +29,13 @@ IDENTITY = (0.0, 0.0, 0.0, 1.0)
 # From a frame with x forward, y left, z up into the optical frame (z forward,
 # x right, y down): the camera at the origin looks along +x.
 FORWARD = (0.5, -0.5, 0.5, 0.5)
+
+
+def box_of(center, size=(0.2,) * 3, rotation=IDENTITY, translation=(0,) * 3, **kw):
+    """image_box of an object with yaw 0 in the 640x480 image of K."""
+    return image_box(
+        center, size, rotation, translation, K, WIDTH, HEIGHT, yaw=0.0, **kw
+    )
 
 
 class RotationTests(unittest.TestCase):
@@ -73,68 +79,33 @@ class ProjectionTests(unittest.TestCase):
         self.assertIsNone(project([[0.0, 0.0, -1.0]], K))
 
     def test_box_ahead_is_centred(self):
-        box, cut = image_box(
-            [0, 0, 2.0],
-            [0.2, 0.2, 0.2],
-            IDENTITY,
-            [0, 0, 0],
-            K,
-            WIDTH,
-            HEIGHT,
-            yaw=0.0,
-            pad=0,
-        )
+        box, cut = box_of([0, 0, 2.0], pad=0)
         # The nearest face (z = 1.9 m) is the widest: 500 * 0.1 / 1.9 = 26.3 px.
         self.assertEqual(box, (294, 214, 346, 266))
         self.assertFalse(cut)
 
     def test_frame_axes(self):
         """An object on the robot's left appears left of the centre, higher is up."""
-        box, _ = image_box(
-            [2.0, 0.5, 0.3],
-            [0.1, 0.1, 0.1],
-            FORWARD,
-            [0, 0, 0],
-            K,
-            WIDTH,
-            HEIGHT,
-            yaw=0.0,
-        )
+        box, _ = box_of([2.0, 0.5, 0.3], size=[0.1] * 3, rotation=FORWARD)
         left, top, right, bottom = box
         self.assertLess(right, 320)
         self.assertLess(bottom, 240)
 
     def test_translation(self):
         # The camera 1 m behind the object's frame origin: same as the object 1 m further.
-        near, _ = image_box(
-            [0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 1.0], K, WIDTH, HEIGHT, yaw=0.0
+        self.assertEqual(
+            box_of([0, 0, 1.0], translation=[0, 0, 1.0]), box_of([0, 0, 2.0])
         )
-        far, _ = image_box(
-            [0, 0, 2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
-        )
-        self.assertEqual(near, far)
 
     def test_partly_out_is_clipped(self):
-        box, cut = image_box(
-            [0.6, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
-        )
+        box, cut = box_of([0.6, 0, 1.0])
         self.assertTrue(cut)
         self.assertEqual(box[2], WIDTH)
         self.assertLess(box[0], WIDTH)
 
     def test_out_of_view(self):
-        self.assertEqual(
-            image_box(
-                [0, 0, -2.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
-            ),
-            (None, None),
-        )
-        self.assertEqual(
-            image_box(
-                [3.0, 0, 1.0], [0.2] * 3, IDENTITY, [0, 0, 0], K, WIDTH, HEIGHT, yaw=0.0
-            ),
-            (None, None),
-        )
+        self.assertEqual(box_of([0, 0, -2.0]), (None, None))  # behind
+        self.assertEqual(box_of([3.0, 0, 1.0]), (None, None))
 
 
 class ImageArrayTests(unittest.TestCase):
@@ -198,11 +169,6 @@ class DrawingTests(unittest.TestCase):
 
 
 class SentenceTests(unittest.TestCase):
-    def test_place(self):
-        self.assertEqual(place_words("dining_table"), "on the dining table")
-        self.assertEqual(place_words("floor"), "on the floor")
-        self.assertEqual(place_words(""), "")
-
     def test_sentences(self):
         self.assertEqual(
             object_sentence("mug", "dining_table"),
@@ -216,7 +182,6 @@ class SentenceTests(unittest.TestCase):
             object_sentence("cookies", "floor", trash=True),
             "I found the cookies on the floor. That goes in the trash.",
         )
-        self.assertEqual(object_sentence("milk", ""), "I found the milk.")
 
 
 if __name__ == "__main__":

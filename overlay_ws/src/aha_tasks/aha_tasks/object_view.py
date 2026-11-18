@@ -26,14 +26,13 @@ FRAME_COLOR = (0, 230, 118)  # bright green, with black edges on any background
 EDGE_COLOR = (0, 0, 0)
 TEXT_COLOR = (0, 0, 0)
 JPEG_QUALITY = 90
-# TrueType fonts tried for the label, before Pillow's built-in one.
-FONTS = (
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "DejaVuSans-Bold.ttf",
-    "Arial Bold.ttf",
-)
-CHANNELS = {"rgb8": (3, (0, 1, 2)), "bgr8": (3, (2, 1, 0))}
-CHANNELS.update({"rgba8": (4, (0, 1, 2)), "bgra8": (4, (2, 1, 0))})
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"  # of the label
+CHANNELS = {  # encoding: (bytes per pixel, indices of R, G, B)
+    "rgb8": (3, (0, 1, 2)),
+    "bgr8": (3, (2, 1, 0)),
+    "rgba8": (4, (0, 1, 2)),
+    "bgra8": (4, (2, 1, 0)),
+}
 
 
 def rotation_matrix(x, y, z, w):
@@ -58,16 +57,14 @@ def box_corners(center, size, yaw=None):
     yaw None the footprint is the square of the circle around the object's
     footprint, which holds the object at any yaw.
     """
-    center = np.asarray(center, float)
     half = np.asarray(size, float) / 2.0
     if yaw is None:
         half[:2] = math.hypot(half[0], half[1])
-    signs = np.array(list(itertools.product((-1.0, 1.0), repeat=3)))
-    corners = signs * half
-    if yaw is not None:
-        c, s = math.cos(yaw), math.sin(yaw)
-        corners[:, :2] = corners[:, :2] @ np.array([[c, s], [-s, c]])
-    return center + corners
+        yaw = 0.0
+    corners = np.array(list(itertools.product((-1.0, 1.0), repeat=3))) * half
+    c, s = math.cos(yaw), math.sin(yaw)
+    corners[:, :2] = corners[:, :2] @ np.array([[c, s], [-s, c]])
+    return np.asarray(center, float) + corners
 
 
 def project(points, k):
@@ -90,10 +87,11 @@ def image_box(center, size, rotation, translation, k, width, height, yaw=None, p
     """((left, top, right, bottom), cut) of the object in the image, or (None, None).
 
     `rotation` (x, y, z, w) and `translation` take a point from the object's
-    frame into the camera's optical frame; see box_corners for `yaw`. The box is the bounding rectangle
-    of the projected corners, `pad` px larger, clipped to the image; `cut`
-    tells that the clipping took some of it away (the object is partly out
-    of view). None when the object is behind the camera or out of the image.
+    frame into the camera's optical frame; see box_corners for `yaw`. The box
+    is the bounding rectangle of the projected corners, `pad` px larger,
+    clipped to the image; `cut` tells that the clipping took some of it away
+    (the object is partly out of view). None when the object is behind the
+    camera or out of the image.
     """
     corners = box_corners(center, size, yaw) @ rotation_matrix(*rotation).T
     pixels = project(corners + np.asarray(translation, float), k)
@@ -121,15 +119,10 @@ def image_array(data, width, height, step, encoding):
 
 
 def font(size):
-    for name in FONTS:
-        try:
-            return ImageFont.truetype(name, size)
-        except OSError:
-            pass
     try:
+        return ImageFont.truetype(FONT, size)
+    except OSError:  # without DejaVu: Pillow's built-in font
         return ImageFont.load_default(size=size)
-    except TypeError:  # Pillow < 10.1
-        return ImageFont.load_default()
 
 
 def draw_object(rgb, box, label):
@@ -188,22 +181,15 @@ def encode_jpeg(image, quality=JPEG_QUALITY):
     return buffer.getvalue()
 
 
-def place_words(surface):
-    """'on the dining table' for a surface label such as dining_table; '' for none."""
-    if not surface:
-        return ""
-    return "on the " + " ".join(surface.replace("_", " ").split())
-
-
 def object_sentence(label, surface, trash=False, shown=True):
-    """What the robot says about one perceived object.
+    """What the robot says about one perceived object on `surface` (dining_table).
 
     Shown: "I found the mug on the dining table." Not shown (no image):
     "I recognized the mug on the dining table." A trash item adds "That goes
     in the trash." The words do not depend on the number of the label
     ("the cookies", "the milk").
     """
-    place = place_words(surface)
-    words = f"the {label} {place}".strip() if place else f"the {label}"
-    text = f"I found {words}." if shown else f"I recognized {words}."
+    place = " ".join(surface.replace("_", " ").split())
+    verb = "found" if shown else "recognized"
+    text = f"I {verb} the {label} on the {place}."
     return f"{text} That goes in the trash." if trash else text
