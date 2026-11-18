@@ -84,6 +84,11 @@ def names_of(memory):
     return [n.strip() for n in names]
 
 
+def same_name(a, b):
+    """Whether `a` and `b` are the same name, whatever their case ("charlie")."""
+    return bool(a) and bool(b) and a.strip().casefold() == b.strip().casefold()
+
+
 def _tokens(text):
     return re.findall(r"[a-z]+(?:'[a-z]+)?", str(text).lower().replace("’", "'"))
 
@@ -234,7 +239,7 @@ def is_named(reply, name):
     if reply["no"]:
         return False
     if reply["name"] is not None:
-        return reply["name"].lower() == name.lower()
+        return same_name(reply["name"], name)
     if reply["yes"]:
         return True
     return None
@@ -576,7 +581,8 @@ class Dialogue:
 
     def confirm(self, name):
         """Whether the person is `name`: True / False, or None if they could not answer."""
-        hotwords = [*self.names, *([name] if name not in self.names else [])]
+        known = any(same_name(name, n) for n in self.names)
+        hotwords = self.names if known else [*self.names, name]
         question = f"Are you {name}?"
 
         def understand(text):

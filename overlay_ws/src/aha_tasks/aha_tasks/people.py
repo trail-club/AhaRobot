@@ -23,6 +23,7 @@ from aha_tasks.conversation import (
     count_sentence,
     names_of,
     person_info_sentence,
+    same_name,
 )
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.gaze import LOOK_HEIGHT
@@ -685,7 +686,9 @@ class FindDescribedPerson(Skill):
         # Someone remembered under the name may be anywhere around, and a new
         # track of them gets the name from the VLM within seconds: look all
         # around once before asking anyone, and give each track NAME_WAIT.
-        renamed = name is not None and name in people.remembered
+        renamed = name is not None and any(
+            same_name(name, n) for n in people.remembered
+        )
         looks = 0  # head turns so far
         dialogue = None
         checked = {}  # track ID -> answers (None: not the named person)
@@ -816,7 +819,7 @@ class FindDescribedPerson(Skill):
                 ),
                 # Someone with the name before anyone to ask.
                 key=lambda p: (
-                    name is None or p.name != name,
+                    name is None or not same_name(p.name, name),
                     math.dist(planar(p.position), origin),
                 ),
             )
@@ -825,7 +828,7 @@ class FindDescribedPerson(Skill):
                     look_next()
                 return None
             person = candidates[0]
-            if name and person.name and person.name != name:
+            if name and person.name and not same_name(person.name, name):
                 checked[person.id] = None
                 return None
             if shown.empty and not need:

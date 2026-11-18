@@ -21,6 +21,7 @@ from aha_tasks.conversation import (
     facts_of,
     local_now,
     question_topic,
+    same_name,
     value_sentence,
 )
 from aha_tasks.core.skill import Skill, SkillResult
@@ -234,14 +235,14 @@ class TellInfo(Skill):
             def choose(message):
                 visible = [p for p in message.people if p.visible]
                 for person in visible:
-                    if person.id == track or (name and person.name == name):
+                    if person.id == track or same_name(person.name, name):
                         return message, person
                 if message.header.frame_id != frame:
                     return None
                 near = [
                     (math.dist(planar(p.position), position[:2]), p.id, p)
                     for p in visible
-                    if not p.name or p.name == name
+                    if not p.name or same_name(p.name, name)
                 ]
                 near = [item for item in near if item[0] < REACQUIRE]
                 return (message, min(near)[2]) if near else None

@@ -241,6 +241,24 @@ class TellInfoTests(unittest.TestCase):
         self.assertEqual(people.followed, [(9, "")])
         self.assertEqual(navigation.goals, [[4.2, 0.0, 0.0]])
 
+    def test_the_person_found_before_by_name_whatever_its_case(self):
+        memory = {
+            "n": 1,
+            "robot.location": "desk",
+            "person.name": "charlie",
+            "person.position": [5.0, 0.0, 1.0],
+            "person.frame": "map",
+        }
+        # Named "Charlie" by person_perception, and moved away meanwhile.
+        people = FakePeople(
+            people_message(person(9, 7.0, 0.0, "Charlie"), person(3, 5.1, 0.0, "Jane"))
+        )
+        result, _ = self.tell(
+            {"key": "n", "person": "Charlie"}, memory, people, FakeNavigation()
+        )
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(people.followed, [(9, "Charlie")])
+
     def test_a_person_not_seen_is_turned_to_where_they_were(self):
         memory = {
             "n": 1,

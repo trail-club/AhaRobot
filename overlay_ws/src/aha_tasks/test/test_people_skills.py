@@ -1248,6 +1248,18 @@ class AskNameTests(unittest.TestCase):
         self.assertEqual(interaction.said[0], "Excuse me, what is your name?")
         self.assertEqual(people.remembered, {"Robin"})
 
+    def test_names_match_whatever_their_case(self):
+        # Charlie was remembered by an earlier step; the plan writes "charlie".
+        people = FakePeople(
+            people_message(person(1, 1.0, 0.0), person(2, 2.0, 0.0, "Charlie"))
+        )
+        people.remembered.add("Charlie")
+        result, interaction = self.find(people, {"name": "charlie"}, ["Yes"])
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs["person.track"], 2)
+        self.assertEqual(result.outputs["person.name"], "Charlie")
+        self.assertEqual(interaction.listened, 0)
+
     def test_a_remembered_name_is_not_asked(self):
         people = FakePeople(people_message(person(1, 1.0, 0.0, "Robin")))
         result, interaction = self.find(people, {"info": "name"})

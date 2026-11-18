@@ -315,6 +315,10 @@ class DialogueTests(unittest.TestCase):
         interaction = FakeInteraction(["Yes"])
         self.assertTrue(dialogue(interaction).confirm("Kenji"))
         self.assertEqual(interaction.calls[1], ("listen", (*NAMES, "Kenji")))
+        # A listed name in another case is not added again, and still matches.
+        interaction = FakeInteraction(["I'm Charlie."])
+        self.assertTrue(dialogue(interaction).confirm("charlie"))
+        self.assertEqual(interaction.calls[1], ("listen", NAMES))
 
     def test_another_name_is_no(self):
         interaction = FakeInteraction(["My name is Jane."])
