@@ -41,6 +41,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from aha_perception.dgx import DgxWorker, RequestError, WorkerError, WorkerOptions
 from aha_perception.people import (
+    DESCRIBE_INTERVAL,
     MAX_REFERENCES,
     Detection,
     Gallery,
@@ -71,6 +72,9 @@ DESCRIBE_SERVICE = "/aha/perception/describe_person"
 CLASSIFY_SERVICE = "/aha/perception/classify_person"
 # Wall seconds ClassifyPerson waits at most for motion, whatever the image time.
 MOTION_WAIT_WALL = 20.0
+# s (wall clock) that describe_person waits for a crop DESCRIBE_INTERVAL after
+# the one it described last.
+DESCRIBE_WAIT_WALL = 5.0
 
 
 def image_array(msg):
@@ -464,15 +468,28 @@ class PersonPerception(Node):
         return response
 
     def on_describe(self, request, response):
-        with self.lock:
-            track = self.tracker.tracks.get(request.id)
-            crop = None if track is None else track.crop
-        if crop is None:
-            response.message = f"person {request.id} is not tracked"
-            return response
         if self.worker is None or not self.worker.ready.is_set():
             response.message = "the DGX worker is not ready"
             return response
+        wall_deadline = time.monotonic() + DESCRIBE_WAIT_WALL
+        while True:
+            with self.lock:
+                track = self.tracker.tracks.get(request.id)
+                seen = track is not None and track.crop is not None
+                chosen = track.crop_to_describe() if seen else None
+            if not seen:
+                response.message = f"person {request.id} is not tracked"
+                return response
+            if chosen is not None:
+                break
+            if time.monotonic() >= wall_deadline or self.stopping.is_set():
+                response.message = (
+                    f"no image of person {request.id} {DESCRIBE_INTERVAL:.1f} s "
+                    "after the last description"
+                )
+                return response
+            time.sleep(0.1)
+        stamp, crop = chosen
         try:
             reply = self.worker.request(
                 {"type": "describe", "image": encode_image(crop)}, self.vlm_timeout
@@ -483,7 +500,8 @@ class PersonPerception(Node):
         response.success = True
         response.features = reply["features"]
         response.message = (
-            f"{len(reply['features'])} feature(s) in {reply['seconds']:.1f} s"
+            f"{len(reply['features'])} feature(s) in {reply['seconds']:.1f} s, "
+            f"image {stamp:.2f}"
         )
         return response
 

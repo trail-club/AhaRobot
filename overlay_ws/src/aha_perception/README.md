@@ -2,6 +2,7 @@
 
 頭部RGB-Dカメラ（D435i）の点群生成、RViz表示（シミュレーション / 実機）、頭部の操作UI、平面検出と置き場所の候補、
 シミュレーションの左右の手首RGBカメラのbridgeと物体検出（真の姿勢から）、SAM 3.1のセグメンテーション検証、
+SAM 3.1とVLMによる物体の認識（[object_perception](#物体の認識)）、
 SAM 3.1による人の認識（[person_perception](#人の認識)）、音声認識・発話（[音声スタック](docs/audio.md)）。
 topic・frame・serviceは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
 D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
@@ -25,13 +26,15 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `realsense.launch.py` | RealSense ROSドライバでD435iを配信する（Linux、[RealSenseドライバ](#realsenseドライバ)） |
 | `real_head_camera.launch.py` | 実機の頭部（と任意でカメラ・平面検出）をシミュレーションと同じUIで動かす |
 | `plane_detection.launch.py` | `plane_detection_node.py`。シミュレーションと実機で共通 |
+| `objects.launch.py` | `object_perception.py`。頭部カメラの物体をDGX SparkのSAM 3.1とQwen3.8で認識する（[物体の認識](#物体の認識)） |
 | `people.launch.py` | `person_perception.py`。頭部カメラの人をDGX SparkのSAM 3.1で認識する（[人の認識](#人の認識)） |
-| `audio.launch.py` | ASR・TTS・デバッグUI。別コンテナ `aha_audio` で動かし、推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
+| `audio.launch.py` | ASR・TTS・デバッグUI・ドアベル検出。別コンテナ `aha_audio` で動かし、ASR・TTSの推論はDGX Spark・trailpc・手元のGPUから選ぶ（[音声スタック](docs/audio.md)） |
 
 ## ノード
 
 | node | 内容 |
 | --- | --- |
+| `object_perception.py` | 頭部カメラの物体を物体リストのラベルで認識し、3Dの箱・追跡IDを配信する（[物体の認識](#物体の認識)） |
 | `person_perception.py` | 頭部カメラの人の3D位置・追跡ID・覚えた名前を配信し、外見の特徴を答える（[人の認識](#人の認識)） |
 | `head_look_at.py` | `/aha/perception/look_at` の点へ頭を向ける。`map` / `odom` の点は台車が動いても向け直し続け、他のnodeが頭を動かすとやめる。可動範囲外は限界に丸めてwarningを出す。注視点を `/aha/perception/look_at/markers` に表示（丸めた場合は赤） |
 | `sim_control_panel.py` | Qtの操作パネル。台車のジョイスティック（W/A/S/Dキー、停止ボタン）と頭のpan / tiltスライダー・プリセット。`arm_controls:=true` で左右のグリッパと昇降の欄を追加 |
@@ -40,7 +43,7 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 | `imu_head.py` | D435iのIMUで求めたtiltを頭の状態にする（`head:=imu`）か、サーボのtiltと比べる（`imu_check:=true`）（[IMUによる頭部のtilt](#imuによる頭部のtilt)） |
 | `plane_detection_node.py` | Depthから床・机・棚・壁の平面を検出して面をIDで追跡し、置き場所の候補をserviceで返す（[平面検出のノード](#平面検出のノード)） |
 | `sim_depth_noise.py` | シミュレーションのDepthに実機D435i相当のノイズを加える（[Depthノイズ](#depthノイズ)） |
-| `sim_object_detector.py` | シミュレーション専用。Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
+| `sim_object_detector.py` | シミュレーション専用。`object_perception.py` の代わりに、Gazeboの真の姿勢から頭部カメラに見える物体の検出を出す（[シミュレーションの物体検出](#シミュレーションの物体検出)） |
 | `sim_person_detector.py` | シミュレーション専用。`person_perception.py` の代わりに、Gazeboの真の位置から頭部カメラに見える人を出す（[シミュレーションの人の検出](#シミュレーションの人の検出)） |
 
 頭の可動範囲・移動速度・プリセットと、`head_look_at.py` の向け直し（`track_frames`・`track_period`・`track_deadband`）は `config/head.yaml` で設定する（`aha_perception.head_config`）。
@@ -126,14 +129,16 @@ Gazebo側はDepthにノイズを設定していない（`aha_description/urdf/se
 ros2 launch aha_bringup sim.launch.py use_perception:=true planes:=true objects:=true
 ```
 
-ROSの物体検出器がないため、`sim_object_detector.py` がGazeboのモデルの真の姿勢から `/aha/perception/objects`
-（`aha_msgs/DetectedObjectArray`、[ROSインターフェース](../../../docs/interfaces.md#物体検出シミュレーションのみ)）を出す。
+`sim_object_detector.py` は、画像から認識する [object_perception.py](#物体の認識) の代わりに、Gazeboのモデルの真の姿勢から `/aha/perception/objects`
+（`aha_msgs/DetectedObjectArray`、[ROSインターフェース](../../../docs/interfaces.md#物体検出)）を出す。DGXを使わない。
 対象は名前が物体リスト（[config/objects/robocup_objects.yaml](config/objects/robocup_objects.yaml)、`aha_perception.object_list`）の
 パターン（既定はラベルの空白を `_` にした名前と `<それ>_*`、例：`tuna_can_2` は `tuna can`）に合うモデルだけ。
 物体の中心か上面の中心が画像に入り、そこのDepthがその点より手前（中心は物体の最大寸法の半分 + `depth_tolerance`）でなければ見えているとする。
 姿勢はロボットのモデル（原点が `base_footprint`）からの相対で、Depthの時刻のTFで `output_frame` に直す（カメラの検出器と同じくodomのずれを含む）。
 `class_name` はラベル、`track_id` はモデルごとの番号、`size` はリストの大きさ、`confidence` は1。
 GZ_PARTITIONはシミュレーションと同じにする（launchから起動すれば同じ）。
+タスクのsimでは、[aha_tasks](../aha_tasks/README.md#シミュレーションの物体)の `object_scene:=` がリストのラベルに合う名前で物体を置く。
+リストのPPCの食器（cutlery、tableware）・Common Objects・YCBの物体の大きさは、そのsimのモデルの外接箱に合わせてある。
 
 | パラメータ | 既定 | 内容 |
 | --- | --- | --- |
@@ -325,7 +330,7 @@ ros2 service call /aha/perception/get_place_candidates aha_msgs/srv/GetPlaceCand
   "{object_size: {x: 0.06, y: 0.06, z: 0.12}, furniture: shelf, furniture_level: 3, clearance: 0.05}"
 ```
 
-シミュレーションのworldの家具は [config/furniture/rcjo2026_arena.yaml](config/furniture/rcjo2026_arena.yaml)（frame `world`、形状はworldのSDFから）。
+シミュレーションのworldの家具は [config/furniture/rcjo2026_arena.yaml](config/furniture/rcjo2026_arena.yaml)（frame `world`、形状はworldのSDFから）。ゴミ箱（`trash_box`）の段はふたの上面（0.75 m）で、外形は入れた物体を除くのにも使う（[aha_tasksの物体の認識](../aha_tasks/README.md#物体の認識)）。
 `world` のTFは `sim.launch.py world_tf:=true` が出す。
 
 ```bash
@@ -344,6 +349,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 - [`aha_perception.depth_noise`](aha_perception/depth_noise.py)：D435i相当のDepthノイズ（`NOISE_PRESETS`）。`sim_depth_noise.py` とベンチマークで共通。
 - [`aha_perception.imu_tilt`](aha_perception/imu_tilt.py)：IMUの重力の向きの相補フィルタとtilt / roll。
 - [`aha_perception.object_list`](aha_perception/object_list.py)：物体リスト（ラベル・カテゴリ・大きさ・Gazeboのモデル名）の読み込み。PyYAMLも使う。
+- [`aha_perception.object_detection`](aha_perception/object_detection.py)：`object_perception.py` とDGXのworkerの、候補のマスクの統合、VLMへの質問と回答の解釈、Depthからの3Dの箱（`measure_object`）、物体の追跡（`ObjectTracker`）。Pillowも使う。
 - [`aha_perception.sim_object_detection`](aha_perception/sim_object_detection.py)：`sim_object_detector.py` の見えているかの判定と見落とし・ラベルの誤り。
 - [`aha_perception.sim_person_detection`](aha_perception/sim_person_detection.py)：`sim_person_detector.py` の人の見えているかの判定と追跡・名前。
 - [`aha_perception.gazebo_poses`](aha_perception/gazebo_poses.py)：gz-transportから読むGazeboのモデルの姿勢（`sim_object_detector.py`・`sim_person_detector.py`）。
@@ -367,6 +373,7 @@ ROS非依存（numpy / scipy のみ）で、ノードと [平面検出ベンチ�
 
 `person_perception.py` は頭部カメラの色画像をDGX SparkのSAM 3.1へ送り、Depthから求めた人の3D位置・追跡ID・覚えた名前を配信する。
 覚えた人との照合と外見の特徴は、[ローカルLLM](../../../tools/local-llm/README.md) のQwen3.8が人の切り出し画像を見て答える。
+VLMは同じ画像に同じ答えを返すため、`describe_person` は同じ人の前回の画像より0.5 s（画像の時刻）以上後の切り出しを使う。保持中の最も大きい切り出しが条件を満たさなければ、直近の切り出しのうち条件を満たす最も大きいものを使う。まだなければ実時間で最大5 s待ち、それでもなければ失敗する。返答の `message` に使った画像の時刻を入れる。
 SAM 3.1は並んだ人を1つのマスクで返すことがあるため、マスクを空の列で分け、Depthから求めた床面上の距離が0.4 m以上なら別の人として扱う。0.4 m未満なら、ドア枠などの細い物に隠された1人として1つに戻す。床面はカメラから `target_frame` へのTFで求める。`target_frame` が空の場合は、カメラが水平と仮定した近似になる。列が重なって写る人は分けられない。
 topic・serviceは [ROSインターフェース](../../../docs/interfaces.md#人の認識)、追跡・名前付けの設定は `config/people.yaml` を参照。
 
@@ -432,6 +439,47 @@ topic・serviceは `person_perception.py` と同じ（markersと `classify_perso
 
 SAM 3.1の見落とし・人の結合、マスクとDepthから求める位置、VLMの特徴と照合は再現しない。座った人・寝た人も立った人の軸で判定する。
 
+## 物体の認識
+
+`object_perception.py` は頭部カメラの色画像をDGX Sparkの `object_worker` へ送り、物体リスト（[config/objects/robocup_objects.yaml](config/objects/robocup_objects.yaml)）のラベルの物体を、
+Depthから求めた3Dの箱と追跡IDで `/aha/perception/objects` に配信する。topicの意味は `sim_object_detector.py` と同じで、使う側はどちらかを区別しない（[ROSインターフェース](../../../docs/interfaces.md#物体検出)）。
+
+```bash
+ros2 launch aha_perception objects.launch.py ssh_user:=<Unixユーザー名>
+```
+
+1. SAM 3.1が `prompts` の語（`item`、`food`、`small box`、`can` など14語）ごとに候補のマスクを出す。重なり（IoU 0.7超）、小さすぎ・大きすぎる（画像の2割超）マスク、画像の縁から `border_px` 以内に掛かる（切れた）マスクを除き、点数の高い順に `max_candidates` 個まで残す。
+2. Qwen3.8に、候補に番号を付けた写真と、候補ごとの拡大画像（マスクの外を暗くする）を12個ずつ渡す。Qwen3.8は各候補の見た目を短く書いてから、リストのラベル（カテゴリと大きさを添える）か `none` を答える。商品名を読めない場合も、似た物は近いラベルにする。
+3. ロボット側で、名前の付いた候補のDepthを画像の時刻のTFで `target_frame` へ直し、3Dの箱にする。カメラは手前側しか見えないため、視線の水平方向の奥行きは見えている幅（ラベルの大きさの底面の短い辺の方が小さければそれ）とし、中心を最も手前の点からその半分奥に置く。箱は `target_frame` の軸に沿う（向きは出さない）。
+4. 箱がラベルの大きさより大きすぎる（最大の辺が1.5倍 + 0.05 mを超える）候補、`max_size` を超える候補、`robot_frames`（グリッパ・手首のリンク）から `robot_margin` 以内の候補は捨てる。前者は拡大画像に大きさがなくVLMが取り違えた物、後者は頭部カメラに写るロボット自身のグリッパである。
+5. 同じ物体の候補は点数の最も高い1つにする。同じラベルでは中心が `merge_distance` 以内か、小さい方の箱の6割以上がもう一方の箱に入る（別の語で見つかった部分）候補、別のラベルでは箱のIoUが0.5以上の候補を同じ物体とする。皿の上のフォークのように他の物体の上や中にある物体は、箱がずっと小さく別の物体として残る。追跡は、同じラベルで `gate` 以内、別のラベルで `gate` の半分以内かつ箱のIoUが0.5以上（ラベルが画像ごとに揺れた同じ物体）の最も近い物体に対応させ、位置・大きさは最初の5回を平均し、以後は5回分の重みで更新する。ラベルは見えた回の点数の合計が最も大きいものにする。
+
+`/aha/perception/objects/markers` に箱とラベル、`/aha/perception/objects/image` に候補の輪郭とラベル・捨てた理由を描いた画像（購読がある場合）を配信する。
+DGXでの1枚の処理は約7 s（SAM 3.1が約5 s、Qwen3.8が約2 s、2026-11-15 のシミュレーションの画像で測定）で、画像は1枚ずつ送る。
+`request_timeout`（既定120 s）以内に結果のない画像は飛ばす。DGX側はQwen3.8への1回の依頼を、`request_timeout` からSAM 3.1の分の30 sを引き、順に送る回数（候補12個で1回の依頼とし、2回ずつ同時に送る）で割った時間（既定90 s）で打ち切り、その画像の失敗を先に返す。Qwen3.8が混んでも、古い画像がworkerに溜まらない。
+
+| 引数 | 既定 | 内容 |
+| --- | --- | --- |
+| `target_frame` | `map` | 配信する座標系（z軸が上）。空かカメラのframeなら、カメラの座標系で奥行きを補わず見えている点の箱を出す |
+| `objects_config` | 空 | 物体リスト（空はパッケージのもの） |
+| `ssh_host` / `ssh_port` / `ssh_user` / `identity_file` | `10.99.0.1` / `2222` / 空 / 空 | DGXの接続先（[人の認識](#人の認識)と同じ） |
+| `use_sim_time` | `false` | シミュレーションでは `true` |
+| `worker_command` | 空 | DGXへ接続せず、同じプロトコルのworkerをこのコマンドで起動する（例：[fake_object_worker.py](test/fake_object_worker.py)） |
+| `respawn` | `false` | 終了したnodeを2 s後に再起動する |
+
+その他のパラメータは [config/object_perception.yaml](config/object_perception.yaml)（`prompts`・`threshold`・`max_candidates`・`border_px`・`max_size`・`robot_frames`・`robot_margin`・`merge_distance`・`gate`・`forget_after`・`max_rate`・`request_timeout`）。
+`debug_dir` を指定すると、処理した画像ごとに輪郭とラベルを描いた画像と、候補・VLMの回答・物体をJSONで保存する。
+workerのコンテナは人の認識と同じイメージ（[Dockerfile](../../../tools/perception/macos/sam31/Dockerfile)）で、`upstream/sam3` のsubmoduleが必要。起動時にDGXでイメージを作ってコンテナを起動し、Ctrl-Cでコンテナと一時ディレクトリを削除する（イメージは人の認識と共有するので残す）。
+
+制限：
+
+- 物体の向き、遮蔽された部分の大きさは求めない。下の段の棚板に隠れた物体や重なった物体は、見えている部分の箱になる。
+- 画像の縁で切れた物体は出さない。頭を向け直して全体を写す必要がある。
+- 物体の一部のマスクに別のラベルが付き、箱のIoUが0.5未満の場合は、同じ場所の別の物体として出る。
+- ラベルの誤りはVLMの判断による。シミュレーションでは、小さく写る缶（`tomato soup` を `tuna can`）、色の似た果物（`orange` と `lemon`）、文字の読めない箱（床の `cookies` を `chocolate jello`）を取り違えた。物体リストにない物は `none` にするよう求めているが、似た物はリストのラベルになる。
+- 透明・黒い物体などDepthの欠ける物体は、位置を求められず出さない。
+- 実機のカメラの画像では評価していない。
+
 ## テスト
 
 `colcon test --packages-select aha_perception`。ROSに依存しないテストはホストでも実行できる。
@@ -441,7 +489,8 @@ cd overlay_ws/src/aha_perception
 uv run --no-project --python 3.12 --with numpy==1.26.4 --with scipy==1.11.4 --with pyyaml --with pillow --with pytest \
   python -m pytest test/test_planes_*.py test/test_plane_detection_io.py test/test_depth_noise.py test/test_place.py \
   test/test_surfaces.py test/test_furniture.py test/test_imu_tilt.py test/test_object_list.py test/test_sim_object_detection.py \
-  test/test_sim_person_detection.py test/test_person_attributes.py
+  test/test_sim_person_detection.py test/test_person_attributes.py test/test_object_detection.py
 ```
 
 `test/test_plane_detection_node.py`（ノードのメッセージ変換）と `test/test_plane_detection_service.py`（置き場所のserviceの分岐）はrclpyとROSのメッセージが必要で、colconでだけ実行する。
+`test/test_object_perception.py` は `object_perception.py` を [fake_object_worker.py](test/fake_object_worker.py)（赤・緑・青の領域を候補にし、色でラベルを答える）と動かし、colconでだけ実行する。

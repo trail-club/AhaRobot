@@ -442,7 +442,6 @@ def classify_gesture(history) -> Label | None:
     value, count = counted.most_common(1)[0]
     share = count / len(votes)
     agreed = share >= VOTE_SHARE
-    span = window[-1].stamp - window[0].stamp
     if value.startswith("raising"):
         swing = max(wave_swing(window, side) for side in SIDES)
         # Only images that show the raised hand tell whether it moves.

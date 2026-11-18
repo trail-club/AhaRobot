@@ -2,9 +2,16 @@
 
 head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 `people:=true` adds the head camera bridge and person_perception (DGX Spark).
-`guests:=true` adds sim_guests, which moves the task's simulated guests.
+`objects:=true` adds the head camera bridge and an object detector on
+/aha/perception/objects (frame map) for the object skills (aha_tasks.objects),
+and the identity TF world -> map: the fixed map is drawn in Gazebo's world
+coordinates, the frame of aha_perception's furniture config of the arena.
+`guests:=true` adds sim_guests, which moves the task's simulated guests, and
+sim_sounds, which makes the sounds they make at the door.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
+`object_scene:=<name>` adds sim_objects, which puts the objects of
+config/sim/objects/<name>.json (or a JSON path) onto the furniture.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -15,7 +22,10 @@ node can be rerun without restarting Gazebo.
 - navigation (debug: teleport): aha_tasks sim_teleport moves the robot in
   Gazebo and resets AMCL instead of the Nav2 planner, controller and BT.
 - perception (debug: truth): aha_perception sim_person_detector.py publishes
-  the people from Gazebo's poses instead of person_perception.py.
+  the people from Gazebo's poses instead of person_perception.py,
+  sim_object_detector.py the objects instead of objects.launch.py, and sim_sounds
+  publishes the guests' doorbell and knocks as detections instead of
+  aha_audio_doorbell (no audio container).
 """
 
 from pathlib import Path
@@ -57,13 +67,17 @@ E2E_DEFAULTS = {
 }
 CHOICES = {"navigation": ("nav2", "teleport"), "perception": ("model", "truth")}
 
-# Launch argument -> people.launch.py argument (DGX connection).
-PEOPLE_OPTIONS = {
+# Launch arguments of the DGX workers. people.launch.py and objects.launch.py
+# share the connection; each takes its own worker_command (the person and the
+# object workers speak different protocols).
+DGX_OPTIONS = {
     "ssh_host": "10.99.0.1",
     "ssh_port": "2222",
     "ssh_user": "",
     "worker_command": "",
+    "object_worker_command": "",
 }
+DGX_CONNECTION = ("ssh_host", "ssh_port", "ssh_user")
 
 
 def task_config(task):
@@ -97,6 +111,31 @@ def e2e_choices(mode, navigation="", perception=""):
                 f"use e2e:=debug for {name}:={value}"
             )
     return chosen["navigation"], chosen["perception"]
+
+
+def object_detector(perception, debug, value):
+    """The object detector of objects:=true, publishing in map."""
+    if perception == "truth":
+        # Wall clock like sim_person_detector.py; it uses the image stamps.
+        return Node(
+            package="aha_perception",
+            executable="sim_object_detector.py",
+            parameters=[{"output_frame": "map"}],
+            output="screen",
+            respawn=True,
+            respawn_delay=2.0,
+        )
+    return include(
+        "aha_perception",
+        "objects.launch.py",
+        {
+            "target_frame": "map",
+            "use_sim_time": "true",
+            "respawn": "true" if debug else "false",
+            **{name: value(name) for name in DGX_CONNECTION},
+            "worker_command": value("object_worker_command"),
+        },
+    )
 
 
 def task_exited(event, context):
@@ -134,6 +173,7 @@ def launch_task(context):
         respawn_delay=2.0,
     )
     people = value("people") == "true"
+    objects = value("objects") == "true"
     if people and perception == "truth" and value("people_scene"):
         # sim_person_detector.py has no ClassifyPerson and only knows the guests.
         raise ValueError(
@@ -150,7 +190,7 @@ def launch_task(context):
             "sim.launch.py",
             {
                 "world": "rcjo2026",
-                "cameras": "true" if people else "false",
+                "cameras": "true" if people or objects else "false",
                 "headless": value("headless"),
                 "spawn_x": x,
                 "spawn_y": y,
@@ -215,7 +255,7 @@ def launch_task(context):
             executable="sim_person_detector.py",
             parameters=[
                 {
-                    "models": list(guest_scene["guests"])
+                    "models": [*guest_scene["guests"], *guest_scene["seated"]]
                     if guest_scene is not None
                     else ["guest*"]
                 }
@@ -231,13 +271,22 @@ def launch_task(context):
             {
                 "use_sim_time": "true",
                 "respawn": "true" if debug else "false",
-                **{name: value(name) for name in PEOPLE_OPTIONS},
+                **{name: value(name) for name in (*DGX_CONNECTION, "worker_command")},
             },
         )
+    if people or objects:
+        actions.append(include("aha_perception", "camera_bridge.launch.py", {}))
     if people:
+        actions.append(people_node)
+    if objects:
         actions += [
-            include("aha_perception", "camera_bridge.launch.py", {}),
-            people_node,
+            object_detector(perception, debug, value),
+            Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                name="world_to_map",
+                arguments=["--frame-id", "world", "--child-frame-id", "map"],
+            ),
         ]
     if guests:
         actions.append(
@@ -246,6 +295,17 @@ def launch_task(context):
                 executable="sim_guests",
                 parameters=[{"use_sim_time": True}],
                 arguments=[f"--config={scene}"],
+                output="screen",
+            )
+        )
+        # The microphone stream with the guests' doorbell and knocks, for
+        # aha_audio_doorbell input:=topic (wall clock, like a microphone); with
+        # perception truth, also the detections themselves.
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_sounds",
+                parameters=[{"truth": perception == "truth"}],
                 output="screen",
             )
         )
@@ -263,6 +323,24 @@ def launch_task(context):
                 package="aha_tasks",
                 executable="sim_people",
                 parameters=[{"use_sim_time": True}],
+                arguments=[f"--config={path}"],
+                output="screen",
+            )
+        )
+    object_scene = value("object_scene")
+    if object_scene:
+        path = (
+            Path(object_scene)
+            if object_scene.endswith(".json")
+            else task_config(f"sim/objects/{object_scene}")
+        )
+        if not path.is_file():
+            raise ValueError(f"object_scene:={object_scene}: no {path}")
+        # Spawns (or puts back) the objects once and exits.
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_objects",
                 arguments=[f"--config={path}"],
                 output="screen",
             )
@@ -290,7 +368,8 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "perception",
                 default_value="",
-                description="model | truth (debug only), with people:=true; empty: by e2e",
+                description="model | truth (debug only), with people:=true or "
+                "objects:=true; empty: by e2e",
             ),
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("gui_port", default_value="8765"),
@@ -298,6 +377,11 @@ def generate_launch_description():
                 "people",
                 default_value="false",
                 description="Head cameras and person_perception on the DGX",
+            ),
+            DeclareLaunchArgument(
+                "objects",
+                default_value="false",
+                description="Head cameras and the object detector (sim truth or model)",
             ),
             DeclareLaunchArgument(
                 "guests",
@@ -309,9 +393,14 @@ def generate_launch_description():
                 default_value="",
                 description="Posed people from config/sim/people/<name>.json",
             ),
+            DeclareLaunchArgument(
+                "object_scene",
+                default_value="",
+                description="Objects from config/sim/objects/<name>.json",
+            ),
             *(
                 DeclareLaunchArgument(k, default_value=v)
-                for k, v in PEOPLE_OPTIONS.items()
+                for k, v in DGX_OPTIONS.items()
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)

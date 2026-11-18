@@ -9,7 +9,7 @@ and the DGX host network to reach the Qwen3.8 server there.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import itertools
 import json
 from pathlib import Path
@@ -144,6 +144,36 @@ def person_spec(options: WorkerOptions) -> ContainerSpec:
             options.vlm_model,
             "--pose-model",
             options.pose_model,
+        ),
+    )
+
+
+def object_spec(options: WorkerOptions, vlm_timeout: float) -> ContainerSpec:
+    """object_worker in the person worker's image: SAM 3.1 and the Qwen3.8 VLM.
+
+    The worker gives up on a VLM request after `vlm_timeout` seconds.
+    """
+    return replace(
+        person_spec(options),
+        title="DGX object worker",
+        name="objects",
+        docker_args=(
+            "--network",
+            "host",
+            "-v",
+            f"{options.checkpoint}:/models/sam3.1_multiplex.pt:ro",
+        ),
+        command=(
+            "-m",
+            "aha_perception.object_worker",
+            "--checkpoint",
+            "/models/sam3.1_multiplex.pt",
+            "--vlm-url",
+            options.vlm_url,
+            "--vlm-model",
+            options.vlm_model,
+            "--vlm-timeout",
+            str(vlm_timeout),
         ),
     )
 

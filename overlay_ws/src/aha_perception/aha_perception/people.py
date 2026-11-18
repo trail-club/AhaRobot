@@ -47,6 +47,10 @@ KEYPOINT_HISTORY = 3.0
 # apart (s of image time), so that it can see a hand move.
 RECENT_CROPS = 3
 RECENT_CROP_INTERVAL = 0.4
+# Image time (s) from one described crop of a track to the next: the VLM
+# answers one image the same way every time, so a nearly equal image would
+# count one mistake twice (memorize_person's views, 0.5 s apart).
+DESCRIBE_INTERVAL = 0.5
 
 DESCRIBE_PROMPT = """The photo shows one person; the background is darkened. List the visible features that would let someone pick this person out of a group: clothing with its colour (for example "red t-shirt", "blue jeans", "black jacket"), glasses, hat, bag, hair (for example "long hair", "short black hair", "bald"), beard.
 Only list what you can clearly see in this photo. Do not guess hidden parts, and do not mention age, gender, ethnicity or emotions.
@@ -230,6 +234,7 @@ class Track:
     history: deque = field(default_factory=deque)
     # (stamp, crop) of recent sightings, oldest first.
     recent_crops: deque = field(default_factory=lambda: deque(maxlen=RECENT_CROPS))
+    described: float = -math.inf  # image time of the crop described last
 
     @classmethod
     def start(cls, track_id: int, detection: Detection, stamp: float) -> Track:
@@ -269,6 +274,24 @@ class Track:
             )
         while self.history and stamp - self.history[0][0] > KEYPOINT_HISTORY:
             self.history.popleft()
+
+    def crop_to_describe(self) -> tuple[float, np.ndarray] | None:
+        """(stamp, crop) for the VLM to describe, or None without a new one.
+
+        A crop at least DESCRIBE_INTERVAL after the one described last: the
+        held (largest) crop if it is, else the largest (then newest) such
+        recent crop. Marks the crop described.
+        """
+        after = self.described + DESCRIBE_INTERVAL
+        if self.crop is not None and self.crop_stamp >= after:
+            chosen = (self.crop_stamp, self.crop)
+        else:
+            fresh = [c for c in self.recent_crops if c[0] >= after]
+            if not fresh:
+                return None
+            chosen = max(fresh, key=lambda c: (c[1].shape[0] * c[1].shape[1], c[0]))
+        self.described = chosen[0]
+        return chosen
 
 
 class PersonTracker:

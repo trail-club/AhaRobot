@@ -20,6 +20,9 @@ class SkillContext:
     memory: dict  # copy of the task memory before this subgoal
     cancelled: threading.Event  # set on abort; long-running skills must poll it
     log: object  # log(message) shown in the task status
+    # Subgoal id -> status when this subgoal started, e.g. "skipped": the memory
+    # then holds that subgoal's mock, not a result.
+    statuses: dict = field(default_factory=dict)
 
 
 class Skill:

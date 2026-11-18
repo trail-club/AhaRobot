@@ -170,13 +170,18 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 
 runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
-`/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
+`/aha/perception/people` を注視と[空席の判定](../overlay_ws/src/aha_tasks/README.md#空席の判定)に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
+`perceive_objects` / `perceive_shelf` は `/aha/perception/objects`（[物体検出](#物体検出)）と、TF（家具の設定のframe → 検出のframe、検出のframe → `base_footprint`）を使う（[aha_tasksの物体の認識](../overlay_ws/src/aha_tasks/README.md#物体の認識)）。
+`task.launch.py objects:=true` は検出器をframe `map` で起動し、`world` → `map` の恒等の静的TFを配信する（固定地図はGazeboのworld座標）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 GPSRの `find_described_person` は、人に名前を尋ねると `/aha/perception/audio/listen`（[音声](#音声)、goalの `hotwords` に名前の一覧）で答えを聞き、`/aha/perception/remember_person` でその名前を覚えさせる。
+`show_objects` は実行中だけ `/camera/color/image_raw`・`/camera/color/camera_info`（[頭部カメラ](#頭部カメラ)）を購読し、TF（物体の `frame` → 画像の `frame_id`）を使い、
+物体に枠を描いた画像を `/aha/display/image` へ配信する（[ロボットの画面](#ロボットの画面)）。
 
-`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`host`・`chair_extra`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
+`object_scene:=<名前>` の `sim_objects` は、gz-transportで配置の `world` の `/world/<world>/pose/info` を読み、`/world/<world>/create` と `set_pose` で配置の物体を同じ名前のモデルとして置く（残っていれば置き直す）。物体リストのパターンに合う名前で配置にないモデルは、先に `/world/<world>/remove` で消す。置き終えて静止を確かめると終了する。ROSのtopicは配信しない。
 
 ### ロボットの画面
 
@@ -327,19 +332,29 @@ RVizのPublish Point（`/clicked_point`）は `/aha/perception/look_at` へremap
 `STATUS_NO_SPACE`（候補は空）、候補があると `STATUS_OK`。家具と高さの判定は検出の確認の前に行い、その応答の `stamp` は0。
 呼び出し例は [aha_perception](../overlay_ws/src/aha_perception/README.md#置き場所の候補)、方式は [place.py](../overlay_ws/src/aha_perception/aha_perception/place.py) を参照。
 
-## 物体検出（シミュレーションのみ）
+## 物体検出
 
-`perception.launch.py objects:=true`（`sim.launch.py use_perception:=true objects:=true`）で
-`sim_object_detector.py` がGazeboの真の姿勢から頭部カメラに見える物体を出す。実機の物体検出器はまだない。
-判定・パラメータは [aha_perception](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)を参照。
+[objects.launch.py](../overlay_ws/src/aha_perception/README.md#物体の認識)の `object_perception.py` が頭部カメラの画像からDGX SparkのSAM 3.1とQwen3.8で認識する。
+入力は頭部カメラの3 topic（色・位置合わせ済みDepth・CameraInfo、同じ時刻の組）で、RELIABLEで購読する（パラメータ `reliable: false` でbest effort）。
+シミュレーションでは、`sim_object_detector.py`（`perception.launch.py objects:=true`、`sim.launch.py use_perception:=true objects:=true`）が
+Gazeboの真の姿勢から同じtopicを出す（[判定・パラメータ](../overlay_ws/src/aha_perception/README.md#シミュレーションの物体検出)）。
 
 | 用途 | Topic | 型 |
 | --- | --- | --- |
 | 検出した物体（ラベル・track ID・姿勢・大きさ） | `/aha/perception/objects` | `aha_msgs/msg/DetectedObjectArray` |
+| 物体の表示（`object_perception.py` のみ） | `/aha/perception/objects/markers` | `visualization_msgs/msg/MarkerArray` |
+| 候補とラベルを描いた画像（`object_perception.py` のみ、購読があるとき） | `/aha/perception/objects/image` | `sensor_msgs/msg/Image`（rgb8） |
 
-frameは `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`）、時刻は判定に使ったDepthの時刻、2 Hz以下（RELIABLE）。
-`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`track_id` はGazeboのモデルごとに固定、
-`pose` は物体の中心（共分散は位置のノイズの分散）、`size` はリストの底面 x, y と高さ z（m）。見えない物体は含まない。
+どちらも、その画像で見えている物体だけを含む。時刻は判定に使った画像の時刻。`class_name` は物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）のラベル、`pose` は物体の中心。
+
+| | `object_perception.py` | `sim_object_detector.py` |
+| --- | --- | --- |
+| frame | `target_frame`（既定 `map`） | `odom`（パラメータ `output_frame`、TFがなければ `base_footprint`） |
+| 頻度 | DGXの1往復ごと（約7 s、`max_rate` 以下） | 2 Hz以下 |
+| `track_id` | 位置とラベルで追跡した番号。`forget_after` 見えないと変わる | Gazeboのモデルごとに固定 |
+| `pose` の向き・共分散 | 単位四元数・0（向きは求めない） | モデルの向き・位置のノイズの分散 |
+| `size` | Depthで測った、`frame` の軸に沿う箱（m） | リストの底面 x, y と高さ z（物体の軸） |
+| `confidence` | SAM 3.1の点数 × 追跡中のラベルの割合 | 1 |
 
 ## 人の認識
 
@@ -366,7 +381,7 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 
 ## 音声
 
-[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` / `aha_audio_doorbell` が扱う。
 
 | 用途 | 名前 | 型 |
 | --- | --- | --- |
@@ -374,6 +389,12 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 | TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
 | 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
 | 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+| ドアベル・ノックの検出（検出の始まりごとに1回） | `/aha/perception/audio/doorbell` | `aha_msgs/msg/SoundEvent` |
+| シミュレーションのマイク音（16 kHz mono、`sim_sounds`） | `/aha/sim/audio` | `std_msgs/msg/Float32MultiArray` |
+| シミュレーションの客が鳴らす音（`chime` / `knock`、`sim_guests`） | `/aha/sim/doorbell` | `std_msgs/msg/String` |
+
+`SoundEvent.label` は `doorbell`（チャイム・ブザー）か `knock`、`header.stamp` は検出した窓の終わりの時刻（wall clock）。
+`e2e:=debug`（`perception:=truth`）では、`aha_audio_doorbell` の代わりに `sim_sounds` が客の鳴らした音を `model` が `sim_truth` の `SoundEvent` として配信する。
 
 音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 
@@ -414,6 +435,6 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
 `RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出シミュレーションのみ)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

@@ -1,0 +1,23 @@
+{
+  "world": "rcjo2026_arena",
+  "objects": [
+    {"name": "cola", "label": "cola", "on": "dining_table", "position": [-1.8, -1.55], "yaw": 0.0},
+    {"name": "apple", "label": "apple", "on": "dining_table", "position": [-2.02, -1.55], "yaw": 0.0},
+    {"name": "banana", "label": "banana", "on": "dining_table", "position": [-2.26, -1.6], "yaw": 0.4},
+    {"name": "bowl", "label": "bowl", "on": "dining_table", "position": [-1.98, -1.8], "yaw": 0.0},
+    {"name": "green_tea", "label": "green tea", "on": "long_table", "position": [1.72, -0.5], "yaw": 0.0},
+    {"name": "lemonade", "label": "lemonade", "on": "long_table", "position": [1.88, -0.5], "yaw": 0.0},
+    {"name": "red_bull", "label": "red bull", "on": "long_table", "position": [2.03, -0.5], "yaw": 0.0},
+    {"name": "rubiks_cube", "label": "rubiks cube", "on": "long_table", "position": [2.22, -0.48], "yaw": 0.3},
+    {"name": "cookies", "label": "cookies", "on": "tall_table", "position": [0.68, -0.5], "yaw": 1.5708},
+    {"name": "strawberry_jello", "label": "strawberry jello", "on": "tall_table", "position": [0.84, -0.5], "yaw": 1.5708},
+    {"name": "tuna_can", "label": "tuna can", "on": "shelf", "level": 3, "position": [3.02, 3.42], "yaw": 0.0},
+    {"name": "tomato_soup", "label": "tomato soup", "on": "shelf", "level": 3, "position": [3.14, 3.42], "yaw": 0.0},
+    {"name": "cup_noodle", "label": "cup noodle", "on": "shelf", "level": 3, "position": [3.27, 3.42], "yaw": 0.0},
+    {"name": "milk", "label": "milk", "on": "shelf", "level": 4, "position": [3.02, 3.42], "yaw": 0.0},
+    {"name": "cola_2", "label": "cola", "on": "shelf", "level": 4, "position": [3.14, 3.42], "yaw": 0.0},
+    {"name": "orange", "label": "orange", "on": "shelf", "level": 5, "position": [3.02, 3.43], "yaw": 0.0},
+    {"name": "lemon", "label": "lemon", "on": "shelf", "level": 5, "position": [3.13, 3.43], "yaw": 0.0},
+    {"name": "plum", "label": "plum", "on": "shelf", "level": 5, "position": [3.23, 3.43], "yaw": 0.0}
+  ]
+}

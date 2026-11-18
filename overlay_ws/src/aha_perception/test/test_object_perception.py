@@ -1,0 +1,274 @@
+"""End to end: object_perception.py against the fake worker (no DGX, no CUDA).
+
+Runs the node from the source tree on ROS_DOMAIN_ID 94 (AHA_TEST_DOMAIN_ID to
+change), so it does not see a running sim.
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+from aha_msgs.msg import DetectedObjectArray
+from geometry_msgs.msg import TransformStamped
+import numpy as np
+import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from rclpy.time import Time
+from sensor_msgs.msg import CameraInfo, Image
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
+import yaml
+
+from aha_perception.plane_detection_io import quaternion_from_matrix
+
+PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+NODE = os.path.join(PKG, "scripts", "object_perception.py")
+FAKE = os.path.join(PKG, "test", "fake_object_worker.py")
+OBJECTS = os.path.join(PKG, "config", "objects", "robocup_objects.yaml")
+DOMAIN_ID = int(os.environ.get("AHA_TEST_DOMAIN_ID", "94"))
+W, H, FX, CX, CY, DEPTH = 320, 240, 200.0, 160.0, 120.0, 0.5
+CAMERA = "camera_color_optical_frame"
+HEIGHT = 1.0  # camera above the map origin, looking along map x
+# Optical axes (x right, y down, z forward) in map.
+OPTICAL = np.array([[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])
+COLOURS = {"red": (255, 0, 0), "green": (0, 255, 0), "blue": (0, 0, 255)}
+HALF = 20  # px; each blob is 40 x 40 pixels (0.1 m) on a wall at DEPTH
+
+
+def expected_centre(label, u, v):
+    """Map centre of a blob centred on (u, v) straight ahead: the wall point
+    plus half the label's smaller footprint side behind it (the hidden depth)."""
+    with open(OBJECTS, encoding="utf-8") as f:
+        size = next(
+            o["size"] for o in yaml.safe_load(f)["objects"] if o["label"] == label
+        )
+    return np.array(
+        [
+            DEPTH + min(size[:2]) / 2,
+            -(u - CX) * DEPTH / FX,
+            HEIGHT - (v - CY) * DEPTH / FX,
+        ]
+    )
+
+
+class NodeHarness(unittest.TestCase):
+    """Runs the node with the fake worker; TARGET is its target_frame. The
+    camera pose is on /tf_static, or with DYNAMIC_CAMERA on /tf with each image."""
+
+    TARGET = "map"
+    DYNAMIC_CAMERA = False
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        params = os.path.join(cls.tmpdir.name, "params.yaml")
+        with open(params, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                {
+                    "/**": {
+                        "ros__parameters": {
+                            "worker_command": f"{sys.executable} {FAKE}",
+                            "objects_config": OBJECTS,
+                            "target_frame": cls.TARGET,
+                            "prompts": ["can", "fruit"],
+                            "max_rate": 20.0,
+                            "startup_timeout": 30.0,
+                        }
+                    }
+                },
+                f,
+            )
+        env = dict(os.environ, ROS_DOMAIN_ID=str(DOMAIN_ID), PYTHONUNBUFFERED="1")
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [PKG, env.get("PYTHONPATH")]))
+        cls.process = subprocess.Popen(
+            [sys.executable, NODE, "--ros-args", "--params-file", params], env=env
+        )
+        os.environ["ROS_DOMAIN_ID"] = str(DOMAIN_ID)
+        rclpy.init()
+        cls.node = rclpy.create_node("object_perception_test")
+        cls.executor = SingleThreadedExecutor()
+        cls.executor.add_node(cls.node)
+        cls.color = cls.node.create_publisher(Image, "/camera/color/image_raw", 10)
+        cls.depth = cls.node.create_publisher(
+            Image, "/camera/depth_registered/image_rect", 10
+        )
+        cls.info = cls.node.create_publisher(
+            CameraInfo, "/camera/color/camera_info", 10
+        )
+        cls.objects = []
+        cls.node.create_subscription(
+            DetectedObjectArray, "/aha/perception/objects", cls.objects.append, 10
+        )
+        cls.images = []
+        cls.node.create_subscription(
+            Image, "/aha/perception/objects/image", cls.images.append, 2
+        )
+        transform = TransformStamped()
+        transform.header.frame_id = "map"
+        transform.child_frame_id = CAMERA
+        transform.transform.translation.z = HEIGHT
+        q = transform.transform.rotation
+        q.x, q.y, q.z, q.w = quaternion_from_matrix(OPTICAL)
+        cls.camera = transform
+        cls.tf = StaticTransformBroadcaster(cls.node)
+        cls.dynamic_tf = TransformBroadcaster(cls.node)
+        if not cls.DYNAMIC_CAMERA:
+            cls.tf.sendTransform(transform)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.process.terminate()
+        try:
+            cls.process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            cls.process.kill()
+        cls.executor.shutdown()
+        cls.node.destroy_node()
+        rclpy.shutdown()
+        cls.tmpdir.cleanup()
+
+    def spin(self, seconds):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.executor.spin_once(timeout_sec=0.02)
+
+    def publish(self, blobs, stamp):
+        rgb = np.full((H, W, 3), 128, np.uint8)
+        for colour, place in blobs.items():
+            # (u, v), or (u, v, half width, half height) in pixels
+            u, v, hu, hv = (*place, HALF, HALF)[:4]
+            rgb[v - hv : v + hv, u - hu : u + hu] = COLOURS[colour]
+        depth = np.full((H, W), DEPTH, np.float32)
+        color = Image(
+            height=H, width=W, encoding="rgb8", step=W * 3, data=rgb.tobytes()
+        )
+        aligned = Image(
+            height=H, width=W, encoding="32FC1", step=W * 4, data=depth.tobytes()
+        )
+        info = CameraInfo(height=H, width=W)
+        info.k = [FX, 0.0, CX, 0.0, FX, CY, 0.0, 0.0, 1.0]
+        for message in (color, aligned, info):
+            message.header.stamp = stamp
+            message.header.frame_id = CAMERA
+        if self.DYNAMIC_CAMERA:
+            self.camera.header.stamp = stamp
+            self.dynamic_tf.sendTransform(self.camera)
+        self.color.publish(color)
+        self.depth.publish(aligned)
+        self.info.publish(info)
+
+    def stream(self, blobs, seconds, until, back=0.0):
+        """Publish images stamped `back` s before now until the node's message
+        for one of them satisfies `until`; None after `seconds`."""
+        offset = int(back * 1e9)
+        start = self.node.get_clock().now().nanoseconds - offset
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            last = self.node.get_clock().now().nanoseconds - offset
+            self.publish(blobs, Time(nanoseconds=last).to_msg())
+            self.spin(0.1)
+            if self.objects:
+                message = self.objects[-1]
+                stamp = Time.from_msg(message.header.stamp).nanoseconds
+                if start <= stamp <= last and until(message):
+                    return message
+        return None
+
+
+class ObjectPerceptionTest(NodeHarness):
+    def test_labels_positions_and_track_ids(self):
+        # Straight ahead, so that the wall's extent along the viewing direction
+        # is zero and the hidden depth is the label's footprint.
+        blobs = {"red": (160, 60), "green": (160, 180), "blue": (60, 120)}
+        message = self.stream(blobs, 30.0, lambda m: len(m.objects) == 2)
+        self.assertIsNotNone(message, "two objects were never published")
+        self.assertEqual(message.header.frame_id, "map")
+        found = {o.class_name: o for o in message.objects}
+        # Blue is none of the list.
+        self.assertEqual(set(found), {"apple", "cola"})
+        for label, colour in (("apple", "red"), ("cola", "green")):
+            position = found[label].pose.pose.position
+            np.testing.assert_allclose(
+                [position.x, position.y, position.z],
+                expected_centre(label, *blobs[colour]),
+                atol=0.05,
+            )
+            size = found[label].size
+            self.assertAlmostEqual(size.y, 2 * HALF * DEPTH / FX, delta=0.05)
+            self.assertAlmostEqual(found[label].pose.pose.orientation.w, 1.0)
+        ids = {label: o.track_id for label, o in found.items()}
+        self.assertEqual(len(set(ids.values())), 2)
+
+        # Same positions keep the same track IDs.
+        later = self.stream(blobs, 5.0, lambda m: len(m.objects) == 2)
+        self.assertEqual({o.class_name: o.track_id for o in later.objects}, ids)
+
+        # An object out of view is not published; the other keeps its ID.
+        alone = self.stream(
+            {"green": blobs["green"]}, 5.0, lambda m: len(m.objects) == 1
+        )
+        self.assertEqual(
+            [(o.class_name, o.track_id) for o in alone.objects],
+            [("cola", ids["cola"])],
+        )
+        self.assertTrue(self.images, "no annotated image was published")
+
+        # A gripper link of robot_frames at the apple: that is the robot.
+        gripper = TransformStamped()
+        gripper.header.frame_id = "map"
+        gripper.child_frame_id = "link_l7l"
+        offset = gripper.transform.translation
+        offset.x, offset.y, offset.z = expected_centre("apple", *blobs["red"])
+        gripper.transform.rotation.w = 1.0
+        self.tf.sendTransform([self.camera, gripper])
+        excluded = self.stream(
+            blobs, 10.0, lambda m: [o.class_name for o in m.objects] == ["cola"]
+        )
+        self.assertIsNotNone(excluded, "an object at a gripper link was published")
+
+
+class CameraFrameTest(NodeHarness):
+    TARGET = CAMERA
+
+    def test_camera_frame_gives_the_visible_box(self):
+        # In the optical frame (z forward, y down) the box is that of the
+        # visible points, as with an empty target_frame: no hidden depth. The
+        # strip is short along y, so taking y as horizontal would add the
+        # apple's footprint (0.075 m) along it.
+        u, v, hv = 160, 60, 6
+        message = self.stream(
+            {"red": (u, v, HALF, hv)}, 30.0, lambda m: len(m.objects) == 1
+        )
+        self.assertIsNotNone(message, "the object was never published")
+        self.assertEqual(message.header.frame_id, CAMERA)
+        found = message.objects[0]
+        position = found.pose.pose.position
+        np.testing.assert_allclose(
+            [position.x, position.y, position.z],
+            [(u - CX) * DEPTH / FX, (v - CY) * DEPTH / FX, DEPTH],
+            atol=0.01,
+        )
+        self.assertAlmostEqual(found.size.x, 2 * HALF * DEPTH / FX, delta=0.01)
+        self.assertAlmostEqual(found.size.y, 2 * hv * DEPTH / FX, delta=0.01)
+        self.assertLessEqual(found.size.z, 0.011)  # the flat wall; 0.01 m at least
+
+
+class SimRestartTest(NodeHarness):
+    DYNAMIC_CAMERA = True
+
+    def test_objects_after_the_time_went_back(self):
+        # A restarted simulation sends images and /tf with earlier stamps; the
+        # old, later TF must not reject the new /tf (TF_OLD_DATA).
+        blobs = {"red": (160, 60)}
+        before = self.stream(blobs, 30.0, lambda m: len(m.objects) == 1)
+        self.assertIsNotNone(before, "the object was never published")
+        after = self.stream(blobs, 15.0, lambda m: len(m.objects) == 1, back=100.0)
+        self.assertIsNotNone(after, "no object after the time went back")
+        # The old run's tracks are dropped.
+        self.assertNotEqual(after.objects[0].track_id, before.objects[0].track_id)
+
+
+if __name__ == "__main__":
+    unittest.main()

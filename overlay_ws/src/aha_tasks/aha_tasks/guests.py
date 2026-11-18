@@ -3,13 +3,19 @@
 A guest follows the subgoals of the task (rulebook 5.1): is hidden until it
 comes to the door when the doorbell would ring, stays outside until the robot
 starts the conversation, paces during it, follows the robot in and goes to the
-seat it offers. The phase comes from the statuses of all subgoals, so a mock
-subgoal that passes between two status messages still counts.
+seat it offers (`<guest>.seat` of the task memory). The phase comes from the
+statuses of all subgoals, so a mock subgoal that passes between two status
+messages still counts. Seated people (the host) sit at their seat from the
+start, as the sitting person of aha_tasks.sim_people, and seats with a "chair"
+get a chair the world does not have.
 """
 
 import json
 import math
 from pathlib import Path
+import re
+
+from aha_tasks.sim_people import SHIRT_COLOURS, person_sdf
 
 AWAY, ARRIVE, TALK, FOLLOW, SEAT = range(5)
 # The start of subgoal <guest>.<name> begins the phase.
@@ -40,9 +46,18 @@ SCENE_KEYS = {
     "walk_speed",
     "follow_gap",
     "pace",
+    "seats",
+    "seated",
     "guests",
 }
-GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors"}
+GUEST_KEYS = {"away", "door", "threshold", "seat", "colors", "bell"}
+BELLS = ("chime", "knock")  # what a guest does at the door (aha_tasks.sim_sounds)
+SEATED_KEYS = {"seat", "shirt"}  # a shirt of sim_people.SHIRT_COLOURS
+# "pose": [x, y, yaw] where a guest stands, facing the room; "sit": [x, y]
+# where a seated person is; "via": points on the way; optionally "chair":
+# [x, y, yaw] to add one.
+SEAT_KEYS = {"pose", "sit", "via"}
+SITTING = "sitting"  # the sim_people label of seated people
 
 
 def load_config(path):
@@ -50,18 +65,45 @@ def load_config(path):
     config = json.loads(Path(path).read_text(encoding="utf-8"))
     if set(config) != SCENE_KEYS:
         raise ValueError(f"{path}: needs exactly {sorted(SCENE_KEYS)}")
-    for name, guest in config["guests"].items():
-        if set(guest) != GUEST_KEYS:
-            raise ValueError(f"{path}: {name} needs exactly {sorted(GUEST_KEYS)}")
+    for name, seat in config["seats"].items():
+        if not SEAT_KEYS <= set(seat) <= SEAT_KEYS | {"chair"}:
+            raise ValueError(f"{path}: seat {name} needs {sorted(SEAT_KEYS)}")
+    seated, guests = config["seated"], config["guests"]
+    if set(seated) & set(guests):
+        raise ValueError(f"{path}: a guest cannot also be seated")
+    for name, person in [*seated.items(), *guests.items()]:
+        keys = SEATED_KEYS if name in seated else GUEST_KEYS
+        if set(person) != keys:
+            raise ValueError(f"{path}: {name} needs exactly {sorted(keys)}")
+        if person["seat"] not in config["seats"]:
+            raise ValueError(f"{path}: {name} has an unknown seat {person['seat']}")
+    for name, person in seated.items():
+        if person["shirt"] not in SHIRT_COLOURS:
+            raise ValueError(f"{path}: {name} has unknown shirt {person['shirt']}")
+    for name, guest in guests.items():
         unknown = set(guest["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
+        if guest["bell"] not in BELLS:
+            raise ValueError(f"{path}: {name} bell must be one of {BELLS}")
     return config
 
 
 def statuses_of(status):
     """Subgoal id -> status from a /aha/tasks/status message."""
     return {subgoal["id"]: subgoal["status"] for subgoal in status["subgoals"]}
+
+
+def attempts_of(status):
+    """Subgoal id -> (run number, attempts): it changes on every new attempt, also
+    when a new run starts the attempts from 0 again."""
+    run = (status.get("run") or {}).get("number", 0)
+    return {s["id"]: (run, s["attempts"]) for s in status["subgoals"]}
+
+
+def executing(status):
+    """The subgoal whose skill runs now (after the runner restored the state)."""
+    return status["current"] if status["phase"] == "executing" else None
 
 
 def reached(statuses, subgoal):
@@ -108,12 +150,75 @@ def guest_sdf(name, position, colors):
     )
 
 
+def seated_pose(scene, name):
+    """(x, y, z, yaw) of a seated person's sim_people model, facing the room."""
+    seat = scene["seats"][scene["seated"][name]["seat"]]
+    x, y = seat["sit"]
+    return (x, y, 0.0, seat["pose"][2])  # the model faces +x
+
+
+def seated_models(scene, build, log):
+    """(name, SDF) of the seated people, hidden under the floor.
+
+    `build(needed)` gives {(label, shirt): mesh path} (sim_people.build_meshes).
+    If it fails for any reason (no network, a broken download or cache), there
+    is nobody seated and `log` gets why: the guests and the door still run.
+    """
+    seated = scene["seated"]
+    if not seated:
+        return []
+    try:
+        meshes = build([(SITTING, p["shirt"]) for p in seated.values()])
+    except Exception as error:
+        log(f"No seated people: {type(error).__name__}: {error}")
+        return []
+    models = []
+    for name, person in seated.items():
+        x, y, _, yaw = seated_pose(scene, name)
+        mesh = meshes[(SITTING, person["shirt"])]
+        models.append((name, person_sdf(name, mesh, x, y, HIDDEN_Z, yaw)))
+    return models
+
+
+def chair_sdf(model_sdf, name, pose):
+    """The SDF of a chair model renamed, static and at [x, y, yaw] on the floor."""
+    x, y, yaw = pose
+    text, count = re.subn(
+        r'<model\s+name="[^"]*"\s*>',
+        f'<model name="{name}"><static>true</static><pose>{x} {y} 0 0 0 {yaw}</pose>',
+        model_sdf,
+        count=1,
+    )
+    if count != 1:
+        raise ValueError("no <model> in the chair SDF")
+    return text
+
+
+def chair_models(scene, find, log):
+    """(name, SDF) of the chairs that seats add, from `find()`, the chair model.
+
+    If the model cannot be read or used, there are no added chairs and `log`
+    gets why: the guests and the door still run.
+    """
+    chairs = {name: s["chair"] for name, s in scene["seats"].items() if "chair" in s}
+    if not chairs:
+        return []
+    try:
+        model = find()
+        return [(name, chair_sdf(model, name, pose)) for name, pose in chairs.items()]
+    except (OSError, ValueError) as error:
+        log(f"No chairs added: {type(error).__name__}: {error}")
+        return []
+
+
 class Guest:
     """Position and heading (map-like world frame) of one guest over time."""
 
     def __init__(self, name, config, scene):
         self.name = name
         self.config = config
+        self.seats = scene["seats"]
+        self.seat = config["seat"]  # the seat it goes to
         self.speed = scene["walk_speed"]
         self.gap = scene["follow_gap"]
         self.pace = scene["pace"]
@@ -123,6 +228,10 @@ class Guest:
         self.route = []
         self.clock = 0.0
         self.last_trail = None
+        self.rang = False  # rang the bell in this ARRIVE phase and attempt
+        self.ring = None  # a bell to sound now (config "bell"); the node clears it
+        self.bell_attempt = None  # (run, attempts) of <guest>.doorbell
+        self.listened = False  # the robot waits for the bell (<guest>.doorbell runs)
 
     @property
     def z(self):
@@ -132,11 +241,18 @@ class Guest:
     def model_yaw(self):
         return math.remainder(self.yaw - MODEL_FRONT, math.tau)
 
-    def set_phase(self, phase):
+    def set_phase(self, phase, seat=None):
+        """`seat` is the one offered (a name of the scene), else the configured."""
+        seat = seat if seat in self.seats else self.config["seat"]
         if phase == self.phase:
+            if phase == SEAT and seat != self.seat:  # offered another one
+                self.seat = seat
+                self.route = self._seat_route()
             return
+        self.seat = seat
         previous, self.phase = self.phase, phase
         self.clock, self.last_trail = 0.0, None
+        self.rang, self.ring = False, None
         door, threshold = self.config["door"], self.config["threshold"]
         if phase < previous or phase == SEAT and previous < FOLLOW:
             # Rewound or skipped in the task, so there is nothing to walk through.
@@ -144,8 +260,9 @@ class Guest:
             if phase == AWAY:
                 self._place(self.config["away"])
             elif phase == SEAT:
-                self._place(self.config["seat"][:2])
-                self.yaw = self.config["seat"][2]
+                pose = self.seats[seat]["pose"]
+                self._place(pose[:2])
+                self.yaw = pose[2]
             else:
                 self._place(door)
             if phase == FOLLOW:
@@ -157,7 +274,20 @@ class Guest:
         elif phase == FOLLOW:
             self.route = (self.route or [door]) + [threshold]
         elif phase == SEAT:
-            self.route = [*self.config["seat_via"], self.config["seat"][:2]]
+            self.route = self._seat_route()
+
+    def _seat_route(self):
+        seat = self.seats[self.seat]
+        return [*seat["via"], seat["pose"][:2]]
+
+    def set_bell(self, attempt, listened):
+        """The attempt of <guest>.doorbell (attempts_of) and whether its skill waits now.
+
+        The guest rings only while the robot waits (rulebook 5.1), and again on a
+        retry of the subgoal or in a new run."""
+        if attempt != self.bell_attempt:
+            self.bell_attempt, self.rang = attempt, False
+        self.listened = listened
 
     def step(self, dt, robot=None):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
@@ -168,9 +298,11 @@ class Guest:
         if self.route and not (self.phase == FOLLOW and near):
             self._walk(self.speed * dt)
             if not self.route and self.phase == SEAT:
-                self.yaw = self.config["seat"][2]
+                self.yaw = self.seats[self.seat]["pose"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
+            if self.listened and not self.rang:
+                self.rang, self.ring = True, self.config["bell"]
         elif self.phase == TALK:
             self._pace()
             self._face(robot)

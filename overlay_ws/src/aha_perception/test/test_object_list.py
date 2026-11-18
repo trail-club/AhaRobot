@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 
@@ -18,9 +19,36 @@ def test_package_list_loads():
     assert objects.category("apple") == "fruit"
     assert objects.category("unknown") == ""
     assert "drink" in objects.categories()
+    for label in ("fork", "knife", "spoon", "mug", "plate", "bowl", "cereal", "milk"):
+        assert objects.get(label) is not None, label
     for entry in objects.objects:
-        # Every listed object fits between the fingers (0.11 m).
-        assert min(entry.size[:2]) <= 0.11
+        if entry.label in ("plate", "bowl", "cup noodle"):
+            continue  # grasped by the rim (the cup noodle is a Donbei bowl)
+        # Every other listed object fits between the fingers (0.11 m).
+        assert min(entry.size[:2]) <= 0.11, entry.label
+
+
+def test_package_labels_not_shadowed():
+    # A label's own model names are not taken by another label's patterns
+    # (e.g. strawberry_* would take strawberry_jello).
+    objects = load_object_list(CONFIG)
+    for entry in objects.objects:
+        base = entry.label.replace(" ", "_")
+        for name in (base, f"{base}_2"):
+            assert objects.for_model(name).label == entry.label, name
+
+
+def test_world_models_are_not_objects():
+    # The furniture and props of the worlds are not reported as objects
+    # (e.g. cereal_* would take the cereal_box of home.sdf).
+    worlds = Path(__file__).resolve().parents[2] / "aha_gazebo" / "worlds"
+    files = sorted(worlds.glob("*.sdf"))
+    if not files:
+        pytest.skip(f"no worlds at {worlds}")
+    objects = load_object_list(CONFIG)
+    for path in files:
+        for name in re.findall(r'<model name="([^"]+)"', path.read_text()):
+            assert objects.for_model(name) is None, f"{path.name}: {name}"
 
 
 def test_model_patterns():

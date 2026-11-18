@@ -225,13 +225,39 @@ class OfferSeatTests(unittest.TestCase):
         self.assertIn("aborted", result.message)
         self.assertIn("not back: TimeoutError", result.message)
 
+    def test_the_seat_found_before_comes_from_memory(self):
+        arm = FakeArm()
+        rt = runtime(arm)
+        ctx = context(
+            memory={
+                "guest1.seat": "chair_right",
+                "guest1.seat_position": [0.75, 3.5, 0.5],
+            }
+        )
+        del ctx.params["seat"], ctx.params["position"]
+        result = OfferSeat(rt).execute(ctx)
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.outputs, {"guest1.seat": "chair_right"})
+        self.assertEqual(rt.gaze.calls[0], ("look_at", "map", (0.75, 3.5, 0.5)))
+
+    def test_without_a_seat_in_params_or_memory_it_fails_before_moving(self):
+        arm = FakeArm()
+        ctx = context()
+        del ctx.params["seat"], ctx.params["position"]
+        result = OfferSeat(runtime(arm)).execute(ctx)
+        self.assertFalse(result.success)
+        self.assertIn("guest1.seat", result.message)
+        self.assertEqual(arm.moves, [])
+
     def test_params_are_validated(self):
         spec = SimpleNamespace(locations={})
         OfferSeat.validate(
             {"guest": "g", "seat": "s", "position": [1, 2, 0.5], "height": 0.7}, spec
         )
+        OfferSeat.validate({"guest": "g", "hold": 2.0}, spec)
         for params in (
             {"guest": "g", "seat": "s"},
+            {"guest": "g", "position": [1, 2, 0.5]},
             {"guest": "g", "seat": "s", "position": [1, 2]},
             {"guest": "g", "seat": "", "position": [1, 2, 0.5]},
             {"guest": "g", "seat": "s", "position": [1, 2, 0.5], "hold": 0},
@@ -245,6 +271,8 @@ class OfferSeatTests(unittest.TestCase):
         self.assertEqual(
             OfferSeat(None).expected(params), {"guest2.seat": "chair_right"}
         )
+        # The seat of find_free_seat is already in memory.
+        self.assertEqual(OfferSeat(None).expected({"guest": "guest2"}), {})
 
 
 if __name__ == "__main__":
