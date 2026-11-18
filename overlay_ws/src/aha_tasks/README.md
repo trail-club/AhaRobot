@@ -10,8 +10,10 @@
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
+| `aha_tasks/follow.py` | 人について行く `follow_person`、人を案内する `guide_person`（[人について行く・案内する](#人について行く案内する)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
+| `aha_tasks/walkers.py`、`sim_walkers` | シミュレーションでGPSRのついて行く・案内する手順に合わせて歩く人（[GPSRの歩く人](#gpsrの歩く人)） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
@@ -53,6 +55,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
+| `walkers` | 空 | [GPSRの歩く人](#gpsrの歩く人)を動かす `sim_walkers` を起動。`config/sim/walkers/` の名前、またはJSONのパス |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -75,7 +78,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 
 | | `e2e:=final`（既定） | `e2e:=debug` |
 | --- | --- | --- |
-| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
+| 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する。新しいgoalを受けると、実行中・待ちの古いgoalを中止する（Nav2と同じ） |
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
 | ドアベルの検出（`guests:=true`） | 音声コンテナの `aha_audio_doorbell`（[ドアベルの検出](#ドアベルの検出)） | `sim_sounds` が、客の鳴らした音をそのまま検出（`SoundEvent`、`model` は `sim_truth`）として出す。音声コンテナを使わない |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
@@ -365,7 +368,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people` / `follow_person` / `guide_person`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -416,6 +419,41 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `count_people` | `pans` を1巡し、見えている人を1人ずつ判定する。その向きに判定していない人が残る間は次の向きへ進まず、人を判定したらその向きを `dwell` だけ見直す。1人の判定は1回（失敗した場合は2回まで）で、判定できなかった人と、答えで条件の成否が決まらなかった人は数えない。`map` で0.5 m未満の観測は同じ人とする。`timeout`（既定300 s）で失敗 | `<output>`（人数）、`<output>.positions`（条件に合った人の最後の位置） |
 
 trackは視野を外れると3 sで破棄され、見直すと別のIDになる。そのため判定は見えている間に行い、判定した人の `map` の位置から0.5 m未満に現れた新しいtrackは、同じ人として判定し直さない（数え直さない）。ただし、判定した人のtrackが同じ画像にまだ見えていれば、近くの新しいtrackは別の人として判定する。
+
+### 人について行く・案内する
+
+`follow_person` と `guide_person` はNav2と人の認識を使う。対象は前の `find_described_person` の `<role>.track` / `.position`（`role` の既定は `person`）の人で、なければ見えている人のうちロボットに最も近い人（3 m以内）。記憶の人がロボットから3 mより遠ければ、前の命令などの人とみなして使わない。開始から10 s見えなければ失敗する。
+`follow_person` の頭は対象の人を追い続ける（[注視](#注視)）。`guide_person` の頭は、移動中は経路の先を見て、確かめるときに後ろを見る。どちらも終了後はその人へ頭を向け続ける。`person` は発話に使い、大文字で始まる1語なら名前として呼びかける。
+
+| スキル | 動作 | 出力 |
+| --- | --- | --- |
+| `follow_person` | 「I will follow you」と伝え、人の `distance`（既定1.0 m）手前でその人を向く姿勢をNav2のgoalにして、人が動くたびに送り直す（Nav2は走行中のgoalを置き換えて経路を引き直す）。ロボットが人から `distance`+0.8 m以内にいる間に、人が `stop_time`（既定5 s）止まると、走行中のgoalに着くまで（最大15 s）待って終わる。ただし人が最初の位置から1 m以上歩いた後に限り、`location` があれば人がその地点から `radius`（既定2.0 m）以内のときだけ | `robot.location`（`[x, y, yaw]`）、人の最後の `<role>.track` / `.position` / `.frame` |
+| `guide_person` | 「Please follow me」と伝えて `location` へNav2で移動する。`check_every`（既定4 m）進むごとと到着時に、ついて来ている人を確かめる。いなければ「I am here. Please follow me.」と呼んで `wait`（既定10 s）待つことを `calls`（既定2）回まで繰り返し、来なければ失敗する。Nav2が移動を中止するとgoalを送り直し、1 m進まないまま3回中止すると失敗する。着くと「we have arrived at the …」と伝える | 同上（ついて来た人） |
+
+- **goal**: ロボット側から人を見た向きを先に、30°ずつ左右に回した7つの候補のうち、大域コストマップ（`/global_costmap/costmap` と差分の `costmap_updates`）で障害物から約0.6 m離れた（値50未満）最初の姿勢、なければ内接・致死・未知でない最初の姿勢。goalの送り直しは1 sに1回までで、走行中は0.3 m・0.5 rad以上変わったときだけ。近くの人が正面から0.8 rad以上外れると、その場で人へ向く（横を通り過ぎて頭の届かない後ろへ行く人を見失わないため）。人が `distance` より0.3 m以上近づくとgoalを取り消して止まる。
+- **見失い**: trackが消えると、名前、次に最後に見た位置から 0.5 m＋0.8 m/s×見失った時間（最大4 m）以内の人へ引き継ぐ。対象と同時に見えていた人と、別の名前の人には引き継がない。2 s見失うと、最後に見た位置から歩いていた向きへ1 m先の点の1 m手前へ移動し（通れなければその場でその点へ向き）、頭を左右（±0.9、±1.5 rad）へ1.5 sずつ向け、台車を180°回してもう一度向ける。`lost_timeout`（既定30 s）見えなければ失敗する。
+- **ついて来ている人**: ロボットから `gap`（既定2.5 m）以内で、対象のtrack・名前の人、またはロボットの通った経路から1.2 m以内の名前のない人（対象と同時に見えていた人を除く）。経路を1.2 m戻った点を、頭が届く（左右1.4 rad以内）なら走ったまま3 s見る。見えなければ止まり、頭が届くまで台車をその場で回して5 s見る。頭の可動域（±90°）では真後ろが見えないため。
+- **終わり**: どちらも `timeout`（既定300 s）で失敗する。部屋の形は使わず、`location` の地点からの距離だけを見る。人の「stop」などの発話は聞かない。実行しない場合は、`location` があればその地点を `robot.location` とする。
+- Nav2の速度（0.2 m/s）より速く歩く人は離れていき、見えなくなると探す。
+- `navigation:=teleport` では確かめていない（`sim_teleport` は1回の移動に約4 sかかる）。
+
+### GPSRの歩く人
+
+`walkers:=gpsr` で、[config/sim/walkers/gpsr.json](config/sim/walkers/gpsr.json) の2人を `sim_walkers` がGazeboで動かす。モデルと色の変え方は[シミュレーションの客](#シミュレーションの客)と同じ（collisionなし、LiDARとカメラには写る）。
+計画のうち `action` が同じ最初の手順を実行する枠（`run_plan_step`）の状態に合わせて動く。スキルには配置を渡さない。
+
+| `action` | 枠の実行中 | 配置 `gpsr` |
+| --- | --- | --- |
+| `follow_person` | `route` を `walk_speed`（0.4 m/s）で歩き、ロボットが `wait_gap`（3.0 m）より離れると止まって待つ。終点ではロボットを向いて立つ | 寝室の (−2.5, 2.7) から、`bedroom` の地点のロボットの右1 mを通り、台所の食卓の右を回って (−1.1, −3.4) へ歩く（青いシャツ、約7.5 m） |
+| `guide_person` | ロボットの通った経路を、ロボットとの距離 `follow_gap`（1.2 m）を保って歩く。枠が終わると立ち止まる | オフィスの (2.0, 2.6) に立つ（橙のシャツ） |
+
+手順の前は `start` で `yaw` を向いて立つ。巻き戻すか再試行すると `start` に戻り、実行せずに通過すると（選択外・スキップ）`follow_person` の人は歩かずに終点へ移る。
+`perception:=truth` の `sim_person_detector.py` は、配置の人も人として出す。
+`gpsr.json` のmockの計画にはこれらの手順がないため、計画を変えたタスク定義のJSONのパスを `task:=` に渡す。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=<計画を変えたgpsrのJSON> e2e:=debug navigation:=nav2 people:=true walkers:=gpsr headless:=true
+```
 
 ### 姿勢を付けた人
 

@@ -418,10 +418,14 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "say",
                 "find_described_person",
                 "count_people",
+                "follow_person",
+                "guide_person",
             },
         )
         for name in ("find_described_person", "count_people"):
             self.assertTrue(implemented[name].startswith("aha_tasks.people:"))
+        for name in ("follow_person", "guide_person"):
+            self.assertTrue(implemented[name].startswith("aha_tasks.follow:"))
 
 
 class Found(Skill):

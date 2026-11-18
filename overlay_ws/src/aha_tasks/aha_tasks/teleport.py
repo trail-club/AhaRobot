@@ -265,8 +265,19 @@ def main(argv=None):
         return node.get_clock().now().nanoseconds * 1e-9
 
     busy = threading.Lock()
+    # As Nav2, a new goal preempts the older ones (running or waiting for
+    # `busy`); they are aborted.
+    numbering = threading.Lock()
+    newest = [0]
 
     def execute(goal_handle):
+        with numbering:
+            newest[0] += 1
+            number = newest[0]
+
+        def superseded():
+            return newest[0] != number
+
         result = NavigateToPose.Result()
         pose = goal_handle.request.pose
         frame = pose.header.frame_id or global_frame
@@ -282,11 +293,16 @@ def main(argv=None):
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
             else:
-                log.error(message)
+                if superseded():
+                    log.info("goal preempted by a newer one")
+                else:
+                    log.error(message)
                 goal_handle.abort()
             return result
 
         with busy:
+            if superseded():
+                return fail("preempted")
             if frame != global_frame:
                 return fail(f"goal in {frame}; only {global_frame} is supported")
             with lock:
@@ -308,7 +324,7 @@ def main(argv=None):
             moves = distance > tolerance_xy or angle > tolerance_yaw
 
             def cancelled():
-                return goal_handle.is_cancel_requested
+                return goal_handle.is_cancel_requested or superseded()
 
             started = time.monotonic()
             sent = [-math.inf]

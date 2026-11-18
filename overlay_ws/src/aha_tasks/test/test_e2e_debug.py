@@ -326,6 +326,7 @@ class LaunchSwitchTests(unittest.TestCase):
             "people": "true",
             "guests": "false",
             "people_scene": "",
+            "walkers": "",
             **self.launch.PEOPLE_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
@@ -397,6 +398,14 @@ class LaunchSwitchTests(unittest.TestCase):
             e2e="debug", perception="model", people_scene="gpsr"
         )
         self.assertIn("sim_people", nodes)
+
+    def test_walkers_are_people_for_the_truth_detector(self):
+        _, nodes, _ = self.launch_task(e2e="debug", walkers="gpsr")
+        self.assertIn("sim_walkers", nodes)
+        models = nodes["sim_person_detector.py"]["parameters"][0]["models"]
+        self.assertEqual(models, ["guest*", "walker_leader", "walker_follower"])
+        with self.assertRaises(ValueError):
+            self.launch_task(e2e="debug", walkers="attic")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

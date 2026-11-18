@@ -123,20 +123,18 @@ def guest_sdf(name, position, colors):
     )
 
 
-class Guest:
-    """Position and heading (map-like world frame) of one guest over time."""
+class Walker:
+    """Position, heading and walking of a simulated person (map-like world frame).
 
-    def __init__(self, name, config, scene):
+    Shared by the HIC guests and the GPSR walkers (aha_tasks.walkers).
+    """
+
+    def __init__(self, name, position, yaw, speed, gap):
         self.name = name
-        self.config = config
-        self.speed = scene["walk_speed"]
-        self.gap = scene["follow_gap"]
-        self.pace = scene["pace"]
-        self.x, self.y = config["away"]
-        self.yaw = 0.0
-        self.phase = AWAY
+        self.speed, self.gap = speed, gap
+        self.x, self.y = position
+        self.yaw = yaw
         self.route = []
-        self.clock = 0.0
         self.last_trail = None
         self.rang = False  # rang the bell in this ARRIVE phase and attempt
         self.ring = None  # a bell to sound now (config "bell"); the node clears it
@@ -144,12 +142,52 @@ class Guest:
         self.listened = False  # the robot waits for the bell (<guest>.doorbell runs)
 
     @property
-    def z(self):
-        return HIDDEN_Z if self.phase == AWAY else 0.0
-
-    @property
     def model_yaw(self):
         return math.remainder(self.yaw - MODEL_FRONT, math.tau)
+
+    def _place(self, point):
+        self.x, self.y = point
+
+    def _face(self, target):
+        if target is not None:
+            self.yaw = math.atan2(target[1] - self.y, target[0] - self.x)
+
+    def _remember(self, robot):
+        """The person walks where the robot went, which keeps it out of the walls."""
+        if self.last_trail is None or math.dist(self.last_trail, robot) >= MIN_STEP:
+            self.route.append(list(robot))
+            self.last_trail = robot
+
+    def _walk(self, distance):
+        while self.route and distance > 0.0:
+            x, y = self.route[0]
+            left = math.hypot(x - self.x, y - self.y)
+            if left <= distance:
+                self._place((x, y))
+                self.route.pop(0)
+                distance -= left
+                continue
+            self.yaw = math.atan2(y - self.y, x - self.x)
+            self.x += (x - self.x) * distance / left
+            self.y += (y - self.y) * distance / left
+            return
+
+
+class Guest(Walker):
+    """Position and heading (map-like world frame) of one guest over time."""
+
+    def __init__(self, name, config, scene):
+        super().__init__(
+            name, config["away"], 0.0, scene["walk_speed"], scene["follow_gap"]
+        )
+        self.config = config
+        self.pace = scene["pace"]
+        self.phase = AWAY
+        self.clock = 0.0
+
+    @property
+    def z(self):
+        return HIDDEN_Z if self.phase == AWAY else 0.0
 
     def set_phase(self, phase):
         if phase == self.phase:
@@ -207,33 +245,6 @@ class Guest:
             self._face(robot)
         elif self.phase == FOLLOW:
             self._face(robot)
-
-    def _place(self, point):
-        self.x, self.y = point
-
-    def _face(self, target):
-        if target is not None:
-            self.yaw = math.atan2(target[1] - self.y, target[0] - self.x)
-
-    def _remember(self, robot):
-        """The guest walks where the robot went, which keeps it out of the walls."""
-        if self.last_trail is None or math.dist(self.last_trail, robot) >= MIN_STEP:
-            self.route.append(list(robot))
-            self.last_trail = robot
-
-    def _walk(self, distance):
-        while self.route and distance > 0.0:
-            x, y = self.route[0]
-            left = math.hypot(x - self.x, y - self.y)
-            if left <= distance:
-                self._place((x, y))
-                self.route.pop(0)
-                distance -= left
-                continue
-            self.yaw = math.atan2(y - self.y, x - self.x)
-            self.x += (x - self.x) * distance / left
-            self.y += (y - self.y) * distance / left
-            return
 
     def _pace(self):
         """Slightly left and right of the door, across the way in (rulebook 5.1)."""
