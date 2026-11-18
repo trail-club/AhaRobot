@@ -42,6 +42,7 @@ import math
 from pathlib import Path
 import threading
 import time
+import traceback
 
 import numpy as np
 
@@ -606,6 +607,46 @@ class Stand:
         return name, back, note
 
 
+def execute_goal(stand, kind, what, run, handle, log):
+    """Run one goal of action `kind`: `run(goal, handle, feedback, result)`
+    fills in a success, or raises Failed. Any other error may come with the
+    arm out (e.g. a model that cannot be made after reaching out): the arm
+    goes back home first, and the goal fails with STATUS_EXECUTION_FAILED."""
+
+    def feedback(phase, progress=None):
+        message = kind.Feedback(phase=phase)
+        if progress is not None:
+            message.progress = float(progress)
+        handle.publish_feedback(message)
+
+    result = kind.Result()
+    try:
+        run(handle.request, handle, feedback, result)
+    except Failed as error:
+        log.warning(f"{what}: {error}")
+        status, at_home, message = (
+            failed_status(error),
+            error.at_home is not False,
+            str(error),
+        )
+    except Exception as error:
+        log.error(f"{what}: {traceback.format_exc()}")
+        status, message = "STATUS_EXECUTION_FAILED", f"{type(error).__name__}: {error}"
+        at_home = stand.back(Flag(handle))
+    else:
+        result.success = True
+        handle.succeed()
+        return result
+    if hasattr(result, "status"):  # not PickObject
+        result.status = getattr(kind.Result, status)
+    result.at_home, result.message = at_home, message
+    if handle.is_cancel_requested:
+        handle.canceled()
+    else:
+        handle.abort()
+    return result
+
+
 def main(argv=None):
     from aha_msgs.action import HandOver, PickObject, PlaceObject
     import rclpy
@@ -647,34 +688,9 @@ def main(argv=None):
         return GoalResponse.ACCEPT
 
     def serve(kind, what, run):
-        """The execute callback of a server: `run(goal, handle, feedback,
-        result)` fills in a success, or raises Failed."""
-
         def execute(handle):
-            def feedback(phase, progress=None):
-                message = kind.Feedback(phase=phase)
-                if progress is not None:
-                    message.progress = float(progress)
-                handle.publish_feedback(message)
-
-            result = kind.Result()
             with busy:
-                try:
-                    run(handle.request, handle, feedback, result)
-                except Failed as error:
-                    if hasattr(result, "status"):  # not PickObject
-                        result.status = getattr(kind.Result, failed_status(error))
-                    result.at_home = error.at_home is not False
-                    result.message = str(error)
-                    log.warning(f"{what}: {error}")
-                    if handle.is_cancel_requested:
-                        handle.canceled()
-                    else:
-                        handle.abort()
-                    return result
-                result.success = True
-                handle.succeed()
-                return result
+                return execute_goal(stand, kind, what, run, handle, log)
 
         return execute
 

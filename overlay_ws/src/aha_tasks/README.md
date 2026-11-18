@@ -679,7 +679,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure sk
 - pickとplaceは、腕を目標の上へ向けられなければ（届く姿勢がない）、腕を動かさずに失敗する（placeは `STATUS_UNREACHABLE`）。
 - **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をhome姿勢（`carry`）へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
 - **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕をhome姿勢へ戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
-- 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕をhome姿勢へ戻してから失敗を返す（`at_home` は戻れたか）。
+- 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕をhome姿勢へ戻してから失敗を返す（`at_home` は戻れたか）。予期しない例外でも腕を戻してから、`STATUS_EXECUTION_FAILED`（pickはstatusなし）で失敗を返す。
 - 腕は関節空間の直線で動き、衝突を確かめない。上げるときは昇降、下げるときは腕を先に動かし、手は物体の上0.08 mを通る。右腕だけを扱う。終了時、持っている物体はその場で動く物体に戻す。
 - 指は閉じず、持った物体は指を通り抜ける。巻き戻しても物体は戻らない（`sim_objects` を実行し直す）。`sim_manipulation` が持ったまま異常終了すると、物体は静的なまま宙に残る。
 

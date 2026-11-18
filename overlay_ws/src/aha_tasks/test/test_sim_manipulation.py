@@ -31,6 +31,7 @@ from aha_tasks.sim_manipulation_node import (  # noqa: E402
     Failed,
     Held,
     Stand,
+    execute_goal,
     failed_status,
 )
 from aha_perception.object_list import load_object_list  # noqa: E402
@@ -289,6 +290,74 @@ class GazeboModelTests(unittest.TestCase):
         self.assertFalse(self.stand([]).present("cola", False, 0.0))
         self.assertTrue(self.stand(["cola"]).present("cola", True, 0.0))
         self.assertTrue(self.stand(["cola"]).present("cola", False, 0.0))
+
+
+class PlaceResult:
+    STATUS_OK, STATUS_UNREACHABLE, STATUS_EXECUTION_FAILED = 0, 3, 4
+    STATUS_ERROR, STATUS_CANCELED = 5, 6
+
+    def __init__(self):
+        self.success, self.status, self.message, self.at_home = False, 0, "", False
+
+
+class PickResult:
+    def __init__(self):
+        self.success, self.message, self.at_home = False, "", False
+
+
+class GoalTests(unittest.TestCase):
+    """execute_goal: how a goal of the stand-in's servers ends."""
+
+    def execute(self, stand, result, run):
+        kind = SimpleNamespace(Result=result, Feedback=SimpleNamespace)
+        ended, logged = [], []
+        handle = SimpleNamespace(
+            request=None,
+            is_cancel_requested=False,
+            publish_feedback=lambda message: None,
+            succeed=lambda: ended.append("succeeded"),
+            abort=lambda: ended.append("aborted"),
+            canceled=lambda: ended.append("canceled"),
+        )
+        log = SimpleNamespace(warning=logged.append, error=logged.append)
+        return execute_goal(stand, kind, "Place", run, handle, log), ended, logged
+
+    def test_an_unexpected_error_brings_the_arm_back_and_fails(self):
+        def run(goal, handle, feedback, result):
+            feedback("approaching")
+            raise ValueError("no model in the SDF")  # after reaching out
+
+        stand = FakeStand()
+        result, ended, logged = self.execute(stand, PlaceResult, run)
+        self.assertEqual(stand.backs, 1)
+        self.assertEqual(ended, ["aborted"])
+        self.assertFalse(result.success)
+        self.assertEqual(result.status, PlaceResult.STATUS_EXECUTION_FAILED)
+        self.assertTrue(result.at_home)
+        self.assertEqual(result.message, "ValueError: no model in the SDF")
+        self.assertIn("Traceback", logged[0])
+        # A pick has no status; the arm did not get home.
+        stand.back = lambda cancelled: False
+        result, _, _ = self.execute(stand, PickResult, run)
+        self.assertFalse(hasattr(result, "status"))
+        self.assertEqual((result.success, result.at_home), (False, False))
+
+    def test_failed_and_succeeded_goals(self):
+        def unreachable(goal, handle, feedback, result):
+            raise Failed("The spot is 2 m away", "STATUS_UNREACHABLE")
+
+        stand = FakeStand()
+        result, ended, _ = self.execute(stand, PlaceResult, unreachable)
+        self.assertEqual((result.status, result.at_home), (3, True))
+        self.assertEqual((ended, stand.backs), (["aborted"], 0))
+
+        def placed(goal, handle, feedback, result):
+            result.at_home = True
+
+        result, ended, _ = self.execute(stand, PlaceResult, placed)
+        self.assertEqual(
+            (result.success, result.status, ended), (True, 0, ["succeeded"])
+        )
 
 
 class StatusTests(unittest.TestCase):
