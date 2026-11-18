@@ -321,6 +321,7 @@ class TaskEngine:
                     memory=copy.deepcopy(self.memory),
                     cancelled=self._cancel,
                     log=lambda text: self._log(text, subgoal=subgoal.id),
+                    statuses={i: r["status"] for i, r in self.records.items()},
                 )
                 self._emit()
             started = time.monotonic()

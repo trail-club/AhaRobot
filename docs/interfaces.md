@@ -175,6 +175,8 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `task.launch.py objects:=true` は検出器をframe `map` で起動し、`world` → `map` の恒等の静的TFを配信する（固定地図はGazeboのworld座標）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
+`show_objects` は実行中だけ `/camera/color/image_raw`・`/camera/color/camera_info`（[頭部カメラ](#頭部カメラ)）を購読し、TF（物体の `frame` → 画像の `frame_id`）を使い、
+物体に枠を描いた画像を `/aha/display/image` へ配信する（[ロボットの画面](#ロボットの画面)）。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`host`・`chair_extra`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
