@@ -803,7 +803,14 @@ class ListenCommandTests(unittest.TestCase):
         result = run_skill(ListenCommand(rt), {"command": 2})
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs, {"cmd2.text": DRINKS})
-        self.assertIn("3 rephrasing request(s)", result.message)
+        # The referee's three commands are used up: the 4th try is the custom operator.
+        self.assertTrue(
+            result.message.endswith("(2 rephrasing request(s), custom operator try 1)"),
+            result.message,
+        )
+        rt = runtime(None, DRINKS, "yes")
+        result = run_skill(ListenCommand(rt), {"command": 2})
+        self.assertTrue(result.message.endswith("(1 rephrasing request(s))"))
 
     def test_correction_in_the_answer(self):
         rt = runtime(DRINKS, "No, I said " + TIME, "yes")
@@ -875,12 +882,20 @@ class ListenCommandTests(unittest.TestCase):
         self.assertTrue(result.message.startswith(NO_ASR))
 
     def test_custom_operator_after_the_referee(self):
-        rt = runtime(None, None, None, None)
-        result = run_skill(
-            ListenCommand(rt), {"command": 1, "attempts": 3, "custom_operator": 1}
-        )
+        # Rulebook §5.3: the referee attempts three re-phrased commands (the
+        # command and 2 rephrasing requests), then a custom operator has three.
+        rt = runtime(*[None] * 6)
+        result = run_skill(ListenCommand(rt), {"command": 1})
         self.assertFalse(result.success)
-        self.assertIn("custom operator", rt.interaction.said[-1])
+        self.assertEqual(
+            ["custom operator" in s for s in rt.interaction.said],
+            [False, False, False, True, False, False],
+        )
+        self.assertIn("in 6 tries", result.message)
+        rt = runtime(*[None] * 3)
+        result = run_skill(ListenCommand(rt), {"command": 1, "custom_operator": 0})
+        self.assertFalse(result.success)
+        self.assertNotIn("custom operator", " ".join(rt.interaction.said))
 
     def test_params(self):
         for params in (

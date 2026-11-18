@@ -208,9 +208,15 @@ class ListenCommand(Skill):
     """Hear one command from the operator and confirm it.
 
     params: {"command": 1-3, "timeout": 15.0 (s to wait for the command),
-    "confirm_timeout": 8.0, "attempts": 3 (the referee's tries),
-    "custom_operator": 3 (tries of a custom operator afterwards, 0: none),
-    "vocabulary": "<config/vocabulary name>"}. Outputs `cmd<N>.text`.
+    "confirm_timeout": 8.0, "attempts": 3 (the referee's tries: the command
+    and 2 rephrasings), "custom_operator": 3 (tries of a custom operator
+    afterwards, 0: none), "vocabulary": "<config/vocabulary name>"}.
+    Outputs `cmd<N>.text`.
+
+    Rulebook §5.3: the referee has three re-phrased commands; "After the
+    referee attempts the three re-phrased commands, the custom operator can be
+    requested", who "only has three attempts". Score: "Request a rephrasing
+    6×–30" (2 per command), "Using a custom operator 3×–20".
     """
 
     KEYS = {"command", "timeout", "confirm_timeout", "attempts", "custom_operator"}
@@ -244,7 +250,7 @@ class ListenCommand(Skill):
         tries = attempts + params.get("custom_operator", 3)
         prompt = f"Please tell me the {ordinal} command."
         try:
-            # Every attempt after the first is a rephrasing request.
+            # Every referee's attempt after the first is a rephrasing request.
             for attempt in range(tries):
                 if attempt == attempts:
                     prompt = (
@@ -269,9 +275,12 @@ class ListenCommand(Skill):
                     continue
                 confirmed = self._confirm(interaction, text, vocabulary, ctx)
                 if confirmed:
+                    asked = f"{min(attempt, attempts - 1)} rephrasing request(s)"
+                    if attempt >= attempts:
+                        asked += f", custom operator try {attempt - attempts + 1}"
                     return SkillResult(
                         True,
-                        f"Command {n}: {confirmed!r} ({attempt} rephrasing request(s))",
+                        f"Command {n}: {confirmed!r} ({asked})",
                         {f"cmd{n}.text": confirmed},
                     )
                 prompt = f"Sorry. Please tell me the {ordinal} command again."

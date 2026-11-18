@@ -419,7 +419,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | --- | --- | --- |
 | `command` | 必須 | `listen_command` の命令の番号（1〜3） |
 | `timeout` / `confirm_timeout` | `15.0` / `8.0` | `listen_command` の命令・確認の答えを待つ秒 |
-| `attempts` / `custom_operator` | `3` / `3` | `listen_command` の審判とcustom operatorの試行。`custom_operator: 0` で頼まない |
+| `attempts` / `custom_operator` | `3` / `3` | `listen_command` の審判の試行（最初の命令と言い直しの依頼2回）と、その後のcustom operatorの試行。`custom_operator: 0` で頼まない |
 | `commands` | 必須 | `plan_commands` の命令の記憶のキー（命令の順） |
 | `timeout` / `attempts` | `60.0` / `3` | `plan_commands` の計画の上限の秒と、命令ごとのLLMの試行 |
 | `planner` | `auto` | `auto` は文型どおりの命令を文法で、他をLLMで。`llm` / `grammar` は一方だけ |
@@ -432,6 +432,8 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 - 命令を言い直した答え（「No, I said ...」。名前・地点・物体などの語を含む）は、その文を確かめ直し、yesのときだけ確定する。
 - yesでもnoでもない答え（「I don't think so」、聞き返しの「What?」）では確定せず、確かめ直す。
 - 2回無音（音声認識の `no transcript`）なら聞き取った文で確定する。
+
+試行の既定はルールブック §5.3 による。審判は言い換えた命令3つを試し（"After the referee attempts the three re-phrased commands, the custom operator can be requested"）、custom operatorの試行は3回まで（"The custom operator only has three attempts"）。減点は言い直しの依頼 6×−30（命令ごとに2回）、custom operator 3×−20。
 
 ホットワードは人の名前（`initial_state` の `gpsr.names`）と語彙の地点・物体・カテゴリ（英語のParakeetは受け取っても使わない）。LLMはrunnerのparameter `llm_url` / `llm_model`。DGXに届かないホスト（trail-pc）では、届くPCから `ssh -N -R 127.0.0.1:18081:10.99.0.1:8080 <host>` で転送し、`llm_url:=http://127.0.0.1:18081/v1` で起動する。
 
