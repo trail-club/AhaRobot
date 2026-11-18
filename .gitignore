@@ -32,6 +32,7 @@ overlay_ws/evaluation-results*
 tools/perception/plane_bench/results/
 tests/manipulation/place_sim/results/
 tests/orchestration/place_llm/results/
+tests/orchestration/gpsr_plan/results/
 
 # Session artifacts
 .claude/

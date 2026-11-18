@@ -15,12 +15,15 @@
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
+| `aha_tasks/gpsr_commands.py` ほか | GPSRの命令の聞き取り・計画・報告のスキル（[命令の聞き取りと計画](#命令の聞き取りと計画)） |
+| `aha_tasks/sim_speech.py`、`sim_speech` | シミュレーションで聞き取りのactionに答える声（[シミュレーションの声](#シミュレーションの声)） |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
 | `aha_tasks/interaction.py` | スキルからの発話とタッチの質問、スキル `say` / `wait_start_signal` |
 | `task_runner` | タスク定義を実行し、状態を配信・操作を受け付けるnode |
 | `task_monitor` | 進捗表示・部分実行・失敗時の操作を行うWeb GUIと、ロボットの画面 |
 | `config/<task>.json` | タスク定義 |
 | `config/sim/<task>.json` | シミュレーションの客とドアの配置 |
+| `config/vocabulary/<task>.json` | GPSRの命令の語彙（部屋・置き場所の地点、物体リストのカテゴリの単数・複数） |
 | `launch/task.launch.py` | RCJO2026のGazebo、固定地図のNav2、runner、GUI、`head_look_at.py` を起動 |
 
 ROSの入出力は [ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)を参照。
@@ -53,6 +56,8 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
+| `speech` | 空 | [シミュレーションの声](#シミュレーションの声)の `sim_speech` を起動。`config/sim/speech/` の名前、またはJSONのパス |
+| `llm_url` / `llm_model` | `http://10.99.0.1:8080/v1` / `qwen3.8-27b` | runnerのparameter。`plan_commands` が使うOpenAI互換のLLM |
 | `subgoals` | 全て | 既定の選択 |
 | `on_failure` | `pause` | 失敗時のポリシー |
 | `max_retries` | `1` | ポリシー `retry` の再実行回数 |
@@ -196,7 +201,7 @@ index, label = interaction.ask("Ready to start", ["Start"], ctx.cancelled)
 | `wait_start_signal` | 準備ができたことと押すボタンを `text` で伝え、`button`（既定 `Start`）のタッチを待つ。どちらも省略できる | HICの `start.signal` |
 
 TTSで読み上げられなかった場合も、`wait_start_signal` はボタンを出して待つ。
-タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはまだない。
+タッチを待つスキルは、HICの開始合図の `wait_start_signal` だけ。`show` を使うスキルはGPSRの `plan_commands`（計画の画像）。
 
 `test/test_interaction.py` のROSのテストは `ROS_DOMAIN_ID=95`（`AHA_TEST_DOMAIN_ID` で変更可）で動かす。
 
@@ -365,7 +370,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）、[命令の聞き取りと計画](#命令の聞き取りと計画)の `listen_command` / `plan_commands` / `report_results`。
 
 ### 計画
 
@@ -378,6 +383,7 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 
 - **検証**: `validate_plan(plan, spec)` はROSなしで呼べる。不正な形、枠の数を超える長さ、未宣言の `action`、タスクの流れ用の `action`（`run_plan_step` など）、`locations` にない `location` と `mock` の `robot.location`、実装済みスキルの `validate` に通らないparamsを拒否する。`mock` の計画は起動時に、記憶の計画は枠の実行ごとに全手順を検証する。不正なら最初の枠で移動前に失敗する。
 - **手順がない枠**: 即座に成功する。記憶に計画がなければ失敗する。
+- **計画をskipしたとき**: `plan_commands` の枠が失敗してskipされると、記憶の計画はタスク定義のmockなので、枠は手順を実行せずに成功する（`/aha/tasks/status` で判定する。選択外の場合はmockの計画を実行する）。
 - **未実装のスキル**: 成功として通過し、手順の `mock` を記憶へ追加する。メッセージに未実装と出る。`mock` の `robot.location` にはNav2で移動する。
 - **実装済みのスキル**: `execute` の `outputs` と `expected(params)` が `run_plan_step` の出力として記憶へ入る。失敗はそのサブゴールの失敗として扱われ、ロールバック・再試行が手順単位で働く。
 - **選択外・スキップ**: 枠を実行しない場合は、手順の `expected(params)` と `mock` を記憶へ追加する。`exec.step05` だけを選ぶと、手前の手順の `robot.location` へNav2で移動してから実行する。到達できない地点へ移動する手順をスキップすると、次に実行する枠はその地点への移動で失敗する。
@@ -397,6 +403,64 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `follow_person` / `guide_person` | `person`、`location`（`follow_person` は省略可） | follow* / guide* |
 
 `find_described_person` は名前・ジェスチャ・姿勢・服で探す。HICの `find_person`（名前のない最も近い人）とは別のスキル。
+`plan_commands` が作る計画の値（句、記憶のキー、`mock`）は[命令の聞き取りと計画](#命令の聞き取りと計画)を参照。
+
+### 命令の聞き取りと計画
+
+[gpsr_commands.py](aha_tasks/gpsr_commands.py) の3つのスキル。発話は[ロボットの画面](#ロボットの画面)の字幕とTTS、聞き取りは音声認識の `/aha/perception/audio/listen`（[音声](../aha_perception/docs/audio.md)。シミュレーションは[シミュレーションの声](#シミュレーションの声)）。
+
+| スキル | 動作 | 出力 |
+| --- | --- | --- |
+| `listen_command` | 「Please tell me the first command.」と頼み、聞き取った文を「I heard: ... Is that correct? Please say yes or no.」で確かめる（下記）。無音・3語未満・noでは頼み直す（言い直しの依頼）。`attempts` 回の後は `custom_operator` 回までcustom operatorに頼む。音声認識はrunnerの準備のときに最大2 s待って見つけておく。無音以外の音声認識のエラー（goalの拒否など）は答えとせず、待つ秒の間は聞き直し、続けば失敗する | `cmd<N>.text` |
+| `plan_commands` | 命令を計画し（下記）、計画を画像で画面に出し、理解した命令と実行の順を言う。聞き取りをskipした命令（`/aha/tasks/status` で `listen_command` の枠が `skipped`）は、記憶にmockの命令文があっても計画せず、聞き取れなかった命令とする | `plan`、`plan.commands`（命令ごとの文・計画の方法・要約・失敗の理由） |
+| `report_results` | 命令ごとに要約と結果を言う。全手順が成功なら `done`、失敗・未実装の手順があれば何手順できたか。結果は `/aha/tasks/status` の枠の状態から求め、成功した手順の `count` などの答え（`<output>.answer`、なければ値）を添える（mockで通過した手順や状態が分からない手順の値は、mockの値かもしれないので添えない）。`plan_commands` の枠がskipされていれば、記憶の計画はmockなので、命令を計画できなかったとだけ言う | |
+
+| params | 既定 | 内容 |
+| --- | --- | --- |
+| `command` | 必須 | `listen_command` の命令の番号（1〜3） |
+| `timeout` / `confirm_timeout` | `15.0` / `8.0` | `listen_command` の命令・確認の答えを待つ秒 |
+| `attempts` / `custom_operator` | `3` / `3` | `listen_command` の審判の試行（最初の命令と言い直しの依頼2回）と、その後のcustom operatorの試行。`custom_operator: 0` で頼まない |
+| `commands` | 必須 | `plan_commands` の命令の記憶のキー（命令の順） |
+| `timeout` / `attempts` | `60.0` / `3` | `plan_commands` の計画の上限の秒と、命令ごとのLLMの試行 |
+| `planner` | `auto` | `auto` は文型どおりの命令を文法で、他をLLMで。`llm` / `grammar` は一方だけ |
+| `thinking` | `false` | LLMの思考（`reasoning_content`）を使う |
+| `vocabulary` | タスク名 | `config/vocabulary/` の名前、またはJSONのパス（3スキル共通） |
+
+`listen_command` の確認の答え:
+
+- yesで確定する。答えの途中のyes（「That's right, thank you」）も、否定の語がなければyesとする。`not` だけ（「I didn't hear you」「Sure, why not」）ではnoとしない。
+- 命令を言い直した答え（「No, I said ...」。名前・地点・物体などの語を含む）は、その文を確かめ直し、yesのときだけ確定する。
+- yesでもnoでもない答え（「I don't think so」、聞き返しの「What?」）では確定せず、確かめ直す。
+- 2回無音（音声認識の `no transcript`）なら聞き取った文で確定する。
+
+試行の既定はルールブック §5.3 による。審判は言い換えた命令3つを試し（"After the referee attempts the three re-phrased commands, the custom operator can be requested"）、custom operatorの試行は3回まで（"The custom operator only has three attempts"）。減点は言い直しの依頼 6×−30（命令ごとに2回）、custom operator 3×−20。
+
+ホットワードは人の名前（`initial_state` の `gpsr.names`）と語彙の地点・物体・カテゴリ（英語のParakeetは受け取っても使わない）。LLMはrunnerのparameter `llm_url` / `llm_model`。DGXに届かないホスト（trail-pc）では、届くPCから `ssh -N -R 127.0.0.1:18081:10.99.0.1:8080 <host>` で転送し、`llm_url:=http://127.0.0.1:18081/v1` で起動する。
+
+計画の作り方（[gpsr_planner.py](aha_tasks/gpsr_planner.py)）:
+
+1. **命令ごとの手順**: [コマンド生成器](https://github.com/RoboCupAtHome/CommandGenerator)の22の文型と続きの句のとおりの文は、[gpsr_grammar.py](aha_tasks/gpsr_grammar.py) が読む。それ以外（LLMで言い換えた文、認識の誤り）は、命令を1つずつ並列にLLMへ聞く。プロンプトは語彙・手順の説明・規則と例16件（文法で作った答え）。答えは `response_format` のJSON schemaで、手順ごとのparamsの値（地点、物体・カテゴリ、人の句、話題など）を列挙して縛る。
+2. **補完と検査**: 場所で行う手順の前の `navigate` を足し、今いる場所への `navigate` を除く（人へ近づく `find_described_person` の後は同じ地点でも残す）。答えのキー（`count` / `count_people` は `cmd<N>.count`、`describe` は `cmd<N>.info`、`info` 付きの `find_described_person` は `role` を `cmd<N>.person` にして `cmd<N>.person.<info>`。間に他の命令の人探しが入っても残るため。`tell_info` の `key`）、`find_object` の `output`（`cmd<N>.object`。続く `pick_object` の `object` はこのキー）、`mock`（`robot.holding`、`guide_person` と場所付きの `follow_person` の `robot.location`）を付ける。持つのは1個まで、置く・渡す前に持つ、人に渡す・ついて行く・案内する前に `find_described_person`、`tell_info` の前に答える手順、`validate_plan` を検査し、誤りはLLMに返して直させる（`attempts` 回、`timeout` 内）。
+3. **並べ替え**: 命令を `navigate` ごとの塊に分け、各命令の順を保ち、持つ物体を同時に1個までにして、Instruction Pointから戻るまでの地点間の直線距離の合計が最短の順を求める。同じ距離なら命令を切り替えない順。枠（20）に入らなければ手順の多い命令から外す。
+
+計画できなかった命令は外して「I could not understand command 2.」と言い、全命令が計画できなければ失敗する。
+手順の値は生成器の句（`"waving person"`、`"person wearing a red t shirt"`、`"people wearing white shirts"`、`"drinks"`、`"biggest object"`、`"the time"`）と地点のラベル。人を指す `person` は `operator`、名前、探した人の句、または `"person at the desk"`（`tell_info` の `location` 付き）。人の名前・姿勢・ジェスチャを伝える命令は `find_described_person` の `info`（タスクの `find_described_person` が `info` を受け付けなければ `describe` の `"<info> of the person"`）。
+
+| 語彙（`config/vocabulary/<task>.json`） | 内容 |
+| --- | --- |
+| `rooms` / `placements` / `beacons` | タスクの地点のうち、部屋、物を置ける場所、その他の地点 |
+| `trash` / `operator` | 「the trash」の地点、命令した人の地点 |
+| `objects` | 物体リスト（`aha_perception/config/objects/robocup_objects.yaml`） |
+| `categories` | 物体リストのカテゴリの単数・複数（省略時は `<カテゴリ>` / `<カテゴリ>s`） |
+
+計画器は[gpsr_plan](../../../tests/orchestration/gpsr_plan/README.md)でROSなしに評価できる。
+
+制限:
+
+- 1回の発話に複数の命令が入ると、1つの命令として扱う。
+- LLMの答えは列挙した語に縛られるため、arenaにない語の命令も近い語の手順になる。
+- 距離は地点間の直線で、壁を回る経路の長さではない。
+- 挨拶の `say` は固定文（`Hello, I am AhaRobot.`、名前があれば `Hello <name>, I am AhaRobot.`）。
 
 ### 人を探す・数えるスキル
 
@@ -422,15 +486,17 @@ trackは視野を外れると3 sで破棄され、見直すと別のIDになる�
 `people_scene:=<名前>` は [config/sim/people/](config/sim/people/) の配置で、姿勢やジェスチャを付けた人をGazeboに置く（`sim_people`）。人はタスクの間、同じ場所で同じ姿勢を保つ。スキルには配置を渡さない。
 
 ```bash
-ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr ssh_user:=<Unixユーザー名>
+ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr speech:=gpsr ssh_user:=<Unixユーザー名>
 ```
+
+GPSRの `cmd*.listen` はASRを待つため、シミュレーションでは `speech:=gpsr`（[シミュレーションの声](#シミュレーションの声)）を付ける。その言い換えた命令の計画にはLLMが要る。命令の聞き取りと計画を省くには `subgoals:='exec.*'` などで選ばず、mockの命令3件とその計画を使う。
 
 | 配置 | 内容 |
 | --- | --- |
-| `gpsr` | GPSRのmockの計画用。寝室に左腕を挙げた人と立つ人、オフィスに手を振る人・椅子に座る人・左を指す人 |
+| `gpsr` | GPSRのmockの計画と `sim_speech` の名前の答え用。寝室に左腕を挙げた人（Jane）と立つ人（Charlie）、オフィスに手を振る人（Robin）・椅子に座る人（Morgan）・左を指す人（Axel） |
 | `attributes` | 人の認識の確認用。寝室・オフィス・リビングに、9種類の姿勢・ジェスチャとシャツの色が異なる10人（[person_attributes_report.py](../aha_perception/README.md#姿勢ジェスチャ服) の `--truth` に使う） |
 
-人ごとに `label`（`standing` / `sitting` / `lying` / `waving` / `raising_left_arm` / `raising_right_arm` / `raising_both_arms` / `pointing_left` / `pointing_right`）、`shirt`（`purple` / `red` / `blue` / `yellow` / `orange` / `green` / `white` / `gray` / `black`）、`position`（m。立つ・座る人は足元、寝る人は体の中央。`z` は足の裏または寝た背中の高さ）、`yaw`（体の正面の向き）を書く。
+人ごとに `label`（`standing` / `sitting` / `lying` / `waving` / `raising_left_arm` / `raising_right_arm` / `raising_both_arms` / `pointing_left` / `pointing_right`）、`shirt`（`purple` / `red` / `blue` / `yellow` / `orange` / `green` / `white` / `gray` / `black`）、`position`（m。立つ・座る人は足元、寝る人は体の中央。`z` は足の裏または寝た背中の高さ）、`yaw`（体の正面の向き）を書く。`name`（任意）は[シミュレーションの声](#シミュレーションの声)で答える名前。
 
 - モデルはGazebo Fuelの [Male visitor](https://app.gazebosim.org/OpenRobotics/fuel/models/Male%20visitor)（version 2、CC0）。初回に取得してハッシュを確かめ、骨格の重みで姿勢を付けたメッシュとシャツの色を変えたテクスチャを `~/.cache/aharobot/sim_people` に作る。
 - 手を振る人は、前腕を左右に25°傾けた2つのメッシュを `wave_period`（模擬時間の秒）で交互に見せる。
@@ -438,6 +504,26 @@ ros2 launch aha_tasks task.launch.py task:=gpsr people:=true people_scene:=gpsr 
 - 体型は1種類（男性）で、服は半袖のTシャツと半ズボンだけ。シャツ以外の服の種類はsimでは確かめられない。
 - visualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。
 - Gazeboを動かしたまま `sim_people` を起動し直すと、同じ名前で残っている人は作り直さず位置だけ合わせる。作れない人がいても他の人は続ける。
+
+### シミュレーションの声
+
+`speech:=<名前>` で `sim_speech` が `/aha/perception/audio/listen` を提供し、[config/sim/speech/](config/sim/speech/) の命令と `people_scene` の名前付きの人として答える（音声認識は起動しない）。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=gpsr e2e:=debug people_scene:=gpsr speech:=gpsr
+```
+
+話し手は、名前を尋ねる字幕（下表）にはロボットの正面 ±`fov`（既定1.0 rad）で `radius`（既定1.5 m）以内の最も近い名前付きの人、ほかの字幕にはロボットが `operator` の `location` から `radius` 以内ならoperator。ロボットの位置はTF（`map` → `base_footprint`）。答えはロボットの直前の字幕（`/aha/display/caption`）で決める。
+
+| ロボットの字幕 | 答え |
+| --- | --- |
+| `first` / `second` / `third` と `command` を含む | operatorが `commands` のその命令。同じ実行で同じ命令を再び頼まれると、言い換えのリストの次（最後の後は最後） |
+| `yes or no`、`is that correct`、`did you say` | operatorが `confirm`（既定 `yes`） |
+| `what is your name`、`who are you` | 人が「My name is <name>.」 |
+| `are you <name>` | 人が「Yes.」か「No, my name is <name>.」 |
+
+それ以外は答えず、goalは `timeout` で終わる（無音と同じ）。答えは `delay`（既定1 s）後に返し、`/aha/perception/audio/transcript` にも配信する。`/aha/tasks/status` の実行の番号が変わると、言い換えの順を最初に戻す。
+configは `operator`（`location`、`commands`（文、または言い換えのリスト）、`confirm`、任意の `name`）、`radius`、`fov`、`delay`。
 
 ### 地点
 

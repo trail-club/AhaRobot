@@ -176,6 +176,9 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
+GPSRの `listen_command` は `/aha/perception/audio/listen`（[音声](#音声)）で聞く。`plan_commands`、`run_plan_step`、`report_results` は `/aha/tasks/status` を購読する。`plan_commands` は聞き取りの枠が、`run_plan_step` と `report_results` は計画の枠がskipされたかを読み、`report_results` は計画の手順の枠の結果も読む。
+`plan_commands` はROSのparameter `llm_url` / `llm_model`（runnerのnode）のOpenAI互換のLLMにHTTPで聞く。
+`speech:=<名前>` の `sim_speech` は、シミュレーションで `/aha/perception/audio/listen` を提供し、答えを `/aha/perception/audio/transcript` にも配信する。`/aha/display/caption`、`/aha/tasks/status` とTF（`map` → `base_footprint`）を使う。
 
 ### ロボットの画面
 
@@ -380,6 +383,7 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 `SoundEvent.label` は `doorbell`（チャイム・ブザー）か `knock`、`header.stamp` は検出した窓の終わりの時刻（wall clock）。
 `e2e:=debug`（`perception:=truth`）では、`aha_audio_doorbell` の代わりに `sim_sounds` が客の鳴らした音を `model` が `sim_truth` の `SoundEvent` として配信する。
 
+aha_tasksの `speech:=<名前>` では、`sim_speech` が `listen` と `transcript` を提供する（[シミュレーションの声](../overlay_ws/src/aha_tasks/README.md#シミュレーションの声)）。
 音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 
 ## 実機の頭部

@@ -1,0 +1,14 @@
+{
+  "rooms": ["bedroom", "kitchen", "office", "living_room"],
+  "placements": ["bed", "kitchen_table", "sofa", "shelf", "desk", "side_tables"],
+  "beacons": ["chairs", "trashbin", "entrance"],
+  "trash": "trashbin",
+  "operator": "instruction_point",
+  "objects": "aha_perception/config/objects/robocup_objects.yaml",
+  "categories": {
+    "food": ["food", "food"],
+    "cleaning supplies": ["cleaning supply", "cleaning supplies"],
+    "cutlery": ["cutlery", "cutlery"],
+    "tableware": ["dish", "dishes"]
+  }
+}

@@ -326,6 +326,8 @@ class LaunchSwitchTests(unittest.TestCase):
             "people": "true",
             "guests": "false",
             "people_scene": "",
+            "speech": "",
+            **self.launch.LLM_OPTIONS,
             **self.launch.PEOPLE_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
@@ -397,6 +399,26 @@ class LaunchSwitchTests(unittest.TestCase):
             e2e="debug", perception="model", people_scene="gpsr"
         )
         self.assertIn("sim_people", nodes)
+
+    def test_simulated_voices_know_the_people_and_the_llm_is_passed(self):
+        _, nodes, _ = self.launch_task(
+            task=str(PACKAGE / "config" / "gpsr.json"),
+            e2e="debug",
+            people="false",
+            people_scene="gpsr",
+            speech="gpsr",
+            llm_url="http://127.0.0.1:18081/v1",
+        )
+        arguments = nodes["sim_speech"]["arguments"]
+        self.assertIn(
+            f"--people={PACKAGE / 'config' / 'sim' / 'people' / 'gpsr.json'}", arguments
+        )
+        self.assertTrue(arguments[0].endswith("sim/speech/gpsr.json"))
+        parameters = nodes["task_runner"]["parameters"][0]
+        self.assertEqual(parameters["llm_url"], "http://127.0.0.1:18081/v1")
+        self.assertEqual(parameters["llm_model"], "qwen3.8-27b")
+        with self.assertRaises(ValueError):
+            self.launch_task(speech="nothing")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

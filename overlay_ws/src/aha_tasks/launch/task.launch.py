@@ -6,6 +6,10 @@ head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 sim_sounds, which makes the sounds they make at the door.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
+`speech:=<name>` adds sim_speech, which answers the ASR's Listen action as
+the operator and the named people of people_scene, with
+config/sim/speech/<name>.json (or a JSON path).
+`llm_url` / `llm_model` are the runner's LLM (aha_tasks.llm), e.g. a tunnel.
 
 `e2e:=final` (default) runs everything for real: Nav2 drives the robot and
 person_perception asks the models on the DGX. `e2e:=debug` swaps in the
@@ -41,6 +45,7 @@ from launch_ros.actions import Node
 
 from aha_tasks.core import load_spec
 from aha_tasks.guests import load_config as load_scene
+from aha_tasks.llm import DEFAULT_MODEL, DEFAULT_URL
 from aha_tasks.skills import LOCATION, resolve_pose
 
 # Launch argument -> task_runner option.
@@ -59,6 +64,9 @@ E2E_DEFAULTS = {
     "debug": {"navigation": "teleport", "perception": "truth"},
 }
 CHOICES = {"navigation": ("nav2", "teleport"), "perception": ("model", "truth")}
+
+# Launch argument -> task_runner ROS parameter (LLM of the GPSR planner).
+LLM_OPTIONS = {"llm_url": DEFAULT_URL, "llm_model": DEFAULT_MODEL}
 
 # Launch argument -> people.launch.py argument (DGX connection).
 PEOPLE_OPTIONS = {
@@ -102,6 +110,27 @@ def e2e_choices(mode, navigation="", perception=""):
     return chosen["navigation"], chosen["perception"]
 
 
+def sim_config(kind, name):
+    """config/sim/<kind>/<name>.json, or a JSON path."""
+    return Path(name) if name.endswith(".json") else task_config(f"sim/{kind}/{name}")
+
+
+def sim_speech(speech, config, people_scene):
+    """sim_speech of config/sim/speech/<speech>.json with the people's names."""
+    path = sim_config("speech", speech)
+    if not path.is_file():
+        raise ValueError(f"speech:={speech}: no {path}")
+    arguments = [f"--config={path}", f"--task={config}"]
+    if people_scene:
+        arguments.append(f"--people={sim_config('people', people_scene)}")
+    return Node(
+        package="aha_tasks",
+        executable="sim_speech",
+        arguments=arguments,
+        output="screen",
+    )
+
+
 def task_exited(event, context):
     return [
         LogInfo(msg=f"Task runner exited with code {event.returncode}"),
@@ -127,7 +156,9 @@ def launch_task(context):
     runner = Node(
         package="aha_tasks",
         executable="task_runner",
-        parameters=[{"use_sim_time": True}],
+        parameters=[
+            {"use_sim_time": True, **{name: value(name) for name in LLM_OPTIONS}}
+        ],
         arguments=[f"--config={config}"]
         + [f"--{name.replace('_', '-')}={value(name)}" for name in RUNNER_OPTIONS],
         output="screen",
@@ -281,6 +312,8 @@ def launch_task(context):
                 output="screen",
             )
         )
+    if value("speech"):
+        actions.append(sim_speech(value("speech"), config, people_scene))
     return actions
 
 
@@ -322,6 +355,15 @@ def generate_launch_description():
                 "people_scene",
                 default_value="",
                 description="Posed people from config/sim/people/<name>.json",
+            ),
+            DeclareLaunchArgument(
+                "speech",
+                default_value="",
+                description="Simulated voices from config/sim/speech/<name>.json",
+            ),
+            *(
+                DeclareLaunchArgument(k, default_value=v)
+                for k, v in LLM_OPTIONS.items()
             ),
             *(
                 DeclareLaunchArgument(k, default_value=v)

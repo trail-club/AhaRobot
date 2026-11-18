@@ -4,7 +4,8 @@
 it when the TTS (/aha/perception/audio/speak) is up; the simulation has no TTS,
 so there it only shows the caption. `show` puts an image on the screen, e.g. a
 perceived object for the referee, and says what it is; it asks nothing back.
-`ask` shows buttons on the screen and waits for a touch.
+`ask` shows buttons on the screen and waits for a touch. `listen` returns
+the next utterance from the ASR (/aha/perception/audio/listen).
 """
 
 import array
@@ -21,8 +22,17 @@ SERVER_TIMEOUT = 5.0  # s (wall clock) to find a server, or to give up on a lost
 LIVENESS_PERIOD = 0.25  # s between checks that a server still runs
 RESPONSE_TIMEOUT = 5.0  # s for a server to accept or reject a goal
 SPEAK_TIMEOUT = 60.0  # s for one utterance, including other queued utterances
+LISTEN_ACTION = "/aha/perception/audio/listen"
+LISTEN_TIMEOUT = 10.0  # s for the person to speak (the ASR's Listen timeout)
+# s more than the Listen timeout for the ASR to end the goal: it extends the
+# wait while a person speaks (up to max_segment_s 15 s + 5 s) and then
+# recognizes the utterance (request_timeout 30 s, config/audio/params.yaml).
+LISTEN_MARGIN = 50.0
+NO_ASR = "No ASR"  # start of the message when the ASR is not served
 # s (wall clock) to discover a running TTS, waited once per runner (at ready()).
 TTS_DISCOVERY = 2.0
+# s (wall clock) to discover a running ASR, waited once per runner (at ready()).
+ASR_DISCOVERY = 2.0
 
 
 class Cancelled(Exception):
@@ -109,6 +119,63 @@ class Interaction:
     def hide(self):
         """Remove the image from the screen."""
         self.images.publish(self.CompressedImage())
+
+    def _listener(self):
+        if getattr(self, "listener", None) is None:
+            from aha_msgs.action import Listen
+            from rclpy.action import ActionClient
+
+            self.Listen = Listen
+            self.listener = ActionClient(self.node, Listen, LISTEN_ACTION)
+            self.asr_searched = False
+        return self.listener
+
+    def find_asr(self, cancelled=None):
+        """True if an ASR runs. The first call creates the Listen client and
+        waits up to ASR_DISCOVERY for the server: as for the TTS, a goal sent
+        right after discovery, or its answer, may be lost.
+        """
+        client = self._listener()
+        if not client.server_is_ready() and not self.asr_searched:
+            self.asr_searched = True
+            try:
+                self._poll(
+                    client.server_is_ready,
+                    ASR_DISCOVERY,
+                    cancelled or threading.Event(),
+                )
+            except (TimeoutError, Cancelled):
+                pass
+        return client.server_is_ready()
+
+    def listen(self, hotwords, cancelled, timeout=LISTEN_TIMEOUT, language="en"):
+        """The next utterance from the ASR: (text, "") or (None, why).
+
+        `hotwords` (names, objects) bias the recognition where the model
+        supports it. Without a Listen server within SERVER_TIMEOUT, `why`
+        starts with NO_ASR.
+        """
+        self._listener()
+        try:
+            self._poll(self.listener.server_is_ready, SERVER_TIMEOUT, cancelled)
+        except Cancelled:
+            return None, "Cancelled"
+        except TimeoutError:
+            return None, f"{NO_ASR}: {LISTEN_ACTION} is not served"
+        goal = self.Listen.Goal(
+            language=language, hotwords=list(hotwords), timeout=float(timeout)
+        )
+        result, message = self._run(
+            self.listener, goal, timeout + LISTEN_MARGIN, cancelled
+        )
+        if message == LOST:
+            return None, f"{NO_ASR}: {LISTEN_ACTION} went away"
+        if result is None:
+            return None, f"ASR: {message}"
+        if not result.success:
+            return None, f"ASR: {result.message}"
+        text = result.transcript.text.strip()
+        return (text, "") if text else (None, "ASR: nothing was said")
 
     def ask(self, prompt, choices, cancelled, timeout=0.0):
         """Buttons on the screen: (index of the touched one, its label).

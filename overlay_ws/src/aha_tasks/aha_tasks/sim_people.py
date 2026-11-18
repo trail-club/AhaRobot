@@ -111,6 +111,8 @@ SHIRT_COLOURS = {
 }
 SCENE_KEYS = {"world", "wave_period", "people"}
 PERSON_KEYS = {"label", "shirt", "position", "yaw"}
+# "name": what the person answers when asked (aha_tasks.sim_speech).
+OPTIONAL_PERSON_KEYS = {"name"}
 
 
 def mesh_frames(label):
@@ -413,8 +415,15 @@ def load_scene(path):
     if not scene["wave_period"] > 0:
         raise ValueError(f"{path}: wave_period must be positive")
     for name, person in scene["people"].items():
-        if set(person) != PERSON_KEYS:
-            raise ValueError(f"{path}: {name} needs exactly {sorted(PERSON_KEYS)}")
+        if not PERSON_KEYS <= set(person) <= PERSON_KEYS | OPTIONAL_PERSON_KEYS:
+            raise ValueError(
+                f"{path}: {name} needs {sorted(PERSON_KEYS)}, "
+                f"may have {sorted(OPTIONAL_PERSON_KEYS)}"
+            )
+        if "name" in person and (
+            not isinstance(person["name"], str) or not person["name"].strip()
+        ):
+            raise ValueError(f"{path}: {name} has an empty name")
         mesh_frames(person["label"])
         if person["shirt"] not in SHIRT_COLOURS:
             raise ValueError(f"{path}: {name} has unknown shirt {person['shirt']!r}")

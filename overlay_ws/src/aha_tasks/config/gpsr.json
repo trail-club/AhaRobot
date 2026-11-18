@@ -26,14 +26,17 @@
     "side_tables": [0.75, -1.37, 1.570796],
     "trashbin": [3.65, -3.1, -0.44]
   },
-  "initial_state": {"robot.location": "spawn"},
+  "initial_state": {
+    "robot.location": "spawn",
+    "gpsr.names": ["Adel", "Angel", "Axel", "Charlie", "Jane", "Jules", "Morgan", "Paris", "Robin", "Simone"]
+  },
   "skills": {
     "navigate": "aha_tasks.skills:Navigate",
     "run_plan_step": "aha_tasks.plan:RunPlanStep",
     "wait_door_open": null,
-    "listen_command": null,
-    "plan_commands": null,
-    "report_results": null,
+    "listen_command": "aha_tasks.gpsr_commands:ListenCommand",
+    "plan_commands": "aha_tasks.gpsr_commands:PlanCommands",
+    "report_results": "aha_tasks.gpsr_commands:ReportResults",
     "say": "aha_tasks.interaction:Say",
     "answer_question": null,
     "find_object": null,
@@ -53,7 +56,7 @@
     {"id": "start.go_to_instruction", "group": "開始", "title": "Instruction Pointへ移動する", "skill": "navigate", "params": {"location": "instruction_point"}, "note": "地点は試合の2時間以上前に発表される"},
 
     {"id": "command.mode", "group": "命令の受け取り", "title": "命令の受け取り方を伝える", "skill": "say", "params": {"text": "Please give me all three commands at once."}, "note": "一括か1件ずつかはロボットが決めて伝える。1件ずつの場合は命令ごとに戻る"},
-    {"id": "cmd1.listen", "group": "命令の受け取り", "title": "1つ目の命令を聞き取る", "skill": "listen_command", "params": {"command": 1}, "points": 80, "mock": {"cmd1.text": "Get a cola from the kitchen table and bring it to the waving person in the office"}, "note": "言い直しの依頼 6×−30、custom operator 3×−20（審判の言い換え3回の後）、音声認識の迂回 3×−50"},
+    {"id": "cmd1.listen", "group": "命令の受け取り", "title": "1つ目の命令を聞き取る", "skill": "listen_command", "params": {"command": 1}, "points": 80, "mock": {"cmd1.text": "Get a cola from the kitchen table and bring it to the waving person in the office"}, "note": "言い直しの依頼 6×−30（命令ごとに審判へ2回）、custom operator 3×−20（審判が言い換えた命令3つを試した後、3回まで）、音声認識の迂回 3×−50"},
     {"id": "cmd2.listen", "group": "命令の受け取り", "title": "2つ目の命令を聞き取る", "skill": "listen_command", "params": {"command": 2}, "points": 80, "mock": {"cmd2.text": "Tell me how many drinks there are on the desk"}},
     {"id": "cmd3.listen", "group": "命令の受け取り", "title": "3つ目の命令を聞き取る", "skill": "listen_command", "params": {"command": 3}, "points": 80, "mock": {"cmd3.text": "Say the time to the person raising their left arm in the bedroom"}},
 
