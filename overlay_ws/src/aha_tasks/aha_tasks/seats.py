@@ -20,6 +20,9 @@ TORSO = 0.4  # m above the seat point: where the head looks, a sitting torso
 # apart.
 RADIUS = 0.8
 SETTLE = 2.0  # s for the head to turn (90 deg at 1 rad/s, and the start)
+# s after SETTLE for an image taken then to arrive: person_perception
+# publishes it some time later (about 1 s), at about one image per second.
+DWELL = 2.5
 HEAD_REACH = 1.57  # rad from the base's front; config/head.yaml pan_limits
 
 
@@ -78,7 +81,7 @@ class FindFreeSeat(Skill):
     """Look at the seats in order and output the first one nobody occupies.
 
     params: {"guest": "guest1", "seats": {"chair_left": [x, y, z], ...},
-    "radius": RADIUS, "dwell": 1.5}. `seats` are map points (m) in order of
+    "radius": RADIUS, "dwell": DWELL}. `seats` are map points (m) in order of
     preference, or the memory key of them ("living_room.seats", set in
     initial_state). A visible person occupies the nearest seat within
     `radius`, except the guest being seated (by name and `<guest>.track`).
@@ -102,7 +105,7 @@ class FindFreeSeat(Skill):
         check_name(params, "guest")
         seats_of(params, spec.initial_state)
         positive(params, "radius", RADIUS)
-        positive(params, "dwell", 1.5)
+        positive(params, "dwell", DWELL)
 
     def execute(self, ctx):
         people = People.of(self.runtime)
@@ -112,7 +115,7 @@ class FindFreeSeat(Skill):
         except ValueError as error:
             return SkillResult(False, str(error))
         radius = positive(ctx.params, "radius", RADIUS)
-        dwell = positive(ctx.params, "dwell", 1.5)
+        dwell = positive(ctx.params, "dwell", DWELL)
         track = ctx.memory.get(f"{guest}.track")
         location = ctx.memory.get(LOCATION)
         pose = None if location is None else resolve_pose(self.runtime.spec, location)
