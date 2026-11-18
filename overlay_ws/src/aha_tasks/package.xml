@@ -39,7 +39,12 @@
   <!-- task.launch.py people_scene:=... (posed people) -->
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-pil</exec_depend>
+  <!-- task.launch.py object_scene:=... (convex hulls of the object models) -->
+  <exec_depend>python3-scipy</exec_depend>
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <!-- test_sim_objects: the models of the expanded RCJO2026 arena -->
+  <test_depend>sobits_gazebo_worlds</test_depend>
+  <test_depend>xacro</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

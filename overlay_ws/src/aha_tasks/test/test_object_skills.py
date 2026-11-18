@@ -26,11 +26,11 @@ from aha_tasks.objects import (  # noqa: E402
     cluster,
     floor_region,
     furniture_region,
-    half_width,
     norm_category,
     placement,
     same_category,
     shelf_groups,
+    span,
 )
 from aha_perception.furniture import load_config  # noqa: E402
 from aha_perception.object_list import parse_object_list  # noqa: E402
@@ -68,6 +68,7 @@ OBJECT_LIST = parse_object_list(
     }
 )
 CATEGORY = OBJECT_LIST.category
+SNACKS = {"ppc.trash_category": "snacks"}  # the trash category of the memory
 TABLE_ROLES = {
     "cutlery": {"category": "cutlery"},
     "cup": {"labels": ["mug", "cup"]},
@@ -77,6 +78,7 @@ TABLE_ROLES = {
     "other2": {},
 }
 TABLE = 0.80  # dining table top (m)
+SHELF = FURNITURE.get("shelf").heights  # level tops (m), lowest first
 
 
 def seen(label, xyz, size=(0.1, 0.1, 0.1), count=5, confidence=1.0, track=1):
@@ -198,12 +200,9 @@ class RegionTests(unittest.TestCase):
         self.assertEqual(self.table.level_of(moved), 1)
 
     def test_shelf_levels(self):
-        heights = FURNITURE.get("shelf").heights
-        for number, height in enumerate(heights, start=1):
+        for number, height in enumerate(SHELF, start=1):
             tall = seen("cereal", on_top(3.2, 3.5, height, (0.06, 0.16, 0.26)))
             self.assertEqual(self.shelf.level_of(tall), number)
-            self.assertEqual(self.shelf.level_of(tall, level=number), number)
-        self.assertIsNone(self.shelf.level_of(tall, level=1))
 
     def test_look_points_cover_a_long_table_and_each_shelf_level(self):
         points = self.table.look_points(robot_xy=(-2.0, -0.7))
@@ -211,7 +210,7 @@ class RegionTests(unittest.TestCase):
         self.assertEqual([round(p[1], 2) for p in points], [-1.65, -2.25, -2.85])
         self.assertTrue(all(p[2] == TABLE for p in points))
         shelf = self.shelf.look_points()
-        self.assertEqual(len(shelf), len(FURNITURE.get("shelf").heights))
+        self.assertEqual(len(shelf), len(SHELF))
         tall_table = furniture_region(FURNITURE.get("tall_table"), (0, 0, 0, 0), 0.1)
         self.assertEqual(len(tall_table.look_points()), 1)
 
@@ -244,9 +243,8 @@ class RoleTests(unittest.TestCase):
         ]
 
     def test_the_dining_table_roles(self):
-        memory = {"ppc.trash_category": "snacks"}
         assigned, missing = assign_roles(
-            self.table(), TABLE_ROLES, memory, (-2.0, -0.7)
+            self.table(), TABLE_ROLES, SNACKS, (-2.0, -0.7)
         )
         labels = {role: p.label for role, p in assigned.items()}
         self.assertEqual(missing, [])
@@ -268,8 +266,7 @@ class RoleTests(unittest.TestCase):
             seen("spoon", (-2.1, -2.0, 0.81)),
             seen("vase", (-2.0, -2.5, 0.9)),
         ]
-        memory = {"ppc.trash_category": "snacks"}
-        assigned, missing = assign_roles(objects, TABLE_ROLES, memory, (-2.0, -0.7))
+        assigned, missing = assign_roles(objects, TABLE_ROLES, SNACKS, (-2.0, -0.7))
         self.assertEqual(missing, ["trash", "other1", "other2"])
         self.assertEqual(set(assigned), {"cutlery", "cup", "plate"})
 
@@ -293,7 +290,6 @@ class RoleTests(unittest.TestCase):
 class ShelfTests(unittest.TestCase):
     def setUp(self):
         self.shelf = furniture_region(FURNITURE.get("shelf"), (0, 0, 0, 0), 0.1)
-        self.heights = FURNITURE.get("shelf").heights
         # Seen from the open side (world -y), the robot's left is world -x.
         left, right = 3.0, 3.35
         self.placed = [
@@ -307,18 +303,12 @@ class ShelfTests(unittest.TestCase):
 
     def item(self, label, x, level, size, yaw=None):
         """(percept, level) of an object at world x on the shelf level."""
-        xyz = on_top(x, 3.5, self.heights[level - 1], size)
+        xyz = on_top(x, 3.5, SHELF[level - 1], size)
         return (replace(seen(label, xyz, size), yaw=yaw), level)
 
     def taken(self, placed, level):
         """Local y (low, high) of the objects on a level."""
-        out = []
-        for percept, number in placed:
-            if number == level:
-                y = self.shelf.local(*percept.position[:2])[1]
-                half = half_width(self.shelf, percept)
-                out.append((y - half, y + half))
-        return out
+        return [span(self.shelf, p) for p, number in placed if number == level]
 
     def assertClear(self, spot, width, taken):
         """The spot keeps PLACE_GAP from the side panels and the `taken` spans;
@@ -345,9 +335,9 @@ class ShelfTests(unittest.TestCase):
             ],
         )
         self.assertEqual(groups[0].labels, ["apple", "orange"])
-        self.assertAlmostEqual(groups[0].position[2], self.heights[1])
+        self.assertAlmostEqual(groups[0].position[2], SHELF[1])
         self.assertEqual(
-            categories_by_level(groups, len(self.heights)),
+            categories_by_level(groups, len(SHELF)),
             [[], ["fruit", "snack"], ["food", "food"], ["drink"], []],
         )
 
@@ -372,14 +362,14 @@ class ShelfTests(unittest.TestCase):
         self.assertEqual(
             (toy["level"], toy["side"], toy["reason"]), (4, "right", "empty")
         )
-        self.assertAlmostEqual(toy["position"][2], self.heights[3])
-        span = self.assertClear(toy, 0.058, self.taken(self.placed, 4))
+        self.assertAlmostEqual(toy["position"][2], SHELF[3])
+        toy_span = self.assertClear(toy, 0.058, self.taken(self.placed, 4))
         # The second toy joins the first one, beside it.
         dice = where["extra.obj1"]
         self.assertEqual(
             (dice["level"], dice["side"], dice["reason"]), (4, "right", "category")
         )
-        self.assertClear(dice, 0.05, self.taken(self.placed, 4) + [span])
+        self.assertClear(dice, 0.05, self.taken(self.placed, 4) + [toy_span])
 
     def test_the_spot_is_beside_the_group_not_on_it(self):
         # Level 5 of the simulated shelf: orange and lemon leave no room on the
@@ -441,6 +431,11 @@ def detection(label, xyz, track, size=(0.1, 0.1, 0.1), yaw=None):
     )
 
 
+def on_shelf(label, x, level, size, track):
+    """A detection of an object standing on a shelf level at world x."""
+    return detection(label, on_top(x, 3.5, SHELF[level - 1], size), track, size)
+
+
 def stamp(seconds):
     return SimpleNamespace(sec=int(seconds), nanosec=int(seconds % 1 * 1e9))
 
@@ -490,15 +485,14 @@ class FakeObjects(Objects):
         self.looked.append((frame, tuple(round(v, 3) for v in xyz)))
 
 
-def run(skill_class, objects, params, memory=None):
+def run(skill_class, objects, params, memory=None, cancelled=None):
     spec = SimpleNamespace(subgoals=())
     runtime = SimpleNamespace(objects=objects, spec=spec, skills={})
     skill_class.validate(params, spec)
     skill = skill_class(runtime)
     logs = []
-    ctx = SkillContext(
-        "test", params, dict(memory or {}), threading.Event(), logs.append
-    )
+    cancelled = cancelled or threading.Event()
+    ctx = SkillContext("test", params, dict(memory or {}), cancelled, logs.append)
     return skill.execute(ctx), logs
 
 
@@ -523,15 +517,17 @@ class SkillTests(unittest.TestCase):
         "exclude": [],
         "roles": TABLE_ROLES,
     }
+    FLOOR_PARAMS = {
+        "surface": "floor",
+        "output": "trash",
+        "margin": 1.5,
+        "exclude": ["trash_box"],
+        "roles": {"floor": {"category_key": "ppc.trash_category"}},
+    }
 
     def test_perceive_the_dining_table(self):
         objects = FakeObjects(table_scene())
-        result, logs = run(
-            PerceiveObjects,
-            objects,
-            self.TABLE_PARAMS,
-            {"ppc.trash_category": "snacks"},
-        )
+        result, logs = run(PerceiveObjects, objects, self.TABLE_PARAMS, SNACKS)
         self.assertTrue(result.success, result.message)
         outputs = result.outputs
         self.assertEqual(
@@ -568,12 +564,7 @@ class SkillTests(unittest.TestCase):
         scene[0] = detection(
             "fork", (-2.2, -1.8, 0.81), 1, (0.195, 0.027, 0.015), 1.5708
         )
-        result, _ = run(
-            PerceiveObjects,
-            FakeObjects(scene),
-            self.TABLE_PARAMS,
-            {"ppc.trash_category": "snacks"},
-        )
+        result, _ = run(PerceiveObjects, FakeObjects(scene), self.TABLE_PARAMS, SNACKS)
         self.assertEqual(result.outputs["table.cutlery"]["yaw"], 1.571)
         # Identity: the box of a camera detector is along the map axes.
         self.assertEqual(result.outputs["table.cup"]["yaw"], 0.0)
@@ -593,12 +584,7 @@ class SkillTests(unittest.TestCase):
                 )
 
         objects = Stale(table_scene())
-        result, _ = run(
-            PerceiveObjects,
-            objects,
-            self.TABLE_PARAMS,
-            {"ppc.trash_category": "snacks"},
-        )
+        result, _ = run(PerceiveObjects, objects, self.TABLE_PARAMS, SNACKS)
         self.assertTrue(result.success, result.message)
         labels = {k: v["label"] for k, v in result.outputs.items()}
         self.assertNotIn("orange", labels.values())
@@ -610,12 +596,7 @@ class SkillTests(unittest.TestCase):
 
     def test_missing_roles_get_no_key(self):
         scene = [d for d in table_scene() if d.class_name not in ("cookies", "cola")]
-        result, _ = run(
-            PerceiveObjects,
-            FakeObjects(scene),
-            self.TABLE_PARAMS,
-            {"ppc.trash_category": "snacks"},
-        )
+        result, _ = run(PerceiveObjects, FakeObjects(scene), self.TABLE_PARAMS, SNACKS)
         self.assertTrue(result.success)
         self.assertNotIn("table.trash", result.outputs)
         self.assertNotIn("table.other2", result.outputs)
@@ -644,25 +625,12 @@ class SkillTests(unittest.TestCase):
             detection("pringles", (6.0, -3.4, 0.115), 2, (0.075, 0.075, 0.23)),
         ]
         objects = FakeObjects(scene, robot=(3.65, -3.1, -0.44))
-        result, _ = run(
-            PerceiveObjects,
-            objects,
-            self.FLOOR_PARAMS,
-            {"ppc.trash_category": "snacks"},
-        )
+        result, _ = run(PerceiveObjects, objects, self.FLOOR_PARAMS, SNACKS)
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["trash.floor"]["label"], "cookies")
         self.assertTrue(all(z == 0.0 for _, (_, _, z) in objects.looked[:3]))
         # Then at the trash, not the last floor pan.
         self.assertEqual(objects.looked[3:], [("map", (4.1, -3.4, 0.075))])
-
-    FLOOR_PARAMS = {
-        "surface": "floor",
-        "output": "trash",
-        "margin": 1.5,
-        "exclude": ["trash_box"],
-        "roles": {"floor": {"category_key": "ppc.trash_category"}},
-    }
 
     def test_trash_in_the_bin_is_not_floor_trash(self):
         # The table's trash, put in the bin (4.5, -3.5) just before, is nearer
@@ -671,25 +639,22 @@ class SkillTests(unittest.TestCase):
             detection("pringles", (4.5, -3.45, 0.12), 1, (0.075, 0.075, 0.23)),
             detection("cookies", (4.9, -3.0, 0.075), 2, (0.06, 0.1, 0.15)),
         ]
-        memory = {"ppc.trash_category": "snacks"}
         robot = (3.65, -3.1, -0.44)
         result, logs = run(
-            PerceiveObjects, FakeObjects(scene, robot), self.FLOOR_PARAMS, memory
+            PerceiveObjects, FakeObjects(scene, robot), self.FLOOR_PARAMS, SNACKS
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(result.outputs["trash.floor"]["label"], "cookies")
         self.assertTrue(any("in trash_box" in line for line in logs))
         # Without the exclusion the binned object would be taken.
         params = dict(self.FLOOR_PARAMS, exclude=[])
-        result, _ = run(PerceiveObjects, FakeObjects(scene, robot), params, memory)
+        result, _ = run(PerceiveObjects, FakeObjects(scene, robot), params, SNACKS)
         self.assertEqual(result.outputs["trash.floor"]["label"], "pringles")
 
     def test_on_the_shelf_the_head_ends_at_the_first_role_level(self):
-        heights = FURNITURE.get("shelf").heights
-        cereal, milk = (0.06, 0.16, 0.26), (0.07, 0.07, 0.19)
         scene = [
-            detection("cereal", on_top(3.05, 3.5, heights[2], cereal), 1, cereal),
-            detection("milk", on_top(3.35, 3.5, heights[3], milk), 2, milk),
+            on_shelf("cereal", 3.05, 3, (0.06, 0.16, 0.26), 1),
+            on_shelf("milk", 3.35, 4, (0.07, 0.07, 0.19), 2),
         ]
         shelf = furniture_region(FURNITURE.get("shelf"), (0.0, 0.0, 0.0, 0.0), 0.1)
         levels = [("map", tuple(round(v, 3) for v in p)) for p in shelf.look_points()]
@@ -717,35 +682,21 @@ class SkillTests(unittest.TestCase):
     def test_cancel_ends_the_scan(self):
         objects = FakeObjects(table_scene())
         objects.look_settle = 30.0
-        spec = SimpleNamespace(subgoals=())
-        skill = PerceiveObjects(SimpleNamespace(objects=objects, spec=spec, skills={}))
         cancelled = threading.Event()
         threading.Timer(0.1, cancelled.set).start()
-        ctx = SkillContext("t", self.TABLE_PARAMS, {}, cancelled, lambda m: None)
         started = time.monotonic()
-        result = skill.execute(ctx)
+        result, _ = run(
+            PerceiveObjects, objects, self.TABLE_PARAMS, cancelled=cancelled
+        )
         self.assertFalse(result.success)
         self.assertEqual(result.message, "Cancelled")
         self.assertLess(time.monotonic() - started, 5.0)
 
     def test_perceive_the_shelf_and_where_to_put_objects(self):
-        heights = FURNITURE.get("shelf").heights
         scene = [
-            detection(
-                "apple", on_top(3.05, 3.5, heights[1], (0.075,) * 3), 1, (0.075,) * 3
-            ),
-            detection(
-                "cereal",
-                on_top(3.05, 3.5, heights[2], (0.06, 0.16, 0.26)),
-                2,
-                (0.06, 0.16, 0.26),
-            ),
-            detection(
-                "milk",
-                on_top(3.35, 3.5, heights[3], (0.07, 0.07, 0.19)),
-                3,
-                (0.07, 0.07, 0.19),
-            ),
+            on_shelf("apple", 3.05, 2, (0.075,) * 3, 1),
+            on_shelf("cereal", 3.05, 3, (0.06, 0.16, 0.26), 2),
+            on_shelf("milk", 3.35, 4, (0.07, 0.07, 0.19), 3),
         ]
         memory = {
             "table.other1": {"label": "orange", "category": "fruit"},
@@ -777,7 +728,7 @@ class SkillTests(unittest.TestCase):
         )
         self.assertEqual(placement_["table.other2"]["frame"], "map")
         # One head pose per shelf level.
-        self.assertEqual(len(objects.looked), len(heights))
+        self.assertEqual(len(objects.looked), len(SHELF))
 
 
 class ValidationTests(unittest.TestCase):

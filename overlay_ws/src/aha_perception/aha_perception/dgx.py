@@ -9,7 +9,7 @@ and the DGX host network to reach the Qwen3.8 server there.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import itertools
 import json
 from pathlib import Path
@@ -153,14 +153,10 @@ def object_spec(options: WorkerOptions, vlm_timeout: float) -> ContainerSpec:
 
     The worker gives up on a VLM request after `vlm_timeout` seconds.
     """
-    return ContainerSpec(
+    return replace(
+        person_spec(options),
         title="DGX object worker",
         name="objects",
-        dockerfile=PERSON_DOCKERFILE,
-        image=options.image,
-        sources=person_sources,
-        prepare=(f"test -r {shlex.quote(options.checkpoint)}"),
-        cache="aharobot-sam31",
         docker_args=(
             "--network",
             "host",
