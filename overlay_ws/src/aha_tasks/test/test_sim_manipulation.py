@@ -33,7 +33,6 @@ from aha_tasks.sim_manipulation_node import (  # noqa: E402
     Stand,
     failed_status,
 )
-from aha_tasks.sim_objects import PrintedModel, printed_sdf  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 
 OBJECT_LIST = load_object_list(
@@ -79,8 +78,15 @@ class ModelTests(unittest.TestCase):
         )
 
     def test_the_static_copy_has_no_physics(self):
-        model = PrintedModel("cola", "cylinder", (0.066, 0.066, 0.12), {"mass": 0.3})
-        sdf = printed_sdf(model, "cola", (1.0, 2.0, 0.8, 0.5), Path("/tmp/cola.obj"))
+        cylinder = "<cylinder><radius>0.033</radius><length>0.12</length></cylinder>"
+        sdf = (
+            '<?xml version="1.0"?><sdf version="1.9"><model name="cola">'
+            "<pose>1.000000 2.000000 0.800000 0 0 0.5</pose><link name='link'>"
+            "<inertial><mass>0.3</mass></inertial>"
+            f"<collision name='c'><geometry>{cylinder}</geometry></collision>"
+            f"<visual name='v'><geometry>{cylinder}</geometry></visual>"
+            "</link></model></sdf>"
+        )
         copy = ET.fromstring(static_copy(sdf).replace('<?xml version="1.0"?>', ""))
         model = copy.find("model")
         self.assertEqual(model.get("name"), "cola")
