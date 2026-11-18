@@ -356,6 +356,27 @@ class DialogueTests(unittest.TestCase):
         self.assertIsNone(talk.confirm("Charlie"))
         self.assertFalse(talk.voice or talk.screen)
 
+    def test_nothing_more_is_said_once_cancelled(self):
+        for question in ("confirm", "ask_name"):
+            with self.subTest(question):
+                cancelled = threading.Event()
+                interaction = FakeInteraction(touched=(0, "Yes"))
+
+                def listen(hotwords, _, timeout=10.0):
+                    # The skill is aborted, or its deadline passes, meanwhile.
+                    interaction.calls.append(("listen", tuple(hotwords)))
+                    cancelled.set()
+                    return None, "Cancelled"
+
+                interaction.listen = listen
+                talk = Dialogue(interaction, NAMES, cancelled, [].append, touch=True)
+                if question == "confirm":
+                    self.assertIsNone(talk.confirm("Charlie"))
+                else:
+                    self.assertIsNone(talk.ask_name())
+                # No asking again, no screen and no thanks.
+                self.assertEqual(interaction.kinds(), ["say", "listen"])
+
     def test_ask_name(self):
         interaction = FakeInteraction(["Uh, sorry?", "My name is Jewels."])
         self.assertEqual(dialogue(interaction).ask_name(), "Jules")

@@ -515,7 +515,8 @@ class Dialogue:
     ask(prompt, choices, cancelled, timeout) as aha_tasks.interaction.Interaction.
     With `touch`, "Are you <name>?" falls back to Yes / No on the screen.
     `voice` / `screen` turn false once the ASR / the screen is not served, and
-    later questions skip it.
+    later questions skip it. Once `cancelled` is set (the skill is aborted or
+    its deadline passed), nothing more is said, heard or shown.
     """
 
     def __init__(self, interaction, names, cancelled, log, touch=False):
@@ -527,9 +528,13 @@ class Dialogue:
         self.screen = touch
 
     def say(self, text):
+        """Say `text` unless cancelled; False once cancelled (before or meanwhile)."""
+        if self.cancelled.is_set():
+            return False
         ok, message = self.interaction.say(text, self.cancelled)
         if not ok:
             self.log(f"Could not say {text!r}: {message}")
+        return not self.cancelled.is_set()
 
     def _by_voice(self, question, again, hotwords, understand):
         """The first reply that `understand(text)` makes out (not None), or None.
@@ -538,9 +543,8 @@ class Dialogue:
         """
         if not self.voice:
             return None
-        self.say(question)
         for attempt in range(ATTEMPTS):
-            if self.cancelled.is_set():
+            if not self.say(again if attempt else question):
                 return None
             text, why = self.interaction.listen(hotwords, self.cancelled)
             if text is None:
@@ -552,15 +556,13 @@ class Dialogue:
                 understood = understand(text)
                 if understood is not None:
                     return understood
-            if attempt + 1 < ATTEMPTS:
-                self.say(again)
         return None
 
     def _by_touch(self, question):
         """Yes (True) / No (False) touched on the screen, or None."""
-        if self.cancelled.is_set() or not self.screen:
+        prompt = f"{question} Please touch Yes or No on my screen."
+        if not self.screen or not self.say(prompt):
             return None
-        self.say(f"{question} Please touch Yes or No on my screen.")
         index, label = self.interaction.ask(
             question, ["Yes", "No"], self.cancelled, timeout=TOUCH_TIMEOUT
         )
