@@ -1,0 +1,75 @@
+"""Detect the objects of the object list in the head camera with the DGX Spark.
+
+object_perception.py sends the images to SAM 3.1 and the Qwen3.8 VLM on the
+DGX and publishes /aha/perception/objects like sim_object_detector.py. Inputs
+are the standard head camera topics from the simulation bridge or the real
+camera. The DGX is reached over SSH (Cloudflare One / WARP); see the package
+README.
+"""
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
+
+# name: (default, parameter type, description)
+ARGUMENTS = {
+    "target_frame": (
+        "map",
+        str,
+        "Frame of the published objects (z up); empty = camera",
+    ),
+    "ssh_host": ("10.99.0.1", str, "DGX SSH host or an SSH config alias"),
+    "ssh_port": ("2222", int, "SSH port; 0 = from the SSH config"),
+    "ssh_user": ("", str, "directory-access Unix username; empty = SSH config"),
+    "identity_file": ("", str, "SSH private key; empty = default keys or agent"),
+    "use_sim_time": ("false", bool, "Use the simulation clock"),
+    "worker_command": ("", str, "Argv of a worker to run instead of SSH to the DGX"),
+    "objects_config": ("", str, "Object list YAML; empty = the package's list"),
+}
+
+
+def generate_launch_description():
+    return LaunchDescription(
+        [
+            *(
+                DeclareLaunchArgument(name, default_value=value, description=text)
+                for name, (value, _, text) in ARGUMENTS.items()
+            ),
+            DeclareLaunchArgument(
+                "respawn",
+                default_value="false",
+                choices=["true", "false"],
+                description="Restart the node when it exits (debug runs)",
+            ),
+            DeclareLaunchArgument(
+                "params_file",
+                default_value=PathJoinSubstitution(
+                    [
+                        FindPackageShare("aha_perception"),
+                        "config",
+                        "object_perception.yaml",
+                    ]
+                ),
+            ),
+            Node(
+                package="aha_perception",
+                executable="object_perception.py",
+                name="object_perception",
+                parameters=[
+                    LaunchConfiguration("params_file"),
+                    {
+                        name: ParameterValue(LaunchConfiguration(name), value_type=kind)
+                        for name, (_, kind, _) in ARGUMENTS.items()
+                    },
+                ],
+                output="screen",
+                respawn=LaunchConfiguration("respawn"),
+                respawn_delay=2.0,
+                # Leave time to remove the DGX container after Ctrl-C.
+                sigterm_timeout="20",
+            ),
+        ]
+    )
