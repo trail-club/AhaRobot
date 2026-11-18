@@ -383,14 +383,21 @@ class _ObjectQuery(Skill):
         location = params["location"]
         if not isinstance(location, str) or location not in spec.locations:
             raise ValueError(f"Unknown location: {location!r}")
-        if not places_of(spec, location):
-            raise ValueError(
-                f"{location} is not a room or a furniture location of the task's rooms"
-            )
         if "output" in params:
             check_name(params, "output")
         if "margin" in params:
             check_margin(params)
+        if is_person(params[cls.TARGET]):
+            return  # unsupported(): a plan mocks the step, at any location
+        if not places_of(spec, location):
+            raise ValueError(
+                f"{location} is not a room or a furniture location of the task's rooms"
+            )
+        cls.check_target(params[cls.TARGET])
+
+    @classmethod
+    def check_target(cls, text):
+        """Raise ValueError for a name of objects this skill cannot do."""
 
     def ready(self):
         """Load the configs; every furniture of `rooms` must be in the furniture
@@ -568,10 +575,8 @@ class DescribeObject(_ObjectQuery):
     """
 
     @classmethod
-    def validate(cls, params, spec):
-        super().validate(params, spec)
-        if not is_person(params["target"]):
-            parse_superlative(params["target"])
+    def check_target(cls, text):
+        parse_superlative(text)
 
     def execute(self, ctx):
         params = ctx.params

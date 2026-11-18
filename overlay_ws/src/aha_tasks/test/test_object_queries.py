@@ -478,11 +478,29 @@ class DescribeTests(unittest.TestCase):
         self.assertEqual(runtime.objects.looked[-1][:2], (1.72, -0.5))
 
     def test_people_and_bad_targets(self):
-        params = {"target": "name of the person", "location": "bed", "output": "a"}
-        why, _ = run(DescribeObject, params)
-        self.assertIn("person skills", why)
-        with self.assertRaises(ValueError):
-            DescribeObject.validate(dict(params, target="colour of the cup"), SPEC)
+        # Steps about people are mocked, also at a location outside `rooms`.
+        for skill_class, params in [
+            (
+                DescribeObject,
+                {"target": "name of the person", "location": "entrance", "output": "a"},
+            ),
+            (
+                CountObjects,
+                {"target": "people", "location": "instruction_point", "output": "n"},
+            ),
+            (FindObject, {"object": "person", "location": "spawn"}),
+        ]:
+            with self.subTest(params):
+                why, _ = run(skill_class, params)
+                self.assertIn("person skills", why)
+        for target, location in [
+            ("biggest object", "entrance"),
+            ("colour of the cup", "desk"),
+        ]:
+            with self.subTest(target), self.assertRaises(ValueError):
+                DescribeObject.validate(
+                    {"target": target, "location": location, "output": "a"}, SPEC
+                )
         result, _ = run(
             DescribeObject,
             {"target": "biggest snack", "location": "desk", "output": "a"},
@@ -590,7 +608,7 @@ class FindTests(unittest.TestCase):
                 "action": "describe",
                 "params": {
                     "target": "pose of the person",
-                    "location": "bed",
+                    "location": "entrance",
                     "output": "b",
                 },
             },

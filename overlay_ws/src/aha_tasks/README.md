@@ -573,7 +573,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.*' --on-failure skip  # 別のシ�
 
 - **移動**: 記憶の `robot.location` と異なる家具の地点へ移動する。部屋の家具は、ロボットの位置から全部を回る直線距離の和が最短の順に見る。`rooms` で `null` の家具は見ない。見る家具のない地点（simの `bedroom`・`bed`・`sofa`・`chairs`・`trashbin`）は未実装として扱い、計画の手順はmockで通過する。
 - **名前**: [物体リスト](../aha_perception/config/objects/robocup_objects.yaml)のラベル・カテゴリと、`aliases`（命令での別名）・`groups`（`kitchen item`、`dish` などの組）に照合する。大文字小文字、最後の語の複数形、`'` と `-`、語順、容器の語（`can`・`box`・`bottle` など。`tomato soup can`、`can of cola`）は区別しない。`object`・`item`・`thing` は全ての物体。リストにない名前は失敗する。
-- **人**: `target` / `object` が人（`person`・`people`・`name`・`pose` などの語を含む）なら未実装として扱い、計画の手順はmockで通過する。人の数・特徴は人のスキルで扱う。
+- **人**: `target` / `object` が人（`person`・`people`・`name`・`pose` などの語を含む）なら未実装として扱い、`location` が `rooms` になくても計画の手順はmockで通過する。人の数・特徴は人のスキルで扱う。
 - `margin`（既定0.1 m）は、家具の外形から物体の中心がはみ出してよい距離。
 
 `describe` の `target` は最上級の語と物体（省略や `object` なら全ての物体）。最上級の語がなければ検証で拒否する。
@@ -586,7 +586,7 @@ ros2 run aha_tasks run_task --subgoals 'exec.*' --on-failure skip  # 別のシ�
 | `thinnest`（`slimmest`・`narrowest` など） | 箱の最も短い辺が最小。同じなら次に短い辺 |
 
 箱は物体リストにあるラベルならリストの大きさ、ないラベルなら検出の箱とする。画像からの検出器の箱は見えている手前の部分だけで、ラベルが正しくても物体の大小が入れ替わるため。
-値が同じなら検出された回数、確信度の順に選ぶ。答えの文は英語で、`tell_info` が `<output>.answer` を伝える。
+値が同じなら検出された回数、確信度の順に選ぶ。答えの文は英語。
 
 制限：
 
