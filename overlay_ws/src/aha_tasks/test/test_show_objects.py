@@ -302,7 +302,8 @@ class ShowObjectsTests(unittest.TestCase):
         result = self.run_skill(
             dict(MOCK), objects=list(MOCK), statuses={"table.perceive": "skipped"}
         )
-        self.assertFalse(result.success)
+        # Not a second failure: the operator already skipped the perception.
+        self.assertTrue(result.success, result.message)
         self.assertEqual(
             result.message,
             "not perceived (table.perceive skipped): table.cup, table.plate",
@@ -317,12 +318,24 @@ class ShowObjectsTests(unittest.TestCase):
         result = self.run_skill(
             memory, objects=list(MOCK), statuses={"table.perceive": "skipped"}
         )
-        self.assertFalse(result.success)
+        self.assertTrue(result.success, result.message)
         self.assertEqual(
             result.message,
             "shown: plate; not perceived (table.perceive skipped): table.cup",
         )
         self.assertEqual([e[0] for e in self.screen.events], ["show", "hide"])
+
+    def test_failure_beside_a_skipped_perception_still_fails(self):
+        self.camera.image_available = False
+        memory = {**MOCK, "table.plate": record("plate", 2.0, -0.2)}
+        result = self.run_skill(
+            memory, objects=list(MOCK), statuses={"table.perceive": "skipped"}
+        )
+        self.assertFalse(result.success)
+        self.assertIn("could not show: plate (no image", result.message)
+        self.assertIn(
+            "not perceived (table.perceive skipped): table.cup", result.message
+        )
 
     def test_mock_of_an_unselected_perception_is_shown(self):
         for status in ("bypassed", "unsupported"):
@@ -347,7 +360,8 @@ class Failing(Skill):
 
 class EngineTests(unittest.TestCase):
     def test_skipped_perception_is_not_shown(self):
-        """The engine gives show_objects the subgoal statuses."""
+        """The engine gives show_objects the subgoal statuses. Under the default
+        policy pause, skipping the failed perception is the only intervention."""
         screen = FakeScreen()
         runtime = SimpleNamespace(
             node=None,
@@ -360,18 +374,24 @@ class EngineTests(unittest.TestCase):
             "perceive_objects": Failing(runtime),
             "show_objects": ShowObjects(runtime),
         }
-        engine = TaskEngine(runtime.spec, skills, default_policy="skip")
+        engine = TaskEngine(runtime.spec, skills, default_policy="pause")
         engine.set_ready()
         ok, message = engine.start(None)
         self.assertTrue(ok, message)
+        paused = []  # subgoals the operator skipped
         deadline = time.monotonic() + 10.0
         while not engine.finished():
             self.assertLess(time.monotonic(), deadline, "Timed out")
+            status = engine.status()
+            if status["state"] == "paused" and status["current"] not in paused:
+                paused.append(status["current"])
+                self.assertTrue(engine.command("skip")[0])
             time.sleep(0.01)
+        self.assertEqual(paused, ["table.perceive"])
         records = {s["id"]: s for s in engine.status()["subgoals"]}
         self.assertEqual(records["table.perceive"]["status"], "skipped")
         show = records["table.show"]["history"]
-        self.assertEqual(show[0]["status"], "failed")
+        self.assertEqual([h["status"] for h in show], ["succeeded"])
         self.assertIn("not perceived (table.perceive skipped)", show[0]["message"])
         self.assertEqual(screen.events, [])
 

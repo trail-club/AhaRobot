@@ -8,10 +8,11 @@ what it is. The referee is asked to look at the screen, not to touch or answer.
 The objects are memory keys holding records of perceive_objects. A missing or
 null key is skipped; a record without a position (a label-only mock) is only
 spoken. The mock that the engine put in a key after the perception failed and
-was skipped is not a perception: it is neither shown nor spoken, and the skill
-fails (the mock of an unselected perception is shown, to try the show alone).
-An object that cannot be pictured is spoken instead, and the skill fails so
-that the operator sees it.
+was skipped is not a perception: it is neither shown nor spoken, only named in
+the result, and the skill does not fail for it, since the operator already
+handled that failure (the mock of an unselected perception is shown, to try
+the show alone). An object that cannot be pictured is spoken instead, and the
+skill fails so that the operator sees it.
 """
 
 import math
@@ -320,7 +321,7 @@ class ShowObjects(Skill):
             parts.append(f"could not show: {', '.join(failed)}")
         for skipped, keys in mocked.items():
             parts.append(f"not perceived ({skipped} skipped): {', '.join(keys)}")
-        return SkillResult(not failed and not mocked, "; ".join(parts))
+        return SkillResult(not failed, "; ".join(parts))
 
     def check_speech(self, result, ctx):
         """Raise Cancelled after an aborted sentence; log a failed one."""
