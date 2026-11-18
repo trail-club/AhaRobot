@@ -1103,17 +1103,17 @@ class HandsTests(unittest.TestCase):
         self.assertIn("did not confirm", hands.runtime.arm_out)
         client.sent[0].set_result(SimpleNamespace(accepted=False))
         self.assertIsNone(hands.runtime.arm_out)
-        # Two unanswered goals: the late answer of the first one does not
-        # give back the arm state while the second may still move the arm.
+        # While a goal is not settled, no other goal is sent (a retry).
         with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
-            for _ in range(2):
-                with self.assertRaises(Unstopped):
-                    hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
-        second = hands.runtime.arm_out
+            with self.assertRaises(Unstopped):
+                hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+            with self.assertRaises(Unstopped) as caught:
+                hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+        self.assertIn("Not sending", str(caught.exception))
+        self.assertEqual(len(client.sent), 2)
         client.sent[1].set_result(SimpleNamespace(accepted=False))
-        self.assertEqual(hands.runtime.arm_out, second)
-        client.sent[2].set_result(SimpleNamespace(accepted=False))
         self.assertIsNone(hands.runtime.arm_out)
+        self.assertIsNone(hands.blocked())
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = Hands.__new__(Hands)
@@ -1126,9 +1126,9 @@ class HandsTests(unittest.TestCase):
         before = PickResult(success=False, message="too far", at_home=True)
         for on_cancel, out in (
             (stuck, True),
-            (done, True),
             (back, False),
             (before, False),
+            (done, True),
         ):
             with self.subTest(result=on_cancel.message):
                 cancelled.clear()
@@ -1149,7 +1149,15 @@ class HandsTests(unittest.TestCase):
                 self.assertEqual(hands.runtime.arm_out is not None, out)
                 if on_cancel is done:
                     self.assertIn("check the hand", hands.runtime.arm_out)
+        # Kept until a restart: a later goal's end does not clear it, and no
+        # goal is sent.
+        hands.arm_after(PickResult(success=True, message="Picked", at_home=True))
+        self.assertIn("check the hand", hands.runtime.arm_out)
+        with self.assertRaises(Unstopped):
+            hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
         # A late rejection changes nothing.
+        hands = Hands.__new__(Hands)
+        hands.runtime = SimpleNamespace(arm_out=None)
         cancelled.clear()
         client = FakeClient(cancel=cancelled)
         hands.clients = {PICK_ACTION: (None, client)}

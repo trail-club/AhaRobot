@@ -510,8 +510,13 @@ class Hands:
         A goal still unanswered at a cancel or timeout may be accepted (or
         its answer lost) and move the arm: arm_out is set at once, and the
         goal is cancelled once the server accepts it (cancel_late). Unstopped
-        on the timeout, as no other goal may follow."""
+        on the timeout, and for every later goal while that one is not
+        settled or ended well after its skill failed (blocked): no other goal
+        may follow it."""
         _, client = self.clients[name]
+        why = self.blocked()
+        if why:
+            raise Unstopped(f"Not sending a {name} goal: {why}")
         if cancelled.is_set():  # e.g. while the base came closer: no goal
             raise Cancelled
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
@@ -522,13 +527,14 @@ class Hands:
         try:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
         except (Cancelled, TimeoutError) as error:
-            earlier = self.arm_state()
-            # Its own value: a later unanswered goal sets another one.
-            late = self.set_arm(
-                "a goal did not confirm that it stopped: "
-                f"{name} goal {next(UNANSWERED)} not answered"
+            number, earlier = next(UNANSWERED), self.arm_state()
+            self.set_arm(
+                f"a goal did not confirm that it stopped: {name} goal {number} "
+                "not answered"
             )
-            sent.add_done_callback(lambda done: self.cancel_late(done, earlier, late))
+            if self.runtime is not None:
+                self.__dict__.setdefault("pending", set()).add(number)
+            sent.add_done_callback(lambda done: self.cancel_late(done, number, earlier))
             if isinstance(error, TimeoutError):
                 raise Unstopped(
                     f"{name} did not answer the goal in time; it may still run"
@@ -537,6 +543,14 @@ class Hands:
         if not handle.accepted:
             raise RuntimeError(f"{name} rejected the goal")
         return handle
+
+    def blocked(self):
+        """Why no goal may be sent, or None: a goal start gave up on is not
+        settled yet (it may still move the arm), or one ended well after its
+        skill failed (the hand and the memory differ, until a restart)."""
+        if self.__dict__.get("pending"):
+            return "an earlier goal did not answer and may still move the arm"
+        return self.__dict__.get("hold")
 
     def arm_state(self):
         return None if self.runtime is None else getattr(self.runtime, ARM_OUT, None)
@@ -555,23 +569,22 @@ class Hands:
         setattr(self.runtime, ARM_OUT, self.arm_text(why))
         return getattr(self.runtime, ARM_OUT)
 
-    def cancel_late(self, sent, earlier=None, late=None):
-        """Cancel a goal answered after start gave up on it. Start set arm_out
-        (`late`, from `earlier`); a rejection, or a result from before any
-        motion, gives back `earlier`, another result sets it by how the goal
-        ended (a cancel stops the arm where it is). Only while arm_out is
-        still `late`: else a later goal set it, and this outcome stands in for
-        `late` once that one gives it back (two unanswered goals in turn)."""
+    def cancel_late(self, sent, number=None, earlier=None):
+        """Cancel goal `number`, answered after start gave up on it (start set
+        arm_out, from `earlier`, and no goal is sent until this one settles).
+        A rejection, or a result from before any motion, gives back
+        `earlier`; a success keeps the base and the hands blocked until a
+        restart (`hold`: check the hand); another result sets arm_out by how
+        the goal ended (a cancel stops the arm where it is)."""
 
         def settle(result, rejected=False):
+            self.__dict__.setdefault("pending", set()).discard(number)
             if self.runtime is None:
                 return
             if rejected or (result is not None and before_motion(result)):
                 after = earlier
             elif result is not None and result.success:
-                # Done after the skill gave up: the hand holds (or no longer
-                # holds) what the memory says. Kept until a restart.
-                after = self.arm_text(
+                after = self.hold = self.arm_text(
                     f"a goal succeeded after the skill gave up ({result.message}): "
                     "check the hand"
                 )
@@ -580,18 +593,11 @@ class Hands:
                     node.get_logger().warning(after)
             else:
                 after = self.arm_text(self.arm_why(result, stopped=True))
-            settled = self.__dict__.setdefault("settled", {})
-            if self.arm_state() != late:
-                settled[late] = after
-                return
-            while after in settled:  # an unanswered goal that ended meanwhile
-                after = settled.pop(after)
             setattr(self.runtime, ARM_OUT, after)
 
         handle = sent.result()
         if handle is None or not handle.accepted:
-            if self.runtime is not None:
-                settle(None, rejected=True)
+            settle(None, rejected=True)
             return
 
         def ended(future):
@@ -648,6 +654,8 @@ class Hands:
         `at_home` (an older server) a cancel (`stopped`) or a failure may
         leave the arm out; a goal that did not answer the cancel (`result`
         None) may still move it."""
+        if self.__dict__.get("hold"):  # kept until a restart
+            return
         if self.runtime is not None and (result is None or not before_motion(result)):
             self.set_arm(self.arm_why(result, stopped))
 
