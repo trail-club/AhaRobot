@@ -8,6 +8,7 @@ install(PROGRAMS scripts/task_runner scripts/task_monitor scripts/run_task scrip
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_people_skills test/test_people_skills.py TIMEOUT 60)
+  ament_add_pytest_test(test_appearance test/test_appearance.py TIMEOUT 60)
   ament_add_pytest_test(test_gaze test/test_gaze.py TIMEOUT 60)
   ament_add_pytest_test(test_gestures test/test_gestures.py TIMEOUT 60)
   ament_add_pytest_test(test_seats test/test_seats.py TIMEOUT 60)

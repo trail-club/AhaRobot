@@ -27,7 +27,7 @@
     "find_person": "aha_tasks.people:FindPerson",
     "ask_name_and_drink": null,
     "memorize_person": "aha_tasks.people:MemorizePerson",
-    "describe_person": null,
+    "describe_person": "aha_tasks.describe:DescribePerson",
     "receive_object": null,
     "find_free_seat": "aha_tasks.seats:FindFreeSeat",
     "offer_seat": "aha_tasks.gestures:OfferSeat",
