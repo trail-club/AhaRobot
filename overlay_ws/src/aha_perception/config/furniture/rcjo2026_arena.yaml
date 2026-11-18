@@ -42,3 +42,13 @@ furniture:
     pose: {x: 0.75, y: -0.5, yaw: 0.0}
     size: {x: 0.40, y: 0.40}
     levels: [0.60]
+  # model://trash_box at (4.5, -3.5), yaw -1.57: lid 0.2 x 0.35 x 0.05 at
+  # z 0.725 (top 0.75), side panels out to local y +-0.175, a flap below the
+  # lid at local -x. Objects put in lie inside this footprint below the lid
+  # (aha_tasks perceive_objects excludes them from the floor trash).
+  - name: trash_box
+    category: trash bin
+    pose: {x: 4.5, y: -3.5, yaw: -1.57}
+    size: {x: 0.20, y: 0.35}
+    levels: [0.75]
+    board_thickness: 0.05

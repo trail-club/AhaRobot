@@ -324,10 +324,11 @@ class LaunchSwitchTests(unittest.TestCase):
             "headless": "true",
             "gui_port": "8765",
             "people": "true",
+            "objects": "false",
             "guests": "false",
             "people_scene": "",
             "object_scene": "",
-            **self.launch.PEOPLE_OPTIONS,
+            **self.launch.DGX_OPTIONS,
             **self.launch.RUNNER_OPTIONS,
             **arguments,
         }
@@ -409,6 +410,46 @@ class LaunchSwitchTests(unittest.TestCase):
         self.assertEqual(nodes["sim_objects"]["arguments"], [f"--config={path}"])
         with self.assertRaises(ValueError):
             self.launch_task(object_scene="no_such_scene")
+
+    def test_objects_start_the_detector_of_the_choice(self):
+        _, nodes, includes = self.launch_task(
+            e2e="debug", people="false", objects="true"
+        )
+        self.assertEqual(
+            nodes["sim_object_detector.py"]["parameters"], [{"output_frame": "map"}]
+        )
+        self.assertIn("camera_bridge.launch.py", includes)
+        self.assertNotIn("objects.launch.py", includes)
+        self.assertEqual(
+            includes["sim.launch.py"]["cameras"], "true", "the detector needs depth"
+        )
+        world = nodes["static_transform_publisher"]["arguments"]
+        self.assertEqual(world, ["--frame-id", "world", "--child-frame-id", "map"])
+        _, nodes, includes = self.launch_task(e2e="final", objects="true")
+        self.assertEqual(includes["objects.launch.py"]["target_frame"], "map")
+        self.assertEqual(includes["objects.launch.py"]["respawn"], "false")
+        self.assertNotIn("sim_object_detector.py", nodes)
+
+    def test_people_and_objects_take_their_own_worker_command(self):
+        # The person and the object workers speak different protocols.
+        _, _, includes = self.launch_task(
+            objects="true",
+            ssh_user="me",
+            worker_command="person_worker",
+            object_worker_command="object_worker",
+        )
+        people, objects = includes["people.launch.py"], includes["objects.launch.py"]
+        self.assertEqual(people["worker_command"], "person_worker")
+        self.assertEqual(objects["worker_command"], "object_worker")
+        self.assertEqual((people["ssh_user"], objects["ssh_user"]), ("me", "me"))
+        self.assertNotIn("object_worker_command", people)
+
+    def test_without_objects_no_detector(self):
+        _, nodes, includes = self.launch_task(e2e="debug", people="false")
+        self.assertNotIn("sim_object_detector.py", nodes)
+        self.assertNotIn("static_transform_publisher", nodes)
+        self.assertNotIn("camera_bridge.launch.py", includes)
+        self.assertEqual(includes["sim.launch.py"]["cameras"], "false")
 
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))

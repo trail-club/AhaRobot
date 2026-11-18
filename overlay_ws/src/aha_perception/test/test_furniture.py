@@ -140,6 +140,13 @@ def test_arena_config_loads():
     assert shelf.heights == (0.02, 0.31, 0.61, 0.91, 1.20)
     assert shelf.level(3).max_object_height == pytest.approx(0.28)
     assert config.get("dining_table").heights == (0.80,)
+    trash_box = config.get("trash_box")
+    assert trash_box.heights == (0.75,)
+    # The bin's footprint, not the floor around it (yaw -90 deg: depth along y).
+    assert trash_box.contains([4.5, -3.59]) and trash_box.contains([4.67, -3.5])
+    assert not trash_box.contains([4.5, -3.65]) and not trash_box.contains(
+        [4.15, -3.25]
+    )
 
 
 def test_match_point_level_and_margin():

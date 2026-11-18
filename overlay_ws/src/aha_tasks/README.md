@@ -7,6 +7,7 @@
 | `aha_tasks/core/` | ROS非依存の実行基盤。タスク定義の検証、サブゴールの選択、チェックポイント・ロールバック |
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
+| `aha_tasks/objects.py` | 物体の検出（`/aha/perception/objects`）から台の上の物体と棚の分類を求めるスキル（[物体の認識](#物体の認識)） |
 | `aha_tasks/describe.py`、`appearance.py` | 客の外見を別の客に伝える `describe_person` と、VLMの外見の句の扱い（[外見の説明](#外見の説明)） |
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
 | `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
@@ -54,8 +55,10 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
 | `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
-| `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true` のDGXの接続先 |
-| `worker_command` | 空 | `people:=true` でDGXの代わりに起動するworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `objects` | `false` | 頭部カメラのbridgeと物体の検出（`/aha/perception/objects`、frame `map`）を起動し、`world` → `map` の恒等の静的TFを配信する（[物体の認識](#物体の認識)） |
+| `ssh_host` / `ssh_port` / `ssh_user` | `10.99.0.1` / `2222` / 空 | `people:=true`・`objects:=true` のDGXの接続先 |
+| `worker_command` | 空 | `people:=true` でDGXの代わりに起動する人のworkerのコマンド（[人の認識](../aha_perception/README.md#人の認識)） |
+| `object_worker_command` | 空 | `objects:=true`（`perception:=model`）でDGXの代わりに起動する物体のworkerのコマンド（[物体の認識](../aha_perception/README.md#物体の認識)） |
 | `guests` | `false` | [シミュレーションの客](#シミュレーションの客)を動かす `sim_guests` を起動。`config/sim/<task>.json` が必要 |
 | `people_scene` | 空 | [姿勢を付けた人](#姿勢を付けた人)を置く `sim_people` を起動。`config/sim/people/` の名前、またはJSONのパス |
 | `object_scene` | 空 | [シミュレーションの物体](#シミュレーションの物体)を家具に置く `sim_objects` を起動。`config/sim/objects/` の名前、またはJSONのパス |
@@ -83,10 +86,11 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | --- | --- | --- |
 | 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
+| 物体の検出（`objects:=true`） | `aha_perception` の `objects.launch.py`（画像からの検出器） | [sim_object_detector.py](../aha_perception/README.md#シミュレーションの物体検出)：Gazeboの真の姿勢から、頭部カメラに見える物体リストの物体を出す |
 | ドアベルの検出（`guests:=true`） | 音声コンテナの `aha_audio_doorbell`（[ドアベルの検出](#ドアベルの検出)） | `sim_sounds` が、客の鳴らした音をそのまま検出（`SoundEvent`、`model` は `sim_truth`）として出す。音声コンテナを使わない |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
-`perception:=model` を付けると、`debug` でも人の認識とドアベルの検出は `final` と同じになる（移動だけを省く）。
+`perception:=model` を付けると、`debug` でも人の認識・物体の検出・ドアベルの検出は `final` と同じになる（移動だけを省く）。
 `people_scene` の人を探す・数えるには `perception:=model` が要る（`sim_person_detector.py` は `classify_person` を持たず、客だけを出す）。`people:=true` と `perception:=truth` に `people_scene` を付けると起動時にエラーにする。
 `debug` で確かめられないため、`final` で確かめること：
 
@@ -94,6 +98,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 - **人の認識**（`perception:=truth` のとき）: SAM 3.1の見落とし・誤検出・並んだ人の結合、マスクとDepthから求める位置、VLMの特徴・照合の誤り、DGXの往復の遅れ。人は高さ1.75 mの立った体の軸として扱い、名前は覚えたモデルに直ちに付く。
 - **ドアベルの検出**（`perception:=truth` のとき）: マイク音からの検出の見落とし・遅れ・誤報。
 - **客の動き**: ロボットは待った後に一度に移るため、案内される客はロボットの経路をたどらず、壁を抜けて歩く。
+- **物体の検出**（`perception:=truth` のとき）: 見落とし・誤ったラベル・遮蔽された物体の位置と大きさの誤差。真値は物体リストの大きさとGazeboのモデルの姿勢を出す。
 
 ```bash
 # 1回目：起動して全体を実行（コンテナ内）
@@ -253,7 +258,7 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 制限：
 
 - 失敗で巻き戻しても物体の位置は戻らない。`sim_objects` を実行し直して戻す。
-- 頭部カメラのセンサは `people:=true` のときだけ有効になる。
+- 頭部カメラのセンサは `people:=true` か `objects:=true` のときだけ有効になる。
 - 緑茶・レモネード・カップ麺（どん兵衛）・歯磨き粉の箱・食洗機タブは、再利用できる写真がないため、ラベルを製品の配色と文字から描いている。食洗機タブの大きさは推定（29×20×8.5 mm）、ボトルの断面は製品画像から測った値（約2 mm）。
 - milk・cookiesはHOPEのおもちゃの食品のスキャンで、RCJOの物体（明治おいしい牛乳など）と見た目が違う。colaとcookiesはRCJOの物体リストにない。
 - red bullはRCJOの物体リストの指定どおり中身のない空き缶（15 g）で、他の飲料（中身込み）より軽く、触れると倒れやすい。
@@ -421,7 +426,7 @@ runnerの `gaze`（`aha_tasks.gaze.Gaze`）が、スキルの頭の向き先を 
 ## Pick and Place Challenge
 
 [ルールブック §5.2](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を71サブゴールに分ける。
-実装済みのスキルは `navigate` のみで、他はmockで通過する。
+実装済みのスキルは `navigate` と[物体の認識](#物体の認識)の `perceive_objects` / `perceive_shelf`（`objects:=true` が必要）で、他はmockで通過する。
 
 ```bash
 ros2 launch aha_tasks task.launch.py task:=pick_and_place subgoals:='dishwasher.*'
@@ -454,12 +459,86 @@ First Pick Bonusは既定の順序で最初に取る `trash.table.pick` に載�
 | `table.perceive` | `table.cutlery` / `.cup` / `.plate` / `.trash` / `.other1` / `.other2` |
 | `trash.floor.perceive` | `trash.floor` |
 | `tab.perceive` | `dishwasher.tab` |
-| `cabinet.perceive` | `cabinet.categories`（段ごとのカテゴリ） |
+| `cabinet.perceive` | `cabinet.categories` / `.groups` / `.placement`（棚の段・左右のカテゴリと、`table.other1` / `.other2` の置き場所） |
 | `breakfast.perceive_tableware` / `.perceive_food` | `breakfast.bowl` / `.spoon` / `.cereal` / `.milk` |
 | `extra.perceive` | `extra.obj1` / `.obj2` |
 
+物体の値は次の辞書（[物体の認識](#物体の認識)）。見つからなかった役割のキーは出さない。
+
+```json
+{"label": "mug", "category": "tableware", "position": [-1.76, -1.55, 0.841], "frame": "map",
+ "size": [0.106, 0.091, 0.081], "track": 12, "confidence": 1.0, "yaw": 0.5}
+```
+
+`position` は物体の中心、`size` は物体自身の軸に沿った外接箱（m、物体リストの底面 x, y と高さ z）、`track` は検出器のtrack ID、`confidence` は同じラベルの検出の平均。
+`yaw` は `frame` のz軸まわりの物体の向き（rad、同じラベルの検出の円周平均）で、`size` の軸の向きを表す。
+真値の検出器はモデルの向きを出す。画像からの検出器（`object_perception.py`）は `frame` の軸に沿った箱（単位四元数）を出すため、`yaw` は0になる。
 ゴミのカテゴリはセットアップ日に発表されるため、`initial_state` の `ppc.trash_category` に設定する。
-タスク固有のスキルのparamsは `perceive_shelf`（`surface`、`objects`、`output`）、`open_container`（`object`）、`pour`（`object`、`target`）。
+タスク固有のスキルのparamsは `open_container`（`object`）、`pour`（`object`、`target`）。
+
+### 物体の認識
+
+`aha_tasks/objects.py` の2つのスキルは `/aha/perception/objects`（[ROSインターフェース](../../../docs/interfaces.md#物体検出)）を購読し、
+台を頭で見回して検出を集め、台の上の物体を求める。検出器の起動はlaunchの `objects:=true`。真値の検出器も画像からの検出器も同じtopicに出す。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=pick_and_place object_scene:=pick_and_place objects:=true e2e:=debug headless:=true
+ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別のシェル
+```
+
+選択しない移動はmockで通過し、各認識の前にrunnerがロボットをその地点へ移す（[実行の仕組み](#実行の仕組み)の状態の同期）。
+
+| スキル | params | 動作 |
+| --- | --- | --- |
+| `perceive_objects` | `surface`、`output`、`roles`、`margin`、`exclude` | `surface` の上の物体を、`roles` の順に役割へ割り当てる。1つ以上の役割が見つかれば成功し、見つからない役割は結果のメッセージに出す。終了後は `roles` の順で最初に見つかった役割の物体の方を見る（1段の台では下記の見る点のうちロボットに最も近い点、棚ではその物体の段の0.1 m上、床ではその物体） |
+| `perceive_shelf` | `surface`、`objects`、`output` | 棚の各段の物体を左右の群に分け、群のカテゴリと、`objects`（記憶のキー）の物体の置き場所を出す。頭は最上段を向いたまま終える |
+
+- `surface` は家具の設定（[aha_perceptionの家具の設定](../aha_perception/README.md#家具の設定)）の家具の名前か `floor`。
+  家具の外形を `margin` m広げた範囲（食卓は審判が50 cmまで動かすため0.5 m）、`floor` はロボットから `margin` m以内を探す。
+- `exclude` の家具（家具の設定の名前）の外形を0.05 m広げた範囲の物体は、高さによらず候補にしない。
+  `trash.floor.perceive` は `["trash_box"]` で、直前にゴミ箱へ入れた食卓のゴミ（床の近くにあり、ゴミのカテゴリ）を床のゴミとして選ばない。
+- 物体はその中心が段の高さ − 0.02 m以上で、底（中心 − 箱の高さの半分）が段の高さ + 0.15 m以下なら、その段にある（皿の上の物体、横に倒れた物体も含む）。
+  条件を満たす段が複数あれば、最も高い段とする。
+- 頭は、1段の台では上面の中心（長さ1.3 mを超える辺は両端から0.3 m内側の点も）をロボットに近い順に、棚では各段の0.1 m上を下の段から、床ではロボットの前方0.8 mを正面・左0.5 rad・右0.5 radの順に見る。
+  各向きで1.5 s待ってから、2 s経ち、かつ頭が止まった後に撮られた画像の検出が届くまで（最大20 s）検出を集める（模擬時間）。
+- 物体は、頭が向きごとに止まってから次の向きへ動き出すまで（最後の向きは集め終わるまで）に撮られた画像の検出だけから求める。
+  画像からの検出器は1枚に数秒かかり、移動の終わり・前のサブゴールの視野・頭が動く間の画像の検出が後から届くため、待つのも選ぶのも検出の時刻（画像の時刻）による。
+- 検出はtrack IDごと（trackのないものは距離）にまとめ、同じラベルで0.08 m未満の塊は1つにする（検出器がtrackを付け直した物体）。同じメッセージで一緒に検出された塊は、並んだ別の物体としてまとめない。ラベルは最も多いもの。
+  2回以上検出された物体だけを使う（使う検出が向きごとに平均2回未満の遅い検出器では1回）。
+- 家具の設定のframe（シミュレーションの設定は `world`）から検出のframeへはTFで変換する。`task.launch.py` の `objects:=true` は、固定地図がGazeboのworld座標で描かれているため、`world` → `map` の恒等の静的TFを出す。
+- 家具の設定とカテゴリの物体リストは、runnerのパラメータ `furniture_config`・`objects_config`（空はaha_perceptionの[シミュレーションの家具](../aha_perception/config/furniture/rcjo2026_arena.yaml)と物体リスト）。
+  起動時（runnerの準備）に、サブゴールの `surface`・`exclude` が家具の設定にあるかを確かめる。
+
+`roles` は役割の名前から割り当ての条件への辞書。
+
+| 条件 | 選ぶ物体 |
+| --- | --- |
+| `{"labels": ["mug", "cup"]}` | ラベルが一致する物体 |
+| `{"category": "cutlery"}` | 物体リストのカテゴリが一致する物体 |
+| `{"category_key": "ppc.trash_category"}` | 記憶のキーの値のカテゴリの物体（ゴミ） |
+| `{}` | 他の条件のどれにも当たらない、物体リストにある物体（食卓の「その他」2個） |
+
+条件のある役割は書いた順に、当たる物体のうち最も多く検出されたもの（同じなら確信度、ロボットとの近さの順）を取る。
+`{}` の役割は、残りの物体から同じ順に選び、ロボットに近い順に割り当てる。
+カテゴリは大文字小文字と最後の語の末尾の `s` を区別しない（`snacks` と `snack` は同じ）。
+
+`perceive_shelf` は、段ごとに、棚の正面から見て左右（家具の局所yの正負）で物体を群に分け、群のカテゴリを多数決で決める。
+
+| 出力 | 内容 |
+| --- | --- |
+| `<output>.categories` | 段ごと（下から）の群のカテゴリ。左から。空の段は `[]` |
+| `<output>.groups` | 群の `level`・`side`（`left` / `right`）・`category`・`labels`・`position`（物体の中心の平均、zは段の高さ）・`frame` |
+| `<output>.placement` | `objects` のキーごとの置き場所。`level`・`side`・`height`・`position`・`frame`・`category`・`reason` |
+
+置き場所の `position` は、置く物体の中心を置く点（zは段の高さ）で、段の物体と側板から棚の左右方向に0.03 m離す。
+置く物体の幅は記憶の `size` の水平の長い辺（`size` がなければ0.1 m）、段の物体の幅は向きと `size` から求める。
+
+- 同じカテゴリの群があれば、大きい群から順に、群の物体の外側（側板の側、入らなければ内側）の隣で幅が入る所（`reason` が `category`、`side` は群の側）。
+- 入る群がなければ、物体のない段の片側（高さ0.2–1.0 mの段で0.6 mに近い順、左から。`empty`）。
+  空いた所もなければ、高さ0.2–1.0 mで物体の最も少ない所（`least occupied`）。`position` はその片側で最も広い空きの中央。
+- 後の物体は先に決めた物体の群に加わり、その隣に置く。
+
+カテゴリの意味の近さ（似た物体）は判断しない。
 
 ## General Purpose Service Robot Challenge
 
