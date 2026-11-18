@@ -174,7 +174,7 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 
-`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSのtopicは配信しない。
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
 `object_scene:=<名前>` の `sim_objects` は、gz-transportで配置の `world` の `/world/<world>/pose/info` を読み、`/world/<world>/create` と `set_pose` で配置の物体を同じ名前のモデルとして置く（残っていれば置き直す）。物体リストのパターンに合う名前で配置にないモデルは、先に `/world/<world>/remove` で消す。置き終えて静止を確かめると終了する。ROSのtopicは配信しない。
 
@@ -376,7 +376,7 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 
 ## 音声
 
-[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` が扱う。
+[audio.launch.py](../overlay_ws/src/aha_perception/docs/audio.md)の `aha_audio_asr` / `aha_audio_tts` / `aha_audio_doorbell` が扱う。
 
 | 用途 | 名前 | 型 |
 | --- | --- | --- |
@@ -384,6 +384,12 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 | TTS発話中 | `/aha/perception/audio/tts_active` | `std_msgs/msg/Bool` |
 | 次の発話を1つ聞いて文字起こし（言語・ホットワード指定可） | `/aha/perception/audio/listen` | `aha_msgs/action/Listen` |
 | 英語テキストを読み上げ（cancel可） | `/aha/perception/audio/speak` | `aha_msgs/action/Speak` |
+| ドアベル・ノックの検出（検出の始まりごとに1回） | `/aha/perception/audio/doorbell` | `aha_msgs/msg/SoundEvent` |
+| シミュレーションのマイク音（16 kHz mono、`sim_sounds`） | `/aha/sim/audio` | `std_msgs/msg/Float32MultiArray` |
+| シミュレーションの客が鳴らす音（`chime` / `knock`、`sim_guests`） | `/aha/sim/doorbell` | `std_msgs/msg/String` |
+
+`SoundEvent.label` は `doorbell`（チャイム・ブザー）か `knock`、`header.stamp` は検出した窓の終わりの時刻（wall clock）。
+`e2e:=debug`（`perception:=truth`）では、`aha_audio_doorbell` の代わりに `sim_sounds` が客の鳴らした音を `model` が `sim_truth` の `SoundEvent` として配信する。
 
 音声認識の言語切り替えは `aha_audio_asr` のparameter `language`（`ja` / `en`。比較用に `ja-qwen`）。`SpeechTranscript.language` は `ja` か `en` で、どのモデルで認識したかは `model` に入る。TTSは英語のみ。
 

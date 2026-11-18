@@ -8,10 +8,12 @@
 | `aha_tasks/skills.py` | 組み込みスキル `navigate` と `robot.location` の復元 |
 | `aha_tasks/people.py` | 人の認識（[person_perception](../aha_perception/README.md#人の認識)）を使うスキル |
 | `aha_tasks/gaze.py` | スキルの頭の向き先。人・Nav2の経路の先を追い続ける（[注視](#注視)） |
+| `aha_tasks/doorbell.py` | ドアベル検出（[aha_audio_doorbell](../aha_perception/docs/audio.md#ドアベル検出)）を待つスキル |
 | `aha_tasks/gestures.py` | 右腕で席を指し示す `offer_seat`（[席の案内](#席の案内)） |
 | `aha_tasks/guests.py`、`sim_guests` | シミュレーションの客の動作（ROS非依存）と、Gazeboで客を動かすnode（[シミュレーションの客](#シミュレーションの客)） |
 | `aha_tasks/sim_objects.py`、`sim_objects` | シミュレーションの物体のモデルと配置の検証（ROS非依存）と、Gazeboの家具に物体を置くプログラム（[シミュレーションの物体](#シミュレーションの物体)） |
 | `aha_tasks/object_models.py` | データセットのスキャンと実測の形状から物体のモデルを作る（ROS非依存） |
+| `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
@@ -79,14 +81,16 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | --- | --- | --- |
 | 移動 | Nav2（0.2 m/s） | `sim_teleport`：先にAMCLへ `/initialpose` を送り、AMCLのTFが目標の0.05 m・0.05 rad以内になった時点でGazeboの `set_pose` でロボットを移す。1.5 s後に成功。`guests:=true` では、移した後に客の歩く速さ（1.0 m/s）で直線距離を進む時間（1.5 s以上）待って成功する（ついて歩く客は、ロボットが移ってから歩き出す）。待ちは模擬時間で数え、`/clock` が10 s進まないときに失敗する |
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
+| ドアベルの検出（`guests:=true`） | 音声コンテナの `aha_audio_doorbell`（[ドアベルの検出](#ドアベルの検出)） | `sim_sounds` が、客の鳴らした音をそのまま検出（`SoundEvent`、`model` は `sim_truth`）として出す。音声コンテナを使わない |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
-`perception:=model` を付けると、`debug` でも人の認識は `final` と同じになる（移動だけを省く）。
+`perception:=model` を付けると、`debug` でも人の認識とドアベルの検出は `final` と同じになる（移動だけを省く）。
 `people_scene` の人を探す・数えるには `perception:=model` が要る（`sim_person_detector.py` は `classify_person` を持たず、客だけを出す）。`people:=true` と `perception:=truth` に `people_scene` を付けると起動時にエラーにする。
 `debug` で確かめられないため、`final` で確かめること：
 
 - **移動**: 経路の有無（開かないドア、壁の向こうの地点）、Nav2の失敗・時間切れ、移動中のAMCLのずれ、移動中に見える人。`sim_teleport` は目標の、地図上のロボットの半径（0.40 m）に占有・未知のセルがないことだけを見る。AMCLのTFは2 s先の時刻で配信されるため、1回の移動に約4 sかかる。移した直後の1–2枚の画像は、前後の位置が混ざったTFで測られる。
 - **人の認識**（`perception:=truth` のとき）: SAM 3.1の見落とし・誤検出・並んだ人の結合、マスクとDepthから求める位置、VLMの特徴・照合の誤り、DGXの往復の遅れ。人は高さ1.75 mの立った体の軸として扱い、名前は覚えたモデルに直ちに付く。
+- **ドアベルの検出**（`perception:=truth` のとき）: マイク音からの検出の見落とし・遅れ・誤報。
 - **客の動き**: ロボットは待った後に一度に移るため、案内される客はロボットの経路をたどらず、壁を抜けて歩く。
 
 ```bash
@@ -257,7 +261,8 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 [ルールブック §5.1](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を28サブゴールに分ける。
 `points` は得点表の最大点で、実行中に継続して求められる項目（注視など）はそのサブゴールに含める。
-実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）と、`offer_seat`。
+実装済みのスキルは `navigate`、[ロボットの画面](#ロボットの画面)を使う `wait_start_signal`、人の認識を使う `find_person` / `memorize_person` / `locate_guests`（`people:=true` が必要）、`offer_seat`、
+ドアベルを待つ `detect_doorbell`（[ドアベルの検出](#ドアベルの検出)）。
 
 ロボットは場内から始めるため、最初の `start.signal` で審判の手動の開始合図（§3.6.8）として画面の `Start` のタッチを待つ。
 部分実行で `start.signal` を選ばなければ合図を待たない。
@@ -290,6 +295,23 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 出力の `.track` は破棄済みのことがあるため、後続スキルは名前か位置を使って客を再取得する。
 `memorize_person` をmockにした場合は外見を覚えないため、後の `locate_guests` はその客を見分けられない。
 
+### ドアベルの検出
+
+`detect_doorbell` は、開始してから届いた最初の `/aha/perception/audio/doorbell`（`aha_msgs/SoundEvent`）で成功し、
+`doorbell.heard` に `doorbell` か `knock` を出力する。開始前の検出は使わない。
+`timeout`（既定120 s、実時間）で失敗する。
+検出器が検出できる状態でなければ（publisherがない。モデルの読み込みと音声入力の開始を終えるまで作らず、`doorbell_input:=topic` では音声が2 s 届かないと消す）すぐに失敗する。待っている間に検出器が止まったときも、そこで失敗する。
+
+検出器は音声コンテナで起動する（[ドアベル検出](../aha_perception/docs/audio.md#ドアベル検出)）。
+シミュレーションでは `guests:=true` の `sim_sounds` が `/aha/sim/audio` にマイク音を出すので、検出器を `doorbell_input:=topic` で起動する。`perception:=truth`（`e2e:=debug` の既定）では `sim_sounds` が検出の代わりも出すので、検出器は起動しない。
+ASR・TTSも使うために `make audio-run` を使うときは、`DOORBELL_INPUT=topic`（`perception:=truth` では `USE_DOORBELL=false`）を付ける。マイクを読む検出器が残ると、シミュレーションの音を聞かないまま検出器があるとみなされ、マイクの物音でも成功する。
+
+```bash
+# 音声コンテナ（同じ ROS_DOMAIN_ID）
+ros2 launch aha_perception audio.launch.py use_asr:=false use_tts:=false use_debug_ui:=false \
+  doorbell_input:=topic
+```
+
 ### シミュレーションの客
 
 ```bash
@@ -303,7 +325,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 | サブゴールの開始 | 客の動作 |
 | --- | --- |
 | 開始前 | 床下に隠れる。worldの壁は高さ0.8 mで、頭部カメラから壁の外の人が見えるため |
-| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ |
+| `<guest>.doorbell` | 家の外からドアの外側へ歩き、中を向いて待つ。着いていて、ロボットが `detect_doorbell` で待っている間に、設定の `bell` を1回鳴らす（`chime` は毎回ランダムなチャイム、`knock` はノック）。再試行や新しい実行では鳴らし直す |
 | `<guest>.open_door` | ドアが外へ開く。以後は開いたまま |
 | `<guest>.ask` | ドアの外側で左右に0.2 m（周期6 s）動き、ロボットを向く。ルールのとおり、会話が始まるまで家には入らない |
 | `<guest>.guide` | ロボットとの距離を1.2 m保ち、ロボットが通った経路を歩いて家に入る |
@@ -317,6 +339,7 @@ ros2 launch aha_tasks task.launch.py task:=human_interaction people:=true guests
 - 客はvisualだけでcollisionがなく、ロボットを押さない。LiDARとカメラには写る。障害物は避けず、固定の経路と追従で歩く。
 - 客の測定位置はロボットの自己位置の誤差の影響を受ける。
 - 待っている他の客・ホスト・荷物は含まない。
+- マイク音（`sim_sounds`、実時間）は −55 dBFS のピンク雑音と、合成のチャイム・ノック（ピーク −20 dBFS）だけで、距離・残響・人の声はない。チャイムは ding-dong・pinpon（日本のインターホン型）・westminster・melody・single_ding から毎回ランダムに選び、音の高さ・音色・間隔もランダム。検出器が苦手なブザー型は入れていない。検出のつながりを確かめるためのもので、検出性能は [ドアベル検出の比較](../../../tools/perception/doorbell_bench/README.md) で評価する。
 
 ### 注視
 

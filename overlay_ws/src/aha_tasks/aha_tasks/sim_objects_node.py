@@ -32,6 +32,7 @@ from aha_tasks.sim_objects import (
 )
 
 REQUEST_TIMEOUT = 2000  # ms
+REMOVE_TIMEOUT = 10.0  # s to wait for removed models to leave pose/info
 # AHA_CACHE_DIR: a directory that outlives the container (docker-compose.yml)
 DEFAULT_CACHE = (
     Path(os.environ.get("AHA_CACHE_DIR") or Path.home() / ".cache" / "aharobot")
@@ -139,15 +140,18 @@ def main(argv=None):
 
     def wait_poses(timeout, done=lambda poses: True):
         """The first pose/info received from now on (within ``timeout`` s)
-        for which done(poses) holds, or None."""
-        since = time.monotonic()
+        for which done(poses) holds; else the last one received from now on,
+        or None."""
+        since, last = time.monotonic(), None
         while time.monotonic() < since + timeout:
             with lock:
                 received, poses = latest["time"], latest["poses"]
-            if received > since and done(poses):
-                return poses
+            if received > since:
+                last = poses
+                if done(poses):
+                    return poses
             time.sleep(0.2)
-        return None
+        return last
 
     present = wait_poses(args.timeout)
     if present is None:
@@ -178,9 +182,14 @@ def main(argv=None):
                 )
             elif not removed:
                 log(f"could not remove {name} to spawn it again")
-        if wait_poses(10.0, lambda poses: not set(gone) & set(poses)) is None:
-            log("warning: removed objects are still in Gazebo")
-        present = {k: v for k, v in present.items() if k not in gone}
+        # A request can fail although the model goes, or the reverse: what
+        # pose/info shows decides. A scene object still there is moved back.
+        current = wait_poses(REMOVE_TIMEOUT, lambda poses: not set(gone) & set(poses))
+        left = set(gone) & set(present if current is None else current)
+        if left:
+            names = ", ".join(sorted(left))
+            log(f"warning: removed objects are still in Gazebo: {names}")
+        present = {k: v for k, v in present.items() if k not in gone or k in left}
     for obj in [] if args.check else scene.objects:
         x, y, z, yaw = obj.spawn_pose()
         if obj.name in present:
