@@ -12,6 +12,7 @@ rate is the DGX round trip (seconds), capped by `max_rate`.
 """
 
 import json
+import math
 from pathlib import Path
 import shlex
 import threading
@@ -29,7 +30,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, TransformException
 from visualization_msgs.msg import Marker, MarkerArray
 
 from aha_perception.dgx import DgxWorker, RequestError, WorkerOptions, object_spec
@@ -48,6 +49,10 @@ from aha_perception.object_detection import (
 )
 from aha_perception.object_list import load_object_list
 from aha_perception.people import decode_mask, encode_image, rotation_matrix
+from aha_perception.tf_jump import (
+    TF_RESET_MIN_INTERVAL_S,
+    JumpDetectingTransformListener,
+)
 
 OBJECTS_TOPIC = "/aha/perception/objects"
 MARKERS_TOPIC = "/aha/perception/objects/markers"
@@ -141,7 +146,10 @@ class ObjectPerception(Node):
         self.last_stamp = None
 
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_listener = JumpDetectingTransformListener(
+            self.tf_buffer, self, self.on_tf_jump
+        )
+        self.last_tf_reset = -math.inf
         self.objects_pub = self.create_publisher(DetectedObjectArray, OBJECTS_TOPIC, 10)
         self.marker_pub = self.create_publisher(MarkerArray, MARKERS_TOPIC, 10)
         self.image_pub = self.create_publisher(Image, IMAGE_TOPIC, 2)
@@ -315,6 +323,20 @@ class ObjectPerception(Node):
             f"VLM {timing.get('vlm', 0.0):.1f} s): "
             + ", ".join(f"{t.id} {t.label}" for t in seen)
         )
+
+    def on_tf_jump(self):
+        """The /tf time went back (sim restart): drop the old run's TF, whose
+        later stamps reject the new /tf as TF_OLD_DATA. The tracker is cleared
+        in process_frame, when the image time goes back."""
+        if time.monotonic() - self.last_tf_reset < TF_RESET_MIN_INTERVAL_S:
+            return False
+        self.tf_buffer.clear()
+        self.tf_listener.forget()
+        self.last_tf_reset = time.monotonic()
+        self.get_logger().info(
+            "/tf time went back (sim restart or reset): cleared the TF buffer"
+        )
+        return True
 
     def robot_points(self, frame, stamp):
         """Positions of robot_frames in `frame` at the image time; frames without
