@@ -37,7 +37,7 @@ from aha_perception.people import decode_mask, encode_image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from conftest import camera_to_base  # noqa: E402
-from fake_object_worker import ColourSegmenter, ColourVlm  # noqa: E402
+from fake_object_worker import ColourSegmenter, ColourVlm, sheet_count  # noqa: E402
 
 W, H = 640, 480
 FX = FY = 465.7
@@ -202,10 +202,9 @@ def render_cylinder(transform, centre, radius, height):
     return np.where(np.isfinite(depth), depth, np.nan)
 
 
-def measure(depth, transform, **kwargs):
-    mask = np.isfinite(depth)
+def measure(depth, transform, mask=None, **kwargs):
     return measure_object(
-        mask,
+        np.isfinite(depth) if mask is None else mask,
         depth,
         FX,
         FY,
@@ -266,16 +265,7 @@ def test_measure_ignores_holes_and_leaked_background():
     leaked[ys[::7], xs[::7]] = np.nan  # depth holes
     border = mask & ~np.roll(mask, 3, axis=1)
     leaked[border] = 4.0  # wall behind the object at the silhouette
-    measured = measure_object(
-        mask,
-        leaked,
-        FX,
-        FY,
-        CX,
-        CY,
-        rotation=transform[:3, :3],
-        translation=transform[:3, 3],
-    )
+    measured = measure(leaked, transform, mask)
     np.testing.assert_allclose(measured.centre, centre, atol=0.015)
 
 
@@ -298,10 +288,13 @@ def test_measure_in_the_camera_frame_is_the_visible_box():
 # --- Tracking ---------------------------------------------------------------------
 
 
+def box(label, x, y, z, size, score=0.8):
+    return ObjectDetection(label, np.array([x, y, z]), np.array(size, float), score)
+
+
 def detection(label, x, y=0.0, score=0.8):
-    return ObjectDetection(
-        label, np.array([x, y, 0.75]), np.array([0.07, 0.07, 0.1]), score, [0, 0, 1, 1]
-    )
+    """A 7 x 7 x 10 cm object on a table."""
+    return box(label, x, y, 0.75, [0.07, 0.07, 0.1], score)
 
 
 def test_size_fits_rejects_only_much_larger_boxes():
@@ -332,12 +325,6 @@ def test_merge_keeps_one_detection_per_object():
         ("cereal", 0.9),
         ("milk", 0.8),
     ]
-
-
-def box(label, x, y, z, size, score=0.8):
-    return ObjectDetection(
-        label, np.array([x, y, z]), np.array(size, float), score, [0, 0, 1, 1]
-    )
 
 
 def test_merge_joins_parts_and_one_object_named_twice():
@@ -474,33 +461,30 @@ def test_worker_names_candidates():
 def test_worker_reports_bad_requests_and_keeps_running():
     good = {
         "type": "detect",
-        "id": 3,
+        "id": 4,
         "image": encode_image(scene()),
         "prompts": ["can"],
         "labels": LABELS,
     }
+    bad_size = dict(good, id=3, labels=[{"label": "apple", "size": [0.07, 0.07]}])
     code, responses = run_worker(
         [
             {"type": "detect", "id": 1, "image": encode_image(scene())},
             {"type": "describe", "id": 2},
+            bad_size,
             good,
         ],
         ColourVlm(),
     )
-    assert [r["type"] for r in responses] == ["ready", "error", "error", "detections"]
-    assert [r.get("id") for r in responses[1:]] == [1, 2, 3]
-
-
-def test_worker_rejects_bad_label_sizes():
-    request = {
-        "type": "detect",
-        "id": 4,
-        "image": encode_image(scene()),
-        "prompts": ["can"],
-        "labels": [{"label": "apple", "size": [0.07, 0.07]}],
-    }
-    _, responses = run_worker([request], ColourVlm())
-    assert responses[1]["type"] == "error" and "size" in responses[1]["message"]
+    assert [r["type"] for r in responses] == [
+        "ready",
+        "error",
+        "error",
+        "error",
+        "detections",
+    ]
+    assert [r.get("id") for r in responses[1:]] == [1, 2, 3, 4]
+    assert "size" in responses[3]["message"]
 
 
 def test_worker_without_vlm_fails_each_request():
@@ -537,8 +521,7 @@ class FirstSheetFails:
         self.answered = 0
 
     def ask(self, prompt, photo, sheet):
-        count = int(prompt.split("with every number from 1 to ")[1].split(".")[0])
-        if count == SHEET_TILES:
+        if sheet_count(prompt) == SHEET_TILES:
             raise RuntimeError("VLM is not reachable: timed out")
         time.sleep(0.3)
         with self.lock:

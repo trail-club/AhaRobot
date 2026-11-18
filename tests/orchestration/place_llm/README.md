@@ -61,8 +61,8 @@ python3 tests/orchestration/place_llm/summarize.py --run "2026-10-11" --cases ap
 この位置の右手は奥行き約0.15 m・ロボットのy −0.2〜−0.45 m（worldのx 3.15〜3.40）の帯にしか置けない。
 drinkとfruitはその右に置き、foodは帯の外で段4の2つ目のグループ（foodを持つケースはない）。
 持たせる物体と正解：apple・peach → 段4のfruitの隣、cola・milk → 段3のdrinkの隣、
-chocolate jello・strawberry jello（snack、棚にない、高さ0.08 m）→ 空いた段5。
-pringles（0.23 m）・cookies（0.15 m）も段5が正解だが、段5で手が届かない高さ（約0.12 m超）。
+chocolate jello・strawberry jello（snack、棚にない、高さ0.04 m以下）→ 空いた段5。
+pringles（0.25 m）・cookies（0.17 m）も段5が正解だが、段5で手が届かない高さ（約0.12 m超）。
 大きさは物体リスト（`aha_perception/config/objects/robocup_objects.yaml`）。
 
 ## 出力の列（`trials.csv`）

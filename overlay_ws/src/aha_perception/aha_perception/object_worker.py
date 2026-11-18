@@ -51,11 +51,13 @@ from .worker_io import protocol_stream, safe_error, send_json
 MAX_PROMPTS = 24
 
 
-def _strings(value, what):
+def _prompts(value):
     if not isinstance(value, list) or not all(
         isinstance(v, str) and v.strip() for v in value
     ):
-        raise ValueError(f"{what} must be a list of nonempty strings")
+        raise ValueError("prompts must be a list of nonempty strings")
+    if len(value) > MAX_PROMPTS:
+        raise ValueError(f"at most {MAX_PROMPTS} prompts")
     return [v.strip() for v in value]
 
 
@@ -83,9 +85,9 @@ def _labels(value):
     return labels
 
 
-def name_candidates(vlm, rgb, masks, labels, pool=None):
-    """The VLM's label (or None) per mask, asked in sheets of SHEET_TILES,
-    and the VLM's answer per sheet."""
+def name_candidates(vlm, rgb, masks, labels, pool):
+    """The VLM's label (or None) per mask, asked in sheets of SHEET_TILES on
+    `pool`, and the VLM's answer per sheet."""
     names = [label["label"] for label in labels]
 
     def ask(start):
@@ -97,22 +99,16 @@ def name_candidates(vlm, rgb, masks, labels, pool=None):
         )
         return parse_labels(answer, len(chunk), names), answer
 
-    starts = range(0, len(masks), SHEET_TILES)
-    if pool is None or len(starts) == 1:
-        results = [ask(start) for start in starts]
-    else:
-        futures = [pool.submit(ask, start) for start in starts]
-        # A failed sheet must not leave the others running into the next image.
-        wait(futures)
-        results = [future.result() for future in futures]
+    futures = [pool.submit(ask, start) for start in range(0, len(masks), SHEET_TILES)]
+    # A failed sheet must not leave the others running into the next image.
+    wait(futures)
+    results = [future.result() for future in futures]
     return [label for chunk, _ in results for label in chunk], [a for _, a in results]
 
 
-def detect(segmenter, vlm, request: dict, pool=None) -> dict:
+def detect(segmenter, vlm, request: dict, pool) -> dict:
     started = time.perf_counter()
-    prompts = _strings(request.get("prompts"), "prompts")
-    if len(prompts) > MAX_PROMPTS:
-        raise ValueError(f"at most {MAX_PROMPTS} prompts")
+    prompts = _prompts(request.get("prompts"))
     labels = _labels(request.get("labels"))
     threshold = float(request.get("threshold", DEFAULT_CANDIDATE_THRESHOLD))
     validate_threshold(threshold)
@@ -130,12 +126,8 @@ def detect(segmenter, vlm, request: dict, pool=None) -> dict:
         results, rgb.shape[:2], max_candidates=max_candidates, border_px=border_px
     )
     segmented = time.perf_counter()
-    masks = np.array([c.mask for c in candidates], dtype=bool).reshape(
-        -1, *rgb.shape[:2]
-    )
-    names, answers = (
-        name_candidates(vlm, rgb, masks, labels, pool) if len(masks) else ([], [])
-    )
+    masks = np.array([c.mask for c in candidates], dtype=bool)
+    names, answers = name_candidates(vlm, rgb, masks, labels, pool)
     finished = time.perf_counter()
     return {
         "type": "detections",

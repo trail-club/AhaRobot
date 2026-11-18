@@ -59,7 +59,6 @@ OUTLINE_RGB = (0, 255, 0)
 # Brightness kept outside the mask in a close-up: neighbours stay visible as
 # context but do not take the VLM's attention.
 TILE_BACKGROUND = 0.25
-NONE = "none"
 
 
 @dataclass
@@ -84,20 +83,14 @@ def touches_border(mask: np.ndarray, border_px: int) -> bool:
 
 
 def pool_candidates(
-    results,
-    shape,
-    *,
-    max_candidates=DEFAULT_MAX_CANDIDATES,
-    min_pixels=MIN_MASK_PIXELS,
-    max_share=MAX_MASK_SHARE,
-    border_px=0,
+    results, shape, *, max_candidates=DEFAULT_MAX_CANDIDATES, border_px=0
 ):
     """Masks of all phrases, best score first, without duplicates.
 
     `results` holds (phrase, SAM outputs) pairs. Masks smaller than
-    `min_pixels` or larger than `max_share` of the image are dropped, and with
-    `border_px` > 0 those cut off by the image edge, whose position and size
-    the depth cannot give.
+    MIN_MASK_PIXELS or larger than MAX_MASK_SHARE of the image are dropped, and
+    with `border_px` > 0 those cut off by the image edge, whose position and
+    size the depth cannot give.
     """
     height, width = shape
     pooled = []
@@ -109,7 +102,7 @@ def pool_candidates(
         for score, mask in zip(scores, masks):
             pixels = int(mask.sum())
             if (
-                min_pixels <= pixels <= max_share * height * width
+                MIN_MASK_PIXELS <= pixels <= MAX_MASK_SHARE * height * width
                 and not touches_border(mask, border_px)
             ):
                 pooled.append(Candidate(mask, float(score), phrase))
@@ -126,10 +119,6 @@ def pool_candidates(
             continue
         kept.append(candidate)
     return kept
-
-
-def _font(size):
-    return ImageFont.load_default(size=size)
 
 
 def _outline(mask: np.ndarray) -> np.ndarray:
@@ -161,7 +150,7 @@ def crop_sheet(rgb: np.ndarray, masks) -> np.ndarray:
     rows = max(1, math.ceil(count / columns))
     sheet = Image.new("RGB", (columns * TILE_PX, rows * TILE_PX), (255, 255, 255))
     draw = ImageDraw.Draw(sheet)
-    font = _font(TILE_PX // 7)
+    font = ImageFont.load_default(size=TILE_PX // 7)
     for index, mask in enumerate(masks):
         x0, y0, x1, y1 = tile_box(mask, rgb.shape[:2])
         inside = mask[y0:y1, x0:x1]
@@ -303,7 +292,6 @@ class ObjectMeasurement:
 
     centre: np.ndarray
     size: np.ndarray  # axis-aligned extents x, y, z
-    points: int  # depth samples used
 
 
 def camera_points(mask, depth_m, fx, fy, cx, cy):
@@ -366,12 +354,11 @@ def measure_object(
     # The width the erosion took off both sides, at the object's distance.
     margin = 2 * eroded * float(np.median(points[:, 2])) / fx
     if rotation is None:
-        lows, highs = zip(*(_extent(points[:, k]) for k in range(3)))
-        lows, highs = np.array(lows), np.array(highs)
-        size = highs - lows + np.array([margin, margin * fx / fy, 0.0])
-        return ObjectMeasurement(
-            (lows + highs) / 2, np.maximum(size, MIN_SIZE_M), len(points)
+        lows, highs = np.percentile(
+            points, [EXTENT_PERCENTILE, 100 - EXTENT_PERCENTILE], axis=0
         )
+        size = highs - lows + np.array([margin, margin * fx / fy, 0.0])
+        return ObjectMeasurement((lows + highs) / 2, np.maximum(size, MIN_SIZE_M))
     translation = np.zeros(3) if translation is None else np.asarray(translation)
     world = points @ np.asarray(rotation).T + translation
     relative = world[:, :2] - translation[:2]
@@ -399,7 +386,7 @@ def measure_object(
         ]
     )
     centre = np.array([centre_xy[0], centre_xy[1], (bottom + top) / 2])
-    return ObjectMeasurement(centre, size, len(points))
+    return ObjectMeasurement(centre, size)
 
 
 # Measured boxes larger than the label's size by this factor and margin are
@@ -434,7 +421,6 @@ class ObjectDetection:
     centre: np.ndarray
     size: np.ndarray
     score: float
-    bbox: list[int]
 
 
 # Two boxes of one image are one object when, with the same label, the
@@ -491,7 +477,6 @@ class ObjectTrack:
     centre: np.ndarray
     size: np.ndarray
     score: float
-    bbox: list[int]
     last_seen: float
     hits: int = 0
     votes: dict = field(default_factory=dict)  # label -> summed score
@@ -512,7 +497,6 @@ class ObjectTrack:
         self.centre = self.centre + weight * (detection.centre - self.centre)
         self.size = self.size + weight * (detection.size - self.size)
         self.score = detection.score
-        self.bbox = list(detection.bbox)
         self.last_seen = stamp
         self.votes[detection.label] = (
             self.votes.get(detection.label, 0.0) + detection.score
@@ -538,12 +522,11 @@ class ObjectTracker:
 
     def update(self, detections, stamp: float) -> list[ObjectTrack]:
         """Associate one image's detections; returns the tracks seen in it."""
-        for track_id in [
-            t.id
-            for t in self.tracks.values()
-            if stamp - t.last_seen > self.forget_after
-        ]:
-            del self.tracks[track_id]
+        self.tracks = {
+            i: t
+            for i, t in self.tracks.items()
+            if stamp - t.last_seen <= self.forget_after
+        }
         pairs = []
         for track in self.tracks.values():
             for index, detection in enumerate(detections):
@@ -573,7 +556,6 @@ class ObjectTracker:
                 np.array(detection.centre, dtype=float),
                 np.array(detection.size, dtype=float),
                 detection.score,
-                list(detection.bbox),
                 stamp,
             )
             track.add(detection, stamp)
@@ -600,7 +582,7 @@ def annotate(rgb: np.ndarray, items) -> np.ndarray:
         texts.append((x0, y0, text, colour))
     canvas = Image.fromarray(image)
     draw = ImageDraw.Draw(canvas)
-    font = _font(max(12, rgb.shape[0] // 32))
+    font = ImageFont.load_default(size=max(12, rgb.shape[0] // 32))
     for x, y, text, colour in texts:
         box = draw.textbbox((x, y), text, font=font)
         top = max(0, y - (box[3] - box[1]) - 4)
