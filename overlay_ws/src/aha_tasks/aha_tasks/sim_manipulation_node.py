@@ -317,6 +317,8 @@ class Stand:
         yaw = yaw_of(world_object)
         sdf = static_copy(self.sdf(name, entry.label, x, y, z, yaw))
         with self.lock:
+            # Before the model changes: a failure leaves the object as it is.
+            offset = yaw - yaw_of(self.world_tcp())
             self.remove(name)
             try:
                 self.create(sdf, name)
@@ -327,7 +329,6 @@ class Stand:
                 except Failed as error:
                     self.log.warning(f"{name} is gone from Gazebo: {error}")
                 raise
-            offset = yaw - yaw_of(self.world_tcp())
             self.held = Held(name, entry.label, offset, entry.size)
 
     def put(self, centre):

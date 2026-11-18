@@ -550,6 +550,16 @@ class Hands:
                 return
             if rejected or (result is not None and before_motion(result)):
                 after = earlier
+            elif result is not None and result.success:
+                # Done after the skill gave up: the hand holds (or no longer
+                # holds) what the memory says. Kept until a restart.
+                after = self.arm_text(
+                    f"a goal succeeded after the skill gave up ({result.message}): "
+                    "check the hand"
+                )
+                node = getattr(self, "node", None)
+                if node is not None:
+                    node.get_logger().warning(after)
             else:
                 after = self.arm_text(self.arm_why(result, stopped=True))
             settled = self.__dict__.setdefault("settled", {})

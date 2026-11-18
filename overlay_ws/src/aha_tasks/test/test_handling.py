@@ -1102,9 +1102,16 @@ class HandsTests(unittest.TestCase):
         cancelled = threading.Event()
         cancelled.set()
         stuck = PickResult(success=False, message="cancelled", returned=False)
-        back = PickResult(success=True, message="Picked", returned=True)
+        # Done after the skill failed: the memory does not know the hand.
+        done = PickResult(success=True, message="Picked", returned=True)
+        back = PlaceResult(success=False, status=4, message="stopped", returned=True)
         before = PickResult(success=False, message="too far", returned=True)
-        for on_cancel, out in ((stuck, True), (back, False), (before, False)):
+        for on_cancel, out in (
+            (stuck, True),
+            (done, True),
+            (back, False),
+            (before, False),
+        ):
             with self.subTest(result=on_cancel.message):
                 client = FakeClient()
                 hands.clients = {PICK_ACTION: (None, client)}
@@ -1121,6 +1128,8 @@ class HandsTests(unittest.TestCase):
                 self.assertIn("did not confirm", hands.runtime.arm_out)
                 handle.future.set_result(SimpleNamespace(result=on_cancel))
                 self.assertEqual(hands.runtime.arm_out is not None, out)
+                if on_cancel is done:
+                    self.assertIn("check the hand", hands.runtime.arm_out)
         # A late rejection changes nothing.
         client = FakeClient()
         hands.clients = {PICK_ACTION: (None, client)}

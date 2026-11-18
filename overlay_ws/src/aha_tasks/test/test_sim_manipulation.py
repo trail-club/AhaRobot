@@ -300,6 +300,9 @@ class StandAttachTests(unittest.TestCase):
             def sdf(self, name, label, x, y, z, yaw):
                 return f'<sdf version="1.9"><model name="{name}"><link name="l"/></model></sdf>'
 
+            def world_tcp(self):
+                return pose_matrix(0.6, -0.2, 1.0)
+
             def create(self, sdf, name):
                 if "<static>" in sdf:
                     raise Failed(f"No reply to the creation of {name}")
@@ -309,6 +312,25 @@ class StandAttachTests(unittest.TestCase):
         with self.assertRaises(Failed):
             Stand.attach(stand, "cola", "cola", pose_matrix(0.6, -0.2, 0.86))
         self.assertEqual(stand.created, ["cola"])  # the object as it was
+        self.assertIsNone(stand.held)
+
+    def test_no_tcp_pose_leaves_the_object_as_it_is(self):
+        class NoTcp(FakeStand):
+            removed = ()
+
+            def sdf(self, name, label, x, y, z, yaw):
+                return f'<sdf version="1.9"><model name="{name}"><link name="l"/></model></sdf>'
+
+            def remove(self, name):
+                self.removed += (name,)
+
+            def world_tcp(self):
+                raise Failed("No TF base_footprint <- link_ree")
+
+        stand = NoTcp()
+        with self.assertRaises(Failed):
+            Stand.attach(stand, "cola", "cola", pose_matrix(0.6, -0.2, 0.86))
+        self.assertEqual((stand.removed, stand.created), ((), []))
         self.assertIsNone(stand.held)
 
     def test_a_failed_attach_brings_the_arm_back(self):
