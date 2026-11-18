@@ -131,6 +131,11 @@ class Gaze:
             self.track, self.name, self.last, self.seen = track, name, None, None
         self._tick()
 
+    def following(self):
+        """(track, name) of the person the head follows, or None."""
+        with self.lock:
+            return (self.track, self.name) if self.mode == "person" else None
+
     def follow_path(self, goal):
         """Look ahead along the plan of the navigation to goal [x, y, yaw] (map).
 

@@ -170,13 +170,13 @@ GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/co
 POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 
 runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ配信し、Nav2の経路 `/plan`（`nav_msgs/msg/Path`）と
-`/aha/perception/people` を注視に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
+`/aha/perception/people` を注視と[空席の判定](../overlay_ws/src/aha_tasks/README.md#空席の判定)に使う（[aha_tasksの注視](../overlay_ws/src/aha_tasks/README.md#注視)）。
 `perceive_objects` / `perceive_shelf` は `/aha/perception/objects`（[物体検出](#物体検出)）と、TF（家具の設定のframe → 検出のframe、検出のframe → `base_footprint`）を使う（[aha_tasksの物体の認識](../overlay_ws/src/aha_tasks/README.md#物体の認識)）。
 `task.launch.py objects:=true` は検出器をframe `map` で起動し、`world` → `map` の恒等の静的TFを配信する（固定地図はGazeboのworld座標）。
 `offer_seat` は `/joint_states`、TF（`map` → `base_footprint`）、`/right_arm_controller/follow_joint_trajectory` と
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 
-`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
+`guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`host`・`chair_extra`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
 `object_scene:=<名前>` の `sim_objects` は、gz-transportで配置の `world` の `/world/<world>/pose/info` を読み、`/world/<world>/create` と `set_pose` で配置の物体を同じ名前のモデルとして置く（残っていれば置き直す）。物体リストのパターンに合う名前で配置にないモデルは、先に `/world/<world>/remove` で消す。置き終えて静止を確かめると終了する。ROSのtopicは配信しない。
 

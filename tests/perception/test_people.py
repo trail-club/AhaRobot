@@ -222,6 +222,48 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(set(tracker.tracks), {3})
 
 
+def sized(size, value):
+    """A detection at x=0 with a size x size crop of `value` and that bbox."""
+    centre = np.zeros(3)
+    image = np.full((size, size, 3), value, np.uint8)
+    return Detection(centre, centre + [0, 0, 0.7], 0.9, [0, 0, size, size], image)
+
+
+class DescribeCropTests(unittest.TestCase):
+    def test_each_description_gets_an_image_not_described_before(self):
+        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
+        [track] = tracker.update([sized(10, 1)], 0.0)
+        # Smaller views (< 0.7 of the area) do not replace the held crop.
+        for value, stamp in ((2, 0.5), (3, 1.0), (4, 1.5)):
+            tracker.update([sized(6, value)], stamp)
+        self.assertEqual(track.crop[0, 0, 0], 1)
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (0.0, 1))  # the held, largest
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (1.5, 4))  # recent, newest
+        self.assertIsNone(track.crop_to_describe())  # nothing newer
+        tracker.update([sized(5, 5)], 2.0)
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (2.0, 5))
+
+    def test_a_larger_crop_just_after_the_last_description_is_skipped(self):
+        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
+        [track] = tracker.update([sized(6, 1)], 4.65)
+        tracker.update([sized(10, 2)], 5.0)  # held: larger than at 4.65
+        tracker.update([sized(8, 3)], 5.1)  # recent, 0.1 s after the held one
+        tracker.update([sized(7, 4)], 5.5)  # recent, 0.5 s after it
+        self.assertEqual([s for s, _ in track.recent_crops], [4.65, 5.1, 5.5])
+        self.assertEqual(track.crop_to_describe()[0], 5.0)
+        # 5.1 is larger, but nearly the image described: the VLM would repeat it.
+        stamp, crop = track.crop_to_describe()
+        self.assertEqual((stamp, crop[0, 0, 0]), (5.5, 4))
+        self.assertIsNone(track.crop_to_describe())
+        tracker.update([sized(7, 5)], 5.9)  # recent, only 0.4 s after 5.5
+        self.assertIsNone(track.crop_to_describe())
+        tracker.update([sized(7, 6)], 6.4)
+        self.assertEqual(track.crop_to_describe()[0], 6.4)
+
+
 class GalleryTests(unittest.TestCase):
     def setUp(self):
         self.tracker = PersonTracker(forget_after=1.0)
