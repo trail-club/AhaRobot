@@ -54,8 +54,9 @@ def arm_ok(engine, runtime):
     hands = getattr(runtime, "hands", None)
     was = getattr(runtime, ARM_OUT, None) or (hands and hands.blocked())
     if hands is not None:
-        hands.arm_ok()
-    setattr(runtime, ARM_OUT, None)
+        hands.arm_ok()  # ARM_OUT too
+    else:
+        setattr(runtime, ARM_OUT, None)
     if not was:
         return True, "The arm was not marked out"
     engine.notify(f"Arm back home ({ARM_OK} from the operator); cleared: {was}")

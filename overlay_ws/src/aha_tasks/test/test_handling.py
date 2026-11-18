@@ -997,6 +997,7 @@ def bare_hands(clients=None, arm_out=None):
         get_logger=lambda: SimpleNamespace(warning=lambda text: None)
     )
     hands.clients, hands.pending, hands.hold = clients or {}, set(), None
+    hands.lock, hands.generation = threading.Lock(), 0
     return hands
 
 
@@ -1175,7 +1176,7 @@ class HandsTests(unittest.TestCase):
                 class Watched(set):
                     def discard(self, number):
                         super().discard(number)
-                        seen.append((hands.blocked(), hands.runtime.arm_out))
+                        seen.append((hands.why_blocked(), hands.runtime.arm_out))
 
                 hands.pending = Watched()
                 handle = FakeHandle(None)
@@ -1210,12 +1211,82 @@ class HandsTests(unittest.TestCase):
         self.assertEqual(arm_ok(engine, runtime), (True, "The arm was not marked out"))
         self.assertEqual(len(notes), 1)
         # A goal that ends later still sets the state.
-        hands.settle(7, PickResult(success=False, message="stuck", at_home=False), None)
+        stuck = PickResult(success=False, message="stuck", at_home=False)
+        hands.settle(7, stuck, (0, None))
         self.assertIn("not at home: stuck", navigation.blocked())
         # A task without the hands.
         runtime = SimpleNamespace(arm_out="out")
         self.assertTrue(arm_ok(engine, runtime)[0])
         self.assertIsNone(runtime.arm_out)
+
+    def give_up_after(self, arm_out):
+        """Hands whose pick goal G was not answered in time, with ARM_OUT
+        `arm_out` before G; the client that sent G."""
+        client = FakeClient()
+        hands = bare_hands({PICK_ACTION: client}, arm_out=arm_out)
+        with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
+            with self.assertRaises(Unstopped):
+                hands.run(PICK_ACTION, goal(), 1.0, threading.Event())
+        self.assertIn("did not confirm", hands.runtime.arm_out)
+        return hands, client
+
+    def answer(self, client, late):
+        """G's late answer: a rejection (None), else `late` once cancelled."""
+        if late is None:
+            client.sent[0].set_result(SimpleNamespace(accepted=False))
+            return
+        handle = FakeHandle(late)
+        handle.accepted = True
+        client.sent[0].set_result(handle)  # cancelled at once: `late` ends it
+
+    def test_a_goal_given_up_on_before_arm_ok_does_not_bring_back_its_state(self):
+        # The arm was out (X) when G was given up on; the operator moved it
+        # back and sent arm_ok; then G ends.
+        out = arm_text("not at home: X")
+        for late, after in (
+            (None, None),  # rejected
+            (PickResult(success=False, message="too far", at_home=True), None),
+            (
+                PlaceResult(success=False, status=3, message="far", at_home=False),
+                None,
+            ),
+            (
+                PickResult(success=False, message="stuck G", at_home=False),
+                "not at home: stuck G",  # it moved the arm
+            ),
+            (
+                PickResult(success=True, message="Picked", at_home=True),
+                "check the hand",
+            ),
+        ):
+            with self.subTest(late=late and late.message):
+                hands, client = self.give_up_after(out)
+                hands.arm_ok()
+                self.answer(client, late)
+                self.assertEqual(hands.pending, set())
+                if after is None:
+                    self.assertIsNone(hands.runtime.arm_out)
+                    self.assertIsNone(hands.blocked())
+                else:
+                    self.assertIn(after, hands.runtime.arm_out)
+        # Without arm_ok, the arm is as G found it.
+        hands, client = self.give_up_after(out)
+        self.answer(client, None)
+        self.assertEqual(hands.runtime.arm_out, out)
+
+    def test_a_late_end_from_before_arm_ok_keeps_a_newer_goals_state(self):
+        hands, client = self.give_up_after(arm_text("not at home: X"))
+        hands.arm_ok()
+        # A newer goal H ends with the arm out; G's late rejection is older.
+        hands.arm_after(PickResult(success=False, message="stuck H", at_home=False))
+        self.answer(client, None)
+        self.assertIn("not at home: stuck H", hands.runtime.arm_out)
+        # A late success holds the hands and the base whatever H says.
+        hands, client = self.give_up_after(None)
+        hands.arm_ok()
+        self.answer(client, PickResult(success=True, message="Picked", at_home=True))
+        hands.arm_after(PickResult(success=True, message="Picked H", at_home=True))
+        self.assertIn("check the hand", hands.runtime.arm_out)
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = bare_hands()
