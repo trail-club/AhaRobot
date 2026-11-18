@@ -4,6 +4,13 @@ from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.core.spec import is_pose
 
 LOCATION = "robot.location"  # memory key: location label or [x, y, yaw] in map
+# Runtime attribute (not task memory, which a failure rolls back): why the arm
+# may be out over furniture, so that the base must not move. Set and cleared
+# by aha_tasks.handling.Hands, checked by aha_tasks.navigation.Navigation
+# before every goal (runner.guard_navigation). The operator clears it with the
+# runner's arm_ok command (runner.arm_ok); a restarted runner starts
+# without it.
+ARM_OUT = "arm_out"
 
 
 def resolve_pose(spec, value):

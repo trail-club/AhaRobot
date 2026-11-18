@@ -13,6 +13,7 @@ PACKAGE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PACKAGE)
 from aha_tasks.core import Skill, SkillResult, TaskEngine, parse_spec  # noqa: E402
 from aha_tasks.core.skill import SkillContext  # noqa: E402
+from aha_tasks.handling import DeliverObject, PickObject, PlaceObject  # noqa: E402
 from aha_tasks.plan import RunPlanStep, validate_plan  # noqa: E402
 from aha_tasks.runner import load_task  # noqa: E402
 from aha_tasks.skills import LOCATION, go_to  # noqa: E402
@@ -106,8 +107,19 @@ def context(plan, index=0, memory=None):
     )
 
 
+def handled(cls):
+    """A pick, place or deliver skill that succeeds without the servers."""
+
+    class Handled(cls):
+        def execute(self, ctx):
+            return SkillResult(True, f"{cls.__name__} done")
+
+    return Handled
+
+
 def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", **kw):
-    """Engine over the real task definition; skills as the runner builds them."""
+    """Engine over the real task definition; skills as the runner builds them,
+    the object handling without its servers."""
     spec, classes = load_task(GPSR)
     runtime = SimpleNamespace(
         node=None,
@@ -116,6 +128,12 @@ def gpsr_engine(navigation=None, overrides=None, restore=False, policy="abort", 
         interaction=FakeInteraction(),
     )
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
+    for name, cls in (
+        ("pick_object", PickObject),
+        ("place_object", PlaceObject),
+        ("deliver_object", DeliverObject),
+    ):
+        skills[name] = handled(cls)(runtime)
     skills.update(overrides or {})
     runtime.skills = skills
     restorers = {}
@@ -418,6 +436,9 @@ class GpsrDefinitionTests(unittest.TestCase):
                 "say",
                 "find_described_person",
                 "count_people",
+                "pick_object",
+                "place_object",
+                "deliver_object",
             },
         )
         for name in ("find_described_person", "count_people"):
@@ -452,7 +473,7 @@ class GpsrEngineTests(unittest.TestCase):
         )
         self.assertEqual(by_id["exec.step01"]["status"], "succeeded")
         self.assertIn("navigate", by_id["exec.step01"]["message"])
-        self.assertIn("pick_object is not implemented", by_id["exec.step02"]["message"])
+        self.assertIn("PickObject done", by_id["exec.step02"]["message"])
         self.assertIn("No step 13", by_id["exec.step13"]["message"])
         self.assertEqual(by_id["finish.report"]["status"], "unsupported")
         memory = status["memory"]

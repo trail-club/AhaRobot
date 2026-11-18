@@ -26,6 +26,9 @@ node can be rerun without restarting Gazebo.
   sim_object_detector.py the objects instead of objects.launch.py, and sim_sounds
   publishes the guests' doorbell and knocks as detections instead of
   aha_audio_doorbell (no audio container).
+- manipulation (debug: sim): aha_tasks sim_manipulation serves pick, place
+  and handover by moving the objects in Gazebo. `none` (final) starts no
+  server: the manipulation squad's servers are started on their own.
 """
 
 from pathlib import Path
@@ -66,6 +69,8 @@ E2E_DEFAULTS = {
     "debug": {"navigation": "teleport", "perception": "truth"},
 }
 CHOICES = {"navigation": ("nav2", "teleport"), "perception": ("model", "truth")}
+# e2e mode -> default pick, place and handover servers; final allows only none.
+MANIPULATION = {"final": "none", "debug": "sim"}
 
 # Launch arguments of the DGX workers. people.launch.py and objects.launch.py
 # share the connection; each takes its own worker_command (the person and the
@@ -111,6 +116,18 @@ def e2e_choices(mode, navigation="", perception=""):
                 f"use e2e:=debug for {name}:={value}"
             )
     return chosen["navigation"], chosen["perception"]
+
+
+def manipulation_choice(mode, manipulation=""):
+    """The pick, place and handover servers of an e2e mode: sim or none."""
+    chosen = manipulation or MANIPULATION[mode]
+    if chosen not in MANIPULATION.values():
+        raise ValueError(
+            f"manipulation must be one of {sorted(MANIPULATION.values())}: {chosen!r}"
+        )
+    if mode == "final" and chosen != MANIPULATION["final"]:
+        raise ValueError("e2e:=final starts no stand-in; use e2e:=debug for it")
+    return chosen
 
 
 def object_detector(perception, debug, value):
@@ -171,6 +188,9 @@ def launch_task(context):
         # simulation stays up.
         respawn=debug,
         respawn_delay=2.0,
+    )
+    manipulation = manipulation_choice(
+        value("e2e"), context.launch_configurations.get("manipulation", "")
     )
     people = value("people") == "true"
     objects = value("objects") == "true"
@@ -242,6 +262,18 @@ def launch_task(context):
                 package="aha_tasks",
                 executable="sim_teleport",
                 parameters=[teleport],
+                output="screen",
+                # It exits when no Gazebo world shows up in time.
+                respawn=True,
+                respawn_delay=2.0,
+            )
+        )
+    if manipulation == "sim":
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_manipulation",
+                parameters=[{"use_sim_time": True}],
                 output="screen",
                 # It exits when no Gazebo world shows up in time.
                 respawn=True,
@@ -370,6 +402,12 @@ def generate_launch_description():
                 default_value="",
                 description="model | truth (debug only), with people:=true or "
                 "objects:=true; empty: by e2e",
+            ),
+            DeclareLaunchArgument(
+                "manipulation",
+                default_value="",
+                description="sim (debug only) | none: pick, place and handover "
+                "servers; empty: by e2e",
             ),
             DeclareLaunchArgument("headless", default_value="false"),
             DeclareLaunchArgument("gui_port", default_value="8765"),

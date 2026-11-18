@@ -166,6 +166,7 @@ aha_tasksの `e2e:=debug` では `navigation:=false` でmap_serverとAMCLだけ�
 
 topicはいずれもRELIABLE / TRANSIENT_LOCAL / KEEP_LAST(1)。状態は変化のたびに全体を配信し、
 形式は `aha_tasks/core/engine.py` の `TaskEngine.status()`（`schema_version: 1`）。
+`TaskCommand` の `command` は `start` / `retry` / `skip` / `rewind` / `abort` と、腕を手でhome姿勢へ戻した後に台車の移動と取る・置く・渡すgoalを再び許す `arm_ok`（サブゴールの実行中は断る。[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
 GUIのHTTP APIは `GET /api/status`、`GET /api/events`（SSE）、`POST /api/command`（`TaskCommand` と同じフィールドのJSON）。
 POSTは `Content-Type: application/json` が必要。`Origin` が `Host` と異なる要求と、loopbackで待ち受けるときに `Host` がloopbackの名前でない要求（DNS rebinding）には403を返す。応答は同じoriginのページからだけiframeに入れられる（`frame-ancestors 'self'`）。
 
@@ -177,6 +178,22 @@ runnerは他に、スキルの頭の向き先を `/aha/perception/look_at` へ�
 `/lift_controller/follow_joint_trajectory`（`control_msgs/action/FollowJointTrajectory`、昇降は `joint_r1` だけのgoal）を使う。
 `show_objects` は実行中だけ `/camera/color/image_raw`・`/camera/color/camera_info`（[頭部カメラ](#頭部カメラ)）を購読し、TF（物体の `frame` → 画像の `frame_id`）を使い、
 物体に枠を描いた画像を `/aha/display/image` へ配信する（[ロボットの画面](#ロボットの画面)）。
+
+`pick_object` / `place_object` / `deliver_object` は、腕の動作をmanipulation担当の次のaction serverに任せる（[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
+
+| 用途 | 名前 | 型 |
+| --- | --- | --- |
+| 物体を取る | `/aha/manipulation/pick` | `aha_msgs/action/PickObject` |
+| 持っている物体を置く・入れる | `/aha/manipulation/place` | `aha_msgs/action/PlaceObject` |
+| 持っている物体を人へ渡す | `/aha/manipulation/handover` | `aha_msgs/action/HandOver` |
+
+- `PickObject` の `target` は `/aha/perception/objects` の物体（frame `map`、`class_name` はラベル、`pose` は中心、`size` は物体の軸の大きさ）。`approach_offset` は0。
+- `PlaceObject` の `near` は置く物体の底面の中心（frame `map`、zは段の高さ）、`furniture` / `furniture_level` は家具の設定の家具と段（床は空 / 0）、`object_size` は持っている物体の大きさ、`clearance` は他の物体との間隔。`drop` がtrueなら `near` は容器（ゴミ箱）の中の点で、支えに立てずに入れる。`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` は腕を動かす前に返す（呼び出し側は台車を動かしてよい）。
+- `HandOver` の `target` は人の中心（frame `map`）。`release` は `take`（serverが受け取りを感じ取ったら離す）か `now`（手を出したらすぐ離す）。取り消すと腕はその場で止まり、物体を持ち続ける。`deliver_object` は `touch: true` のとき、画面のタッチで `take` のgoalを取り消し、取り消された（`STATUS_CANCELED`）ときだけ `now` で送り直す。
+- 腕を動かしたgoalは、成功でも失敗でも腕をhome姿勢へ戻してから終える。home姿勢は `aha_manipulation` のSRDFの `carry` で、物体を持っていてもいなくても同じ姿勢にする。戻せなければ結果の `at_home` をfalseにし、腕を動かさなかったgoalはtrueにする。`HandOver` の `STATUS_UNREACHABLE` / `ERROR` も腕を動かす前に返し、腕を動かした後の動作の失敗は `STATUS_EXECUTION_FAILED` で返す。取り消しは腕をその場で止める。runnerは腕がhome姿勢にないかもしれない間（`at_home` がfalseで終わったgoalの後など）、`/navigate_to_pose` へgoalを送らない（`Navigation.navigate` が断る。規則は[aha_tasksの物体を取る・置く・渡すスキル](../overlay_ws/src/aha_tasks/README.md#物体を取る置く渡すスキル)）。
+- 試験用の `aha_test_msgs/action/PlaceObject`（[tests](../tests/README.md)、同じ `/aha/manipulation/place`）とは型が異なるため、同時に起動しない。
+
+`e2e:=debug` の `sim_manipulation`（[シミュレーションの把持](../overlay_ws/src/aha_tasks/README.md#シミュレーションの把持)）は同じ3つのaction serverを提供する。gz-transportで `/world/<world>/pose/info` を読み、`/world/<world>/remove`・`create`・`set_pose` で物体のモデルを作り直して動かす。TF（`map` → `base_footprint` → `link_ree`）、`/joint_states`、`/right_arm_controller/follow_joint_trajectory` と `/lift_controller/follow_joint_trajectory` を使う。
 
 `guests:=true` の `sim_guests` は `/aha/tasks/status` を購読し、gz-transportで `/world/rcjo2026_arena/pose/info` からロボットの真の位置を読み、`/world/rcjo2026_arena/create` と `set_pose` でモデル `guest1`・`guest2`・`host`・`chair_extra`・`arena_door` を操作する。ROSでは、客がドアに着いたときに `/aha/sim/doorbell` だけを配信する（[音声](#音声)）。
 `people_scene:=<名前>` の `sim_people` は、gz-transportで配置の `world` の `/world/<world>/create` と `set_pose` を使い、配置の人を同じ名前のモデルとして置く。手を振る人は `<人>__waving_a` と `<人>__waving_b` の2つを模擬時間で交互に見せる。ROSのtopicは配信しない。
@@ -432,8 +449,8 @@ aha_tasksの `e2e:=debug` では、`sim_person_detector.py` がGazeboの真の�
 
 [aha_msgs](../overlay_ws/src/aha_msgs/) に `DetectedObject` / `DetectedObjectArray`、`Person` / `PersonArray`、
 `Plane` / `PlaneArray` / `PlaceCandidate` / `PlaceObstacle`、`Surface` / `SurfaceArray`、`SetNavGoal`、`GetPlaceCandidates`、
-`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`TaskCommand`、`Ask` の型定義がある。
+`RememberPerson`、`DescribePerson`、`ClassifyPerson`、`PickObject`、`PlaceObject`、`HandOver`、`TaskCommand`、`Ask` の型定義がある。
 型定義だけでは対応するnodeやserverの起動を意味しない（`PlaneArray`・`SurfaceArray` と `GetPlaceCandidates` は [平面検出](#平面検出)、
-`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識) が使う）。
+`DetectedObjectArray` は [物体検出](#物体検出)、`PersonArray`・`RememberPerson`・`DescribePerson`・`ClassifyPerson` は [人の認識](#人の認識)、`PickObject`・`PlaceObject`・`HandOver` は [サブゴールタスクの実行](#サブゴールタスクの実行) が使う）。
 置く動作など試験用のinterfaceは [tests](../tests/README.md) のパッケージにある。
 シミュレーションやカメラ経路の実際のtopic・型・QoSは起動後に `ros2 topic list -t` / `ros2 topic info -v` で確認する。

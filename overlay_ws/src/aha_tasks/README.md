@@ -18,6 +18,8 @@
 | `aha_tasks/object_models.py` | データセットのスキャンと実測の形状から物体のモデルを作る（ROS非依存） |
 | `aha_tasks/sim_sounds.py`、`sim_sounds` | シミュレーションのマイク音（背景雑音と客のドアベル・ノック） |
 | `aha_tasks/teleport.py`、`sim_teleport` | デバッグ用。Nav2の代わりにGazeboでロボットを瞬間移動させる `NavigateToPose` のserver（[e2eの確認](#e2eの確認)） |
+| `aha_tasks/handling.py` | 物体を取る・置く・人へ渡すスキル（[物体を取る・置く・渡すスキル](#物体を取る置く渡すスキル)） |
+| `aha_tasks/sim_manipulation.py`、`sim_manipulation` | デバッグ用。取る・置く・渡すserverの代わりにGazeboで物体を動かすnode（[シミュレーションの把持](#シミュレーションの把持)） |
 | `run_task` | runnerの準備を待って実行を始め、終了まで待って各サブゴールの所要時間を出すCLI（[e2eの確認](#e2eの確認)） |
 | `aha_tasks/plan.py` | 計画の検証と、計画の手順を各スキルへ振り分ける `run_plan_step` |
 | `aha_tasks/display.py`、`web/display/` | ロボットの画面の状態（ROS非依存）とROSの入出力、画面のページ（[ロボットの画面](#ロボットの画面)） |
@@ -53,6 +55,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | `task` | 必須 | `config/` のタスク名、またはJSONのパス |
 | `e2e` | `final` | `final` はNav2とDGXのモデル、`debug` はシミュレーションの代替（[e2eの確認](#e2eの確認)） |
 | `navigation` / `perception` | 空（`e2e` による） | `e2e:=debug` で代替を個別に戻す。`nav2` / `teleport`、`model` / `truth`。`final` は `nav2` / `model` だけ |
+| `manipulation` | 空（`e2e` による） | `sim` は `sim_manipulation` を起動（`debug` の既定）、`none` は起動しない（`final` の既定。manipulation担当のserverを別に起動する） |
 | `headless` | `false` | Gazebo GUIを起動しない |
 | `gui_port` | `8765` | Web GUIのport |
 | `people` | `false` | 頭部カメラのbridgeと[person_perception](../aha_perception/README.md#人の認識)（DGX Spark）を起動 |
@@ -89,6 +92,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 | 人の認識（`people:=true`） | `person_perception.py` とDGXのSAM 3.1・VLM | [sim_person_detector.py](../aha_perception/README.md#シミュレーションの人の検出)：Gazeboの真の位置から、頭部カメラに見える客を出す。DGXを使わない |
 | 物体の検出（`objects:=true`） | `aha_perception` の `objects.launch.py`（画像からの検出器） | [sim_object_detector.py](../aha_perception/README.md#シミュレーションの物体検出)：Gazeboの真の姿勢から、頭部カメラに見える物体リストの物体を出す |
 | ドアベルの検出（`guests:=true`） | 音声コンテナの `aha_audio_doorbell`（[ドアベルの検出](#ドアベルの検出)） | `sim_sounds` が、客の鳴らした音をそのまま検出（`SoundEvent`、`model` は `sim_truth`）として出す。音声コンテナを使わない |
+| 取る・置く・渡す | manipulation担当のserver（このlaunchは起動しない） | [sim_manipulation](#シミュレーションの把持)：把持を計画せず、Gazeboで物体のモデルを手先へ移す・置く・消す |
 | runnerの終了 | launch全体が終わる | runnerと人の認識のnodeは止めると2 s後に再起動し、Gazebo・AMCL・客はそのまま |
 
 `perception:=model` を付けると、`debug` でも人の認識・物体の検出・ドアベルの検出は `final` と同じになる（移動だけを省く）。
@@ -100,6 +104,7 @@ Nav2がACTIVEになると待機状態になり、GUIから実行する。runner�
 - **ドアベルの検出**（`perception:=truth` のとき）: マイク音からの検出の見落とし・遅れ・誤報。
 - **客の動き**: ロボットは待った後に一度に移るため、案内される客はロボットの経路をたどらず、壁を抜けて歩く。
 - **物体の検出**（`perception:=truth` のとき）: 見落とし・誤ったラベル・遮蔽された物体の位置と大きさの誤差。真値は物体リストの大きさとGazeboのモデルの姿勢を出す。
+- **取る・置く・渡す**（`manipulation:=sim` のとき）: 把持・置く動作の計画と失敗、腕と家具・物体の衝突、落下、人が受け取ったことの検知。代替は届く距離だけを見る。
 
 ```bash
 # 1回目：起動して全体を実行（コンテナ内）
@@ -585,7 +590,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 [ルールブック §5.3](https://robocupathome.github.io/RuleBook/rulebook/master.pdf)（2027 Rev-1、2026-10-14ドラフト）を29サブゴールに分ける。
 3命令をまとめて受け取り、`plan.generate` が記憶へ出力した計画を `exec.step01`〜`exec.step20` で1手順ずつ実行する。
 実行の枠は命令に結びつかないため、命令の解決（3×250）とInterleaved Task Bonus（200）の950点は `finish.report` に計上する。
-実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
+実装済みのスキルは `navigate`、`run_plan_step`、`say`（[ロボットの画面](#ロボットの画面)）、人の認識を使う `find_described_person` / `count_people`（`people:=true` が必要）、[物体を取る・置く・渡す](#物体を取る置く渡すスキル) `pick_object` / `place_object` / `deliver_object`（`objects:=true` と取る・置く・渡すserverが必要）。`plan_commands` と `listen_command` はmockの命令3件とその計画で通過する。
 
 ### 計画
 
@@ -636,6 +641,47 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | `count_people` | `pans` を1巡し、見えている人を1人ずつ判定する。その向きに判定していない人が残る間は次の向きへ進まず、人を判定したらその向きを `dwell` だけ見直す。1人の判定は1回（失敗した場合は2回まで）で、判定できなかった人と、答えで条件の成否が決まらなかった人は数えない。`map` で0.5 m未満の観測は同じ人とする。`timeout`（既定300 s）で失敗 | `<output>`（人数）、`<output>.positions`（条件に合った人の最後の位置） |
 
 trackは視野を外れると3 sで破棄され、見直すと別のIDになる。そのため判定は見えている間に行い、判定した人の `map` の位置から0.5 m未満に現れた新しいtrackは、同じ人として判定し直さない（数え直さない）。ただし、判定した人のtrackが同じ画像にまだ見えていれば、近くの新しいtrackは別の人として判定する。
+
+### 物体を取る・置く・渡すスキル
+
+[handling.py](aha_tasks/handling.py) の3つのスキルは、物体の選択・置き場所・台車の位置・人への声かけを受け持ち、腕の動作は取る・置く・渡すaction server（[ROSインターフェース](../../../docs/interfaces.md#サブゴールタスクの実行)）に任せる。
+台の上は[物体の認識](#物体の認識)と同じ走査で見るため、`objects:=true` が必要。
+
+```bash
+ros2 launch aha_tasks task.launch.py task:=gpsr objects:=true object_scene:=gpsr e2e:=debug headless:=true
+ros2 run aha_tasks run_task --subgoals 'exec.step01,exec.step02' --on-failure skip  # 別のシェル
+```
+
+| スキル | params | 動作 | 出力 |
+| --- | --- | --- | --- |
+| `pick_object` | `object`、`surface`（省略可）、`arm`（`right`）、`margin`（家具の外形から0.1 m、`floor` はロボットからの半径1.5 m）、`retries`（1）、`approach`（`true`） | `surface` の上を走査して `object` に合う物体を選び、腕から届かなければ台車を寄せて `PickObject` を送る。`floor` ではゴミ箱（家具の設定のcategoryが `trash bin`）の中の物体を除く（捨てた物体も床の近くにあるため）。失敗すると走査からやり直す | `robot.holding`（`object` の値）、`robot.held_object`（物体の辞書に `surface` を加えたもの）、寄せたときは `robot.location` |
+| `place_object` | `object`、`surface`、`spot`（省略可）、`arm`、`clearance`（0.05）、`retries`、`approach` | 置き場所を決め、届かなければ台車を寄せて `PlaceObject` を送る。別の置き場所・台車の位置で変わりうる失敗（`STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `EXECUTION_FAILED`）だけ、置き場所からやり直す。`STATUS_NOT_AT_SPOT`（離したが置いた所に見えない）は物体がもう手にないため成功とし、メッセージに書く（失敗では記憶が戻り、`robot.holding` が残る） | `robot.holding` と `robot.held_object` を `null` |
+| `deliver_object` | `object`、`person`、`role`（`person`）、`distance`（1.0）、`timeout`（20）、`retries`（1）、`arm`、`touch`（`false`） | 人の前へ行き（腕が出ているかもしれない間は台車を動かせないので、人が離れていれば失敗する）、`Here is the cola. Please take it from my hand.` と言って `HandOver` を送る | 同上 |
+
+- **物体**: `object` は命令の語（`cola`、`a drink`、`drinks`。ラベル、その複数形、カテゴリ。`object` などの総称は何にでも合う）か、物体の辞書を持つ記憶のキー（`perceive_objects`・`find_object` の出力）。合う物体のうち、キーなら記憶の位置から0.3 m以内の同じラベルの物体、なければ検出回数・確信度・ロボットとの近さの順で選ぶ。
+- **surface**: 家具の設定の家具の名前、`floor`、またはタスクの地点。地点は、その向きの前方90°以内で1.2 m以内にある最も近い家具とする（GPSRの `kitchen_table` は `dining_table`、`desk` は `long_table`、`side_tables` は `tall_table`、`trashbin` は `trash_box`、`shelf` は `shelf`）。`trash` などの語はカテゴリ `trash bin` の家具。
+- **台車を寄せる**: 物体（置き場所）が使う腕の肩（台車の中心から後ろへ0.04 m、右腕は右へ0.13 m）から0.75 mより遠いか、台車の後ろにあれば寄せる。家具ではロボットのいる側の縁に向き、台車の中心を縁から0.65 m（タスクの地点と同じく障害物から0.6 m以上。それより近いとNav2はその姿勢から経路を作れない）、物体を右腕の側（`base_footprint` の y −0.2 m、`arm: left` は +0.2 m）に置く。台車の中心が縁から0.65 m、肩が縁から0.69 mなので、肩から0.75 mで届くと判定するのは台の縁から約0.06 m奥まで（それより奥でも、寄せた後はその場からserverへ送り、届くかはserverが決める）。床では物体へ向き、物体が (0.45, −0.2) m に来る位置。移動に失敗しても、その場からserverへ送る。serverへgoalを送った後のやり直しでは、腕が家具の上に出たままかもしれない（Nav2のfootprintは腕を含まない）ため、台車を動かさない。ただし `PlaceObject` が腕を動かす前に返す `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` の後は寄せ直し、`UNREACHABLE` では届くと判定していても寄せ直す（床では物体が腕の点に来る位置）。家具では縁から0.65 mより近づけないので、台車が動かず置き場所も同じなら、送り直さずに失敗する。`PickObject` の結果にはstatusがないため、pickのやり直しでは寄せない。
+- **置き場所**: ゴミ箱（カテゴリ `trash bin` の家具）は外形の中心で高さの半分の点に `drop` で入れる。棚（段が複数の家具）は `perceive_shelf` と同じ規則（同じカテゴリの群の隣など）。台は、見えた物体と互いの外接円が `clearance` 以上離れ、縁から0.03 m内側で、右腕の前の点（台車の (0.45, −0.2) m）に最も近い点（2 cm格子）。床は台車の0.5 m前。`spot`（記憶のキー）があれば、その `perceive_shelf` の `placement`（物体のキーで引く）、`position` を持つ辞書、`map` の `[x, y, z]` に置く。物体の記録（`perceive_objects` / `find_object` の出力）は `position` が物体の中心なので、高さの半分を引いて底面の高さにする。
+- **人**: `person` が `operator` か `me` なら、`instruction_point` へ移動し、地点から2.5 m以内で人の認識が3 s以内に見た最も近い人へ向く。見えなければ地点の向きの1.0 m先へ差し出す。それ以外は `<role>.position` / `.frame`（`find_described_person`）の人へ `distance` まで近づく（1.3 m以内なら向きだけ合わせる）。記憶になければ失敗する。
+- **受け渡し**: 手を出す点は人の中心で、高さを0.7–1.1 mに収める。serverが受け取りを感じ取る（`release: take`）と離す。`touch: true` なら画面の `Release` のタッチでも離す（HIC以外ではタッチを使わない方針のため既定はfalse）。タッチでは `take` のgoalを取り消して（腕は出したまま）`release: now` で送り直す。取り消す間に `take` のgoalが終わっていれば（受け取られた後のタッチなど）、送り直さずにその結果を使う。5 s以内に止まったと確かめられなければ、送り直さずに失敗とする。`timeout` 秒で受け取られなければ、言い直して `retries` 回まで送る。
+- 失敗しても人に助けを求めない（§3.7の補助は最後の手段で、まず手順を飛ばす）。失敗はサブゴールの失敗としてポリシーに従う。
+- 腕がまだ動くかもしれないgoal（時間切れや中断で取り消して5 s以内に止まったと確かめられないgoal、受け付けの返事を5 s以内に受け取れなかったgoal）の後は、スキルは次のgoalを送らずに失敗し（渡すも同じ）、そのgoalが決着する（結果が届くか断られる）までは取る・置く・渡すgoalを送らない。後から成功で終われば、記憶の `robot.holding` と手が食い違うので「check the hand」を残し、`arm_ok`（下）かrunnerの再起動までgoalを送らない。
+- 腕がhome姿勢（SRDFの `carry`）にないかもしれない間は、runnerは台車を動かさない（runnerの `Navigation` を通るすべての移動。`navigate`、記憶の位置への復元、計画の手順のmockの移動、スキル内で寄せる移動、`find_described_person` などが人へ近づく移動）。その間とは、上の決着していないgoalの間（後から成功したgoalの後は `arm_ok` かrunnerの再起動まで）と、`at_home` がfalseで終わったgoal（取り消したgoalや、`carry` へ動けなかった `PickObject` の成功を含む）の後で、`at_home` がtrueのgoalの終了で解除する。ただし腕を動かす前に返る `STATUS_NO_SURFACE` / `NO_SPACE` / `UNREACHABLE` / `ERROR` と、`at_home` がtrueの `PickObject` の失敗（statusがなく、腕を動かしたか分からない）は、前のgoalの後の状態を変えない。失敗の後の巻き戻しでも動かず、`Not moving the base ...: the arm may be out ...` で止まる。`NavigateToPose` を直接送る他のクライアントは、runtimeの `arm_out`（`aha_tasks.skills.ARM_OUT`）を確かめる。
+- 腕を手でhome姿勢へ戻し、取る・置く・渡すgoalが動いていないことを確かめた後、GUIの「腕を戻した」か `/aha/tasks/command` の `arm_ok` で解除する（サブゴールの実行中は断る）。それより前のgoalが後から決着したときは、腕を動かした結果（`at_home` がfalse）と遅れた成功だけを上の規則で反映し、断られたgoalや腕を動かす前の結果は解除を取り消さない。runnerの記憶ではなくプロセスの状態のため、runnerの再起動でも解除されるが、`e2e:=final` ではrunnerの終了でlaunch全体が終わる。
+- serverの時間切れ（取る・置くは120 s）や中断でgoalを取り消しても、goalが成功で終わっていれば（物体を既に手先に置いた後など）その結果で成功を返し、`robot.holding` を出力する。ただしタスクの中断では、runnerは出力を記憶へ入れないため、記憶と実際に持っている物体が食い違うことがある。そのときはスキルのメッセージとログに、記憶に入らない `robot.holding` の値と「check the hand」を書く（手の物体は人が確かめる）。
+- 持てる物体は1つで、持っている間の `pick_object` は失敗する。
+
+### シミュレーションの把持
+
+`e2e:=debug`（`manipulation:=sim`）では `sim_manipulation` が取る・置く・渡すserverの代わりに、把持を計画せずGazeboで物体のモデルを動かす。
+
+- **pick**: 目標の点から0.2 m以内の同じラベル（なければ他のラベル）の物体モデルを選ぶ。台車から水平に1.0 m（`reach`）より遠いと失敗する。右腕を物体の上へ伸ばし、モデルを同じ名前の静的なモデル（collisionなし）に作り直して手先（`link_ree`）に置き、腕をhome姿勢の `carry` へ動かす。手先に置いた後は、`carry` へ動けなくても（取り消し・controllerの失敗。`at_home` はfalse）、`grasp_pose_used` を求められなくても、成功を返してメッセージに書く。placeとhandoverも、物体が手を離れた後のGazeboの失敗（モデルの作り直し・削除）は成功のメッセージに書く。持った物体は20 Hzで手先を追い、直立のまま手先の向きで回る。
+- pickとplaceは、腕を目標の上へ向けられなければ（届く姿勢がない）、腕を動かさずに失敗する（placeは `STATUS_UNREACHABLE`）。
+- **place**: `near` が `reach` 以内なら腕をその上（`drop` は家具の設定の容器の天板の上）へ伸ばし、静的なモデルを `near` に立てて（`drop` は中心を `near` にして）腕をhome姿勢（`carry`）へ戻した後、動く物体のモデルとして作り直す（`drop` では落ちる）。
+- **handover**: 腕を目標の点へ伸ばし、`release: take` では2 s（`take_delay`、模擬時間）後に人が受け取ったとみなしてモデルを消し、腕をhome姿勢へ戻す。パラメータ `take` が `false` なら受け取られず、`timeout` で `STATUS_TIMEOUT` になり、持ったまま腕を `carry` へ戻す。`reach` / `take` / `take_delay` は実行中に `ros2 param set /sim_manipulation` で変えられる。
+- 腕の動作中に取り消されると、place / handoverは `STATUS_CANCELED` を返す（腕はその場で止まり、物体を持ち続ける）。取り消し以外で腕の動作が失敗すると、腕をhome姿勢へ戻してから失敗を返す（`at_home` は戻れたか）。予期しない例外でも腕を戻してから、`STATUS_EXECUTION_FAILED`（pickはstatusなし）で失敗を返す。
+- 腕は関節空間の直線で動き、衝突を確かめない。上げるときは昇降、下げるときは腕を先に動かし、手は物体の上0.08 mを通る。右腕だけを扱う。終了時、持っている物体はその場で動く物体に戻す。
+- 指は閉じず、持った物体は指を通り抜ける。巻き戻しても物体は戻らない（`sim_objects` を実行し直す）。`sim_manipulation` が持ったまま異常終了すると、物体は静的なまま宙に残る。
 
 ### 姿勢を付けた人
 

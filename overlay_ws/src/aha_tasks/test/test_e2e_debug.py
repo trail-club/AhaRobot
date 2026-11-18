@@ -451,6 +451,17 @@ class LaunchSwitchTests(unittest.TestCase):
         self.assertNotIn("camera_bridge.launch.py", includes)
         self.assertEqual(includes["sim.launch.py"]["cameras"], "false")
 
+    def test_debug_serves_pick_place_and_handover_in_gazebo(self):
+        _, nodes, _ = self.launch_task(e2e="debug")
+        self.assertTrue(nodes["sim_manipulation"]["respawn"])
+        _, nodes, _ = self.launch_task(e2e="debug", manipulation="none")
+        self.assertNotIn("sim_manipulation", nodes)
+        _, nodes, _ = self.launch_task(e2e="final")
+        self.assertNotIn("sim_manipulation", nodes)
+        for mode, value in (("final", "sim"), ("debug", "moveit")):
+            with self.subTest(mode=mode, value=value), self.assertRaises(ValueError):
+                self.launch_task(e2e=mode, manipulation=value)
+
     def test_final_is_the_real_stack(self):
         self.assertEqual(self.launch.e2e_choices("final"), ("nav2", "model"))
         self.assertEqual(

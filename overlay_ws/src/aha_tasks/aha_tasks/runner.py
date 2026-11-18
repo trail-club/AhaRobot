@@ -9,10 +9,11 @@ import time
 from types import SimpleNamespace
 
 from aha_tasks.core import POLICIES, TaskEngine, load_spec, resolve, select
-from aha_tasks.skills import LOCATION, check_locations, go_to
+from aha_tasks.skills import ARM_OUT, LOCATION, check_locations, go_to
 
 STATUS_TOPIC = "/aha/tasks/status"
 COMMAND_SERVICE = "/aha/tasks/command"
+ARM_OK = "arm_ok"  # command: the operator moved the arm back home
 
 
 def positive_seconds(value):
@@ -36,6 +37,30 @@ def load_task(path):
     if spec.locations:
         check_locations(spec)
     return spec, classes
+
+
+def guard_navigation(navigation, runtime):
+    """No base motion while the runtime's ARM_OUT is set (see Navigation.blocked)."""
+    navigation.blocked = lambda: getattr(runtime, ARM_OUT, None)
+
+
+def arm_ok(engine, runtime):
+    """The arm_ok command: the operator checked that the arm is home and that
+    no pick, place or handover goal still runs. Clears the runtime's ARM_OUT
+    and what the hands hold back (aha_tasks.handling.Hands), so that the base
+    moves and goals are sent again. Refused while a subgoal runs."""
+    if engine.state == "running":
+        return False, f"{ARM_OK} is not available while a subgoal runs"
+    hands = getattr(runtime, "hands", None)
+    was = getattr(runtime, ARM_OUT, None) or (hands and hands.blocked())
+    if hands is not None:
+        hands.arm_ok()  # ARM_OUT too
+    else:
+        setattr(runtime, ARM_OUT, None)
+    if not was:
+        return True, "The arm was not marked out"
+    engine.notify(f"Arm back home ({ARM_OK} from the operator); cleared: {was}")
+    return True, "Arm marked home: the base may move again"
 
 
 def describe(spec, selection):
@@ -116,6 +141,8 @@ def main(argv=None):
         else None
     )
     runtime = SimpleNamespace(node=node, spec=spec, navigation=navigation, gaze=gaze)
+    if navigation is not None:
+        guard_navigation(navigation, runtime)
     skills = {name: cls and cls(runtime) for name, cls in classes.items()}
     runtime.skills = skills
     restorers = {}
@@ -147,6 +174,8 @@ def main(argv=None):
             response.accepted, response.message = engine.start(
                 list(request.subgoals), request.on_failure or None
             )
+        elif request.command == ARM_OK:
+            response.accepted, response.message = arm_ok(engine, runtime)
         else:
             response.accepted, response.message = engine.command(
                 request.command, request.target or None

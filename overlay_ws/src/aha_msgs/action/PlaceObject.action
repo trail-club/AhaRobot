@@ -1,0 +1,41 @@
+# Put down the object held in a gripper: on a support at a spot, or into a
+# container (a trash bin). Owner: manipulation squad. Consumers: task.
+# The fields mirror aha_test_msgs/action/PlaceObject (the place test bed)
+# where they overlap. A goal that moved the arm ends with the arm at home
+# (the SRDF group_state "carry" of aha_manipulation), else `at_home` is false;
+# a cancel stops it where it is.
+
+string                     arm             # "right" (default when empty) | "left"
+geometry_msgs/Vector3      object_size     # x, y footprint and z height (m) of the held object, all > 0
+# The spot (any frame, e.g. map): the bottom centre of the object on the
+# support, z the support height; the server may move it to the nearest free
+# spot it sees. With drop, a point inside the container (its centre).
+# Empty frame_id = any free spot of the furniture level.
+geometry_msgs/PointStamped near
+# Furniture of perception's furniture config (empty = any support) and its
+# level (1 = lowest, 0 = any level the object fits), as in GetPlaceCandidates
+string                     furniture
+int32                      furniture_level
+float32                    clearance       # m of free space around the object beyond perception's margin
+# true: let the object go into the container `furniture` at near (e.g. a
+# trash bin) instead of standing it on a support
+bool                       drop
+---
+# NO_SURFACE, NO_SPACE, UNREACHABLE and ERROR are returned before the arm
+# moves; a goal that did not move the arm has `at_home` true.
+uint8 STATUS_OK=0                # placed (retreat / return failures in message)
+uint8 STATUS_NO_SURFACE=1        # no support of the furniture level seen
+uint8 STATUS_NO_SPACE=2          # supports seen, but no free spot for the object
+uint8 STATUS_UNREACHABLE=3       # the spot is out of reach (the caller may move the base)
+uint8 STATUS_EXECUTION_FAILED=4  # trajectory execution failed
+uint8 STATUS_ERROR=5             # bad goal, nothing held, services or controllers unavailable
+uint8 STATUS_CANCELED=6          # the arm stops where it is (object kept unless released)
+uint8 STATUS_NOT_AT_SPOT=9       # released, but no object seen at the spot afterwards
+
+bool                       success
+uint8                      status
+string                     message
+geometry_msgs/PoseStamped  place_pose      # object bottom centre at release, z up
+bool                       at_home         # the arm is at home at the end
+---
+string                     phase           # "approaching" | "releasing" | "retreating" | "returning"
