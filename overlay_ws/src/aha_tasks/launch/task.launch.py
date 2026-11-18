@@ -2,7 +2,8 @@
 
 head_look_at.py turns the head where the skills look (aha_tasks.gaze).
 `people:=true` adds the head camera bridge and person_perception (DGX Spark).
-`guests:=true` adds sim_guests, which moves the task's simulated guests.
+`guests:=true` adds sim_guests, which moves the task's simulated guests, and
+sim_sounds, which makes the sounds they make at the door.
 `people_scene:=<name>` adds sim_people, which puts the posed people of
 config/sim/people/<name>.json (or a JSON path) into Gazebo.
 `walkers:=<name>` adds sim_walkers, which walks the people of
@@ -18,7 +19,9 @@ node can be rerun without restarting Gazebo.
 - navigation (debug: teleport): aha_tasks sim_teleport moves the robot in
   Gazebo and resets AMCL instead of the Nav2 planner, controller and BT.
 - perception (debug: truth): aha_perception sim_person_detector.py publishes
-  the people from Gazebo's poses instead of person_perception.py.
+  the people from Gazebo's poses instead of person_perception.py, and sim_sounds
+  publishes the guests' doorbell and knocks as detections instead of
+  aha_audio_doorbell (no audio container).
 """
 
 from pathlib import Path
@@ -257,6 +260,17 @@ def launch_task(context):
                 executable="sim_guests",
                 parameters=[{"use_sim_time": True}],
                 arguments=[f"--config={scene}"],
+                output="screen",
+            )
+        )
+        # The microphone stream with the guests' doorbell and knocks, for
+        # aha_audio_doorbell input:=topic (wall clock, like a microphone); with
+        # perception truth, also the detections themselves.
+        actions.append(
+            Node(
+                package="aha_tasks",
+                executable="sim_sounds",
+                parameters=[{"truth": perception == "truth"}],
                 output="screen",
             )
         )

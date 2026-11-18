@@ -42,7 +42,8 @@ SCENE_KEYS = {
     "pace",
     "guests",
 }
-GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors"}
+GUEST_KEYS = {"away", "door", "threshold", "seat_via", "seat", "colors", "bell"}
+BELLS = ("chime", "knock")  # what a guest does at the door (aha_tasks.sim_sounds)
 
 
 def load_config(path):
@@ -56,12 +57,26 @@ def load_config(path):
         unknown = set(guest["colors"]) - set(COLOR_PARTS)
         if unknown:
             raise ValueError(f"{path}: {name} has unknown colors {sorted(unknown)}")
+        if guest["bell"] not in BELLS:
+            raise ValueError(f"{path}: {name} bell must be one of {BELLS}")
     return config
 
 
 def statuses_of(status):
     """Subgoal id -> status from a /aha/tasks/status message."""
     return {subgoal["id"]: subgoal["status"] for subgoal in status["subgoals"]}
+
+
+def attempts_of(status):
+    """Subgoal id -> (run number, attempts): it changes on every new attempt, also
+    when a new run starts the attempts from 0 again."""
+    run = (status.get("run") or {}).get("number", 0)
+    return {s["id"]: (run, s["attempts"]) for s in status["subgoals"]}
+
+
+def executing(status):
+    """The subgoal whose skill runs now (after the runner restored the state)."""
+    return status["current"] if status["phase"] == "executing" else None
 
 
 def reached(statuses, subgoal):
@@ -121,6 +136,10 @@ class Walker:
         self.yaw = yaw
         self.route = []
         self.last_trail = None
+        self.rang = False  # rang the bell in this ARRIVE phase and attempt
+        self.ring = None  # a bell to sound now (config "bell"); the node clears it
+        self.bell_attempt = None  # (run, attempts) of <guest>.doorbell
+        self.listened = False  # the robot waits for the bell (<guest>.doorbell runs)
 
     @property
     def model_yaw(self):
@@ -175,6 +194,7 @@ class Guest(Walker):
             return
         previous, self.phase = self.phase, phase
         self.clock, self.last_trail = 0.0, None
+        self.rang, self.ring = False, None
         door, threshold = self.config["door"], self.config["threshold"]
         if phase < previous or phase == SEAT and previous < FOLLOW:
             # Rewound or skipped in the task, so there is nothing to walk through.
@@ -197,6 +217,15 @@ class Guest(Walker):
         elif phase == SEAT:
             self.route = [*self.config["seat_via"], self.config["seat"][:2]]
 
+    def set_bell(self, attempt, listened):
+        """The attempt of <guest>.doorbell (attempts_of) and whether its skill waits now.
+
+        The guest rings only while the robot waits (rulebook 5.1), and again on a
+        retry of the subgoal or in a new run."""
+        if attempt != self.bell_attempt:
+            self.bell_attempt, self.rang = attempt, False
+        self.listened = listened
+
     def step(self, dt, robot=None):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
         self.clock += dt
@@ -209,6 +238,8 @@ class Guest(Walker):
                 self.yaw = self.config["seat"][2]
         elif self.phase == ARRIVE:
             self._face(self.config["threshold"])  # waits looking in at the door
+            if self.listened and not self.rang:
+                self.rang, self.ring = True, self.config["bell"]
         elif self.phase == TALK:
             self._pace()
             self._face(robot)
