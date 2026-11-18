@@ -11,12 +11,13 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from aha_perception.furniture import load_config  # noqa: E402
+from aha_perception.furniture import Furniture, load_config  # noqa: E402
 from aha_perception.object_list import load_object_list  # noqa: E402
 from aha_tasks.sim_objects import (  # noqa: E402
     SIZE_TOLERANCE,
     Catalog,
     SceneError,
+    SceneObject,
     displacement,
     footprint,
     footprints_overlap,
@@ -62,19 +63,24 @@ class SceneFixture(unittest.TestCase):
     def scene(self, name):
         return load_scene(SCENES / f"{name}.json", self.catalog, self.places)
 
-    def write_scene(self, objects):
+    def write_scene(self, objects, world="rcjo2026_arena"):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "scene.json"
-        path.write_text(json.dumps({"world": "rcjo2026_arena", "objects": objects}))
+        path.write_text(json.dumps({"world": world, "objects": objects}))
         return path
 
 
 class CatalogTests(SceneFixture):
     def test_models_have_the_listed_size(self):
-        for label, error in self.catalog.size_errors().items():
+        for label in self.catalog.models:
             with self.subTest(label=label):
-                self.assertLessEqual(error, SIZE_TOLERANCE)
+                np.testing.assert_allclose(
+                    self.catalog.size(label),
+                    self.objects.get(label).size,
+                    rtol=0,
+                    atol=SIZE_TOLERANCE,
+                )
 
     def test_ycb_sdf_moves_the_origin_to_the_box_center(self):
         obj = self.scene("pick_and_place").get("mug")
@@ -165,8 +171,7 @@ class SceneTests(SceneFixture):
         directory = PERCEPTION / "furniture"
         path = furniture_config(directory, SCENES / "pick_and_place.json")
         self.assertEqual(path.name, "rcjo2026_arena.yaml")
-        other = self.write_scene([])
-        other.write_text(json.dumps({"world": "rcjo2026", "objects": []}))
+        other = self.write_scene([], world="rcjo2026")
         with self.assertRaises(SceneError):  # not placed on the arena's furniture
             furniture_config(directory, other)
 
@@ -256,8 +261,6 @@ class SceneTests(SceneFixture):
         self.assertEqual(scene.objects[0].level, 1)
 
     def test_objects_fit_under_the_next_board(self):
-        from aha_perception.furniture import Furniture
-
         low = {"rack": Furniture("rack", "shelf", 0.0, 0.0, 0.0, 0.4, 0.6, (0.3, 0.45))}
         milk = {"name": "milk", "label": "milk", "on": "rack", "level": 1}
         milk.update(position=[0.0, 0.0], yaw=0.0)
@@ -279,8 +282,6 @@ class FootprintTests(unittest.TestCase):
         self.assertFalse(footprints_overlap(diamond, square + [0.123, 0.0]))
 
     def test_footprint_turns_with_the_yaw(self):
-        from aha_tasks.sim_objects import SceneObject
-
         obj = SceneObject(
             "fork",
             "fork",

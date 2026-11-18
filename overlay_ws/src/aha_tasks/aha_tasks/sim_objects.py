@@ -31,7 +31,6 @@ assumes. Models must be within ``SIZE_TOLERANCE`` of the object list's size.
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass
 import json
 import math
@@ -48,6 +47,7 @@ from aha_tasks.object_models import (
     ScannedModel,
     build_measured,
     build_scanned,
+    yaw_rotation,
 )
 
 FLOOR = "floor"
@@ -66,6 +66,8 @@ SCANNED_KEYS = {
     "source",
 }
 MEASURED_KEYS = {"model", "shape", "paint", "mass", "size", "source"}
+MEASURED_SHAPES = {"revolve", "box", "scan", "profile"}
+MEASURED_PAINTS = {"color", "side", "top", "bottom", *FACE_AXES}
 DROP = 0.002  # m, spawn height above the resting pose
 SIZE_TOLERANCE = 0.015  # m, model bounding box against the object list per axis
 EDGE_MARGIN = 0.01  # m, footprint corners inside the furniture top
@@ -76,12 +78,6 @@ FRICTION = 1.0
 
 class SceneError(ValueError):
     """Invalid scene or model catalog."""
-
-
-@dataclass(frozen=True)
-class Geometry:
-    size: tuple[float, float, float]  # bounding box x, y, z (m)
-    mass: float  # kg
 
 
 @dataclass(frozen=True)
@@ -108,20 +104,6 @@ class SceneObject:
         x, y, z = self.position
         return x, y, z + DROP, self.yaw
 
-    def truth(self) -> dict:
-        """Ground truth as written to logs and read by evaluations."""
-        return {
-            "name": self.name,
-            "label": self.label,
-            "category": self.category,
-            "on": self.on,
-            "level": self.level,
-            "role": self.role,
-            "position": [round(v, 4) for v in self.position],
-            "yaw": self.yaw,
-            "size": [round(v, 4) for v in self.size],
-        }
-
 
 @dataclass(frozen=True)
 class Scene:
@@ -136,11 +118,6 @@ class Scene:
 
 
 # ---------------------------------------------------------------- YCB meshes
-
-
-def _rotation(yaw: float) -> np.ndarray:
-    c, s = math.cos(yaw), math.sin(yaw)
-    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
 
 def _pose_values(element) -> list[float]:
@@ -178,15 +155,14 @@ def ycb_bounds(directory: Path, yaw: float) -> tuple[np.ndarray, np.ndarray]:
         points.append(_stl_vertices(directory / uri[len(prefix) :]) + pose[:3])
     if not points:
         raise SceneError(f"{sdf}: no collision mesh")
-    turned = np.concatenate(points) @ _rotation(yaw).T
+    turned = np.concatenate(points) @ yaw_rotation(yaw).T
     lower, upper = turned.min(axis=0), turned.max(axis=0)
     return (lower + upper) / 2, upper - lower
 
 
 def ycb_sdf(model: YcbModel, name: str, pose) -> str:
     """The YCB model as ``name``: mesh turned by model.yaw, origin at the box center."""
-    source = ET.parse(model.directory / "model-1_4.sdf").getroot().find("model")
-    out = deepcopy(source)
+    out = ET.parse(model.directory / "model-1_4.sdf").getroot().find("model")
     out.set("name", name)
     for old in out.findall("pose"):
         out.remove(old)
@@ -194,13 +170,10 @@ def ycb_sdf(model: YcbModel, name: str, pose) -> str:
     pose_element.text = " ".join(f"{v:.6f}" for v in (*pose[:3], 0, 0, pose[3]))
     out.insert(0, pose_element)
     center, _ = ycb_bounds(model.directory, model.yaw)
-    turn = _rotation(model.yaw)
+    turn = yaw_rotation(model.yaw)
     link = out.find("link")
-    elements = [link.find("inertial"), *link.findall("visual")]
-    elements += link.findall("collision")
-    for element in elements:
-        if element is None:
-            continue
+    parts = ("inertial", "visual", "collision")
+    for element in (e for tag in parts for e in link.findall(tag)):
         values = _pose_values(element)
         xyz = turn @ np.array(values[:3]) - center
         old = element.find("pose")
@@ -235,13 +208,12 @@ def _file_uris(sdf_model, directory: Path) -> None:
 
 
 def _surface():
-    surface = ET.fromstring(
+    return ET.fromstring(
         "<surface><friction><ode>"
         f"<mu>{FRICTION}</mu><mu2>{FRICTION}</mu2>"
         "</ode></friction><bounce><restitution_coefficient>0"
         "</restitution_coefficient></bounce></surface>"
     )
-    return surface
 
 
 # ------------------------------------------------------------------- catalog
@@ -269,28 +241,30 @@ class Catalog:
         if set(data) != {"ycb", "scanned", "measured"}:
             raise SceneError(f"{path}: needs exactly 'ycb', 'scanned' and 'measured'")
         models = {}
+
+        def add(label, model):
+            if label in models:
+                raise SceneError(f"{path}: {label!r} has two models")
+            if object_list.get(label) is None:
+                raise SceneError(f"{path}: {label!r} is not in the object list")
+            models[label] = model
+
         for label, entry in data["ycb"].items():
             if set(entry) - {"model", "yaw"} or "model" not in entry:
                 raise SceneError(f"{path}: ycb {label!r} needs 'model' (and 'yaw')")
+            yaw = math.radians(float(entry.get("yaw", 0.0)))
             directory = Path(ycb_root) / entry["model"]
-            models[label] = YcbModel(
-                label,
-                entry["model"],
-                math.radians(float(entry.get("yaw", 0.0))),
-                directory,
-            )
+            add(label, YcbModel(label, entry["model"], yaw, directory))
         for label, entry in data["scanned"].items():
             if not SCANNED_KEYS <= set(entry) <= SCANNED_KEYS | {"crop"}:
                 raise SceneError(
                     f"{path}: scanned {label!r} needs {sorted(SCANNED_KEYS)} (and 'crop')"
                 )
-            if label in models:
-                raise SceneError(f"{path}: {label!r} has two models")
             rpy = tuple(math.radians(float(v)) for v in entry["rpy"])
             size = tuple(float(v) for v in entry["size"])
             if len(rpy) != 3 or len(size) != 3 or not float(entry["mass"]) > 0:
                 raise SceneError(f"{path}: scanned {label!r}: rpy, size or mass")
-            models[label] = ScannedModel(
+            model = ScannedModel(
                 label,
                 str(entry["model"]),
                 str(entry["url"]),
@@ -303,24 +277,17 @@ class Catalog:
                 size,
                 str(entry["source"]),
             )
+            add(label, model)
         for label, entry in data["measured"].items():
             if set(entry) != MEASURED_KEYS or len(entry["shape"]) != 1:
                 raise SceneError(
                     f"{path}: measured {label!r} needs {sorted(MEASURED_KEYS)}"
                 )
-            if not set(entry["shape"]) <= {"revolve", "box", "scan", "profile"}:
+            if not set(entry["shape"]) <= MEASURED_SHAPES:
                 raise SceneError(f"{path}: measured {label!r}: unknown shape")
-            if not set(entry["paint"]) <= {
-                "color",
-                "side",
-                "top",
-                "bottom",
-                *FACE_AXES,
-            }:
+            if not set(entry["paint"]) <= MEASURED_PAINTS:
                 raise SceneError(f"{path}: measured {label!r}: unknown paint")
-            if label in models:
-                raise SceneError(f"{path}: {label!r} has two models")
-            models[label] = MeasuredModel(
+            model = MeasuredModel(
                 label,
                 str(entry["model"]),
                 entry["shape"],
@@ -329,44 +296,26 @@ class Catalog:
                 tuple(float(v) for v in entry["size"]),
                 str(entry["source"]),
             )
-        for label in models:
-            if object_list.get(label) is None:
-                raise SceneError(f"{path}: {label!r} is not in the object list")
+            add(label, model)
         return cls(models, object_list)
 
-    def geometry(self, label: str) -> Geometry:
+    def size(self, label: str) -> tuple[float, float, float]:
+        """Bounding box x, y, z (m) of the label's model."""
         model = self.models.get(label)
         if model is None:
             raise SceneError(f"no simulated model for {label!r}")
-        if isinstance(model, (ScannedModel, MeasuredModel)):
-            return Geometry(model.size, model.mass)
-        _, size = ycb_bounds(model.directory, model.yaw)
-        mass = float(
-            ET.parse(model.directory / "model-1_4.sdf")
-            .getroot()
-            .findtext("model/link/inertial/mass", "0")
-        )
-        return Geometry(tuple(float(v) for v in size), mass)
-
-    def size_errors(self) -> dict[str, float]:
-        """Largest per-axis difference (m) of each model to the object list's size."""
-        out = {}
-        for label in self.models:
-            size = np.array(self.geometry(label).size)
-            listed = np.array(self.object_list.get(label).size)
-            out[label] = float(np.max(np.abs(size - listed)))
-        return out
+        if isinstance(model, YcbModel):
+            return tuple(float(v) for v in ycb_bounds(model.directory, model.yaw)[1])
+        return model.size
 
     def sdf(self, obj: SceneObject, cache: Path) -> str:
+        """The SDF of the object at its spawn pose; scans and measured models
+        are built into ``cache`` first."""
         model = self.models[obj.label]
-        pose = obj.spawn_pose()
-        if isinstance(model, YcbModel):
-            return ycb_sdf(model, obj.name, pose)
-        if isinstance(model, (ScannedModel, MeasuredModel)):
+        if not isinstance(model, YcbModel):
             build = build_scanned if isinstance(model, ScannedModel) else build_measured
-            built = YcbModel(model.label, model.model, 0.0, build(model, cache))
-            return ycb_sdf(built, obj.name, pose)
-        raise SceneError(f"no simulated model for {obj.label!r}")
+            model = YcbModel(model.label, model.model, 0.0, build(model, cache))
+        return ycb_sdf(model, obj.name, obj.spawn_pose())
 
 
 # --------------------------------------------------------------------- scene
@@ -413,7 +362,7 @@ def _resolve(item, k, path, catalog, furniture) -> SceneObject:
             f"{what}: the detector would report {detected.label if detected else None!r}"
             f" for this model name, not {label!r}"
         )
-    geometry = catalog.geometry(label)
+    size = catalog.size(label)
     position = item["position"]
     if (
         not isinstance(position, list)
@@ -437,7 +386,6 @@ def _resolve(item, k, path, catalog, furniture) -> SceneObject:
         if surface is None:
             raise SceneError(f"{what}: {on} needs a level 1-{len(place.heights)}")
         height = surface.height
-    z = height + geometry.size[2] / 2
     return SceneObject(
         name,
         label,
@@ -445,9 +393,9 @@ def _resolve(item, k, path, catalog, furniture) -> SceneObject:
         on,
         level,
         str(item.get("role", "")),
-        (float(position[0]), float(position[1]), z),
+        (float(position[0]), float(position[1]), height + size[2] / 2),
         yaw,
-        geometry.size,
+        size,
     )
 
 
@@ -502,14 +450,13 @@ def load_scene(path, catalog: Catalog, furniture: dict) -> Scene:
         _resolve(item, k, path, catalog, furniture)
         for k, item in enumerate(data["objects"])
     )
-    names = [o.name for o in objects]
-    duplicates = sorted({n for n in names if names.count(n) > 1})
-    if duplicates:
-        raise SceneError(f"{path}: duplicate names {duplicates}")
-    roles = [o.role for o in objects if o.role]
-    duplicates = sorted({r for r in roles if roles.count(r) > 1})
-    if duplicates:
-        raise SceneError(f"{path}: duplicate roles {duplicates}")
+    for kind, values in (
+        ("names", [o.name for o in objects]),
+        ("roles", [o.role for o in objects if o.role]),
+    ):
+        duplicates = sorted({v for v in values if values.count(v) > 1})
+        if duplicates:
+            raise SceneError(f"{path}: duplicate {kind} {duplicates}")
     scene = Scene(str(data["world"]), objects)
     check_placement(scene, furniture)
     return scene

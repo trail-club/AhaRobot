@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 
@@ -40,8 +41,6 @@ def test_package_labels_not_shadowed():
 def test_world_models_are_not_objects():
     # The furniture and props of the worlds are not reported as objects
     # (e.g. cereal_* would take the cereal_box of home.sdf).
-    import re
-
     worlds = Path(__file__).resolve().parents[2] / "aha_gazebo" / "worlds"
     files = sorted(worlds.glob("*.sdf"))
     if not files:

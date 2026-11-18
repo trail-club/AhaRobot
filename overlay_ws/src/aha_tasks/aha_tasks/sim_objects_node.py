@@ -119,7 +119,7 @@ def main(argv=None):
     world = f"/world/{scene.world}"
     gz = GzNode()
     lock = threading.Lock()
-    latest = {}
+    latest = {"time": -1.0, "poses": {}}  # the last pose/info, monotonic time
 
     def on_poses(message):
         poses = {}
@@ -129,9 +129,7 @@ def main(argv=None):
                 (p.x, p.y, p.z), (q.x, q.y, q.z, q.w)
             )
         with lock:
-            latest.clear()
-            latest.update(poses)
-            latest[None] = time.monotonic()
+            latest.update(time=time.monotonic(), poses=poses)
 
     options = SubscribeOptions()
     options.msgs_per_sec = 5
@@ -139,18 +137,22 @@ def main(argv=None):
         log(f"cannot subscribe to {world}/pose/info")
         return 1
 
-    def poses(newer_than=0.0):
-        with lock:
-            if latest.get(None, -1.0) <= newer_than:
-                return None
-            return {k: v for k, v in latest.items() if k is not None}
+    def wait_poses(timeout, done=lambda poses: True):
+        """The first pose/info received from now on (within ``timeout`` s)
+        for which done(poses) holds, or None."""
+        since = time.monotonic()
+        while time.monotonic() < since + timeout:
+            with lock:
+                received, poses = latest["time"], latest["poses"]
+            if received > since and done(poses):
+                return poses
+            time.sleep(0.2)
+        return None
 
-    deadline = time.monotonic() + args.timeout
-    while poses() is None:
-        if time.monotonic() > deadline:
-            log(f"no Gazebo world {scene.world} within {args.timeout:.0f} s")
-            return 1
-        time.sleep(0.5)
+    present = wait_poses(args.timeout)
+    if present is None:
+        log(f"no Gazebo world {scene.world} within {args.timeout:.0f} s")
+        return 1
 
     def request(service, message, reply_type):
         ok, reply = gz.request(
@@ -158,7 +160,6 @@ def main(argv=None):
         )
         return ok and reply.data
 
-    present = poses()
     stale = stale_models(present, scene, catalog.object_list)
     # Scene objects left in Gazebo are spawned again; one without a model
     # (it could not be built) is only moved back.
@@ -166,7 +167,8 @@ def main(argv=None):
     if stale and args.check:
         log(f"warning: objects not in the scene: {', '.join(stale)}")
     elif stale or again:
-        for name in stale + again:
+        gone = stale + again
+        for name in gone:
             removed = request("remove", Entity(name=name, type=Entity.MODEL), Boolean)
             if name in stale:
                 log(
@@ -176,15 +178,9 @@ def main(argv=None):
                 )
             elif not removed:
                 log(f"could not remove {name} to spawn it again")
-        asked = time.monotonic()
-        while time.monotonic() < asked + 10.0:
-            current = poses(newer_than=asked)
-            if current is not None and not set(stale + again) & set(current):
-                break
-            time.sleep(0.2)
-        else:
+        if wait_poses(10.0, lambda poses: not set(gone) & set(poses)) is None:
             log("warning: removed objects are still in Gazebo")
-        present = {k: v for k, v in present.items() if k not in stale + again}
+        present = {k: v for k, v in present.items() if k not in gone}
     for obj in [] if args.check else scene.objects:
         x, y, z, yaw = obj.spawn_pose()
         if obj.name in present:
@@ -206,14 +202,8 @@ def main(argv=None):
         else:
             log(f"could not place {obj.name}")
 
-    start = time.monotonic()
     time.sleep(0.0 if args.check else max(args.settle, 0.0))
-    current = None
-    settle = 0.0 if args.check else args.settle
-    while current is None and time.monotonic() < start + settle + 10.0:
-        current = poses(newer_than=start + settle)
-        time.sleep(0.2)
-    current = current or {}
+    current = wait_poses(10.0) or {}
     missing = [o.name for o in scene.objects if o.name not in current]
     moved = 0
     for obj in scene.objects:

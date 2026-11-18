@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -12,19 +13,23 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from aha_tasks import object_models  # noqa: E402
 from aha_tasks.object_models import (  # noqa: E402
     SCAN_TEXTURE_SIZE,
     MeasuredModel,
     ModelError,
     ScannedModel,
+    _outward_hull,
     build_measured,
     build_scanned,
+    download,
     read_glb,
     read_obj,
     scan_profile,
@@ -280,11 +285,6 @@ class ScannedModelTests(unittest.TestCase):
                 build_scanned(self.scanned(archive, crop=None), tmp / "c")
 
     def test_a_cut_download_is_a_model_error(self):
-        import http.client
-        from unittest import mock
-
-        from aha_tasks.object_models import download
-
         reply = mock.MagicMock()
         reply.__enter__.return_value.read.side_effect = http.client.IncompleteRead(b"")
         with tempfile.TemporaryDirectory() as tmp, mock.patch(
@@ -297,8 +297,6 @@ class ScannedModelTests(unittest.TestCase):
         points = np.array(
             [[x, y, z] for x in (0, 1) for y in (0, 1) for z in (0, 1)], dtype=float
         )
-        from aha_tasks.object_models import _outward_hull
-
         center, inertia = solid_inertia(points, _outward_hull(points), 6.0)
         np.testing.assert_allclose(center, [0.5, 0.5, 0.5], atol=1e-12)
         np.testing.assert_allclose(inertia, np.eye(3), atol=1e-12)
@@ -376,10 +374,6 @@ class MeasuredModelTests(unittest.TestCase):
             self.assertEqual(colour_at(directory, "test_can", (0, 0, 0.05)), (0, 0, 0))
 
     def test_missing_fonts_are_an_error(self):
-        from unittest import mock
-
-        from aha_tasks import object_models
-
         spec = {
             "size": [80, 40],
             "items": [{"box": [0, 0, 1, 1], "text": "濃い茶", "color": "#000000"}],

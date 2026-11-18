@@ -238,11 +238,11 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 
 `scanned` と `measured` は初回に取得・変換して `$AHA_CACHE_DIR/sim_objects` に置く（取得するファイルは合計約200 MB、ネットワークが必要。`--check` は取得しない）。開発コンテナの `AHA_CACHE_DIR` はリポジトリの `.cache/aharobot`（gitignore）で、コンテナを作り直しても残る。未設定なら `~/.cache/aharobot`。取得・変換できない物体は置かずに続け、最後に無い物体として報告する（終了コード1）。
 衝突形状は凸包で、慣性は凸包を一様な密度として `mass` から求める。変換後の外接箱が `size` と2 mm以上違えば失敗する。ラベルの文字はDejaVu Sans BoldとDroid Sans Fallback（Dockerfileで入れる）で描き、なければ失敗する。
-各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
+各モデルの外接箱と物体リストの大きさの差は各軸1.5 cm以内（テストで確かめる。最大はtuna canの高さの1.2 cm）。取得元とライセンスは [THIRD_PARTY.md](../../../dependencies/THIRD_PARTY.md#sobits--tmcのシミュレーション資源) に記載する。
 
 原点は外接箱の中心で、モデルの姿勢を物体の中心とする `sim_object_detector.py` の前提に合う。摩擦係数は1.0。
 `sim_objects` は配置の物体を作り（同じ名前のモデルが残っていれば、1個ずつ動かすと別の物体に重なることがあるため、消してから作り直す）、3 s後に置いた位置から2 cm以上ずれた・10°以上傾いた物体を警告して終わる。全部の物体があれば終了コード0。
-物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。`--check` は消さずに警告する。
+物体リストのパターンに合う名前で配置にないモデル（同じGazeboで先に置いた別の配置の物体など）は、置く前に消す。家具・ロボット・客・人のモデルは消さない。
 
 制限：
 
@@ -251,7 +251,6 @@ ros2 run aha_tasks sim_objects --config pick_and_place --check  # 置き直さ�
 - 緑茶・レモネード・カップ麺（どん兵衛）・歯磨き粉の箱・食洗機タブは、再利用できる写真がないため、ラベルを製品の配色と文字から描いている。食洗機タブの大きさは推定（29×20×8.5 mm）、ボトルの断面は製品画像から測った値（約2 mm）。
 - milk・cookiesはHOPEのおもちゃの食品のスキャンで、RCJOの物体（明治おいしい牛乳など）と見た目が違う。colaとcookiesはRCJOの物体リストにない。
 - red bullはRCJOの物体リストの指定どおり中身のない空き缶（15 g）で、他の飲料（中身込み）より軽く、触れると倒れやすい。
-- モデルの外接箱と物体リストの大きさは最大1.2 cm違う（tuna canの高さ）。
 - 食洗機と、その中の物体はない。
 
 ## Human Robot Interaction Challenge

@@ -42,7 +42,8 @@ class ModelError(ValueError):
     """A model that cannot be downloaded or built as described."""
 
 
-def _rotation(yaw: float) -> np.ndarray:
+def yaw_rotation(yaw: float) -> np.ndarray:
+    """3x3 rotation about z."""
     c, s = math.cos(yaw), math.sin(yaw)
     return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
 
@@ -54,7 +55,7 @@ def _rpy_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
     cr, sr, cp, sp = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch)
     rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]])
     ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
-    return _rotation(yaw) @ ry @ rx
+    return yaw_rotation(yaw) @ ry @ rx
 
 
 def _sha256(path: Path) -> str:
@@ -94,21 +95,18 @@ class _Archive:
     plain file is an archive of itself (member "")."""
 
     def __init__(self, path: Path):
-        self._path = path
-        if not zipfile.is_zipfile(path) and not tarfile.is_tarfile(path):
-            self._zip, self._files = None, {}
-        elif zipfile.is_zipfile(path):
+        self._path, self._zip, self._tar, self._files = path, None, None, {}
+        if zipfile.is_zipfile(path):
             self._zip = zipfile.ZipFile(path)
             self._files = {n: n for n in self._zip.namelist() if not n.endswith("/")}
-        else:
-            self._zip = None
+        elif tarfile.is_tarfile(path):
             self._tar = tarfile.open(path)
             self._files = {m.name: m for m in self._tar.getmembers() if m.isfile()}
 
     def read(self, member: str, near: str = "") -> bytes:
         """The member; a relative ``member`` is looked up next to ``near`` first,
         then anywhere by its file name (scans keep textures in other folders)."""
-        if not self._files and self._zip is None:
+        if self._zip is None and self._tar is None:
             if member:
                 raise ModelError(
                     f"no {member!r} next to the single file {self._path.name}"
@@ -295,15 +293,9 @@ def read_dae(archive, member: str) -> Mesh:
         diffuse = effect.find(".//c:diffuse", ns)
         texture = diffuse.find("c:texture", ns) if diffuse is not None else None
         if texture is None:
-            color = (
-                diffuse.findtext("c:color", "1 1 1 1", ns)
-                if diffuse is not None
-                else ""
-            )
-            return {
-                "texture": None,
-                "color": tuple(float(v) for v in (color.split() or [1, 1, 1])[:3]),
-            }
+            text = diffuse.findtext("c:color", "", ns) if diffuse is not None else ""
+            color = tuple(float(v) for v in (text.split() or [1, 1, 1])[:3])
+            return {"texture": None, "color": color}
         params = {p.get("sid"): p for p in effect.iter(f"{{{ns['c']}}}newparam")}
         name = texture.get("texture")
         if name in params:  # sampler2D -> surface -> image
@@ -315,16 +307,9 @@ def read_dae(archive, member: str) -> Mesh:
             "color": (1.0, 1.0, 1.0),
         }
 
-    vertices, uvs, normals, corners, face_material, materials, names = (
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        {},
-    )
-    counts = [0, 0, 0]
+    vertices, uvs, normals, corners, face_material = [], [], [], [], []
+    materials, names = [], {}  # material dicts, symbol -> index
+    counts = [0, 0, 0]  # vertices, uvs and normals read so far
 
     def add_geometry(geometry, matrix, bindings):
         mesh = geometry.find("c:mesh", ns)
@@ -461,9 +446,8 @@ def _node_matrix(node) -> np.ndarray:
     return matrix
 
 
-def read_glb(data: bytes) -> Mesh:
-    """The triangles of a binary glTF (y up, as stored), node transforms
-    applied, with the base colour texture or factor of each material."""
+def _glb(data: bytes) -> tuple[dict, bytes]:
+    """(JSON, binary chunk) of a binary glTF."""
     magic, _, _ = struct.unpack_from("<4sII", data, 0)
     if magic != b"glTF":
         raise ModelError("not a binary glTF")
@@ -476,18 +460,26 @@ def read_glb(data: bytes) -> Mesh:
         elif kind == b"BIN\x00":
             binary = chunk
         offset += 8 + length
-    views = gltf.get("bufferViews", [])
+    return gltf, binary
 
-    def view(index):
-        v = views[index]
-        start = v.get("byteOffset", 0)
-        return binary[start : start + v["byteLength"]], v.get("byteStride")
+
+def _glb_view(gltf: dict, binary: bytes, index: int) -> bytes:
+    v = gltf["bufferViews"][index]
+    start = v.get("byteOffset", 0)
+    return binary[start : start + v["byteLength"]]
+
+
+def read_glb(data: bytes) -> Mesh:
+    """The triangles of a binary glTF (y up, as stored), node transforms
+    applied, with the base colour texture or factor of each material."""
+    gltf, binary = _glb(data)
 
     def accessor(index):
         a = gltf["accessors"][index]
         if "sparse" in a or "bufferView" not in a:
             raise ModelError("sparse glTF accessors are not read")
-        raw, stride = view(a["bufferView"])
+        raw = _glb_view(gltf, binary, a["bufferView"])
+        stride = gltf["bufferViews"][a["bufferView"]].get("byteStride")
         dtype = np.dtype(GLTF_TYPES[a["componentType"]])
         width = GLTF_SIZES[a["type"]]
         start = a.get("byteOffset", 0)
@@ -516,7 +508,7 @@ def read_glb(data: bytes) -> Mesh:
             if pbr["baseColorTexture"].get("texCoord", 0):
                 raise ModelError("glTF base colour texture on a second uv set")
             source = gltf["textures"][pbr["baseColorTexture"]["index"]]["source"]
-            image = view(gltf["images"][source]["bufferView"])[0]
+            image = _glb_view(gltf, binary, gltf["images"][source]["bufferView"])
         material_index[index] = len(materials)
         materials.append({"texture": image, "color": color})
         return material_index[index]
@@ -652,11 +644,9 @@ def solid_inertia(points: np.ndarray, triangles: np.ndarray, mass: float):
     if volume <= 0:
         raise ModelError("mesh encloses no volume")
     center = (volumes[:, None] * (a + b + c)).sum(axis=0) / (4.0 * volume)
-    s = a + b + c
-    second = np.einsum("i,ij,ik->jk", volumes / 20.0, a, a)
-    second += np.einsum("i,ij,ik->jk", volumes / 20.0, b, b)
-    second += np.einsum("i,ij,ik->jk", volumes / 20.0, c, c)
-    second += np.einsum("i,ij,ik->jk", volumes / 20.0, s, s)
+    second = sum(
+        np.einsum("i,ij,ik->jk", volumes / 20.0, p, p) for p in (a, b, c, a + b + c)
+    )
     second = second * (mass / volume) - mass * np.outer(center, center)
     return center, np.trace(second) * np.eye(3) - second
 
@@ -709,16 +699,8 @@ def _write_scan(mesh: Mesh, name: str, directory: Path) -> None:
         library.append("\n".join(entry))
         lines.append(f"usemtl {label}")
         for triangle in mesh.corners[faces]:
-            refs = []
-            for v, t, n in triangle:
-                if t and n:
-                    refs.append(f"{v}/{t}/{n}")
-                elif t:
-                    refs.append(f"{v}/{t}")
-                elif n:
-                    refs.append(f"{v}//{n}")
-                else:
-                    refs.append(f"{v}")
+            # v/t/n, v/t, v//n or v (0: no index)
+            refs = (f"{v}/{t or ''}/{n or ''}".rstrip("/") for v, t, n in triangle)
             lines.append("f " + " ".join(refs))
     (directory / f"{name}.mtl").write_text("\n\n".join(library) + "\n")
     (directory / f"{name}.obj").write_text("\n".join(lines) + "\n")
@@ -767,9 +749,9 @@ def read_scan(path: Path, member: str) -> Mesh:
     return read_obj(archive, member)
 
 
-def _finish(mesh: Mesh, size, label: str) -> np.ndarray:
+def _finish(mesh: Mesh, size, label: str) -> None:
     """Move the mesh's bounding box center to the origin, orient it and check
-    its size against the catalog; the vertices in use."""
+    its size against the catalog."""
     used = mesh.vertices[np.unique(mesh.corners[:, :, 0]) - 1]
     lower, upper = used.min(axis=0), used.max(axis=0)
     mesh.vertices = mesh.vertices - (lower + upper) / 2
@@ -779,7 +761,6 @@ def _finish(mesh: Mesh, size, label: str) -> np.ndarray:
             f"{label}: built size {np.round(upper - lower, 4).tolist()} m,"
             f" catalog {list(size)}"
         )
-    return mesh.vertices[np.unique(mesh.corners[:, :, 0]) - 1]
 
 
 def _write_model(
@@ -815,13 +796,21 @@ def _write_model(
     (directory / "SOURCE.txt").write_text(credit + "\n")
 
 
-def _built(directory: Path, entry: dict) -> bool:
+def _build(model, cache: Path, make_mesh, credit: str) -> Path:
+    """The model directory ``cache/<model.model>``, built from
+    ``make_mesh(model, cache)`` unless built.json shows it built from the
+    same ``model.entry()``."""
+    directory = cache / model.model
     stamp = directory / "build.json"
-    return stamp.is_file() and json.loads(stamp.read_text()) == entry
-
-
-def _stamp(directory: Path, entry: dict) -> None:
-    (directory / "build.json").write_text(json.dumps(entry))
+    entry = model.entry()
+    if stamp.is_file() and json.loads(stamp.read_text()) == entry:
+        return directory
+    mesh = make_mesh(model, cache)
+    _finish(mesh, model.size, model.label)
+    stamp.unlink(missing_ok=True)
+    _write_model(directory, model.model, mesh, model.mass, credit)
+    stamp.write_text(json.dumps(entry))
+    return directory
 
 
 def build_scanned(model: ScannedModel, cache: Path) -> Path:
@@ -833,9 +822,10 @@ def build_scanned(model: ScannedModel, cache: Path) -> Path:
     bounding box center is the origin. Visual: the scan's mesh and textures
     (at most ``SCAN_TEXTURE_SIZE`` pixels). Collision: its convex hull, from
     which the inertia follows for ``mass``. The bounding box must be ``size``."""
-    directory = cache / model.model
-    if _built(directory, model.entry()):
-        return directory
+    return _build(model, cache, _scanned_mesh, f"{model.source}\n{model.url}")
+
+
+def _scanned_mesh(model: ScannedModel, cache: Path) -> Mesh:
     mesh = read_scan(download(model.url, model.sha256, cache), model.mesh)
     if model.crop is not None:
         mesh = crop_mesh(mesh, *(np.array(c, dtype=float) for c in model.crop))
@@ -843,13 +833,7 @@ def build_scanned(model: ScannedModel, cache: Path) -> Path:
     mesh.vertices = mesh.vertices @ turn.T * model.scale
     if len(mesh.normals):
         mesh.normals = mesh.normals @ turn.T
-    _finish(mesh, model.size, model.label)
-    (directory / "build.json").unlink(missing_ok=True)
-    _write_model(
-        directory, model.model, mesh, model.mass, f"{model.source}\n{model.url}"
-    )
-    _stamp(directory, model.entry())
-    return directory
+    return mesh
 
 
 # ----------------------------------------------------------- measured models
@@ -897,10 +881,10 @@ CJK_FONTS = (
 
 def font_files() -> dict:
     """The font files that draw Latin and Japanese text here (None: missing)."""
-    found = {}
-    for kind, paths in (("latin", LATIN_FONTS), ("cjk", CJK_FONTS)):
-        found[kind] = next((p for p in paths if Path(p).is_file()), None)
-    return found
+    return {
+        kind: next((p for p in paths if Path(p).is_file()), None)
+        for kind, paths in (("latin", LATIN_FONTS), ("cjk", CJK_FONTS))
+    }
 
 
 def _font(cjk: bool, size: int):
@@ -1016,13 +1000,8 @@ def _picture(spec: dict, cache: Path):
     path = download(spec["url"], spec["sha256"], cache)
     member = spec.get("member", "")
     if member.startswith("glb:"):
-        data = path.read_bytes()
-        length = struct.unpack_from("<I", data, 12)[0]
-        gltf = json.loads(data[20 : 20 + length])
-        binary = data[20 + length + 8 :]
-        view = gltf["bufferViews"][gltf["images"][int(member[4:])]["bufferView"]]
-        start = view.get("byteOffset", 0)
-        raw = binary[start : start + view["byteLength"]]
+        gltf, binary = _glb(path.read_bytes())
+        raw = _glb_view(gltf, binary, gltf["images"][int(member[4:])]["bufferView"])
     elif member:
         raw = _Archive(path).read(member)
     else:
@@ -1202,16 +1181,18 @@ def build_measured(model: MeasuredModel, cache: Path) -> Path:
     Shapes (z up, bottom at 0): a revolved profile ``[[r, z], ...]`` (m,
     bottom center to top center), a ``box`` [x, y, z], a metric ``scan``
     (url, sha256, mesh, rpy deg, scale) as it is, or the ``profile`` of a
-    round object measured from such a scan (see scan_profile). Paint: ``side`` is a label around z
-    between ``z`` [z0, z1] made of ``pieces`` (see _label_strip), ``radius``
-    sets its pixel aspect; ``top`` / ``bottom`` are images of the end discs
-    (``radius`` m) seen from outside with +y / -y up; ``+x`` ... ``-z``
-    cover the box faces (see FACE_FRAMES); the rest has ``color``."""
+    round object measured from such a scan (see scan_profile). Paint:
+    ``side`` is a label around z between ``z`` [z0, z1] made of ``pieces``
+    (see _label_strip), ``radius`` sets its pixel aspect; ``top`` /
+    ``bottom`` are images of the end discs (``radius`` m) seen from outside
+    with +y / -y up; ``+x`` ... ``-z`` cover the box faces (see
+    FACE_FRAMES); the rest has ``color``."""
+    return _build(model, cache, _measured_mesh, model.source)
+
+
+def _measured_mesh(model: MeasuredModel, cache: Path) -> Mesh:
     from PIL import Image
 
-    directory = cache / model.model
-    if _built(directory, model.entry()):
-        return directory
     vertices, triangles = _shape(model.shape, cache)
     paint = model.paint
     background = _rgb(paint.get("color", "#ffffff"))
@@ -1257,8 +1238,7 @@ def build_measured(model: MeasuredModel, cache: Path) -> Path:
 
     uvs = np.zeros((len(triangles), 3, 2))
     uvs[:] = [0.5, 4.0 / total]  # the swatch
-    if "side" in parts:
-        z0, z1 = (float(v) for v in paint["side"]["z"])
+    if "side" in parts:  # z0, z1 as for the side band above
         on = (
             (np.abs(normals[:, 2]) < 0.8)
             & (centroid[:, 2] >= z0)
@@ -1292,7 +1272,7 @@ def build_measured(model: MeasuredModel, cache: Path) -> Path:
     image = io.BytesIO()
     Image.fromarray(atlas).save(image, "PNG")
     # Shared vertices (smooth normals), a uv per corner.
-    mesh = _mesh(
+    return _mesh(
         vertices,
         uvs.reshape(-1, 2),
         np.zeros((0, 3)),
@@ -1300,8 +1280,3 @@ def build_measured(model: MeasuredModel, cache: Path) -> Path:
         np.zeros(count),
         [{"texture": image.getvalue(), "color": (1.0, 1.0, 1.0)}],
     )
-    _finish(mesh, model.size, model.label)
-    (directory / "build.json").unlink(missing_ok=True)
-    _write_model(directory, model.model, mesh, model.mass, model.source)
-    _stamp(directory, model.entry())
-    return directory
