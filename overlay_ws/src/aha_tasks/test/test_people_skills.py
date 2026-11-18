@@ -49,6 +49,16 @@ def people_message(*people, frame="map", stamp=0.0):
     return SimpleNamespace(header=header, people=list(people))
 
 
+def sightings(*stamps):
+    """Messages of person 1 at these image times."""
+    return [people_message(person(1, 0.5, 0.0), stamp=t) for t in stamps]
+
+
+def described(*features):
+    """A DescribePerson reply with these features."""
+    return SimpleNamespace(success=True, message="", features=list(features))
+
+
 class FakeClient:
     def __init__(self, name, answer):
         self.srv_name = name
@@ -289,16 +299,13 @@ class MemorizePersonTests(unittest.TestCase):
         return result, people
 
     def test_features_most_views_agree_on_are_kept(self):
-        def answer(*features):
-            return SimpleNamespace(success=True, message="", features=list(features))
-
         result, people = self.memorize_views(
             [
-                answer("green t-shirt", "short blond hair"),
-                answer("green t-shirt", "short hair", "glasses"),
-                answer("green t-shirt", "short blond hair"),
+                described("green t-shirt", "short blond hair"),
+                described("green t-shirt", "short hair", "glasses"),
+                described("green t-shirt", "short blond hair"),
             ],
-            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
+            sightings(0.0, 0.6, 1.2),
         )
         self.assertTrue(result.success, result.message)
         self.assertEqual(
@@ -307,13 +314,8 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertEqual(len(people.describe.requests), 3)
 
     def test_views_wait_for_newer_images(self):
-        def answer():
-            return SimpleNamespace(success=True, message="", features=["red t-shirt"])
-
         result, people = self.memorize_views(
-            [answer(), answer()],
-            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.2, 0.7)],
-            {"views": 2},
+            [described("red t-shirt")] * 2, sightings(0.0, 0.2, 0.7), {"views": 2}
         )
         self.assertTrue(result.success, result.message)
         # Views of the images at 0.0 and 0.7 s; the one at 0.2 s is too close.
@@ -321,16 +323,13 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertEqual(len(people.describe.requests), 2)
 
     def test_failed_views_count_against_the_features(self):
-        def answer(*features):
-            return SimpleNamespace(success=True, message="", features=list(features))
-
         result, _ = self.memorize_views(
             [
-                answer("glasses", "red t-shirt"),
+                described("glasses", "red t-shirt"),
                 SimpleNamespace(success=False, message="VLM timeout", features=[]),
-                answer("red shirt"),
+                described("red shirt"),
             ],
-            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
+            sightings(0.0, 0.6, 1.2),
         )
         self.assertTrue(result.success, result.message)
         # 2 of 3 views must agree: the glasses of one view are dropped.
@@ -338,7 +337,7 @@ class MemorizePersonTests(unittest.TestCase):
 
     def test_one_described_view_of_three_keeps_nothing(self):
         result, people = self.memorize_views(
-            [SimpleNamespace(success=True, message="", features=["glasses"])],
+            [described("glasses")],
             [people_message(person(1, 0.5, 0.0)), people_message()],
         )
         self.assertTrue(result.success, result.message)
@@ -347,9 +346,8 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertIn("Only 1 of 3 views described guest1", "\n".join(people.logs))
 
     def test_later_views_ask_for_the_track_the_guest_has_now(self):
-        answer = SimpleNamespace(success=True, message="", features=["glasses"])
         result, people = self.memorize_views(
-            [answer, answer],
+            [described("glasses")] * 2,
             [
                 people_message(person(1, 0.5, 0.0), stamp=0.0),
                 people_message(person(5, 0.5, 0.0, "guest1"), stamp=0.6),
@@ -361,10 +359,9 @@ class MemorizePersonTests(unittest.TestCase):
         self.assertEqual(result.outputs["guest1.appearance"], ["glasses"])
 
     def test_describe_timeout_bounds_all_views(self):
-        answer = SimpleNamespace(success=True, message="", features=["glasses"])
         result, people = self.memorize_views(
-            [answer, answer, answer],
-            [people_message(person(1, 0.5, 0.0), stamp=t) for t in (0.0, 0.6, 1.2)],
+            [described("glasses")] * 3,
+            sightings(0.0, 0.6, 1.2),
             {"describe_timeout": 0.5},
             delay=0.3,
         )

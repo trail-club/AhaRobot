@@ -397,7 +397,7 @@ class MemorizePerson(Skill):
         ctx.log(f"{reply.message}; asking the VLM for features")
         asked = positive_int(ctx.params, "views", 3)
         views, failure = self.describe(ctx, people, message, person, guest, timeout)
-        described = sum(view is not None for view in views)
+        described = len(views)
         if not described:
             return SkillResult(False, f"Remembered, but no features: {failure}")
         if described < 2 <= asked:
@@ -416,7 +416,7 @@ class MemorizePerson(Skill):
         )
 
     def describe(self, ctx, people, message, person, guest, timeout):
-        """(feature lists of the views, None for a failed one; last failure).
+        """(feature lists of the views that answered, the last failure).
 
         A later view waits for a newer image with the person by track or by
         name, and asks for the track seen there (a lost guest gets a new one).
@@ -457,7 +457,6 @@ class MemorizePerson(Skill):
             except TimeoutError as error:
                 failure = f"{error} within describe_timeout"
                 ctx.log(f"View {view + 1}: {failure}")
-                views.append(None)
                 break
             if reply.success:
                 views.append(list(reply.features))
@@ -465,7 +464,6 @@ class MemorizePerson(Skill):
                 ctx.log(f"View {view + 1}: {', '.join(reply.features) or '-'}{note}")
             else:
                 failure = reply.message
-                views.append(None)
                 ctx.log(f"View {view + 1}: {failure}")
         return views, failure
 

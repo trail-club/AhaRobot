@@ -475,9 +475,7 @@ class PersonPerception(Node):
         while True:
             with self.lock:
                 track = self.tracker.tracks.get(request.id)
-                seen = track is not None and (
-                    track.crop is not None or bool(track.recent_crops)
-                )
+                seen = track is not None and track.crop is not None
                 chosen = track.crop_to_describe() if seen else None
             if not seen:
                 response.message = f"person {request.id} is not tracked"

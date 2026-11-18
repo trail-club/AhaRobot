@@ -9,7 +9,7 @@ aha_tasks.interaction (caption, and speech when a TTS runs).
 from aha_tasks.appearance import MAX_FEATURES, choose_features, sentence
 from aha_tasks.core.skill import Skill, SkillResult
 from aha_tasks.interaction import Interaction
-from aha_tasks.people import People, check_keys, check_name
+from aha_tasks.people import People, check_keys, check_name, positive_int
 
 
 class DescribePerson(Skill):
@@ -28,9 +28,7 @@ class DescribePerson(Skill):
         check_name(params, "listener")
         if params["subject"] == params["listener"]:
             raise ValueError(f"subject and listener must differ: {params}")
-        limit = params.get("max_features", MAX_FEATURES)
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-            raise ValueError(f"max_features must be a positive integer: {params}")
+        positive_int(params, "max_features", MAX_FEATURES)
 
     def ready(self):
         Interaction.of(self.runtime).find_tts()  # before the first sentence
@@ -64,11 +62,10 @@ class DescribePerson(Skill):
     def look_at(self, ctx, listener):
         """Turn the head to the listener before speaking.
 
-        After memorize_person the head already follows them, perhaps on a new
-        track the gaze re-acquired by position: that follow is kept, since
-        following the stored track again would drop the new one. Otherwise
-        follow the stored track (else the name) and wait LOOK_SETTLE for the
-        head to turn, as before judging a person.
+        If the head already follows them (after memorize_person, perhaps on a
+        track the gaze re-acquired by position), that follow is kept: following
+        the stored track again would drop the new one. Otherwise follow the
+        stored track (else the name) and wait look_settle for the head to turn.
         """
         people = People.of(self.runtime)
         track = ctx.memory.get(f"{listener}.track")

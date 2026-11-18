@@ -42,7 +42,6 @@ class NormalizeTests(unittest.TestCase):
             "wearing glasses": ("glasses", "glasses"),
             "has a beard": ("facial_hair", "beard"),
             "a red t-shirt": ("upper", "red t-shirt"),
-            "carrying a backpack": ("bag", "backpack"),
             "is wearing a pair of black glasses": ("glasses", "black glasses"),
             "dressed in a green hoodie": ("upper", "green hoodie"),
             "has short black hair": ("hair", "short black hair"),
@@ -149,11 +148,10 @@ class ConsensusTests(unittest.TestCase):
             ["black hair"],
         )
 
-    def test_failed_and_missing_views_count_against(self):
+    def test_missing_views_count_against(self):
         self.assertEqual(consensus([["red t-shirt", "glasses"]], 3), [])
-        self.assertEqual(consensus([["red t-shirt", "glasses"], None], 3), [])
         self.assertEqual(
-            consensus([["red t-shirt", "glasses"], None, ["red t-shirt"]], 3),
+            consensus([["red t-shirt", "glasses"], ["red t-shirt"]], 3),
             ["red t-shirt"],
         )
 
@@ -254,10 +252,6 @@ class SentenceTests(unittest.TestCase):
         )
         self.assertEqual(
             sentence("the other guest", features), "The other guest is wearing glasses."
-        )
-        features = choose_features(["carrying a black jacket", "carrying a backpack"])
-        self.assertEqual(
-            sentence("Charlie", features, "Emma"), "Emma, Charlie has a backpack."
         )
 
     def test_articles_follow_the_sound(self):
@@ -364,16 +358,6 @@ class DescribePersonTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.message, "Cancelled")
         self.assertEqual(speech.said, [])
-
-    def test_no_wait_when_the_head_already_follows_the_listener(self):
-        visible = SimpleNamespace(id=6, name="guest2", visible=True)
-        people = FakePeople(SimpleNamespace(people=[visible]), following=(6, "guest2"))
-        result, people, speech = run(
-            PARAMS, {"guest1.appearance": ["glasses"], "guest2.track": 3}, people
-        )
-        self.assertTrue(result.success, result.message)
-        self.assertEqual(people.paused, [])
-        self.assertEqual(len(speech.said), 1)
 
     def test_a_track_the_gaze_reacquired_is_kept(self):
         # The gaze lost track 3 and found guest 2 again by position as track 7,

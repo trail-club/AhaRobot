@@ -246,16 +246,6 @@ class DescribeCropTests(unittest.TestCase):
         stamp, crop = track.crop_to_describe()
         self.assertEqual((stamp, crop[0, 0, 0]), (2.0, 5))
 
-    def test_a_new_held_crop_is_described_first(self):
-        tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
-        [track] = tracker.update([sized(6, 1)], 0.0)
-        self.assertEqual(track.crop_to_describe()[0], 0.0)
-        tracker.update([sized(4, 2)], 0.5)
-        tracker.update([sized(10, 3)], 1.0)  # larger: becomes the held crop
-        stamp, crop = track.crop_to_describe()
-        self.assertEqual((stamp, crop[0, 0, 0]), (1.0, 3))
-        self.assertIsNone(track.crop_to_describe())
-
     def test_a_larger_crop_just_after_the_last_description_is_skipped(self):
         tracker = PersonTracker(forget_after=5.0, smoothing=0.0)
         [track] = tracker.update([sized(6, 1)], 4.65)

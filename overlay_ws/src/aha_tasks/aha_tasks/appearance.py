@@ -1,13 +1,12 @@
 """Appearance phrases of the VLM: agreeing views, choosing and telling features.
 
-memorize_person asks the VLM several times and keeps what most of the views
-asked for agree on (`consensus`); describe_person tells some of those features
-in one sentence (`choose_features`, `sentence`). The rulebook (2027 §5.1) scores up to four
-told attributes, +20 each when right and -20 when wrong, without listing the
-kinds, so a wrong one costs as much as a right one earns: at most one phrase
-per body part is told, the parts in PARTS order, hedged or negated phrases
-are dropped, and so are leading verbs and articles ("wearing a") and the
-details after "with". ROS-independent.
+memorize_person keeps what most of its views agree on (`consensus`);
+describe_person tells some of those features in one sentence
+(`choose_features`, `sentence`). The rulebook (2027 §5.1) scores up to four
+told attributes, +20 each when right and -20 when wrong, so a wrong one costs
+as much as a right one earns: at most one phrase per body part is told,
+hedged or negated phrases are dropped, and so are leading verbs and articles
+("wearing a") and the details after "with". ROS-independent.
 """
 
 from collections import Counter
@@ -35,15 +34,14 @@ PARTS = (
 )
 PART_OF = {noun: part for part, nouns in PARTS for noun in nouns.split()}
 PART_ORDER = {part: i for i, (part, _) in enumerate(PARTS)}
-# Head nouns that take no article ("blue jeans", "glasses").
-PLURAL = set(
+# Head nouns said without an article ("blue jeans", "glasses", "black hair").
+NO_ARTICLE = set(
     "glasses eyeglasses spectacles sunglasses jeans pants trousers shorts "
-    "leggings chinos slacks shoes sneakers boots sandals trainers braids".split()
+    "leggings chinos slacks shoes sneakers boots sandals trainers braids hair".split()
 )
 SYNONYMS = {
     "tshirt": "t-shirt",
     "tee": "t-shirt",
-    "tee-shirt": "t-shirt",
     "blonde": "blond",
     "gray": "grey",
 }
@@ -137,40 +135,39 @@ def plain(key):
 def consensus(views, asked=0):
     """Phrases that more than half of the `asked` views agree on.
 
-    `views` are lists of VLM phrases, None for a view that failed; a failed or
-    missing view counts against every phrase (`asked` defaults to
+    `views` are the phrase lists of the views that answered; a view asked but
+    missing (failed) counts against every phrase (`asked` defaults to
     len(views)), so of 3 views asked 2 must agree and one alone keeps nothing.
     Phrases of a known body part vote per part on vote_key, so a garment that
     the views name differently still counts; the part keeps its most common
     key if a majority gave it, told as the most common phrase if a majority
-    gave exactly that, else as colour and kind (`plain`). A feature that one
-    view made up, or a part whose colour the views disagree on, is dropped.
-    Other phrases need the same text. The result keeps the order in which the
-    kept keys first came.
+    gave exactly that, else as colour and kind (`plain`). Other phrases need
+    the same text. The result keeps the order in which the kept keys first
+    came.
     """
     total = max(asked, len(views))
     by_group, by_key, first = {}, {}, {}
     for view in views:
         keys, texts = set(), set()
-        for phrase in view or ():
+        for phrase in view:
             found = normalize(phrase)
             if found is None:
                 text = " ".join(str(phrase).lower().split())
-                group, key = ("", text), ("", text, ())
+                group = key = ("", text, ())
             else:
                 text, group, key = found[1], found[0], vote_key(*found)
             if not text:
                 continue
-            if (group, key) not in keys:
-                keys.add((group, key))
+            if key not in keys:
+                keys.add(key)
                 by_group.setdefault(group, Counter())[key] += 1
                 first.setdefault(key, len(first))
             if (key, text) not in texts:
                 texts.add((key, text))
                 by_key.setdefault(key, Counter())[text] += 1
     kept = []
-    for keys in by_group.values():
-        key, count = keys.most_common(1)[0]
+    for votes in by_group.values():
+        key, count = votes.most_common(1)[0]
         if 2 * count <= total:
             continue
         text, count = by_key[key].most_common(1)[0]
@@ -196,7 +193,7 @@ CONSONANT_SOUND = re.compile(r"^(?:uni|use|usu|uti|eu|ewe|one\b|once\b)")
 
 
 def with_article(phrase):
-    if phrase.split()[-1] in PLURAL:
+    if phrase.split()[-1] in NO_ARTICLE:
         return phrase
     vowel = phrase[0] in "aeiou" and not CONSONANT_SOUND.match(phrase)
     return ("an " if vowel else "a ") + phrase
@@ -212,21 +209,17 @@ def sentence(subject, features, listener=""):
     """English sentence telling `listener` what `subject` looks like, or ""."""
     wearing, has, being = [], [], []
     for part, phrase in features:
-        if part == "hair" and phrase.split()[-1] == "bald":
+        if part == "hair" and phrase.endswith("bald"):
             being.append(phrase)  # "is mostly bald", not "has a mostly bald"
-        elif part == "hair" and phrase.endswith("hair"):
-            has.append(phrase)
         elif part in ("hair", "facial_hair", "bag"):
             has.append(with_article(phrase))
         else:
             wearing.append(with_article(phrase))
-    clauses = []
-    if wearing:
-        clauses.append("is wearing " + join(wearing))
-    if has:
-        clauses.append("has " + join(has))
-    if being:
-        clauses.append("is " + join(being))
+    clauses = [
+        verb + join(items)
+        for verb, items in (("is wearing ", wearing), ("has ", has), ("is ", being))
+        if items
+    ]
     if not clauses:
         return ""
     text = f"{subject} {join(clauses)}."

@@ -275,16 +275,14 @@ class Track:
         while self.history and stamp - self.history[0][0] > KEYPOINT_HISTORY:
             self.history.popleft()
 
-    def crop_to_describe(
-        self, interval: float = DESCRIBE_INTERVAL
-    ) -> tuple[float, np.ndarray] | None:
+    def crop_to_describe(self) -> tuple[float, np.ndarray] | None:
         """(stamp, crop) for the VLM to describe, or None without a new one.
 
-        A crop at least `interval` s after the one described last: the held
-        (largest) crop if it is, else the largest (then newest) such recent
-        crop. Marks the crop described.
+        A crop at least DESCRIBE_INTERVAL after the one described last: the
+        held (largest) crop if it is, else the largest (then newest) such
+        recent crop. Marks the crop described.
         """
-        after = self.described + interval
+        after = self.described + DESCRIBE_INTERVAL
         if self.crop is not None and self.crop_stamp >= after:
             chosen = (self.crop_stamp, self.crop)
         else:

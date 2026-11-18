@@ -227,7 +227,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 | スキル | 動作 | 出力 |
 | --- | --- | --- |
 | `find_person` | 名前のない人のうち最も近い人を見て、`distance`（既定1.0 m）手前まで近づき向き合う。人が `map` 以外の座標なら見るだけ | `<role>.track` / `.position` / `.frame`、`robot.location` |
-| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き（person_perceptionも同じ人の切り出しを0.5 s以上空ける）、聞いた枚数の過半数が一致した特徴だけを残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
+| `memorize_person` | `<guest>.track` の人（いなければ名前のない最も近い人）の外見を `guest` の名前で覚え、VLMで特徴を求める。`views`（既定3）枚の画像を `view_interval`（既定0.5 s、画像の時刻）以上空けて聞き、過半数が一致した特徴を残す（[外見の説明](#外見の説明)） | `<guest>.appearance`（英語句のリスト）、`.track` / `.position` / `.frame` |
 | `locate_guests` | 頭を正面・左・右へ `dwell`（既定10 s）ずつ向け、`guests` の全員を名前付きで見るまで待ち、最後に頭を正面へ戻す。名前はVLMが外見で照合して付けるため、席を入れ替えても区別する | 各客の `.track` / `.position` / `.frame` |
 
 `find_person` と `memorize_person` は、終了後も頭をその人へ向け続ける（[注視](#注視)）。
@@ -249,7 +249,7 @@ person_perceptionが起動していない場合は、実行時に失敗する（
 
 ルールブックは伝えた特徴を4つまで数え、正しければ+20、誤りなら−20とする（特徴の種類は指定していない）。
 
-- `memorize_person` は、聞いた画像の過半数（3枚なら2枚）が一致した特徴だけを残す。失敗した画像は反対に数えるため、1枚しか答えなければ何も残さない（ログに出す）。VLMが1枚にだけ答えた句（ない眼鏡など）も残らない。
+- `memorize_person` は、聞いた画像の過半数（3枚なら2枚）が一致した特徴だけを残す。失敗した画像は反対に数えるため、1枚しか答えなければ何も残さない（ログに出す）。
 - 体の部位が同じ句は部位ごとに、服の種類と色で数える（`red t-shirt`・`red shirt`・`red top` は同じ）。最も多い種類と色が過半数になければ部位ごと捨てる（`black pants` と `dark grey pants` に分かれた下衣など）。言う句は過半数が答えた言い方、なければ色と種類だけ（`red shirt`、`black hair`）にする。
 - 部位ごとに1つの句を、上衣、眼鏡、帽子、下衣、髪、ひげ、かばん、首回り、靴の順に `max_features`（既定4）まで選ぶ。部位は句の最後の名詞で決める。
 - 推量・否定を含む句（`possibly glasses`、`may have a beard`、`looks like a hat`、`no hat`）、部位の分からない句（`smiling`）、5語以上の句は言わない。文が自分で付ける先頭の動詞・冠詞（`wearing glasses`、`has a beard` → `beard`）と、`with` などより後の細部（`red t-shirt with a logo` → `red t-shirt`）は省いてから語数を数える。
