@@ -573,8 +573,13 @@ class Hands:
         """The late end of goal `number`. A rejection, or a result from before
         any motion, gives back the ARM_OUT of before it (`earlier`); a success
         sets `hold` (check the hand, as its skill failed); another result sets
-        ARM_OUT by how the goal ended."""
-        self.pending.discard(number)
+        ARM_OUT by how the goal ended.
+
+        It runs on an executor thread while the skill thread may be in
+        start(): the goal leaves `pending` only after `hold` and ARM_OUT are
+        set, so that blocked() never sees it settled before them. No lock is
+        needed: while a goal is pending no other goal starts, so nothing else
+        writes this state meanwhile."""
         if rejected or (result is not None and before_motion(result)):
             after = earlier
         elif result is not None and result.success:
@@ -586,6 +591,7 @@ class Hands:
         else:
             after = arm_text(arm_why(result))
         setattr(self.runtime, ARM_OUT, after)
+        self.pending.discard(number)
 
     def finish(self, handle, timeout, cancelled, until=None):
         """The result, or None once `until()` holds. On cancel or timeout the
@@ -1070,10 +1076,15 @@ class DeliverObject(_HandSkill):
         return self.fail(message)
 
     def robot(self, memory):
+        """The base pose in map: from TF, else the remembered robot.location;
+        RuntimeError without either."""
         try:
             return Objects.of(self.runtime).robot_pose("map")
-        except RuntimeError:
-            x, y, yaw = resolve_pose(self.runtime.spec, memory[LOCATION])
+        except RuntimeError as error:
+            try:
+                x, y, yaw = resolve_pose(self.runtime.spec, memory.get(LOCATION))
+            except ValueError as why:
+                raise RuntimeError(f"{error}; {why}") from None
             return [x, y, yaw]
 
     def face(self, ctx, frame, position, outputs):
@@ -1084,7 +1095,10 @@ class DeliverObject(_HandSkill):
         navigation = self.runtime.navigation
         if navigation is None or frame != "map":
             return None
-        robot = self.robot(ctx.memory)
+        try:
+            robot = self.robot(ctx.memory)
+        except RuntimeError as error:
+            return self.fail(f"Could not go to the person: {error}")
         distance = positive(ctx.params, "distance", DELIVER_DISTANCE)
         heading = math.atan2(position[1] - robot[1], position[0] - robot[0])
         if math.dist(robot[:2], position[:2]) > distance + 0.3:
@@ -1171,7 +1185,11 @@ class DeliverObject(_HandSkill):
             return None, f"{HANDOVER_ACTION}: {error}"
         except RuntimeError as error:
             return None, str(error)
-        interaction.say(text, ctx.cancelled)
+        try:
+            interaction.say(text, ctx.cancelled)
+        except Exception:
+            hands.cancel(handle)  # the arm may be on its way out
+            raise
         stop, touched = threading.Event(), threading.Event()
 
         def ask():

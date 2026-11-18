@@ -911,6 +911,34 @@ class DeliverTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(len(hands.goals), 1, "no second try unless timed out")
 
+    def test_a_failed_say_cancels_the_handover_goal(self):
+        class Mute(FakeInteraction):
+            def say(self, text, cancelled):
+                raise RuntimeError("no screen")
+
+        hands = FakeHands(handover=[None])
+        runtime = make_runtime(None, robot="office", hands=hands, interaction=Mute())
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        with self.assertRaises(RuntimeError):
+            run(DeliverObject, runtime, {"object": "cola", "person": "Jane"}, memory)
+        self.assertEqual(hands.cancelled, 1)
+
+    def test_no_robot_pose_fails_cleanly(self):
+        def no_tf(frame):
+            raise RuntimeError("No TF map -> base_footprint")
+
+        memory = {**self.HELD_COLA, "person.position": [2.0, 2.4, 0.9]}
+        params = {"object": "cola", "person": "Jane"}
+        runtime = make_runtime(None, robot="office", hands=FakeHands(handover=[ok()]))
+        runtime.objects.robot_pose = no_tf
+        result, _ = run(DeliverObject, runtime, params, memory)
+        self.assertFalse(result.success)
+        self.assertIn("No TF map -> base_footprint; robot.location", result.message)
+        self.assertEqual(runtime.hands.goals, [])
+        # The remembered location stands in for TF.
+        result, _ = run(DeliverObject, runtime, params, {**memory, LOCATION: "office"})
+        self.assertTrue(result.success, result.message)
+
 
 class FakeFuture:
     def __init__(self):
@@ -1129,6 +1157,36 @@ class HandsTests(unittest.TestCase):
                 else:
                     self.assertIn(out, hands.runtime.arm_out)
                     self.assertIn(out, hands.blocked())
+
+    def test_a_late_goal_leaves_pending_only_once_its_state_is_set(self):
+        # settle runs on an executor thread: the skill thread's start() may
+        # check blocked() right when the goal leaves `pending`.
+        for late, out in (
+            (
+                PickResult(success=True, message="Picked", at_home=True),
+                "check the hand",
+            ),
+            (PickResult(success=False, message="stuck", at_home=False), "not at home"),
+        ):
+            with self.subTest(late=late.message):
+                hands, seen = bare_hands(), []
+
+                class Watched(set):
+                    def discard(self, number):
+                        super().discard(number)
+                        seen.append((hands.blocked(), hands.runtime.arm_out))
+
+                hands.pending = Watched()
+                handle = FakeHandle(None)
+                handle.cancel_goal_async = lambda: None  # no answer to the cancel
+                with mock.patch("aha_tasks.handling.SERVER_TIMEOUT", 0.0):
+                    with self.assertRaises(Unstopped):
+                        hands.finish(handle, 0.0, threading.Event())
+                handle.future.set_result(SimpleNamespace(result=late))  # it ends
+                ((blocked, arm_out),) = seen
+                self.assertIn(out, arm_out)
+                if late.success:
+                    self.assertIn(out, blocked)
 
     def test_a_late_accepted_goal_keeps_the_base_until_its_result(self):
         hands = bare_hands()
