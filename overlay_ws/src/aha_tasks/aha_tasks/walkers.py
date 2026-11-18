@@ -10,8 +10,8 @@ of the plan slot (run_plan_step subgoal) that runs it:
   robot's path `follow_gap` behind it, as the HIC guests do; stands facing the
   robot otherwise.
 
-Before that step a walker stands at its start; when the step is rewound it
-goes back there. A follow walker whose step is passed without running (not
+Before that step a walker stands at its start; when the step is rewound or
+retried it goes back there. A follow walker whose step is passed without running (not
 selected, skipped) moves to the end of its route without walking.
 """
 
@@ -60,11 +60,12 @@ def load_config(path):
 
 
 def step_slot(status, action):
-    """The plan slot that runs the first step with `action`, or None.
+    """The plan slot (a subgoal of the task status) that runs the first step
+    with `action`; None without such a step or without a status.
 
     Slots are the run_plan_step subgoals in order: the i-th runs plan[i].
     """
-    plan = status.get("memory", {}).get("plan")
+    plan = (status or {}).get("memory", {}).get("plan")
     if not isinstance(plan, list):
         return None
     slots = [s for s in status["subgoals"] if s.get("skill") == RUN_PLAN_STEP]
@@ -72,18 +73,6 @@ def step_slot(status, action):
         if isinstance(step, dict) and step.get("action") == action:
             return slot
     return None
-
-
-def step_status(status, action):
-    """Status of the plan slot that runs the first step with `action`, or None."""
-    slot = step_slot(status, action)
-    return None if slot is None else slot["status"]
-
-
-def step_attempts(status, action):
-    """Attempts of that slot (counts retries), or None."""
-    slot = step_slot(status, action)
-    return None if slot is None else slot.get("attempts")
 
 
 def stage_of(status, previous):
@@ -115,8 +104,7 @@ class SimWalker(Walker):
         self.attempts = None  # the slot's attempts so far
 
     def set_status(self, status, attempts=None):
-        """Status and attempts of the walker's plan slot (step_status,
-        step_attempts)."""
+        """Status and attempts (counts retries) of the walker's plan slot."""
         # Running again after it ended (a retry, which restores the robot):
         # start over, as after a rewind. The engine retries within
         # milliseconds, so a new attempt also counts when "failed" was missed.
@@ -138,24 +126,24 @@ class SimWalker(Walker):
         self.running = status == RUNNING
         stage = stage_of(status, self.stage)
         if retried:
-            self.stage = WAIT
-            self._place(self.config["start"])
-            self.yaw = self.config["yaw"]
+            self._to_start()
         elif stage == self.stage:
             return
-        previous, self.stage = self.stage, stage
+        self.stage = stage
         self.route, self.last_trail = [], None
         if stage == WAIT:  # rewound
-            self._place(self.config["start"])
-            self.yaw = self.config["yaw"]
+            self._to_start()
         elif self.action == "follow_person":
             if stage == RUN:
                 self.route = [list(p) for p in self.config["route"]]
-            elif previous == WAIT:
-                # Where the walk would end, facing the way it went.
+            else:  # passed (only from WAIT): where the walk would end
                 before, end = ([self.config["start"]] + self.config["route"])[-2:]
                 self._place(end)
                 self._face_away(before)
+
+    def _to_start(self):
+        self._place(self.config["start"])
+        self.yaw = self.config["yaw"]
 
     def _face_away(self, point):
         if math.dist(point, (self.x, self.y)) > 0.0:
@@ -165,19 +153,14 @@ class SimWalker(Walker):
         """Advance by dt seconds; `robot` is its (x, y), or None if unknown."""
         if self.stage == WAIT:
             return
-        near = robot is not None and math.dist((self.x, self.y), robot) <= self.gap
+        gap = None if robot is None else math.dist((self.x, self.y), robot)
         if self.action == "guide_person":
             if self.running and robot is not None:
                 self._remember(robot)
-            if self.running and self.route and not near:
-                self._walk(self.speed * dt)
-            else:
-                self._face(robot)
-            return
-        waiting = (
-            robot is not None and math.dist((self.x, self.y), robot) > self.wait_gap
-        )
-        if self.running and self.route and not waiting:
+            waits = gap is not None and gap <= self.gap  # close behind the robot
+        else:
+            waits = gap is not None and gap > self.wait_gap  # the robot fell behind
+        if self.running and self.route and not waits:
             self._walk(self.speed * dt)
         else:
             self._face(robot)

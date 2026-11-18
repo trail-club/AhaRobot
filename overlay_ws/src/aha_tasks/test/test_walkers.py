@@ -16,7 +16,7 @@ from aha_tasks.walkers import (  # noqa: E402
     SimWalker,
     load_config,
     stage_of,
-    step_status,
+    step_slot,
 )
 
 CONFIG = Path(__file__).resolve().parents[1] / "config"
@@ -52,9 +52,10 @@ class StatusTests(unittest.TestCase):
             ["navigate", "follow_person", "follow_person"],
             ["succeeded", "running", "pending"],
         )
-        self.assertEqual(step_status(message, "follow_person"), "running")
-        self.assertIsNone(step_status(message, "guide_person"))
-        self.assertIsNone(step_status(status([], [], plan=False), "follow_person"))
+        self.assertEqual(step_slot(message, "follow_person")["status"], "running")
+        self.assertIsNone(step_slot(message, "guide_person"))
+        self.assertIsNone(step_slot(status([], [], plan=False), "follow_person"))
+        self.assertIsNone(step_slot(None, "follow_person"))
 
     def test_stages(self):
         self.assertEqual(stage_of(None, WAIT), WAIT)

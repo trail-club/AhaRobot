@@ -286,6 +286,7 @@ class World(People):
         self.said = []
         self.goals = []
         self.turns = []
+        self.arrived = False
         self.pending = 0.0  # s slept towards the next step
         self.message = None
         self.step()
@@ -353,17 +354,13 @@ class World(People):
     def send(self, pose, now):
         self.goals.append(list(pose))
         self.goal, self.arrived = list(pose), False
-        self.sent_at = now
 
     def state(self):
         if self.goal is not None:
             return ACTIVE
-        return SUCCEEDED if getattr(self, "arrived", False) else IDLE
+        return SUCCEEDED if self.arrived else IDLE
 
     def stop(self):
-        self.goal = None
-
-    def halt(self):
         self.goal = None
 
     def go(self, pose, people, cancelled, timeout):
@@ -527,7 +524,6 @@ class FollowPersonTests(unittest.TestCase):
         self.assertEqual(result.outputs["person.position"][:2], [0.0, 5.5])
         self.assertIn("Charlie, I will follow you to the kitchen", world.said[0])
         self.assertEqual(world.followed[0], 1)  # the head is on the person
-        # Each goal faces the person from `distance` away.
         self.assertTrue(world.goals)
 
     def test_turns_to_a_person_who_walks_past_and_follows_them(self):
@@ -743,6 +739,7 @@ class GuidePersonTests(unittest.TestCase):
         GuidePerson.validate({"person": "them", "location": "office"}, spec)
         for params in (
             {"person": "them"},
+            {"person": "them", "location": "attic"},
             {"person": "them", "location": "office", "calls": -1},
             {"person": "them", "location": "office", "calls": 1.5},
             {"person": "them", "location": "office", "gap": -1.0},
@@ -756,40 +753,23 @@ class GuidePersonTests(unittest.TestCase):
 
 
 class GpsrPlanTests(unittest.TestCase):
-    """Plan steps of the generator's follow and guide commands."""
-
-    def setUp(self):
-        self.spec, _ = load_task(GPSR)
-
-    def plan(self, *steps):
-        return [{"command": 1, "action": a, "params": p} for a, p in steps]
-
     def test_follow_and_guide_commands(self):
+        """Plan steps of the generator's follow and guide commands."""
+        spec, _ = load_task(GPSR)
         find = ("find_described_person", {"gesture": "waving person"})
-        validate_plan(
-            self.plan(
-                # followNameFromBeacToRoom: follow Charlie from the bed to the kitchen
-                ("navigate", {"location": "bed"}),
-                ("follow_person", {"person": "Charlie", "location": "kitchen"}),
-                # findPrsInRoom + followPrs: ... and follow them
-                find,
-                ("follow_person", {"person": "them"}),
-                # guidePrsFromBeacToBeac / guidePrsToBeacon: guide them to the desk
-                find,
-                ("guide_person", {"person": "waving person", "location": "desk"}),
-            ),
-            self.spec,
-        )
-
-    def test_bad_steps_are_rejected(self):
-        for action, params in (
-            ("guide_person", {"person": "them"}),
-            ("guide_person", {"person": "them", "location": "attic"}),
-            ("follow_person", {"location": "kitchen"}),
-            ("follow_person", {"person": "them", "speed": 2.0}),
-        ):
-            with self.subTest(action, params=params), self.assertRaises(ValueError):
-                validate_plan(self.plan((action, params)), self.spec)
+        steps = [
+            # followNameFromBeacToRoom: follow Charlie from the bed to the kitchen
+            ("navigate", {"location": "bed"}),
+            ("follow_person", {"person": "Charlie", "location": "kitchen"}),
+            # findPrsInRoom + followPrs: ... and follow them
+            find,
+            ("follow_person", {"person": "them"}),
+            # guidePrsFromBeacToBeac / guidePrsToBeacon: guide them to the desk
+            find,
+            ("guide_person", {"person": "waving person", "location": "desk"}),
+        ]
+        plan = [{"command": 1, "action": a, "params": p} for a, p in steps]
+        validate_plan(plan, spec)
 
 
 if __name__ == "__main__":

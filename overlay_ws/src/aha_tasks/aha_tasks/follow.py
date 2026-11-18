@@ -112,26 +112,28 @@ def bearing(pose, point):
     return math.remainder(angle - pose[2], math.tau)
 
 
-def turn_to_see(pose, point, reach=HEAD_REACH):
-    """Base yaw that puts `point` within `reach` of the front (the head does the rest)."""
+def turn_to_see(pose, point):
+    """Base yaw that puts `point` within the head's reach (HEAD_REACH) of the front."""
     relative = bearing(pose, point)
-    if abs(relative) <= reach:
+    if abs(relative) <= HEAD_REACH:
         return pose[2]
-    return math.remainder(pose[2] + relative - math.copysign(reach, relative), math.tau)
+    return math.remainder(
+        pose[2] + relative - math.copysign(HEAD_REACH, relative), math.tau
+    )
 
 
-def approach_poses(robot, person, distance, step=APPROACH_STEP, tries=APPROACH_TRIES):
+def approach_poses(robot, person, distance):
     """Poses `distance` from the person facing them: on the robot's side first.
 
-    Then turned by ±step, ±2·step, ... about the person. When the robot is
-    already that close, only its own position, turned to the person.
+    Then turned by ±APPROACH_STEP, ±2·APPROACH_STEP, ... about the person. When
+    the robot is already that close, only its own position, turned to the person.
     """
     if math.dist(robot[:2], person) <= distance:
         return [facing(robot, person)]
     side = math.atan2(robot[1] - person[1], robot[0] - person[0])
     poses = []
-    for k in range(tries):
-        angle = side + step * ((k + 1) // 2) * (1 if k % 2 else -1)
+    for k in range(APPROACH_TRIES):
+        angle = side + APPROACH_STEP * ((k + 1) // 2) * (1 if k % 2 else -1)
         x = person[0] + distance * math.cos(angle)
         y = person[1] + distance * math.sin(angle)
         poses.append([x, y, math.atan2(person[1] - y, person[0] - x)])
@@ -144,9 +146,7 @@ def facing(robot, point):
 
 
 def grid_cost(grid, x, y):
-    """OccupancyGrid value (-1 unknown, 0..100) at a map point; None outside or no grid."""
-    if grid is None:
-        return None
+    """OccupancyGrid value (-1 unknown, 0..100) at a map point; None outside."""
     info = grid.info
     col = math.floor((x - info.origin.position.x) / info.resolution)
     row = math.floor((y - info.origin.position.y) / info.resolution)
@@ -190,22 +190,19 @@ def free_pose(poses, grid):
     return None
 
 
-def needs_goal(goal, active, sent_at, state, now, period=GOAL_PERIOD):
+def needs_goal(goal, active, sent_at, state, now):
     """Whether to send `goal` in place of `active` (sent at `sent_at`, in `state`).
 
-    At most one goal per `period`; a running goal is replaced only by one that
-    moved or turned enough, an ended one by any.
+    At most one goal per GOAL_PERIOD; a running goal is replaced only by one
+    that moved or turned enough, an ended one by any.
     """
     if active is None:
         return True
-    if now - sent_at < period:
+    if now - sent_at < GOAL_PERIOD:
         return False
-    return state != ACTIVE or moved(goal, active)
-
-
-def moved(goal, active):
     return (
-        math.dist(goal[:2], active[:2]) >= GOAL_MOVED
+        state != ACTIVE
+        or math.dist(goal[:2], active[:2]) >= GOAL_MOVED
         or abs(math.remainder(goal[2] - active[2], math.tau)) >= GOAL_TURNED
     )
 
@@ -226,7 +223,7 @@ class Target:
         lost = 0.0 if self.seen is None else max(0.0, now - self.seen)
         return min(REACQUIRE + REACQUIRE_SPEED * lost, REACQUIRE_MAX)
 
-    def find(self, people, now, origin=None, acquire=ACQUIRE_RANGE):
+    def find(self, people, now, origin=None):
         """The person among `people` (visible ones count), or None; nothing changes.
 
         By track, then by name, then the nearest person near the last sighting
@@ -245,7 +242,7 @@ class Target:
         centre = self.position if self.position is not None else origin
         if centre is None:
             return None
-        radius = acquire if first else self.reacquire_radius(now)
+        radius = ACQUIRE_RANGE if first else self.reacquire_radius(now)
         near = [
             (math.dist(planar(p.position), centre), p)
             for p in visible
@@ -276,13 +273,6 @@ class Target:
             return self.position
         return (x + distance * (x - x0) / moved, y + distance * (y - y0) / moved)
 
-    def update(self, people, now, origin=None):
-        """find + saw; the person or None."""
-        person = self.find(people, now, origin)
-        if person is not None:
-            self.saw(person, people, now)
-        return person
-
     def lost_for(self, now):
         return math.inf if self.seen is None else now - self.seen
 
@@ -290,21 +280,20 @@ class Target:
 class Stillness:
     """How long the person has stood still with the robot next to them."""
 
-    def __init__(self, still=STILL):
-        self.still = still
+    def __init__(self):
         self.anchor = None  # (x, y, since)
 
     def update(self, position, now, close):
         if not close:
             self.anchor = None
-        elif self.anchor is None or math.dist(position, self.anchor[:2]) > self.still:
+        elif self.anchor is None or math.dist(position, self.anchor[:2]) > STILL:
             self.anchor = (*position, now)
         return 0.0 if self.anchor is None else now - self.anchor[2]
 
 
-def follow_done(still_for, stop_time, travelled, position, area, min_travel=MIN_TRAVEL):
+def follow_done(still_for, stop_time, travelled, position, area):
     """Following ends: stood still long enough after walking, in the area if any."""
-    if still_for < stop_time or travelled < min_travel:
+    if still_for < stop_time or travelled < MIN_TRAVEL:
         return False
     return area is None or math.dist(position, area[:2]) <= area[2]
 
@@ -335,7 +324,7 @@ def distance_to_trail(point, trail):
     return best
 
 
-def follower(people, target, robot, trail, gap, near_trail=TRAIL_NEAR):
+def follower(people, target, robot, trail, gap):
     """The visible person following the robot, `gap` m from it at most, or None.
 
     The target by track or name; else the nearest unnamed person (or one with
@@ -357,7 +346,7 @@ def follower(people, target, robot, trail, gap, near_trail=TRAIL_NEAR):
         for p in close
         if p.id not in target.others
         and (not p.name or p.name == target.name)
-        and distance_to_trail(planar(p.position), trail) <= near_trail
+        and distance_to_trail(planar(p.position), trail) <= TRAIL_NEAR
     ]
     if not candidates:
         return None
@@ -390,8 +379,9 @@ def address(person):
     return ""
 
 
-def rounded(pose):
-    return [round(v, 3) for v in pose]
+def look_at_face(people, xy):
+    """Turn the head to the face of someone standing at map point `xy`."""
+    people.look_at("map", SimpleNamespace(x=xy[0], y=xy[1], z=LOOK_HEIGHT))
 
 
 # ---- ROS access ---------------------------------------------------------------
@@ -537,10 +527,10 @@ class Pursuit:
     def halt(self):
         """Cancel the latest goal and wait until Nav2 ended it (best effort, 5 s)."""
         request = self.request
-        if request is None or self.state() != ACTIVE:
-            self.request = self.result = self.goal = None
-            return
+        active = request is not None and self.state() == ACTIVE
         self.request = self.result = self.goal = None
+        if not active:
+            return
         try:
             handle = self.navigation.wait(request, 5.0)
             if handle.accepted:
@@ -585,14 +575,14 @@ def check_target_params(params, spec, required, optional):
 
 
 class _PersonSkill(Skill):
-    """Shared start: the person in view and the robot's pose."""
+    """Shared start (the person in view, the robot's pose) and result."""
 
     def ready(self):
         # TF, the costmap and the TTS are found before the first use.
         Base.of(self.runtime)
         Interaction.of(self.runtime).find_tts()
 
-    def _start(self, ctx, timeout=ACQUIRE_TIMEOUT):
+    def _start(self, ctx):
         """(people, base, target, robot pose) or a failed SkillResult."""
         if self.runtime.navigation is None:
             return SkillResult(False, "Needs Nav2")
@@ -614,12 +604,7 @@ class _PersonSkill(Skill):
         pans = itertools.cycle(ACQUIRE_PANS)
         next_look = -math.inf
         if target.position is not None:
-            people.look_at(
-                "map",
-                SimpleNamespace(
-                    x=target.position[0], y=target.position[1], z=LOOK_HEIGHT
-                ),
-            )
+            look_at_face(people, target.position)
             next_look = people.now() + ACQUIRE_DWELL
 
         def choose(message):
@@ -634,7 +619,7 @@ class _PersonSkill(Skill):
                 next_look = people.now() + ACQUIRE_DWELL
             return None
 
-        found, reason = people.wait_for(choose, timeout, ctx.cancelled)
+        found, reason = people.wait_for(choose, ACQUIRE_TIMEOUT, ctx.cancelled)
         if found is None:
             return SkillResult(False, f"No {ctx.params['person']} in view: {reason}")
         message, person = found
@@ -644,6 +629,12 @@ class _PersonSkill(Skill):
             f"Person {person.id} at [{target.position[0]:.2f}, {target.position[1]:.2f}]"
         )
         return people, base, target, robot
+
+    def _succeeded(self, ctx, base, text, sighting):
+        """The result with robot.location and the person's last sighting."""
+        outputs = person_outputs(ctx.params.get("role", "person"), *sighting)
+        outputs[LOCATION] = [round(v, 3) for v in base.pose()]
+        return SkillResult(True, text, outputs)
 
 
 class FollowPerson(_PersonSkill):
@@ -675,7 +666,6 @@ class FollowPerson(_PersonSkill):
             return started
         people, base, target, _ = started
         params = ctx.params
-        role = params.get("role", "person")
         to = f" to the {spoken(params['location'])}" if "location" in params else ""
         Interaction.of(self.runtime).say(
             f"{address(params['person'])}I will follow you{to}. Please walk ahead.",
@@ -688,9 +678,7 @@ class FollowPerson(_PersonSkill):
             pursuit.halt()
         if not ok:
             return SkillResult(False, text)
-        outputs = person_outputs(role, *sighting)
-        outputs[LOCATION] = rounded(base.pose())
-        return SkillResult(True, text, outputs)
+        return self._succeeded(ctx, base, text, sighting)
 
     def _follow(self, ctx, people, base, target, pursuit):
         """(ok, message, (people message, person) of the last sighting)."""
@@ -720,33 +708,33 @@ class FollowPerson(_PersonSkill):
                 )
             robot = base.pose()
             message = people.latest()
-            if message is None or message is last:
-                if message is None:
-                    # person_perception is silent (stopped, DGX lost): do not
-                    # drive on to where the person was.
-                    pursuit.stop()
-                if target.lost_for(now) > lost_timeout:
-                    return False, f"Lost the person for {lost_timeout:.0f} s", None
-                time.sleep(POLL)
-                continue
-            last = message
-            if message.header.frame_id != "map":
-                return False, "People are not in map", None
-            person = target.update(message.people, now)
+            if message is None:
+                # person_perception is silent (stopped, DGX lost): do not
+                # drive on to where the person was.
+                pursuit.stop()
+            fresh = message is not None and message is not last
+            person = None
+            if fresh:
+                last = message
+                if message.header.frame_id != "map":
+                    return False, "People are not in map", None
+                person = target.find(message.people, now)
             if person is None:
                 if target.lost_for(now) > lost_timeout:
                     return False, f"Lost the person for {lost_timeout:.0f} s", None
-                if target.lost_for(now) > SEARCH_AFTER:
+                if fresh and target.lost_for(now) > SEARCH_AFTER:
                     search = self._search(
                         search, people, base, target, robot, pursuit, now
                     )
+                time.sleep(POLL)
                 continue
+            target.saw(person, message.people, now)
             sighting = (message, person)
             # The search goal (towards the last sighting, or turning around) is
             # not for where the person is now: a new goal replaces it below, or
             # it is cancelled (not both: Nav2 would end the new goal as well).
             refound = search is not None
-            if search is not None or target.track != gazed:
+            if refound or target.track != gazed:
                 if refound:
                     ctx.log(f"Found the person again: track {person.id}")
                     pursuit.goal = None  # any goal now differs from it
@@ -797,9 +785,7 @@ class FollowPerson(_PersonSkill):
             ahead = target.ahead()
             pose = free_pose(approach_poses(robot, ahead, 1.0), base.grid)
             pursuit.send(pose or facing(robot, ahead), now)
-            people.look_at(
-                "map", SimpleNamespace(x=ahead[0], y=ahead[1], z=LOOK_HEIGHT)
-            )
+            look_at_face(people, ahead)
             return {"stage": "go", "pans": None, "until": -math.inf, "turned": False}
         if search["stage"] in ("go", "turn"):
             if pursuit.state() == ACTIVE:
@@ -847,7 +833,6 @@ class GuidePerson(_PersonSkill):
             return started
         people, base, target, robot = started
         params = ctx.params
-        role = params.get("role", "person")
         location = params["location"]
         destination = resolve_pose(self.runtime.spec, location)
         interaction = Interaction.of(self.runtime)
@@ -869,9 +854,7 @@ class GuidePerson(_PersonSkill):
         interaction.say(
             f"{name}we have arrived at the {spoken(location)}.", ctx.cancelled
         )
-        outputs = person_outputs(role, *sighting)
-        outputs[LOCATION] = rounded(base.pose())
-        return SkillResult(True, text, outputs)
+        return self._succeeded(ctx, base, text, sighting)
 
     def _guide(self, ctx, people, base, target, pursuit, trail, destination):
         """(ok, message, (people message, follower) at the end)."""
@@ -935,9 +918,8 @@ class GuidePerson(_PersonSkill):
         gap = positive(ctx.params, "gap", 2.5)
         robot = base.pose()
         expected = trail_point(trail, FOLLOWER_GAP)
-        look = SimpleNamespace(x=expected[0], y=expected[1], z=LOOK_HEIGHT)
         if abs(bearing(robot, expected)) <= HEAD_REACH:
-            people.look_at("map", look)
+            look_at_face(people, expected)
             found = self._wait_follower(ctx, people, base, target, trail, gap, GLANCE)
             if found is not None or ctx.cancelled.is_set():
                 return found
@@ -947,7 +929,7 @@ class GuidePerson(_PersonSkill):
         if abs(math.remainder(yaw - robot[2], math.tau)) > 0.05:
             ctx.log(f"Turning {math.degrees(yaw - robot[2]):+.0f} deg to look back")
             pursuit.go([robot[0], robot[1], yaw], people, ctx.cancelled, 60.0)
-        people.look_at("map", look)
+        look_at_face(people, expected)
         found = self._wait_follower(ctx, people, base, target, trail, gap, LOOK)
         calls = ctx.params.get("calls", 2)
         wait = positive(ctx.params, "wait", 10.0)
@@ -962,7 +944,7 @@ class GuidePerson(_PersonSkill):
             )
             found = self._wait_follower(ctx, people, base, target, trail, gap, wait)
         if found is not None:
-            message, person = found
+            person = found[1]
             ctx.log(
                 f"Person {person.id} follows "
                 f"{math.dist(base.pose()[:2], planar(person.position)):.1f} m behind"
