@@ -66,7 +66,9 @@ def parse_record(key, value):
     """(label, place) of a memory value; place is None unless it can be pictured.
 
     place = (frame, position, size, yaw); yaw is None when the record has none.
-    A string is a label only (a mock).
+    A size component may be 0 (perceive_objects rounds to mm, e.g. the height
+    of a flat dish tab): image_box still frames it with its padding. A string
+    is a label only (a mock).
     """
     if isinstance(value, str):
         return value.strip() or key.rsplit(".", 1)[-1], None
@@ -81,7 +83,7 @@ def parse_record(key, value):
         and frame
         and is_xyz(position)
         and is_xyz(size)
-        and all(v > 0 for v in size)
+        and all(v >= 0 for v in size)
     ):
         return label.strip(), None
     yaw = float(value["yaw"]) if is_number(value.get("yaw")) else None

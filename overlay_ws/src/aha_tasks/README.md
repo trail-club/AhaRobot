@@ -515,7 +515,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 物体ごとに次を行い、最後に画像を消す。
 
 1. 頭を物体の中心へ向け（[注視](#注視)）、1.5 s（模擬時間）待つ。その後に撮られた `/camera/color/image_raw` を5 sまで待つ。
-2. 立てた外接箱の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる。歪みは無視する。画像の外にはみ出た部分は切る。
+2. 立てた外接箱の8つの角を、画像の時刻のTF（`frame` → カメラの光学座標系）と `camera_info` の内部パラメータで画像へ投影し、外接する長方形を4 px広げる（`size` に0の成分がある薄い物体も枠が残る）。歪みは無視する。画像の外にはみ出た部分は切る。
    箱は `yaw` で回し、`yaw` がなければどの向きでも物体が入るよう、底面を外接円に外接する正方形にする。
 3. 画像全体（切り抜かない）に、長方形の外側へ緑の枠（黒の縁取り）と `label` の札を描き、JPEGで `show` に渡す。
 4. 「I found the mug on the dining table.」と字幕・TTSで伝える。最初の物体では前に「Please look at my screen.」を付ける。ゴミの役割（キーに `trash` を含む）では「That goes in the trash.」を加える。文はラベルの単数・複数（`cookies`、`milk`）によらない。発話の後、`dwell` 秒画像を残す。
@@ -527,7 +527,7 @@ ros2 run aha_tasks run_task --subgoals '*.perceive*' --on-failure skip  # 別の
 | --- | --- | --- |
 | キーがない・`null` | 飛ばす（何も示していない物体） | 影響しない |
 | 失敗してスキップした認識の `mock` の値 | 示さず、発話もしない（認識していない物体） | 結果の文に `not perceived (<認識> skipped)` と残すが、失敗にはしない（認識の失敗は操作者が対応済み） |
-| 位置のない値（文字列のmockなど） | 「I recognized the fork on the dining table.」と発話だけ | 成功 |
+| 位置や大きさのない値（文字列のmockなど） | 「I recognized the fork on the dining table.」と発話だけ | 成功 |
 | 画像が届かない、TFがない、頭を向けても視野外（頭の可動範囲外など）、頭を向ける間に `/clock` が止まる（模擬時間が実時間で10 s進まない） | 発話だけで伝える | 失敗（失敗時のポリシーに従う） |
 | 一部が視野外 | 見えている部分に枠を描く | 成功 |
 

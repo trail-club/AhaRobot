@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import numpy as np
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -229,6 +230,20 @@ class ShowObjectsTests(unittest.TestCase):
         result = self.run_skill({"table.cup": record("mug", 2.0, 0.0)})
         self.assertFalse(result.success)
         self.assertIn("no TF from map", result.message)
+
+    def test_flat_record_is_shown(self):
+        """A size component rounded to 0 (a flat object) still gets a frame."""
+        memory = {
+            "table.plate": record("plate", 2.0, 0.0, size=(0.26, 0.26, 0.0)),
+            "table.trash": record("tab", 2.0, 0.2, size=(0.0, 0.0, 0.0)),
+        }
+        result = self.run_skill(memory, objects=list(memory))
+        self.assertTrue(result.success, result.message)
+        self.assertEqual(result.message, "shown: plate, tab")
+        for event in self.screen.events[:-1]:  # the frame is on the black image
+            pixels = np.asarray(Image.open(io.BytesIO(event[3])))
+            green = (pixels[:, :, 1] > 150) & (pixels[:, :, 0] < 100)
+            self.assertGreater(green.sum(), 50)
 
     def test_partly_out_is_still_shown(self):
         result = self.run_skill({"table.cup": record("mug", 1.0, -0.62)})
@@ -489,7 +504,11 @@ class ParamsTests(unittest.TestCase):
     def test_record_without_place_is_a_label(self):
         self.assertEqual(parse_record("a.b", {"label": "mug"}), ("mug", None))
         self.assertEqual(
-            parse_record("a.b", {**record("mug", 1, 2), "size": [0, 1, 1]})[1], None
+            parse_record("a.b", {**record("mug", 1, 2), "size": [-0.1, 1, 1]})[1], None
+        )
+        self.assertEqual(
+            parse_record("a.b", {**record("mug", 1, 2), "size": [0, 1, 1]})[1][2],
+            [0, 1, 1],
         )
         label, place = parse_record("a.b", record("mug", 1, 2, 3))
         self.assertEqual(
