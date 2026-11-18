@@ -352,6 +352,13 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(spot_from([1, 2, 0.4], "x"), (1.0, 2.0, 0.4, 0, "map"))
         self.assertIsNone(spot_from(placement, "table.other1"))
         self.assertIsNone(spot_from("shelf", "x"))
+        # An object record (where it was): its bottom, on the support.
+        cola = {
+            "label": "cola",
+            "position": [1.0, 2.0, 0.86],
+            "size": [0.07, 0.07, 0.12],
+        }
+        self.assertEqual(spot_from(cola, "x"), (1.0, 2.0, 0.8, 0, "map"))
 
 
 class PickTests(unittest.TestCase):
@@ -913,14 +920,18 @@ class FakeFuture:
 
 
 class FakeClient:
-    def __init__(self):
-        self.sent = []
+    """`cancel`: an event set once a goal is sent (a cancel while waiting)."""
+
+    def __init__(self, cancel=None):
+        self.sent, self.cancel = [], cancel
 
     def wait_for_server(self, timeout_sec):
         return True
 
     def send_goal_async(self, goal):
         self.sent.append(FakeFuture())
+        if self.cancel is not None:
+            self.cancel.set()
         return self.sent[-1]
 
 
@@ -1064,13 +1075,17 @@ class HandsTests(unittest.TestCase):
             hands.finish(FakeHandle(None), 1.0, cancelled)
 
     def test_a_goal_accepted_after_a_cancel_is_cancelled(self):
-        client = FakeClient()
+        cancelled = threading.Event()
+        client = FakeClient(cancel=cancelled)  # cancelled while waiting
         hands = Hands.__new__(Hands)
         hands.clients = {HANDOVER_ACTION: (None, client)}
-        cancelled = threading.Event()
-        cancelled.set()
         result, why = hands.run(HANDOVER_ACTION, goal(), 1.0, cancelled)
         self.assertEqual((result, why), (None, "Cancelled"))
+        # Cancelled before: no goal at all (e.g. while the base came closer).
+        self.assertEqual(
+            hands.run(HANDOVER_ACTION, goal(), 1.0, cancelled), (None, "Cancelled")
+        )
+        self.assertEqual(len(client.sent), 1)
         handle = SimpleNamespace(accepted=True, cancels=0)
         handle.cancel_goal_async = lambda: setattr(handle, "cancels", 1)
         client.sent[0].set_result(handle)  # the late acceptance
@@ -1104,7 +1119,6 @@ class HandsTests(unittest.TestCase):
         hands = Hands.__new__(Hands)
         hands.runtime = SimpleNamespace(arm_out=None)
         cancelled = threading.Event()
-        cancelled.set()
         stuck = PickResult(success=False, message="cancelled", at_home=False)
         # Done after the skill failed: the memory does not know the hand.
         done = PickResult(success=True, message="Picked", at_home=True)
@@ -1117,7 +1131,8 @@ class HandsTests(unittest.TestCase):
             (before, False),
         ):
             with self.subTest(result=on_cancel.message):
-                client = FakeClient()
+                cancelled.clear()
+                client = FakeClient(cancel=cancelled)  # cancelled while waiting
                 hands.clients = {PICK_ACTION: (None, client)}
                 self.assertEqual(
                     hands.run(PICK_ACTION, goal(), 1.0, cancelled), (None, "Cancelled")
@@ -1135,7 +1150,8 @@ class HandsTests(unittest.TestCase):
                 if on_cancel is done:
                     self.assertIn("check the hand", hands.runtime.arm_out)
         # A late rejection changes nothing.
-        client = FakeClient()
+        cancelled.clear()
+        client = FakeClient(cancel=cancelled)
         hands.clients = {PICK_ACTION: (None, client)}
         hands.run(PICK_ACTION, goal(), 1.0, cancelled)
         client.sent[0].set_result(SimpleNamespace(accepted=False))

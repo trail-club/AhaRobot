@@ -311,14 +311,26 @@ def drop_point(region):
 
 
 def spot_from(value, key):
-    """(x, y, z, level, frame) of a remembered spot: a dict with "position"
-    (perceive_shelf's placement of one object, an object record), a dict of
-    such by object key, or [x, y, z] in map. None if there is none."""
+    """(x, y, z, level, frame) of a remembered spot, z the support height: a
+    dict with "position" (perceive_shelf's placement of one object, at the
+    level's height; an object record, at the object's centre: half its height
+    lower), a dict of such by object key, or [x, y, z] in map. None if there
+    is none."""
     if isinstance(value, dict) and "position" not in value:
         value = value.get(key)
     if isinstance(value, dict):
         position = value.get("position")
         level, frame = value.get("level", 0), value.get("frame", "map")
+        size = value.get("size")
+        if (
+            "level" not in value
+            and isinstance(position, list)
+            and len(position) == 3
+            and isinstance(size, list)
+            and len(size) == 3
+            and all(isinstance(v, (int, float)) for v in [*position, size[2]])
+        ):  # an object record: its centre down to its bottom
+            position = [*position[:2], position[2] - size[2] / 2]
     else:
         position, level, frame = value, 0, "map"
     if (
@@ -500,8 +512,12 @@ class Hands:
         goal is cancelled once the server accepts it (cancel_late). Unstopped
         on the timeout, as no other goal may follow."""
         _, client = self.clients[name]
+        if cancelled.is_set():  # e.g. while the base came closer: no goal
+            raise Cancelled
         if not client.wait_for_server(timeout_sec=SERVER_TIMEOUT):
             raise RuntimeError(f"{name} is not served")
+        if cancelled.is_set():
+            raise Cancelled
         sent = client.send_goal_async(goal)
         try:
             handle = wait(sent, SERVER_TIMEOUT, cancelled)
