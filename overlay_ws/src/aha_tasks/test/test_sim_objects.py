@@ -1,11 +1,14 @@
 """Simulated objects: the model catalog, the task scenes and generated models."""
 
 import json
+import math
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -268,6 +271,90 @@ class SceneTests(SceneFixture):
             load_scene(self.write_scene([milk]), self.catalog, low)
         milk["level"] = 2  # the top level has no board above
         load_scene(self.write_scene([milk]), self.catalog, low)
+
+
+class FakeGazebo:
+    """gz.transport13.Node stand-in: models (name -> x, y, z, yaw) published
+    on pose/info at 20 Hz; removing a ``stuck`` model fails."""
+
+    def __init__(self, models, stuck=()):
+        self.models, self.stuck, self.calls = dict(models), set(stuck), []
+        self.lock, self.stop = threading.Lock(), threading.Event()
+
+    def subscribe(self, _type, _topic, callback, _options):
+        from gz.msgs10.pose_v_pb2 import Pose_V
+
+        def publish():
+            while not self.stop.wait(0.05):
+                message = Pose_V()
+                with self.lock:
+                    for name, (x, y, z, yaw) in self.models.items():
+                        pose = message.pose.add(name=name)
+                        pose.position.x, pose.position.y, pose.position.z = x, y, z
+                        pose.orientation.z = math.sin(yaw / 2)
+                        pose.orientation.w = math.cos(yaw / 2)
+                callback(message)
+
+        threading.Thread(target=publish, daemon=True).start()
+        return True
+
+    def request(self, service, message, _type, reply_type, _timeout):
+        kind = service.rsplit("/", 1)[1]
+        with self.lock:
+            if kind == "create":
+                model = ET.fromstring(message.sdf).find("model")
+                name = model.get("name")
+                x, y, z, _, _, yaw = (float(v) for v in model.findtext("pose").split())
+                ok = name not in self.models
+            else:
+                name = message.name
+                ok = name in self.models and not (
+                    kind == "remove" and name in self.stuck
+                )
+            if ok and kind == "remove":
+                del self.models[name]
+            elif ok and kind == "set_pose":
+                p, q = message.position, message.orientation
+                x, y, z, yaw = p.x, p.y, p.z, 2 * math.atan2(q.z, q.w)
+            if ok and kind != "remove":
+                self.models[name] = (x, y, z, yaw)
+            self.calls.append((kind, name, ok))
+        return True, reply_type(data=ok)
+
+
+class NodeTests(SceneFixture):
+    def test_objects_that_stay_in_gazebo_are_moved_back(self):
+        try:
+            import gz.transport13  # noqa: F401
+
+            from aha_tasks import sim_objects_node
+        except ImportError:
+            self.skipTest("no gz-transport Python bindings")
+        source = json.loads((SCENES / "pick_and_place.json").read_text())
+        objects = [
+            o for o in source["objects"] if o["name"] in ("plate", "fork", "mug")
+        ]
+        path = self.write_scene(objects)
+        # A moved mug that cannot be removed, a plate left from a run before
+        # and a banana of another scene.
+        world = {"aha_robot": (0, 0, 0, 0), "plate": (-2.0, -1.6, 0.8, 0)}
+        world.update(mug=(-1.0, -1.0, 0.0, 1.0), banana=(-1.9, -1.8, 0.8, 0))
+        fake = FakeGazebo(world, stuck={"mug"})
+        self.addCleanup(fake.stop.set)
+        with mock.patch("gz.transport13.Node", lambda: fake), mock.patch.object(
+            sim_objects_node, "REMOVE_TIMEOUT", 0.5
+        ):
+            code = sim_objects_node.main([f"--config={path}", "--settle=0"])
+        self.assertEqual(code, 0)
+        self.assertIn(("remove", "banana", True), fake.calls)
+        self.assertIn(("create", "plate", True), fake.calls)
+        self.assertIn(("create", "fork", True), fake.calls)
+        self.assertIn(("set_pose", "mug", True), fake.calls)
+        self.assertNotIn("create", [k for k, name, _ in fake.calls if name == "mug"])
+        mug = load_scene(path, self.catalog, self.places).get("mug")
+        np.testing.assert_allclose(
+            fake.models["mug"], [*mug.spawn_pose()[:3], mug.yaw], atol=1e-6
+        )
 
 
 class FootprintTests(unittest.TestCase):
