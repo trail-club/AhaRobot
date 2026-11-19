@@ -18,8 +18,8 @@ Starts:
   - robot_state_publisher (xacro sim:=false, wall clock)
   - joint_state_publisher: /joint_states with every movable joint; the head
     comes from /head_controller/joint_states, the arms and grippers from
-    /<side>/arm/joint_states while aha_bringup arms.launch.py runs, all other
-    joints read 0
+    /<side>/arm/joint_states and the lifts from /<side>/lift/joint_states
+    while aha_bringup arms.launch.py runs, all other joints read 0
   - head:=servo (default)  aha_servo servo_trajectory_bridge.py with config
                            (default aha_servo/config/head.yaml; port/baud
                            override it when given); with imu_check:=true also
@@ -67,8 +67,14 @@ from launch_ros.substitutions import FindPackageShare
 
 # controller_name in aha_servo/config/head.yaml
 HEAD_STATES = "/head_controller/joint_states"
-# The arm_nodes of aha_bringup arms.launch.py (state_topic there).
-ARM_STATES = ["/left/arm/joint_states", "/right/arm/joint_states"]
+# The arm_nodes and lift_nodes of aha_bringup arms.launch.py (state_topic and
+# lift_state_topic there).
+ARM_STATES = [
+    "/left/arm/joint_states",
+    "/right/arm/joint_states",
+    "/left/lift/joint_states",
+    "/right/lift/joint_states",
+]
 
 
 def flag(context, name):

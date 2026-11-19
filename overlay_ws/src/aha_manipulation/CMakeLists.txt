@@ -28,6 +28,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_arm_config test/test_arm_config.py)
   ament_add_pytest_test(test_pointing test/test_pointing.py)
   ament_add_pytest_test(test_arm_bridge test/test_arm_bridge.py TIMEOUT 180)
+  ament_add_pytest_test(test_lift_bridge test/test_lift_bridge.py TIMEOUT 120)
 endif()
 
 ament_package()

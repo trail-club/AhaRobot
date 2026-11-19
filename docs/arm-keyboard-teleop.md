@@ -53,14 +53,13 @@ ros2 launch aha_bringup arms.launch.py
 ```
 `ros2 run aha_bringup teleop_arms.sh` は、現状 `teleop_arms.sh` がインストールされないため使えない。（Tong: 1018）
 このマシンのように片腕だけ、または `/dev/ttyUSB0` のときは名前を渡す。
-
 ```bash
 ros2 launch aha_bringup arms.launch.py \
   use_right:=false \
   left_device:=/dev/ttyUSB0
 ```
 
-同じlaunchで、軌道を受けたときだけ腕へ指令するブリッジ（[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行)）も起動する。
+同じlaunchで、軌道を受けたときだけ腕（`use_<side>_lift:=true` なら昇降も）へ指令するブリッジ（[aha_manipulation](../overlay_ws/src/aha_manipulation/README.md#実機の腕の軌道実行)）も起動する。
 教示はブリッジが軌道を実行していないときに行う。
 
 別の対話シェルで教示を起動する。`ros2 launch` はキーをこのプロセスに渡さないので、`ros2 run` にする。

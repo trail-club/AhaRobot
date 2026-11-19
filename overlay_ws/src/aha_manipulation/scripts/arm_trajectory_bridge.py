@@ -1,46 +1,67 @@
 #!/usr/bin/env python3
-"""JointTrajectory bridge for one real Astra arm.
+"""JointTrajectory bridge for the real Astra arms and lifts.
 
 This node mirrors the interface of ros2_control's JointTrajectoryController
 for `controller_name`, so MoveIt and scripts drive the simulation and the real
-arm with the same topics (the arm equivalent of aha_servo's
+robot with the same topics (the arm and lift equivalent of aha_servo's
 servo_trajectory_bridge.py):
 
   /<controller>/joint_trajectory         trajectory_msgs/JointTrajectory (sub)
   /<controller>/follow_joint_trajectory  control_msgs/action/FollowJointTrajectory
 
-It drives the upstream astra_controller arm_node, which writes every
-JointCommand to the arm board as one goal:
+It drives upstream astra_controller nodes (arm_node, lift_node), which write
+every JointCommand to their board as one goal:
 
-  command_topic  astra_controller_interfaces/JointCommand (pub)
-  state_topic    sensor_msgs/JointState (sub, the arm_node's own feedback
+  command_topic  astra_controller_interfaces/JointCommand (pub, one per
+                 command group)
+  state_topic    sensor_msgs/JointState (sub, the nodes' own feedback such as
                  /<side>/arm/joint_states; on /joint_states
-                 joint_state_publisher may put the arm joints at 0)
+                 joint_state_publisher may put these joints at 0)
 
-Configured by config/arm.yaml in the aha_manipulation/arm_map.py format.
+Configured by config/arm.yaml or config/lift.yaml in the
+aha_manipulation/arm_map.py format: arm.yaml has one group of five joints,
+lift.yaml one group per lift.
 
 Behaviour:
   - Nothing is sent before a trajectory arrives: no goal at startup or while
     idle, so the keyboard teleop can share the arm_node when no trajectory
     runs. Running both at once is not supported.
   - Trajectories are checked and sampled by aha_manipulation/arm_plan.py from
-    the measured pose; the plan is sent every 1 / rate_hz s as a goal of all
-    five joints. A trajectory outside the position, velocity or acceleration
+    the measured pose; the plan is sent every 1 / rate_hz s as a goal of
+    every joint of the command groups the trajectory names (other groups get
+    nothing). A trajectory outside the position, velocity or acceleration
     limits is rejected as a whole (topic: logged and ignored).
-  - Planning needs a fresh state (within `state_timeout`) of every joint.
+  - Planning needs a fresh state (within `state_timeout`) of every joint in
+    those groups, so one lift runs while the other is off.
   - Action: feedback every FEEDBACK_PERIOD s. Aborts when a joint is more
     than `path_tolerance` (or the goal's path_tolerance) from the sample of
     the current time, or when the state goes stale; succeeds when every joint
     is within `goal_tolerance` (or the goal's) of the final point, aborts
     `goal_time` s (or goal_time_tolerance) after the last point.
-  - Cancel, an abort for tolerance and an empty trajectory hold the measured
-    position. A newer topic command or goal preempts (aborts) the running
-    goal. A stale state stops sending, so the arm stays at the last sample.
-  - Partial joint lists are accepted; the other joints keep their position.
+  - Cancel and an abort for tolerance hold the measured position of the
+    goal's groups, an empty trajectory that of every group. A newer topic
+    command or goal preempts (aborts) the running goal; groups of the running
+    plan that the new trajectory does not name hold their measured position.
+    A stale state stops sending, so the arm stays at the last sample.
+  - Joints with `board_acceleration` (the lifts): for a trajectory with
+    velocities (MoveIt's) they get the sample plus v^2 / (2 board_acceleration)
+    in the direction of motion, since their board only moves as fast as it
+    can still stop at the goal. A linear plan starts and stops with a jump in
+    velocity the board cannot follow, so it gets the samples and the board
+    lags by v^2 / (2 board_acceleration) after each velocity jump. An action
+    goal with such a plan is rejected when that lag exceeds
+    LINEAR_LAG_MARGIN of its path tolerance, since the goal would abort on
+    the way; topic trajectories have no tolerance and run with the lag.
+    Holds go to the point where the board can stop. Feedback and tolerances
+    use the sample itself.
+  - Partial joint lists are accepted; the other joints of the same groups
+    keep their position.
   - SIGINT/SIGTERM: sampling stops and running goals abort (their results
-    are sent before the node shuts down). The arm_node keeps the last goal. Wall clock only.
+    are sent before the node shuts down). The arm_node keeps the last goal.
+    Wall clock only.
 """
 
+import math
 import signal
 import sys
 import threading
@@ -69,6 +90,10 @@ SPIN_TIMEOUT_S = 0.1
 LOG_THROTTLE_S = 2.0
 SHUTDOWN_TIMEOUT_S = 2.0  # s to let running goals abort and send their results
 RESULT_FLUSH_S = 0.2  # s of spinning after the last goal ended
+# Share of the path tolerance a board may lag behind a linear plan by
+# v^2 / (2 board_acceleration): the steps and the sampling add to it (the
+# AccelStepper fake lags 0.051 m where that gives 0.05 m).
+LINEAR_LAG_MARGIN = 0.8
 
 
 def seconds(duration):
@@ -88,7 +113,7 @@ def points_of(trajectory):
 
 
 def tolerances(default, overrides, names):
-    """{joint: rad} from a default and JointTolerance overrides (0: default, -1: off)."""
+    """{joint: tolerance} from a default and JointTolerance overrides (0: default, -1: off)."""
     values = {n: default for n in names}
     for tol in overrides:
         if tol.name in values and tol.position != 0:
@@ -104,17 +129,21 @@ class ArmTrajectoryBridge(Node):
         self.prefix = f"/{self.cfg.controller_name}"
         self.stopping = stopping  # threading.Event, set by SIGINT/SIGTERM
         self.lock = threading.Lock()
-        self.positions = {}  # rad, latest state
+        self.positions = {}  # latest state, in each joint's unit
+        self.units = {j.name: j.unit for j in self.cfg.joints}
+        self.limits = {j.name: j for j in self.cfg.joints}
         self.state_times = {}  # monotonic time of the latest state per joint
         self.plan = None  # ArmPlan being sampled, None when idle
         self.plan_seq = 0
-        self.had_state = False
+        self.announced = set()  # groups whose state was logged
         self.active_goals = 0  # running _execute calls
 
-        self.command_pub = self.create_publisher(
-            JointCommand, self.cfg.command_topic, 10
-        )
-        self.create_subscription(JointState, self.cfg.state_topic, self._on_state, 10)
+        self.command_pubs = {
+            g.topic: self.create_publisher(JointCommand, g.topic, 10)
+            for g in self.cfg.groups
+        }
+        for topic in self.cfg.state_topics:
+            self.create_subscription(JointState, topic, self._on_state, 10)
         self.create_subscription(
             JointTrajectory, f"{self.prefix}/joint_trajectory", self._on_trajectory, 10
         )
@@ -133,13 +162,13 @@ class ArmTrajectoryBridge(Node):
             callback_group=MutuallyExclusiveCallbackGroup(),
         )
         limits = ", ".join(
-            f"{j.name} [{j.min:+.2f}, {j.max:+.2f}] {j.max_velocity:.2f} rad/s "
-            f"{j.max_acceleration:.2f} rad/s^2"
+            f"{j.name} [{j.min:+.2f}, {j.max:+.2f}] {j.unit} "
+            f"{j.max_velocity:.2f} {j.unit}/s {j.max_acceleration:.2f} {j.unit}/s^2"
             for j in self.cfg.joints
         )
         self.get_logger().info(
-            f"{self.prefix} -> {self.cfg.command_topic}, waiting for "
-            f"{self.cfg.state_topic}; limits {limits}"
+            f"{self.prefix} -> {', '.join(g.topic for g in self.cfg.groups)}, "
+            f"waiting for {', '.join(self.cfg.state_topics)}; limits {limits}"
         )
 
     def _read_parameters(self):
@@ -155,6 +184,8 @@ class ArmTrajectoryBridge(Node):
                 "parameter `joints` is not set (pass the config with --params-file)"
             )
         for name in params["joints"]:
+            if not name:
+                raise ValueError(f"`joints` has an empty name: {params['joints']}")
             params[name] = {
                 key: self.declare_parameter(f"{name}.{key}", default, dynamic).value
                 for key, default in JOINT_DEFAULTS.items()
@@ -177,30 +208,70 @@ class ArmTrajectoryBridge(Node):
                 if name in self.names:
                     self.positions[name] = position
                     self.state_times[name] = now
-            fresh = self._stale(now) == []
-        if fresh and not self.had_state:
-            self.had_state = True
+            ready = [
+                g
+                for g in self.cfg.groups
+                if g not in self.announced and not self._stale(now, g.names)
+            ]
+            self.announced.update(ready)
+            values = dict(self.positions)
+        for group in ready:
             self.get_logger().info(
-                "arm state received: "
-                + ", ".join(f"{n} {self.positions[n]:+.3f}" for n in self.names)
+                "state received: "
+                + ", ".join(f"{n} {values[n]:+.3f}" for n in group.names)
             )
 
-    def _stale(self, now):
+    def _stale(self, now, names=None):
         """Joints without a state within state_timeout (caller holds the lock)."""
         return [
             n
-            for n in self.names
+            for n in (self.names if names is None else names)
             if now - self.state_times.get(n, -float("inf")) > self.cfg.state_timeout
         ]
 
+    def _groups_of(self, names):
+        """Command groups with a joint in `names` (all groups for none)."""
+        groups = [g for g in self.cfg.groups if set(g.names) & set(names)]
+        return groups or list(self.cfg.groups)
+
     def _send(self, pose):
+        """Command every group whose joints are all in `pose`."""
         if self.stopping.is_set():
             return
-        self.command_pub.publish(
-            JointCommand(
-                name=list(self.names), position_cmd=[pose[n] for n in self.names]
-            )
-        )
+        for group in self.cfg.groups:
+            if all(n in pose for n in group.names):
+                self.command_pubs[group.topic].publish(
+                    JointCommand(
+                        name=list(group.names),
+                        position_cmd=[pose[n] for n in group.names],
+                    )
+                )
+
+    def _lead(self, pose, velocity):
+        """`pose` moved ahead by the stopping distance of each board (in place)."""
+        for name, accel in self.cfg.board_accelerations.items():
+            if name in pose and name in velocity:
+                v = velocity[name]
+                pose[name] = self.limits[name].clamp(
+                    pose[name] + math.copysign(v * v / (2 * accel), v)
+                )
+        return pose
+
+    def _command(self, plan, now):
+        """Goal to send for `plan` at `now`."""
+        pose = plan.sample(now)
+        if plan.velocities is None:
+            return pose
+        return self._lead(pose, plan.velocity(now))
+
+    def _stop_pose(self, names, now):
+        """Where `names` can stop: the measured position, ahead by the
+        stopping distance of each board at the running plan's velocity
+        (caller holds the lock)."""
+        pose = {n: self.positions[n] for n in names}
+        if self.plan is None:
+            return pose
+        return self._lead(pose, self.plan.velocity(now))
 
     def _tick(self):
         if self.stopping.is_set():
@@ -210,7 +281,7 @@ class ArmTrajectoryBridge(Node):
             if plan is None:
                 return
             now = time.monotonic()
-            stale = self._stale(now)
+            stale = self._stale(now, plan.names)
             if stale:
                 # The plan started from a pose that may no longer hold.
                 self.plan = None
@@ -219,51 +290,124 @@ class ArmTrajectoryBridge(Node):
                     "trajectory stopped at the last sample"
                 )
                 return
-            self._send(plan.sample(now))
+            self._send(self._command(plan, now))
             if now >= plan.end_time:
                 self.plan = None
 
     def _plan(self, trajectory):
         """ArmPlan from the measured pose now (caller holds the lock); raises ValueError."""
+        unknown = [n for n in trajectory.joint_names if n not in self.names]
+        if unknown:
+            raise ValueError(f"unknown joints {unknown} (this bridge: {self.names})")
         now = time.monotonic()
-        stale = self._stale(now)
+        names = [n for g in self._groups_of(trajectory.joint_names) for n in g.names]
+        stale = self._stale(now, names)
         if stale:
             raise ValueError(
                 f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s "
-                f"on {self.cfg.state_topic} (is the arm_node running?)"
+                f"on {', '.join(self.cfg.state_topics)} (is the driver node running?)"
             )
+        if self.plan is not None:
+            # The new plan replaces the running one. Its other groups hold
+            # their measured position, as JointTrajectoryController holds the
+            # joints a new goal does not name.
+            held = [
+                n
+                for g in self._groups_of(self.plan.names)
+                if not set(g.names) & set(names) and not self._stale(now, g.names)
+                for n in g.names
+            ]
+            names += held
+        else:
+            held = []
+        start = dict(self.positions)
+        start.update(self._stop_pose(held, now))
+        # Joints in command order, so plan.names covers whole groups.
         return plan_trajectory(
-            self.cfg.joints,
+            [j for j in self.cfg.joints if j.name in names],
             trajectory.joint_names,
             points_of(trajectory),
-            dict(self.positions),
+            start,
             now,
             self.cfg.start_tolerance,
         )
+
+    def _linear_lags(self, plan):
+        """{joint: m} each board lags behind a linear `plan` (none with velocities).
+
+        The board only gets back to a moving goal at its acceleration, so
+        after a velocity jump of dv (the plan starts and ends at rest) it
+        trails by dv^2 / (2 board_acceleration).
+        """
+        if plan.velocities is not None:
+            return {}
+        spans = list(zip(plan.times, plan.positions))
+        lags = {}
+        for name, accel in self.cfg.board_accelerations.items():
+            if name not in plan.names:
+                continue
+            speeds = [0.0]
+            for (t0, p0), (t1, p1) in zip(spans, spans[1:]):
+                if t1 > t0:
+                    speeds.append((p1[name] - p0[name]) / (t1 - t0))
+            speeds.append(0.0)
+            jump = max(abs(b - a) for a, b in zip(speeds, speeds[1:]))
+            lags[name] = jump * jump / (2 * accel)
+        return lags
+
+    def _plan_goal(self, request):
+        """_plan for an action goal, also rejecting a linear plan the boards
+        cannot follow within its path tolerance (caller holds the lock)."""
+        plan = self._plan(request.trajectory)
+        names = list(request.trajectory.joint_names)
+        path_tol = tolerances(self.cfg.path_tolerance, request.path_tolerance, names)
+        off = [
+            f"{n} about {lag:.3f} {self.units[n]} (path tolerance {path_tol[n]:.3f})"
+            for n, lag in self._linear_lags(plan).items()
+            if n in path_tol and lag > LINEAR_LAG_MARGIN * path_tol[n]
+        ]
+        if off:
+            raise ValueError(
+                "the board would lag behind this trajectory without velocities by "
+                + ", ".join(off)
+                + "; give velocities (e.g. MoveIt's time parameterization), move "
+                "slower or widen path_tolerance"
+            )
+        return plan
 
     def _install(self, plan):
         """Replace the plan (caller holds the lock); returns the new plan id."""
         self.plan = plan
         self.plan_seq += 1
         if plan is not None:
-            self._send(plan.sample(time.monotonic()))
+            self._send(self._command(plan, time.monotonic()))
         return self.plan_seq
 
-    def _hold(self, reason, replace_seq=None):
-        """Stop at the measured position; with `replace_seq`, only while that plan is current."""
+    def _hold(self, reason, replace_seq=None, joints=None):
+        """Stop the groups of `joints` (all groups for None) at the measured position
+        (boards: where they can stop).
+
+        Groups without a fresh state get nothing. With `replace_seq`, only
+        while that plan is current.
+        """
         with self.lock:
             if replace_seq is not None and self.plan_seq != replace_seq:
                 return
-            stale = self._stale(time.monotonic())
-            if stale:
+            now = time.monotonic()
+            groups = self._groups_of(joints) if joints else self.cfg.groups
+            stale = [n for g in groups for n in self._stale(now, g.names)]
+            names = tuple(
+                n for g in groups if not self._stale(now, g.names) for n in g.names
+            )
+            if not names:
                 self._install(None)
             else:
-                pose = dict(self.positions)
+                pose = self._stop_pose(names, now)
                 self._install(
                     ArmPlan(
-                        names=tuple(self.names),
+                        names=names,
                         limits={j.name: j for j in self.cfg.joints},
-                        times=[time.monotonic()],
+                        times=[now],
                         positions=[pose],
                         velocities=None,
                     )
@@ -271,9 +415,9 @@ class ArmTrajectoryBridge(Node):
         if stale:
             self.get_logger().warning(
                 f"{reason}: no state of {', '.join(stale)}, sending no hold goal "
-                "(the arm keeps its last goal)"
+                "for them (they keep their last goal)"
             )
-        else:
+        if names:
             self.get_logger().info(f"{reason}: holding the measured position")
 
     # Commands -------------------------------------------------------------
@@ -291,7 +435,7 @@ class ArmTrajectoryBridge(Node):
     def _on_goal(self, request):
         try:
             with self.lock:
-                self._plan(request.trajectory)
+                self._plan_goal(request)
         except ValueError as e:
             self.get_logger().error(
                 f"{self.prefix}/follow_joint_trajectory goal rejected: {e}"
@@ -313,7 +457,7 @@ class ArmTrajectoryBridge(Node):
         result = Result()
         try:
             with self.lock:
-                plan = self._plan(request.trajectory)
+                plan = self._plan_goal(request)
                 seq = self._install(plan)
         except ValueError as e:
             result.error_code = Result.INVALID_GOAL
@@ -341,9 +485,9 @@ class ArmTrajectoryBridge(Node):
                 now = time.monotonic()
                 preempted = self.plan_seq != seq
                 current = {n: self.positions[n] for n in names}
-                stale = self._stale(now)
+                stale = self._stale(now, plan.names)
             if goal_handle.is_cancel_requested:
-                self._hold("goal canceled", seq)
+                self._hold("goal canceled", seq, plan.names)
                 goal_handle.canceled()
                 result.error_string = "canceled"
                 return result
@@ -358,7 +502,7 @@ class ArmTrajectoryBridge(Node):
                 result.error_string = (
                     f"no state of {', '.join(stale)} within {self.cfg.state_timeout} s"
                 )
-                return self._abort(goal_handle, result, seq, hold=False)
+                return self._abort(goal_handle, result, seq, plan, hold=False)
 
             desired = plan.sample(now)
             feedback.header.stamp = self.get_clock().now().to_msg()
@@ -369,14 +513,14 @@ class ArmTrajectoryBridge(Node):
 
             if now < plan.end_time:
                 off = [
-                    f"{n} {e:+.4f} rad"
+                    f"{n} {e:+.4f} {self.units[n]}"
                     for n, e in zip(names, feedback.error.positions)
                     if abs(e) > path_tol[n]
                 ]
                 if off:
                     result.error_code = Result.PATH_TOLERANCE_VIOLATED
                     result.error_string = "off the path: " + ", ".join(off)
-                    return self._abort(goal_handle, result, seq)
+                    return self._abort(goal_handle, result, seq, plan)
                 continue
             errors = {n: final[n] - current[n] for n in names}
             if all(abs(e) <= goal_tol[n] for n, e in errors.items()):
@@ -386,17 +530,17 @@ class ArmTrajectoryBridge(Node):
             if now > deadline:
                 result.error_code = Result.GOAL_TOLERANCE_VIOLATED
                 result.error_string = "not within tolerance: " + ", ".join(
-                    f"{n} error {e:+.4f} rad"
+                    f"{n} error {e:+.4f} {self.units[n]}"
                     for n, e in errors.items()
                     if abs(e) > goal_tol[n]
                 )
-                return self._abort(goal_handle, result, seq)
+                return self._abort(goal_handle, result, seq, plan)
 
-    def _abort(self, goal_handle, result, seq, hold=True):
+    def _abort(self, goal_handle, result, seq, plan, hold=True):
         self.get_logger().warning(f"goal aborted, {result.error_string}")
         if hold:
             # Stop the failed motion, as JointTrajectoryController does.
-            self._hold("goal aborted", seq)
+            self._hold("goal aborted", seq, plan.names)
         else:
             with self.lock:
                 if self.plan_seq == seq:
@@ -454,9 +598,10 @@ def main():
             elif time.monotonic() - drained > RESULT_FLUSH_S:
                 break
         executor.shutdown(timeout_sec=1.0)
+        name = node.get_name()
         node.destroy_node()
         rclpy.try_shutdown()
-    get_logger("aha_arm_bridge").info("stopped")
+    get_logger(name).info("stopped")
 
 
 if __name__ == "__main__":

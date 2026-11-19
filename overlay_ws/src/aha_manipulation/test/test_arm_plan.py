@@ -72,6 +72,18 @@ def test_hermite_with_velocities_starts_and_ends_at_rest():
     assert p.sample(10.1)["a"] - 0.1 < 0.015  # linear would be 0.03
 
 
+def test_velocity_is_the_derivative_of_the_samples():
+    linear = plan([pt([0.6], 2.0)])
+    hermite = plan([pt([0.5], 1.0, [0.4]), pt([0.6], 2.0, [0.0])])
+    for p in (linear, hermite):
+        for t in (10.3, 10.99, 11.5):
+            h = 1e-6
+            numeric = (p.sample(t + h)["a"] - p.sample(t - h)["a"]) / (2 * h)
+            assert p.velocity(t)["a"] == pytest.approx(numeric, abs=1e-6)
+            assert p.velocity(t)["b"] == 0.0
+        assert p.velocity(9.0)["a"] == p.velocity(12.0)["a"] == 0.0
+
+
 def test_hermite_peak_velocity_between_the_points_is_rejected():
     # Rest to rest, d rad in T s peaks at 1.5 d / T in the middle: 0.6 rad in
     # 1 s averages 0.6 rad/s but reaches 0.9 rad/s; 0.7 rad in 0.9 s reaches
