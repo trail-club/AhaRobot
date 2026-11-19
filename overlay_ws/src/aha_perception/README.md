@@ -5,7 +5,7 @@
 SAM 3.1とVLMによる物体の認識（[object_perception](#物体の認識)）、
 SAM 3.1による人の認識（[person_perception](#人の認識)）、音声認識・発話（[音声スタック](docs/audio.md)）。
 topic・frame・serviceは [ROSインターフェース](../../../docs/interfaces.md#頭部カメラ)を参照。
-D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)（GPL-3.0 + 非商用、installしない）。
+D435iの頭部ブラケットの設計・印刷データは [hardware/head_cam_mount_d435i](hardware/head_cam_mount_d435i/README.md)、手首（グリッパ基部）のD435i取付部品は [hardware/wrist_cam_mount_d435i](hardware/wrist_cam_mount_d435i/README.md)（どちらもGPL-3.0 + 非商用、installしない）。
 
 - [Macカメラツール](../../../tools/perception/macos/pointcloud/README.md): RGB-DをROSへ配信し、RVizで点群を表示する。
 - [SAM対話検証ツール](../../../tools/perception/macos/sam31/README.md): Macで撮影し、DGX Sparkで推論して結果を保存する。
@@ -70,12 +70,10 @@ SAM検証はROS topicを使わず、カメラ表示launchとは独立して動�
 ros2 launch aha_bringup sim.launch.py use_perception:=true
 ```
 
-手首カメラは既存の `link_l6` / `link_r6` メッシュに含まれるカメラのレンズ位置に置く。
-[Astra.STEP](../../../upstream/Astra_Hardwares/Astra/Astra.STEP) の `Camera` 部品の配置に基づき、
-カメラ原点は手首座標で `(0.026, 0, 0.101)` m、pitchは−60°、レンズ前面はカメラの前方16 mm。
-腕を前方に伸ばした姿勢ではグリッパの上側から前方・下向き30°を見て、
-水平視野角90°、clip範囲0.02–3 mのRGBを配信する。
-取付位置と光学特性は実機で校正していない。既存メッシュのカメラを使い、別のvisual・質量・collisionは追加しない。
+手首カメラは [手首部品](hardware/wrist_cam_mount_d435i/README.md#ロボットモデルurdfへの反映) に付けたD435iの
+RGB光学中心に置き、指の方向へ下向き30°を見る。
+水平視野角は頭部と同じD435iの値（`sensors.xacro` の `camera_hfov`）、clip範囲0.02–3 mのRGBを配信する。
+取付位置と光学特性は設計値で、実機で校正していない。
 手首カメラの画像はRVizのImage表示で `/camera/left_wrist/image_raw` または
 `/camera/right_wrist/image_raw` を選択して確認できる。
 `cameras:=false` はカメラセンサを除くため、画像を使う場合は付けない。

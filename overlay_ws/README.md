@@ -57,7 +57,7 @@ TMCの著作権・ライセンス本文は変更せず、表記を認識でき�
 - 車輪・キャスターの一部寸法は推定値。[寸法調査の根拠と限界](../docs/context/cad.md)
 - 昇降は左右2軸として記述しているが、実機は共通軸。
 - Gazeboのセンサは頭部RGB-Dカメラ、左右の手首RGBカメラ、シミュレーション専用の2D LiDAR。
-- 手首カメラは既存部品のCAD配置に基づく。実機のURDFには手首カメラのTFとLiDARはない。
+- 手首カメラは [手首のD435i取付部品](src/aha_perception/hardware/wrist_cam_mount_d435i/README.md) の設計値に置く。実機のURDFにもそのTFはあるが、LiDARはない。
 - SLAM・Nav2・MoveItの動作確認はシミュレーションのみ。
 
 - 実機用Hardware Interfaceは未実装で、`sim:=false` による実機制御はできない。

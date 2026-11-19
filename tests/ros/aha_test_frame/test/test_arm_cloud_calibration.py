@@ -212,8 +212,11 @@ def test_wrist_offset(model, truth, camera):
     snaps = [prepare(model, snapshot(truth, q, true, camera, rng)) for q in POSES]
     result = fit(model, snaps, ("shoulder", "elbow", "wrist"), leave_one_out=False)
     for name, value in true.items():
-        # The wrist is the least observable (only the hand is in view).
-        assert result.params[name] == pytest.approx(value, abs=0.008), name
+        # The wrist is the least observable (only the hand is in view). Its
+        # estimate is biased by about +0.006 and over seeds 0-9 reaches
+        # +0.0093 with the upstream wrist mesh and +0.0083 with the D435i wrist
+        # part, so 0.008 only held by the choice of seed.
+        assert result.params[name] == pytest.approx(value, abs=0.010), name
 
 
 def test_arm_height(model, truth, camera):

@@ -9,7 +9,7 @@
     - Adds a <ros2_control> block so both real hardware and Gazebo can drive
       the same joints via controller_manager.
     - Adds <gazebo> plugin block for gz_ros2_control (Gazebo Harmonic).
-    - Adds head camera frames and optional simulated head/wrist cameras.
+    - Adds head and wrist camera frames, and optional simulated cameras.
     - Adds the touch screen and its mount below the head when display:=true
       (display.xacro).
     - Adds a sim-only 2D LiDAR when lidar:=true (see lidar.xacro).

@@ -35,6 +35,8 @@
 | --- | --- | --- |
 | [aha_perception/hardware/head_cam_mount_d435i](../overlay_ws/src/aha_perception/hardware/head_cam_mount_d435i/README.md) | `Astra_Hardwares` の `HeadCamMount`（[HeadCamMount.STL](../upstream/Astra_Hardwares/Astra/STL/HeadCamMount.STL)）のホーン接続部を作り直したD435i用ブラケット（STL・STEP・f3d・画像） | 上流と同じGPL-3.0と非商用の追加制限。`aha_perception` の `Apache-2.0` 宣言とは別に扱う |
 | [aha_description/meshes/head_cam_mount_d435i.stl](../overlay_ws/src/aha_description/meshes/head_cam_mount_d435i.stl) | 上記ブラケットのURDF用mesh | 同上。`aha_description` の `Apache-2.0` 宣言とは別に扱う |
+| [aha_perception/hardware/wrist_cam_mount_d435i](../overlay_ws/src/aha_perception/hardware/wrist_cam_mount_d435i/README.md) | `Astra_Hardwares` の `Effector`（[Effector.STL](../upstream/Astra_Hardwares/Astra/STL/Effector.STL)）の改変版に、D435i取付用の背板を追加した手首部品（STL・STEP・f3d・画像。f3dには確認用に上流 `ST3215.step` のサーボを含む） | 上流と同じGPL-3.0と非商用の追加制限。`aha_perception` の `Apache-2.0` 宣言とは別に扱う |
+| [aha_description/meshes/wrist_cam_mount_d435i_link6.stl](../overlay_ws/src/aha_description/meshes/wrist_cam_mount_d435i_link6.stl) | 上記の手首部品とD435iの箱、`astra_description` の [link_r6.STL](../upstream/astra_description/meshes/link_r6.STL)（元の `Effector` と旧カメラを除く）を合わせたURDF用mesh | 手首部品と同じGPL-3.0と非商用の追加制限で扱う。`astra_description` 由来部分の条件（`BSD`）も保持する。`aha_description` の `Apache-2.0` 宣言とは別に扱う |
 | 試験用の `aha_test_frame` のビルドで作る `meshes/head_base.stl` | `astra_description` の `base_link.STL` から頭の土台を切り出したもの（[crop_head_base.py](../tests/ros/aha_test_frame/scripts/crop_head_base.py)）。リポジトリには入れない | `astra_description` と同じ（`package.xml`: `BSD`） |
 
 ## SOBITS / TMCのシミュレーション資源
